@@ -71,3 +71,6 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# 每题的 A/B worktree 目录（git worktree，各自一条分支）；父仓忽略以保持 status 干净
+/[0-9]+/
