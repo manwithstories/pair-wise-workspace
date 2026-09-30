@@ -78,3 +78,7 @@ AGENTS.md.local
 
 # ---- 题目过程产物（工作流生成的 <题号>/.result/：prompt/logs/traces/recordings/report）----
 .result/
+
+# ---- GSB 流水线隔离环境（含指向真实 HOME 的软链与 auth.json 凭据，绝不提交）----
+.codex-isolated/
+.DS_Store
