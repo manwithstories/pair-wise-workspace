@@ -1,0 +1,27 @@
+{
+  "name": "obs-ledger",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Single-process embedded append-only event ledger for observability audit + metrics",
+  "main": "server.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node server.js",
+    "pretest": "npm run build",
+    "test": "node --test --test-concurrency=1 test/errors.test.js test/validate.test.js test/query.test.js test/store.test.js test/ingest.test.js test/http.test.js",
+    "test:perf": "npm run build && node --test --test-concurrency=1 test/perf.test.js",
+    "verify": "sh verify.sh"
+  },
+  "dependencies": {
+    "classic-level": "^3.0.0",
+    "fastify": "^4.28.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "typescript": "^5.9.3"
+  }
+}
