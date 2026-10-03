@@ -71,3 +71,7 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- aisched 构建产物与运行时文件 ----
+/aisched
+*.wal
