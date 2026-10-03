@@ -71,3 +71,15 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Maven build output ----
+target/
+
+# ---- Project-local Maven wrapper state and repository ----
+# The wrapper keeps its distribution and local repository inside the project so that
+# `./mvnw` works in sandboxes where the user-level ~/.m2 is not writable.
+.mvn/user/
+.mvn/repository/
+
+# ---- jqwik failure-sample database ----
+.jqwik-database
