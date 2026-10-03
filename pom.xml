@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>io.corp</groupId>
+  <artifactId>artifact-resolver-kernel</artifactId>
+  <version>1.0.0</version>
+  <packaging>jar</packaging>
+  <name>artifact-resolver-kernel</name>
+  <description>Deterministic offline artifact resolution kernel (zero runtime dependencies)</description>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    <!-- Java 17 (Temurin 17.0.10+ compatible): bytecode + API surface pinned to 17 -->
+    <maven.compiler.release>17</maven.compiler.release>
+    <junit.version>5.10.2</junit.version>
+    <!--
+      Hard ceilings for the kernel. Tests fail (OOM / StackOverflow) rather than
+      silently pass, so a regression cannot hide behind a generous default JVM.
+
+      heap  : the stated 64MB budget.
+      stack : resolution descends one frame per package, so a manifest with many
+              packages (the 2000-package stress case) needs more than the JDK
+              default thread stack. 4MB leaves ample headroom without letting a
+              runaway recursion hide an infinite-loop bug.
+    -->
+    <kernel.heap>-Xmx64m -Xss4m -XX:+UseSerialGC</kernel.heap>
+  </properties>
+
+  <dependencies>
+    <!-- TEST-ONLY. The kernel itself has zero third-party runtime dependencies. -->
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>artifact-resolver-kernel</finalName>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.13.0</version>
+        <configuration>
+          <release>17</release>
+          <compilerArgs>
+            <arg>-Xlint:all</arg>
+          </compilerArgs>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.2.5</version>
+        <configuration>
+          <!-- 64MB heap ceiling enforced for every test JVM (ResolverStressTest asserts on it). -->
+          <argLine>${kernel.heap}</argLine>
+          <trimStackTrace>false</trimStackTrace>
+          <redirectTestOutputToFile>false</redirectTestOutputToFile>
+          <excludes>
+            <exclude>**/*$*</exclude>
+          </excludes>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>
