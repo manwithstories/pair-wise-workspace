@@ -1,0 +1,28 @@
+[package]
+name = "pki-audit"
+version = "0.1.0"
+edition = "2021"
+default-run = "pki-audit"
+rust-version = "1.78"
+description = "Fault-tolerant DER X.509 batch ingest and range audit store for financial PKI compliance"
+license = "Apache-2.0"
+
+[[bin]]
+name = "pki-audit"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+sha2 = "0.10"
+tempfile = "3.10"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "unwind"
+
+[[bin]]
+name = "genfixtures"
+path = "src/bin/genfixtures.rs"
