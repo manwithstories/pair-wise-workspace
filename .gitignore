@@ -71,3 +71,8 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- LogLens ----
+scratch/
+.npm-home/
+*.seg

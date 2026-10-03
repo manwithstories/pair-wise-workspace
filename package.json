@@ -1,0 +1,25 @@
+{
+  "name": "loglens",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Embeddable inverted-index log search engine with pushdown filter + tiered segment merge",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "demo": "tsx src/demo.ts",
+    "build": "tsc -p tsconfig.json",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/lodash-es": "^4.17.12",
+    "@types/node": "^20.14.10",
+    "tsx": "^4.19.0",
+    "typescript": "5.4.5"
+  },
+  "dependencies": {
+    "chevrotain": "11.1.0"
+  }
+}

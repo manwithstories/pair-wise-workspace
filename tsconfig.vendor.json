@@ -1,0 +1,16 @@
+{
+  "//": "Typechecks the vendored chevrotain 11.1.0 source tree. Upstream does not",
+  "//2": "compile under this project's strict settings, so it is verified on its own",
+  "//3": "terms. Not part of the `npm run build` output (noEmit).",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": false,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["vendor/**/*.ts"]
+}

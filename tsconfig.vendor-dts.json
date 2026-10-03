@@ -1,0 +1,19 @@
+{
+  "//": "Emits .d.ts for the vendored chevrotain source using relaxed settings.",
+  "//2": "Upstream type errors block emit under strict mode, so we emit with the",
+  "//3": "same relaxed config the vendor tree is verified with, then point the strict",
+  "//4": "project at the declarations via the '#chevrotain' path mapping.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": false,
+    "skipLibCheck": true,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "vendor/chevrotain/dts",
+    "types": ["node"]
+  },
+  "include": ["vendor/chevrotain/src/**/*.ts"]
+}
