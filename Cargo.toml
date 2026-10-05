@@ -1,0 +1,16 @@
+[package]
+name = "rudpx"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.78"
+description = "Reliable ordered UDP transport: SACK + Reno, std-only, deterministic damage injection, runtime state dump"
+license = "MIT"
+
+[dependencies]
+
+[profile.release]
+opt-level = 3
+debug = true
+lto = "thin"
+codegen-units = 1
+panic = "unwind"
