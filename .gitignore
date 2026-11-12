@@ -71,3 +71,10 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 项目运行产物与缓存 ----
+run/
+fixtures/
+__pycache__/
+*.pyc
+.pytest_cache/

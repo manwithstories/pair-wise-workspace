@@ -1,0 +1,143 @@
+# Unified fact-table mapping spec: 3 sources -> 24 target fields.
+target_table: facts
+failure_policy: quarantine   # quarantine | fail-fast
+batch_size: 50000
+run_dir: run
+
+target_schema:
+  order_id:       {type: string, pk: true}
+  customer_id:    {type: string}
+  sku:            {type: string}
+  category:       {type: string}
+  quantity:       {type: int}
+  unit_price:     {type: decimal}
+  amount:         {type: decimal}
+  discount:       {type: decimal, default: 0.0}
+  tax:            {type: decimal}
+  currency:       {type: string, enum: currency}
+  status:         {type: string, enum: status}
+  channel:        {type: string, enum: channel}
+  trade_date:     {type: datetime}
+  settle_date:    {type: datetime}
+  updated_at:     {type: datetime}
+  region:         {type: string}
+  sales_rep:      {type: string}
+  warehouse:      {type: string}
+  payment_method: {type: string, enum: payment_method}
+  is_gift:        {type: int}
+  weight_kg:      {type: float}
+  loyalty_points: {type: int, default: 0}
+  remark:         {type: string, default: ""}
+  supplier_code:  {type: string}
+
+enums:
+  currency:
+    CNY: CNY
+    RMB: CNY
+    USD: USD
+    EUR: EUR
+  status:
+    P: paid
+    PAID: paid
+    paid: paid
+    PEND: pending
+    pending: pending
+    R: refunded
+    refunded: refunded
+    C: cancelled
+    cancelled: cancelled
+  channel:
+    "ON": online
+    online: online
+    "OFF": offline
+    offline: offline
+    POS: pos
+    pos: pos
+  payment_method:
+    CARD: card
+    card: card
+    CASH: cash
+    cash: cash
+    TR: transfer
+    transfer: transfer
+
+sources:
+  - name: settlement
+    type: sqlite
+    path: fixtures/settlement.db
+    table: settlement
+    priority: 1
+    bindings:
+      order_id: order_id
+      customer_id: customer_id
+      sku: sku
+      category: category
+      quantity: quantity
+      amount: amount_yuan
+      unit_price: unit_price
+      tax: tax
+      currency: currency
+      status: status
+      channel: channel
+      trade_date: trade_date
+      settle_date: settle_date
+      updated_at: upd_ts
+      region: region
+      sales_rep: sales_rep
+      warehouse: warehouse
+      payment_method: payment_method
+      is_gift: is_gift
+      supplier_code: supplier_code
+
+  - name: biz_line
+    type: jsonl
+    path: fixtures/biz_line.jsonl
+    priority: 2
+    bindings:
+      order_id: order.id
+      customer_id: customer_id
+      sku: sku
+      category: category
+      quantity: quantity
+      amount: order.amt
+      unit_price: unit_price
+      currency: currency
+      status: status
+      channel: channel
+      trade_date: trade_date
+      settle_date: settle_date
+      updated_at: meta.ts
+      region: region
+      sales_rep: sales_rep
+      warehouse: warehouse
+      payment_method: payment_method
+      is_gift: is_gift
+      weight_kg: weight_kg
+      supplier_code: supplier_code
+
+  - name: supplier_a
+    type: csv
+    path: fixtures/supplier_a.csv
+    priority: 3
+    bindings:
+      order_id: order_id
+      customer_id: customer_id
+      sku: sku
+      category: category
+      quantity: qty
+      unit_price: unit_price
+      amount: {column: amt_cents, unit: {from: cent, to: yuan}}
+      tax: tax
+      currency: currency
+      status: status
+      channel: channel
+      trade_date: tdate
+      settle_date: settle_date
+      updated_at: ts
+      region: region
+      sales_rep: sales_rep
+      warehouse: warehouse
+      payment_method: payment_method
+      is_gift: is_gift
+      weight_kg: weight_kg
+      supplier_code: supplier_code
