@@ -71,3 +71,18 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Python build and tool artifacts ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# ---- Scanner artifacts ----
+.cache/
+out/
+
+# ---- Local scratch files ----
+.DS_Store

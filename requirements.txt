@@ -1,0 +1,7 @@
+# tree-sitter-python 0.21.7 is not published on PyPI (the final 0.21 release is
+# 0.21.0).  This matched new-binding pair is used because it installs and parses
+# on the target Python 3.11/3.12 environment; no target code is ever imported.
+tree-sitter==0.23.0
+tree-sitter-python==0.23.0
+PyYAML==6.0.1
+pytest==8.2.0

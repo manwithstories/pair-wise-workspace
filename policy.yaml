@@ -1,0 +1,40 @@
+sources:
+  functions:
+    - input
+    - os.getenv
+    - os.environ.get
+    - request.args.get
+    - request.form.get
+    - request.values.get
+    - request.get_json
+  attributes:
+    - request.json
+    - request.data
+  parameters:
+    - request
+    - query
+  environment: true
+sinks:
+  - name: os.system
+  - name: cursor.execute
+  - name: eval
+  - name: exec
+sanitizers:
+  - int
+  - float
+  - shlex.quote
+  - html.escape
+budgets:
+  max_files: 500
+  max_summary_rounds: 12
+  max_iterations: 2000
+  max_paths: 1000
+  max_chain: 12
+  max_summary_items: 20000
+ignore_dirs:
+  - .git
+  - .cache
+  - __pycache__
+  - .pytest_cache
+  - venv
+  - node_modules
