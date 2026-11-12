@@ -71,3 +71,12 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Rust build artifacts and generated pipeline output ----
+/target
+**/target
+/out
+**/secpipe.db
+**/secpipe.db-shm
+**/secpipe.db-wal
+Cargo.lock.bak

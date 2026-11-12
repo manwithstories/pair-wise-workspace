@@ -1,0 +1,88 @@
+# secpipe default configuration. All values are validated at load time.
+
+[clock]
+# Device counter starts at zero; wraps every 2^32 seconds.
+wrap_baseline = 0
+# A backward delta >= this magnitude is treated as a 32-bit wrap.
+wrap_threshold = 10000
+# A forward delta larger than this is ambiguous and aborts the run.
+jump_threshold = 200000
+# Dense seconds added to reconstructed event time on each detected wrap.
+wrap_period_secs = 48000
+
+[late]
+# Events up to 30s behind the watermark are accepted as late.
+allowed_lateness_secs = 30
+# Tumbling aggregation window.
+window_length_secs = 60
+
+[session]
+# New (src_ip, user_agent) session after 300s idle.
+idle_gap_secs = 300
+
+[anomaly]
+# Need at least 4 historical windows before scoring an entity.
+min_samples = 4
+# Robust (0.6745-scaled) MAD z-score threshold.
+z_threshold = 3.0
+# Bursts within 60s are merged into one anomaly.
+merge_gap_secs = 60
+
+[store]
+# Rows per committed, resumable transaction chunk.
+chunk_rows = 5000
+
+# --- Declarative rules -----------------------------------------------------
+
+[[rules]]
+id = "r01"
+kind = "absent"
+description = "successful SSH login without logout within 120s"
+window_secs = 120
+group_by = ["src_ip"]
+event = "login_success"
+missing_event = "logout"
+
+[[rules]]
+id = "r02"
+kind = "count"
+description = "5+ SSH failures within 60s (brute force)"
+window_secs = 60
+group_by = ["src_ip"]
+event = "login_failure"
+threshold = 5
+
+[[rules]]
+id = "r03"
+kind = "sequence"
+description = "SSH failures followed by a successful login within 60s"
+window_secs = 60
+group_by = ["src_ip"]
+event = "login_failure"
+then_event = "login_success"
+
+[[rules]]
+id = "r04"
+kind = "status4xx"
+description = "5+ HTTP 4xx within 60s from one IP"
+window_secs = 60
+group_by = ["src_ip"]
+threshold = 5
+
+[[rules]]
+id = "r05"
+kind = "count"
+description = "10+ Zeek connections within 30s from one IP (scan)"
+window_secs = 30
+group_by = ["src_ip"]
+event = "conn"
+threshold = 10
+
+[[rules]]
+id = "r06"
+kind = "sequence"
+description = "HTTP 4xx burst followed by SSH success within 90s"
+window_secs = 90
+group_by = ["src_ip"]
+event = "http"
+then_event = "login_success"
