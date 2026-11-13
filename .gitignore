@@ -71,3 +71,12 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# Rust / local run artifacts
+/target/
+/out/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3

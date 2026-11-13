@@ -1,0 +1,28 @@
+[package]
+name = "soc-correlator"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.79"
+description = "Offline DHCP/NAT/EDR correlation pipeline with deterministic replay"
+license = "MIT"
+
+[lib]
+name = "soc_correlator"
+path = "src/lib.rs"
+
+[[bin]]
+name = "soc-correlator"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "~4.5", features = ["derive"] }
+rand = "0.8"
+rusqlite = { version = "0.31", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
