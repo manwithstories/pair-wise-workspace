@@ -71,3 +71,11 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Python / forensic run artifacts ----
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+evidence/
