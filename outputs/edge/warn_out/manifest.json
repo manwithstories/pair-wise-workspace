@@ -1,0 +1,30 @@
+{
+  "cues": [
+    {
+      "cue": "ok",
+      "dropped": false,
+      "final": [
+        0,
+        1000
+      ],
+      "line": 5,
+      "moved": 0,
+      "resolved": 0,
+      "sha256": "c6beb01374a07e4f",
+      "source": "outputs/edge/warn.tl",
+      "track": 1
+    }
+  ],
+  "generated_at": "2026-11-13T09:03:47+00:00",
+  "summary": {
+    "dropped": 0,
+    "frames": 1,
+    "hash_mismatch": 0,
+    "inputs": [
+      "outputs/edge/warn.tl"
+    ],
+    "resolved": 0,
+    "total": 1,
+    "warnings": 1
+  }
+}

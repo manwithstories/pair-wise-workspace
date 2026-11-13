@@ -1,0 +1,14 @@
+{
+  "cues": [],
+  "summary": {
+    "dropped": 0,
+    "frames": 0,
+    "hash_mismatch": 0,
+    "inputs": [
+      "outputs/edge/too_long.tl"
+    ],
+    "resolved": 0,
+    "total": 0,
+    "warnings": 1
+  }
+}
