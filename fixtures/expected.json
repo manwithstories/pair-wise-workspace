@@ -1,0 +1,84 @@
+{
+  "drop_expect": {
+    "cue": "s10b",
+    "final_end_minus_start": 292
+  },
+  "dropped_cues": [
+    "s10b"
+  ],
+  "fps": "24000/1001",
+  "legacy_groups": [
+    "h01a",
+    "h01b",
+    "h01c",
+    "h02a",
+    "h02b",
+    "h02c",
+    "h03a",
+    "h03b",
+    "h03c",
+    "h04a",
+    "h04b",
+    "h04c"
+  ],
+  "overlap_groups": [
+    "s01a",
+    "s01b",
+    "s02a",
+    "s02b",
+    "s03a",
+    "s03b",
+    "s04a",
+    "s04b",
+    "s05a",
+    "s05b",
+    "s06a",
+    "s06b",
+    "s07a",
+    "s07b",
+    "s08a",
+    "s08b",
+    "s09a",
+    "s09b",
+    "s10a",
+    "s10b"
+  ],
+  "summary": {
+    "dropped": 1,
+    "frames": 42,
+    "hash_mismatch": 0,
+    "resolved": 17,
+    "total": 42
+  },
+  "transition_cues": [
+    "d01",
+    "d02",
+    "d03"
+  ],
+  "transition_expect": {
+    "d01": {
+      "final": [
+        27986,
+        28820
+      ],
+      "moved": 1,
+      "resolved": 0
+    },
+    "d02": {
+      "final": [
+        28820,
+        29488
+      ],
+      "moved": 1,
+      "resolved": 0
+    },
+    "d03": {
+      "final": [
+        32991,
+        34492
+      ],
+      "moved": 1,
+      "resolved": 0
+    }
+  }
+}
