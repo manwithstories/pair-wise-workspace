@@ -71,3 +71,13 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- gkpack local build/demo artifacts ----
+.gopath/
+.gomodcache/
+.gocache/
+.demo-tmp*/
+/gkpack
+/genfixture
+*.gkpack
+*.gkpatch
