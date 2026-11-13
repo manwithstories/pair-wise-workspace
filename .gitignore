@@ -71,3 +71,17 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Project outputs, caches and local virtualenv ----
+out/
+.venv/
+__pycache__/
+*.py[cod]
+*.db
+*.db-shm
+*.db-wal
+.pytest_cache/
+
+# Generated fixture artifacts (recreate with fixtures/generate_corpus.py)
+fixtures/corpus/
+fixtures/corpus.labels.json
