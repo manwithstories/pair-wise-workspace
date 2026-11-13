@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+go test ./...
+go vet ./...
+go run ./cmd/crawler demo --pages 600 --sites 3 --db data/crawl.db --report report.json

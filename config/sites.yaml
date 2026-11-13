@@ -1,0 +1,83 @@
+# Local/private portal example. Demo does not read this file; it starts its
+# own httptest servers. Replace the URLs and selectors with your own portals.
+defaults:
+  concurrency: 2
+  rate_per_second: 5
+  burst: 2
+  timeout: 10s
+  retries: 2
+  retry_backoff: 500ms
+  break_after_5xx: 5
+  pause: 10s
+  max_pages: 100
+  max_body_runes: 100000
+  time_layouts:
+    - "2006-01-02 15:04:05"
+    - "2006-01-02T15:04:05"
+    - "2006-01-02"
+  remove_query_params:
+    - utm_source
+    - utm_medium
+    - utm_campaign
+    - spm
+    - from
+    - ref
+    - _t
+  headers:
+    Accept-Language: zh-CN,zh;q=0.9
+
+sites:
+  - name: district-a
+    start_urls:
+      - http://127.0.0.1:8080/district-a/notices?page=1
+    selectors:
+      item: .notice-list li
+      title: .notice-title
+      link: .notice-title@href
+      project_no: .project-no
+      section: .section
+      publish_time: .publish-time
+      body: .notice-content
+      status: .status
+      next: .pagination .next@href
+      page_num: .pagination .current
+    concurrency: 2
+    rate_per_second: 4
+    retries: 2
+
+  - name: district-b
+    start_urls:
+      - http://127.0.0.1:8081/district-b/notice/index.html
+    selectors:
+      item: .article
+      title: h3
+      link: h3 a
+      project_no: .project
+      section: .lot
+      publish_time: time
+      body: .content
+      status: .status
+      next: a.next
+      page_num: .page-index
+    detail: true
+    concurrency: 3
+    rate_per_second: 3
+    timeout: 15s
+
+  - name: district-c
+    start_urls:
+      - http://127.0.0.1:8082/district-c/tender/list
+    selectors:
+      item: .result-item
+      title: .result-title
+      link: .result-title
+      project_no: .result-project
+      section: .result-package
+      publish_time: .result-date
+      body: .result-summary
+      status: .result-status
+      next: .pager-next a
+      page_num: .pager-current
+    concurrency: 1
+    rate_per_second: 2
+    burst: 1

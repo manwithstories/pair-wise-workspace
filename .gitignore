@@ -71,3 +71,14 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 本项目运行产物 ----
+data/
+*.db
+*.db-shm
+*.db-wal
+report.json
+/crawler
+.gomodcache/
+.gocache/
+.gopath/
