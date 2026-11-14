@@ -71,3 +71,9 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Python 构建产物与生成数据 ----
+__pycache__/
+*.py[cod]
+out/
+fixtures/data/
