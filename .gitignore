@@ -71,3 +71,8 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- build output and generated fixtures ----
+/bin/
+/out/
+/testdata/
