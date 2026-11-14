@@ -71,3 +71,10 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- audiocut 运行产物 ----
+build/
+fixtures/
+profiles/
+*.sqlite
+__pycache__/
