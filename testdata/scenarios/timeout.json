@@ -1,0 +1,36 @@
+{
+  "name": "timeout",
+  "total_packets": 100,
+  "packets_per_frame": 2,
+  "payload_size": 512,
+  "start_seq": 0,
+  "ssrc": 1145324612,
+  "clock_rate": 90000,
+  "username": "",
+  "password": "",
+  "auth_enabled": false,
+  "read_timeout_ms": 400,
+  "events": [
+    {
+      "type": "cut",
+      "pos": 40,
+      "count": 0,
+      "shift": 0,
+      "resume_at": -1
+    }
+  ],
+  "expect": {
+    "state_transitions": 0,
+    "rtp_received_min": 0,
+    "rtp_received_max": 0,
+    "rtp_duplicates": 0,
+    "rtp_reordered": 0,
+    "seq_gap_segments": 0,
+    "gap_packets": 0,
+    "max_reorder_depth": 0,
+    "frames_min": 0,
+    "frames_max": 0,
+    "bytes_min": 0,
+    "bytes_max": 0
+  }
+}

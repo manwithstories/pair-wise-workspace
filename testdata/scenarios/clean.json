@@ -1,0 +1,28 @@
+{
+  "name": "clean",
+  "total_packets": 600,
+  "packets_per_frame": 3,
+  "payload_size": 1200,
+  "start_seq": 0,
+  "ssrc": 286331153,
+  "clock_rate": 90000,
+  "username": "",
+  "password": "",
+  "auth_enabled": false,
+  "read_timeout_ms": 2500,
+  "events": null,
+  "expect": {
+    "state_transitions": 6,
+    "rtp_received_min": 600,
+    "rtp_received_max": 600,
+    "rtp_duplicates": 0,
+    "rtp_reordered": 0,
+    "seq_gap_segments": 0,
+    "gap_packets": 0,
+    "max_reorder_depth": 0,
+    "frames_min": 200,
+    "frames_max": 200,
+    "bytes_min": 720000,
+    "bytes_max": 720000
+  }
+}

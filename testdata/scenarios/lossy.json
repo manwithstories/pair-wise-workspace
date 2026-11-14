@@ -1,0 +1,178 @@
+{
+  "name": "lossy",
+  "total_packets": 1200,
+  "packets_per_frame": 3,
+  "payload_size": 1330,
+  "start_seq": 1000,
+  "ssrc": 3405691582,
+  "clock_rate": 90000,
+  "username": "inspector",
+  "password": "s3cr3t",
+  "auth_enabled": true,
+  "read_timeout_ms": 2500,
+  "events": [
+    {
+      "type": "drop",
+      "pos": 120,
+      "count": 5,
+      "shift": 0,
+      "resume_at": 0
+    },
+    {
+      "type": "drop",
+      "pos": 480,
+      "count": 7,
+      "shift": 0,
+      "resume_at": 0
+    },
+    {
+      "type": "drop",
+      "pos": 900,
+      "count": 5,
+      "shift": 0,
+      "resume_at": 0
+    },
+    {
+      "type": "reorder",
+      "pos": 300,
+      "count": 0,
+      "shift": 8,
+      "resume_at": 0
+    },
+    {
+      "type": "reorder",
+      "pos": 301,
+      "count": 0,
+      "shift": 8,
+      "resume_at": 0
+    },
+    {
+      "type": "reorder",
+      "pos": 302,
+      "count": 0,
+      "shift": 8,
+      "resume_at": 0
+    },
+    {
+      "type": "reorder",
+      "pos": 303,
+      "count": 0,
+      "shift": 8,
+      "resume_at": 0
+    },
+    {
+      "type": "reorder",
+      "pos": 304,
+      "count": 0,
+      "shift": 8,
+      "resume_at": 0
+    },
+    {
+      "type": "reorder",
+      "pos": 305,
+      "count": 0,
+      "shift": 8,
+      "resume_at": 0
+    },
+    {
+      "type": "reorder",
+      "pos": 306,
+      "count": 0,
+      "shift": 8,
+      "resume_at": 0
+    },
+    {
+      "type": "reorder",
+      "pos": 600,
+      "count": 0,
+      "shift": 8,
+      "resume_at": 0
+    },
+    {
+      "type": "reorder",
+      "pos": 601,
+      "count": 0,
+      "shift": 8,
+      "resume_at": 0
+    },
+    {
+      "type": "reorder",
+      "pos": 602,
+      "count": 0,
+      "shift": 8,
+      "resume_at": 0
+    },
+    {
+      "type": "reorder",
+      "pos": 603,
+      "count": 0,
+      "shift": 8,
+      "resume_at": 0
+    },
+    {
+      "type": "reorder",
+      "pos": 604,
+      "count": 0,
+      "shift": 8,
+      "resume_at": 0
+    },
+    {
+      "type": "reorder",
+      "pos": 605,
+      "count": 0,
+      "shift": 8,
+      "resume_at": 0
+    },
+    {
+      "type": "reorder",
+      "pos": 606,
+      "count": 0,
+      "shift": 8,
+      "resume_at": 0
+    },
+    {
+      "type": "duplicate",
+      "pos": 250,
+      "count": 3,
+      "shift": 0,
+      "resume_at": 0
+    },
+    {
+      "type": "duplicate",
+      "pos": 610,
+      "count": 3,
+      "shift": 0,
+      "resume_at": 0
+    },
+    {
+      "type": "duplicate",
+      "pos": 845,
+      "count": 3,
+      "shift": 0,
+      "resume_at": 0
+    },
+    {
+      "type": "cut",
+      "pos": 760,
+      "count": 0,
+      "shift": 0,
+      "resume_at": 761
+    }
+  ],
+  "expect": {
+    "state_transitions": 6,
+    "rtp_received_min": 1190,
+    "rtp_received_max": 1210,
+    "rtp_duplicates": 0,
+    "rtp_reordered": 0,
+    "seq_gap_segments": 3,
+    "gap_packets": 0,
+    "max_reorder_depth": 0,
+    "frames_min": 395,
+    "frames_max": 430,
+    "bytes_min": 1363148,
+    "bytes_max": 1677721,
+    "first_seq": 1000,
+    "last_seq": 2199
+  }
+}

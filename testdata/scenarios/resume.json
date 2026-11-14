@@ -1,0 +1,43 @@
+{
+  "name": "resume",
+  "total_packets": 300,
+  "packets_per_frame": 3,
+  "payload_size": 1024,
+  "start_seq": 500,
+  "ssrc": 572662306,
+  "clock_rate": 90000,
+  "username": "",
+  "password": "",
+  "auth_enabled": false,
+  "read_timeout_ms": 2500,
+  "events": [
+    {
+      "type": "cut",
+      "pos": 140,
+      "count": 0,
+      "shift": 0,
+      "resume_at": 141
+    },
+    {
+      "type": "duplicate",
+      "pos": 60,
+      "count": 2,
+      "shift": 0,
+      "resume_at": 0
+    }
+  ],
+  "expect": {
+    "state_transitions": 6,
+    "rtp_received_min": 300,
+    "rtp_received_max": 305,
+    "rtp_duplicates": 0,
+    "rtp_reordered": 0,
+    "seq_gap_segments": 0,
+    "gap_packets": 0,
+    "max_reorder_depth": 0,
+    "frames_min": 95,
+    "frames_max": 100,
+    "bytes_min": 307200,
+    "bytes_max": 307200
+  }
+}

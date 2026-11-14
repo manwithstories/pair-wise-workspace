@@ -1,0 +1,16 @@
+{
+  "state_transitions": 6,
+  "rtp_received_min": 1190,
+  "rtp_received_max": 1210,
+  "rtp_duplicates": 9,
+  "rtp_reordered": 14,
+  "seq_gap_segments": 3,
+  "gap_packets": 17,
+  "max_reorder_depth": 7,
+  "frames_min": 395,
+  "frames_max": 430,
+  "bytes_min": 1363148,
+  "bytes_max": 1677721,
+  "first_seq": 1000,
+  "last_seq": 2199
+}
