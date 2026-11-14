@@ -71,3 +71,10 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- rcx 运行时产物（不提交）----
+/fixtures/
+/out/
+/.rcx/
+/plan.json
+*.yuv
