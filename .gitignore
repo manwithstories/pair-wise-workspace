@@ -71,3 +71,7 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- build and generated artifacts ----
+/subtool
+/testdata/
