@@ -71,3 +71,7 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- tsprobe 生成物 ----
+out/
+testdata/*.ts
