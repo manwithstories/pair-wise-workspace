@@ -71,3 +71,10 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# generated local artifacts
+/work/
+/testdata/
+/transcode
+/turncode
+/bin/
