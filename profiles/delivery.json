@@ -1,0 +1,23 @@
+{
+  "name": "studio-delivery-v1",
+  "video": {
+    "codecs": ["h264"],
+    "profiles": ["High"],
+    "levels": ["4.0"],
+    "max_width": 1920,
+    "max_height": 1080
+  },
+  "audio": {
+    "codecs": ["aac", "pcm", "pcm_float"],
+    "sample_rate": 48000,
+    "channels": 2
+  },
+  "required_tracks": {
+    "isobmff": ["video", "audio"],
+    "wav": ["audio"]
+  },
+  "slice": {
+    "handler": "audio",
+    "language": "en"
+  }
+}
