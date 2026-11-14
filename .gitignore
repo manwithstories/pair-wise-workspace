@@ -71,3 +71,9 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 本项目构建产物与生成物 ----
+build/
+fixtures/
+out/
+__pycache__/
