@@ -15,6 +15,14 @@
 .agents/
 AGENTS.md.local
 
+# ---- 项目运行产物与缓存 ----
+var/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+
 # ---- CodeBuddy / WorkBuddy (腾讯) ----
 .codebuddy/
 .workbuddy/
