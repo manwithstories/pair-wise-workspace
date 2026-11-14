@@ -71,3 +71,12 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 本地构建产物与状态 ----
+/out/
+/testdata/*.ts
+/testdata/*.truth.json
+/tsaudit
+*.test
+*.prof
+coverage.out
