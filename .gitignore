@@ -71,3 +71,9 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- mediaqa 生成物（样例、报告、索引、交付包）----
+samples/
+reports/
+var/
+dist/

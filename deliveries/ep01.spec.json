@@ -1,0 +1,9 @@
+{
+  "package_id": "ep01",
+  "target_duration_us": 5000000,
+  "sources": [
+    {"path": "../samples/mp4_ep01_video.mp4", "tracks": [0, 1]},
+    {"path": "../samples/wav_guide_48k_stereo.wav"},
+    {"path": "../samples/wav_extensible_fact.wav"}
+  ]
+}
