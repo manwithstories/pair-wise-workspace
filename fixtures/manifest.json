@@ -1,0 +1,105 @@
+{
+  "cases": 7,
+  "fixtures": [
+    {
+      "name": "unknown_segment.mkv",
+      "size": 89956,
+      "truncated": false,
+      "cluster_positions": {
+        "0": 254,
+        "1": 14614,
+        "2": 28956,
+        "3": 43289,
+        "4": 57622,
+        "5": 66426,
+        "6": 73966,
+        "7": 81497
+      },
+      "video_frames": 1500,
+      "audio_frames": 1500,
+      "keyframes": 38,
+      "segment_payload_size": 89911
+    },
+    {
+      "name": "negative_dts_b.mkv",
+      "size": 129768,
+      "truncated": false,
+      "cluster_positions": {
+        "0": 254,
+        "1": 19523,
+        "2": 38849,
+        "3": 58176,
+        "4": 77494,
+        "5": 91368,
+        "6": 103894,
+        "7": 116411
+      },
+      "video_frames": 1500,
+      "audio_frames": 1500,
+      "keyframes": 38,
+      "segment_payload_size": 129721
+    },
+    {
+      "name": "no_cues.mkv",
+      "size": 18086,
+      "truncated": false,
+      "cluster_positions": {
+        "0": 254,
+        "1": 7899,
+        "2": 13978
+      },
+      "video_frames": 300,
+      "audio_frames": 300,
+      "keyframes": 8,
+      "segment_payload_size": 18039
+    },
+    {
+      "name": "partial_cues.mkv",
+      "size": 18186,
+      "truncated": false,
+      "cluster_positions": {
+        "0": 254,
+        "1": 7898,
+        "2": 13976
+      },
+      "video_frames": 300,
+      "audio_frames": 300,
+      "keyframes": 8,
+      "segment_payload_size": 18141
+    },
+    {
+      "name": "gapped_timeline.mkv",
+      "size": 7582,
+      "truncated": false,
+      "cluster_positions": {
+        "0": 289,
+        "1": 2603,
+        "2": 4994,
+        "3": 6207
+      },
+      "video_frames": 120,
+      "audio_frames": 120,
+      "keyframes": 3,
+      "segment_payload_size": 7536
+    },
+    {
+      "name": "truncated_cluster.mkv",
+      "size": 14041,
+      "truncated": true,
+      "cluster_positions": {
+        "0": 254,
+        "1": 7898,
+        "2": 13976
+      },
+      "video_frames": 300,
+      "audio_frames": 300,
+      "keyframes": 8,
+      "segment_payload_size": 18244
+    },
+    {
+      "name": "corrupt_header.mkv",
+      "size": 68,
+      "truncated": false
+    }
+  ]
+}
