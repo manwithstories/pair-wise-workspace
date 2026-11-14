@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mkvtomp4"
+version = "0.1.0"
+description = "Dependency-light Matroska to plain/fragmented MP4 remuxer"
+requires-python = ">=3.11"
+dependencies = ["numpy==1.26.4"]
+
+[project.scripts]
+mkvtomp4 = "mkvtomp4.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["mkvtomp4*"]

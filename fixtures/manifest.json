@@ -1,0 +1,55 @@
+{
+  "files": [
+    {
+      "name": "live_unknown.mkv",
+      "sha256": "c4e69704ab90efedc883b2ebc65c181ff3de364d93227a4493e9a1bf544c5c4c",
+      "size": 561262
+    },
+    {
+      "name": "no_cues.mkv",
+      "sha256": "33edf81f3116f3176923508e0ba55b6c94badc9ffb5032da658fa93d96e39824",
+      "size": 5104
+    },
+    {
+      "name": "negative_dts.mkv",
+      "sha256": "b27842bab8c7841666d438c1645e23e3fdea5f99ba29e72a33c920222eec2e33",
+      "size": 4267
+    },
+    {
+      "name": "with_cues.mkv",
+      "sha256": "249a21233475ca82692d4b3effc5be158066230a9ebde4a605f042a3452b0b36",
+      "size": 5191
+    },
+    {
+      "name": "bad_cues.mkv",
+      "sha256": "0153875d678db1f738596a90c98fa9b45244d550fdc43df102f708619f771b37",
+      "size": 5167
+    },
+    {
+      "name": "multi_segment.mkv",
+      "sha256": "c254b6466d1b181d41078276a4a0a988f424fa7ad296432c740b6fd4fe22df23",
+      "size": 3797
+    },
+    {
+      "name": "crc_bad.mkv",
+      "sha256": "104acefcc786eb8c0eb24bb661851abf6175f06c6d997c8aa8069e3a3fbdae68",
+      "size": 1921
+    },
+    {
+      "name": "no_tracks.mkv",
+      "sha256": "1635799a6276e4a1c3117a56a55632e625b04c9d488924a602ebe07c98d2b08c",
+      "size": 1696
+    },
+    {
+      "name": "zero_samples.mkv",
+      "sha256": "55bf12a3103511fe887f47e53805d6003d59553ec05c9301e134b13e72c92552",
+      "size": 301
+    },
+    {
+      "name": "truncated.mkv",
+      "sha256": "a907a374b09338b30ea2ac412e374e324eea38502a74cb29d9bb47862fa3579f",
+      "size": 1857
+    }
+  ],
+  "seed": 7
+}

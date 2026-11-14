@@ -71,3 +71,8 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+# Local build and run products
+__pycache__/
+*.py[cod]
+out/
+.pytest_cache/
