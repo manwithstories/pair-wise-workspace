@@ -71,3 +71,12 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 本项目构建产物与临时文件 ----
+/out/
+/fixtures/
+*.ledger
+/ledger*.json
+/kmsctl
+/cmd/dbg/
+*.go.txt
