@@ -71,3 +71,9 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 本项目生成数据与构建产物 ----
+/fixtures/
+/outputs/
+/tsaudit
+*.test
