@@ -71,3 +71,11 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Python 缓存与测试产物 ----
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# ---- 示例渲染输出（可随时重新生成）----
+outputs/

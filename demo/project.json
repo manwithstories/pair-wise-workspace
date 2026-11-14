@@ -1,0 +1,134 @@
+{
+  "name": "audio-tools-demo",
+  "sample_rate": 48000,
+  "channels": 2,
+  "tracks": [
+    {
+      "name": "vo",
+      "source": "../assets/vo_44k1_mono.wav",
+      "gain_db": 0.5,
+      "sends": [
+        {
+          "bus": "dialogue_bus",
+          "gain_db": 0.0
+        }
+      ],
+      "automation": {
+        "points": [
+          {
+            "time": 0.0,
+            "gain_db": -3.0,
+            "curve": "linear"
+          },
+          {
+            "time": 0.8,
+            "gain_db": -1.0,
+            "curve": "hold"
+          },
+          {
+            "time": 1.25,
+            "gain_db": -4.0,
+            "curve": "exponential"
+          },
+          {
+            "time": 2.5,
+            "gain_db": -2.0,
+            "curve": "linear"
+          },
+          {
+            "time": 3.5,
+            "gain_db": -1.0,
+            "curve": "exponential"
+          },
+          {
+            "time": 5.0,
+            "gain_db": -3.0,
+            "curve": "hold"
+          }
+        ]
+      }
+    },
+    {
+      "name": "amb",
+      "source": "../assets/amb_48k_stereo.wav",
+      "gain_db": -1.0,
+      "sends": [
+        {
+          "bus": "music_bus",
+          "gain_db": 0.0
+        }
+      ]
+    },
+    {
+      "name": "music",
+      "source": "../assets/music_96k_stereo.wav",
+      "gain_db": -1.0,
+      "sends": [
+        {
+          "bus": "music_bus",
+          "gain_db": 0.0
+        }
+      ],
+      "automation": {
+        "points": [
+          {
+            "time": 0.0,
+            "gain_db": 0.0,
+            "curve": "linear"
+          },
+          {
+            "time": 2.0,
+            "gain_db": -3.0,
+            "curve": "exponential"
+          },
+          {
+            "time": 4.0,
+            "gain_db": 0.0,
+            "curve": "linear"
+          }
+        ]
+      }
+    },
+    {
+      "name": "sfx",
+      "source": "../assets/sfx_44k1_mono.wav",
+      "gain_db": 0.0,
+      "sends": [
+        {
+          "bus": "dialogue_bus",
+          "gain_db": -9.0
+        },
+        {
+          "bus": "music_bus",
+          "gain_db": -12.0
+        }
+      ]
+    }
+  ],
+  "buses": [
+    {
+      "name": "dialogue_bus",
+      "gain_db": 0.0,
+      "sends": [
+        {
+          "bus": "master",
+          "gain_db": 0.0
+        }
+      ]
+    },
+    {
+      "name": "music_bus",
+      "gain_db": -2.0,
+      "sends": [
+        {
+          "bus": "master",
+          "gain_db": 0.0
+        }
+      ]
+    }
+  ],
+  "master": {
+    "name": "master",
+    "gain_db": -1.5
+  }
+}
