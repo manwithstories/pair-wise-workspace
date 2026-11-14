@@ -71,3 +71,8 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- segctl 构建产物与测试输出 ----
+bin/
+testdata/
+out/
