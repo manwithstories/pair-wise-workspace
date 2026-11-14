@@ -1,0 +1,2143 @@
+{
+  "format": "etj",
+  "version": 1,
+  "name": "ep01-fixture",
+  "fps": "30000/1001",
+  "tracks": [
+    {
+      "id": "v1",
+      "kind": "video",
+      "z_order": 0,
+      "priority": 10,
+      "locked": false,
+      "metadata": {
+        "role": "background"
+      },
+      "x_camera": "A"
+    },
+    {
+      "id": "v2",
+      "kind": "video",
+      "z_order": 1,
+      "priority": 20,
+      "locked": false,
+      "metadata": {
+        "role": "action"
+      }
+    },
+    {
+      "id": "v3",
+      "kind": "video",
+      "z_order": 2,
+      "priority": 20,
+      "locked": false,
+      "metadata": {
+        "role": "action"
+      }
+    },
+    {
+      "id": "sub",
+      "kind": "video",
+      "z_order": 3,
+      "priority": 40,
+      "locked": false,
+      "metadata": {
+        "role": "subtitle"
+      }
+    },
+    {
+      "id": "d1",
+      "kind": "audio",
+      "z_order": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "role": "dialogue"
+      }
+    },
+    {
+      "id": "m1",
+      "kind": "audio",
+      "z_order": 0,
+      "priority": 5,
+      "locked": false,
+      "metadata": {
+        "role": "music"
+      }
+    },
+    {
+      "id": "fx",
+      "kind": "audio",
+      "z_order": 0,
+      "priority": 30,
+      "locked": false,
+      "metadata": {
+        "role": "effects"
+      }
+    }
+  ],
+  "clips": [
+    {
+      "id": "bg-00",
+      "track": "v1",
+      "kind": "video",
+      "start_ms": 0,
+      "duration_ms": 55611,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "shot": 1
+      },
+      "x_note": "show opener"
+    },
+    {
+      "id": "bg-01",
+      "track": "v1",
+      "kind": "video",
+      "start_ms": 55611,
+      "duration_ms": 55611,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "shot": 2
+      }
+    },
+    {
+      "id": "bg-02",
+      "track": "v1",
+      "kind": "video",
+      "start_ms": 111222,
+      "duration_ms": 55611,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "shot": 3
+      }
+    },
+    {
+      "id": "bg-03",
+      "track": "v1",
+      "kind": "video",
+      "start_ms": 166833,
+      "duration_ms": 55611,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "shot": 4
+      }
+    },
+    {
+      "id": "bg-04",
+      "track": "v1",
+      "kind": "video",
+      "start_ms": 222444,
+      "duration_ms": 55611,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "shot": 5
+      }
+    },
+    {
+      "id": "bg-05",
+      "track": "v1",
+      "kind": "video",
+      "start_ms": 278056,
+      "duration_ms": 55611,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "shot": 6
+      }
+    },
+    {
+      "id": "bg-06",
+      "track": "v1",
+      "kind": "video",
+      "start_ms": 333667,
+      "duration_ms": 55611,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "shot": 7
+      }
+    },
+    {
+      "id": "bg-07",
+      "track": "v1",
+      "kind": "video",
+      "start_ms": 389278,
+      "duration_ms": 55611,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "shot": 8
+      }
+    },
+    {
+      "id": "bg-08",
+      "track": "v1",
+      "kind": "video",
+      "start_ms": 444889,
+      "duration_ms": 55611,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "shot": 9
+      }
+    },
+    {
+      "id": "bg-09",
+      "track": "v1",
+      "kind": "video",
+      "start_ms": 500500,
+      "duration_ms": 55611,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "shot": 10
+      }
+    },
+    {
+      "id": "bg-10",
+      "track": "v1",
+      "kind": "video",
+      "start_ms": 556111,
+      "duration_ms": 55611,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "shot": 11
+      }
+    },
+    {
+      "id": "bg-11",
+      "track": "v1",
+      "kind": "video",
+      "start_ms": 611722,
+      "duration_ms": 55611,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "shot": 12
+      }
+    },
+    {
+      "id": "v2-00",
+      "track": "v2",
+      "kind": "video",
+      "start_ms": 83333,
+      "duration_ms": 833,
+      "source_in_ms": 0,
+      "priority": 21,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v2-01",
+      "track": "v2",
+      "kind": "video",
+      "start_ms": 83958,
+      "duration_ms": 833,
+      "source_in_ms": 42,
+      "priority": 21,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v2-02",
+      "track": "v2",
+      "kind": "video",
+      "start_ms": 84583,
+      "duration_ms": 833,
+      "source_in_ms": 83,
+      "priority": 21,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v2-03",
+      "track": "v2",
+      "kind": "video",
+      "start_ms": 85208,
+      "duration_ms": 833,
+      "source_in_ms": 125,
+      "priority": 21,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v2-04",
+      "track": "v2",
+      "kind": "video",
+      "start_ms": 85833,
+      "duration_ms": 833,
+      "source_in_ms": 167,
+      "priority": 21,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v2-05",
+      "track": "v2",
+      "kind": "video",
+      "start_ms": 86458,
+      "duration_ms": 833,
+      "source_in_ms": 208,
+      "priority": 21,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v2-06",
+      "track": "v2",
+      "kind": "video",
+      "start_ms": 87083,
+      "duration_ms": 833,
+      "source_in_ms": 250,
+      "priority": 21,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v2-07",
+      "track": "v2",
+      "kind": "video",
+      "start_ms": 87708,
+      "duration_ms": 833,
+      "source_in_ms": 292,
+      "priority": 21,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v2-08",
+      "track": "v2",
+      "kind": "video",
+      "start_ms": 88333,
+      "duration_ms": 833,
+      "source_in_ms": 333,
+      "priority": 21,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v2-09",
+      "track": "v2",
+      "kind": "video",
+      "start_ms": 88958,
+      "duration_ms": 833,
+      "source_in_ms": 375,
+      "priority": 21,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v2-10",
+      "track": "v2",
+      "kind": "video",
+      "start_ms": 89583,
+      "duration_ms": 833,
+      "source_in_ms": 417,
+      "priority": 21,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v2-11",
+      "track": "v2",
+      "kind": "video",
+      "start_ms": 90208,
+      "duration_ms": 833,
+      "source_in_ms": 458,
+      "priority": 21,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v2-12",
+      "track": "v2",
+      "kind": "video",
+      "start_ms": 90833,
+      "duration_ms": 833,
+      "source_in_ms": 500,
+      "priority": 21,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v2-13",
+      "track": "v2",
+      "kind": "video",
+      "start_ms": 91458,
+      "duration_ms": 833,
+      "source_in_ms": 542,
+      "priority": 21,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v2-14",
+      "track": "v2",
+      "kind": "video",
+      "start_ms": 92083,
+      "duration_ms": 833,
+      "source_in_ms": 583,
+      "priority": 21,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v2-15",
+      "track": "v2",
+      "kind": "video",
+      "start_ms": 92708,
+      "duration_ms": 833,
+      "source_in_ms": 625,
+      "priority": 21,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v2-16",
+      "track": "v2",
+      "kind": "video",
+      "start_ms": 93333,
+      "duration_ms": 833,
+      "source_in_ms": 667,
+      "priority": 21,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v2-17",
+      "track": "v2",
+      "kind": "video",
+      "start_ms": 93958,
+      "duration_ms": 833,
+      "source_in_ms": 708,
+      "priority": 21,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v2-18",
+      "track": "v2",
+      "kind": "video",
+      "start_ms": 94583,
+      "duration_ms": 833,
+      "source_in_ms": 750,
+      "priority": 21,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v2-19",
+      "track": "v2",
+      "kind": "video",
+      "start_ms": 95208,
+      "duration_ms": 833,
+      "source_in_ms": 792,
+      "priority": 21,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v2-20",
+      "track": "v2",
+      "kind": "video",
+      "start_ms": 95833,
+      "duration_ms": 833,
+      "source_in_ms": 833,
+      "priority": 21,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v2-21",
+      "track": "v2",
+      "kind": "video",
+      "start_ms": 96458,
+      "duration_ms": 833,
+      "source_in_ms": 875,
+      "priority": 21,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v2-22",
+      "track": "v2",
+      "kind": "video",
+      "start_ms": 97083,
+      "duration_ms": 833,
+      "source_in_ms": 917,
+      "priority": 21,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v2-23",
+      "track": "v2",
+      "kind": "video",
+      "start_ms": 97708,
+      "duration_ms": 833,
+      "source_in_ms": 958,
+      "priority": 21,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v2-24",
+      "track": "v2",
+      "kind": "video",
+      "start_ms": 98333,
+      "duration_ms": 833,
+      "source_in_ms": 1000,
+      "priority": 21,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v3-00",
+      "track": "v3",
+      "kind": "video",
+      "start_ms": 104167,
+      "duration_ms": 833,
+      "source_in_ms": 0,
+      "priority": 22,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v3-01",
+      "track": "v3",
+      "kind": "video",
+      "start_ms": 104792,
+      "duration_ms": 833,
+      "source_in_ms": 42,
+      "priority": 22,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v3-02",
+      "track": "v3",
+      "kind": "video",
+      "start_ms": 105417,
+      "duration_ms": 833,
+      "source_in_ms": 83,
+      "priority": 22,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v3-03",
+      "track": "v3",
+      "kind": "video",
+      "start_ms": 106042,
+      "duration_ms": 833,
+      "source_in_ms": 125,
+      "priority": 22,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v3-04",
+      "track": "v3",
+      "kind": "video",
+      "start_ms": 106667,
+      "duration_ms": 833,
+      "source_in_ms": 167,
+      "priority": 22,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v3-05",
+      "track": "v3",
+      "kind": "video",
+      "start_ms": 107292,
+      "duration_ms": 833,
+      "source_in_ms": 208,
+      "priority": 22,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v3-06",
+      "track": "v3",
+      "kind": "video",
+      "start_ms": 107917,
+      "duration_ms": 833,
+      "source_in_ms": 250,
+      "priority": 22,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v3-07",
+      "track": "v3",
+      "kind": "video",
+      "start_ms": 108542,
+      "duration_ms": 833,
+      "source_in_ms": 292,
+      "priority": 22,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v3-08",
+      "track": "v3",
+      "kind": "video",
+      "start_ms": 109167,
+      "duration_ms": 833,
+      "source_in_ms": 333,
+      "priority": 22,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v3-09",
+      "track": "v3",
+      "kind": "video",
+      "start_ms": 109792,
+      "duration_ms": 833,
+      "source_in_ms": 375,
+      "priority": 22,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v3-10",
+      "track": "v3",
+      "kind": "video",
+      "start_ms": 110417,
+      "duration_ms": 833,
+      "source_in_ms": 417,
+      "priority": 22,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v3-11",
+      "track": "v3",
+      "kind": "video",
+      "start_ms": 111042,
+      "duration_ms": 833,
+      "source_in_ms": 458,
+      "priority": 22,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v3-12",
+      "track": "v3",
+      "kind": "video",
+      "start_ms": 111667,
+      "duration_ms": 833,
+      "source_in_ms": 500,
+      "priority": 22,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v3-13",
+      "track": "v3",
+      "kind": "video",
+      "start_ms": 112292,
+      "duration_ms": 833,
+      "source_in_ms": 542,
+      "priority": 22,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v3-14",
+      "track": "v3",
+      "kind": "video",
+      "start_ms": 112917,
+      "duration_ms": 833,
+      "source_in_ms": 583,
+      "priority": 22,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v3-15",
+      "track": "v3",
+      "kind": "video",
+      "start_ms": 113542,
+      "duration_ms": 833,
+      "source_in_ms": 625,
+      "priority": 22,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v3-16",
+      "track": "v3",
+      "kind": "video",
+      "start_ms": 114167,
+      "duration_ms": 833,
+      "source_in_ms": 667,
+      "priority": 22,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v3-17",
+      "track": "v3",
+      "kind": "video",
+      "start_ms": 114792,
+      "duration_ms": 833,
+      "source_in_ms": 708,
+      "priority": 22,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v3-18",
+      "track": "v3",
+      "kind": "video",
+      "start_ms": 115417,
+      "duration_ms": 833,
+      "source_in_ms": 750,
+      "priority": 22,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v3-19",
+      "track": "v3",
+      "kind": "video",
+      "start_ms": 116042,
+      "duration_ms": 833,
+      "source_in_ms": 792,
+      "priority": 22,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v3-20",
+      "track": "v3",
+      "kind": "video",
+      "start_ms": 116667,
+      "duration_ms": 833,
+      "source_in_ms": 833,
+      "priority": 22,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v3-21",
+      "track": "v3",
+      "kind": "video",
+      "start_ms": 117292,
+      "duration_ms": 833,
+      "source_in_ms": 875,
+      "priority": 22,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v3-22",
+      "track": "v3",
+      "kind": "video",
+      "start_ms": 117917,
+      "duration_ms": 833,
+      "source_in_ms": 917,
+      "priority": 22,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v3-23",
+      "track": "v3",
+      "kind": "video",
+      "start_ms": 118542,
+      "duration_ms": 833,
+      "source_in_ms": 958,
+      "priority": 22,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "v3-24",
+      "track": "v3",
+      "kind": "video",
+      "start_ms": 119167,
+      "duration_ms": 833,
+      "source_in_ms": 1000,
+      "priority": 22,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "sub-00",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 6250,
+      "duration_ms": 1042,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 01"
+      }
+    },
+    {
+      "id": "sub-01",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 22708,
+      "duration_ms": 1250,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 02"
+      }
+    },
+    {
+      "id": "sub-02",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 39167,
+      "duration_ms": 1458,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 03"
+      }
+    },
+    {
+      "id": "sub-03",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 55625,
+      "duration_ms": 1667,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 04"
+      }
+    },
+    {
+      "id": "sub-04",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 72083,
+      "duration_ms": 1875,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 05"
+      }
+    },
+    {
+      "id": "sub-05",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 88542,
+      "duration_ms": 1042,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 06"
+      }
+    },
+    {
+      "id": "sub-06",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 105000,
+      "duration_ms": 1250,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 07"
+      }
+    },
+    {
+      "id": "sub-07",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 121458,
+      "duration_ms": 1458,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 08"
+      }
+    },
+    {
+      "id": "sub-08",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 137917,
+      "duration_ms": 1667,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 09"
+      }
+    },
+    {
+      "id": "sub-09",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 154375,
+      "duration_ms": 1875,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 10"
+      }
+    },
+    {
+      "id": "sub-10",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 170833,
+      "duration_ms": 1042,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 11"
+      }
+    },
+    {
+      "id": "sub-11",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 187292,
+      "duration_ms": 1250,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 12"
+      }
+    },
+    {
+      "id": "sub-12",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 203750,
+      "duration_ms": 1458,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 13"
+      }
+    },
+    {
+      "id": "sub-13",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 220208,
+      "duration_ms": 1667,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 14"
+      }
+    },
+    {
+      "id": "sub-14",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 236667,
+      "duration_ms": 1875,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 15"
+      }
+    },
+    {
+      "id": "sub-15",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 253125,
+      "duration_ms": 1042,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 16"
+      }
+    },
+    {
+      "id": "sub-16",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 269583,
+      "duration_ms": 1250,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 17"
+      }
+    },
+    {
+      "id": "sub-17",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 286042,
+      "duration_ms": 1458,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 18"
+      }
+    },
+    {
+      "id": "sub-18",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 302500,
+      "duration_ms": 1667,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 19"
+      }
+    },
+    {
+      "id": "sub-19",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 318958,
+      "duration_ms": 1875,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 20"
+      }
+    },
+    {
+      "id": "sub-20",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 335417,
+      "duration_ms": 1042,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 21"
+      }
+    },
+    {
+      "id": "sub-21",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 351875,
+      "duration_ms": 1250,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 22"
+      }
+    },
+    {
+      "id": "sub-22",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 368333,
+      "duration_ms": 1458,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 23"
+      }
+    },
+    {
+      "id": "sub-23",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 384792,
+      "duration_ms": 1667,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 24"
+      }
+    },
+    {
+      "id": "sub-24",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 401250,
+      "duration_ms": 1875,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 25"
+      }
+    },
+    {
+      "id": "sub-25",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 417708,
+      "duration_ms": 1042,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 26"
+      }
+    },
+    {
+      "id": "sub-26",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 434167,
+      "duration_ms": 1250,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 27"
+      }
+    },
+    {
+      "id": "sub-27",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 450625,
+      "duration_ms": 1458,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 28"
+      }
+    },
+    {
+      "id": "sub-28",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 467083,
+      "duration_ms": 1667,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 29"
+      }
+    },
+    {
+      "id": "sub-29",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 483542,
+      "duration_ms": 1875,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 30"
+      }
+    },
+    {
+      "id": "sub-30",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 500000,
+      "duration_ms": 1042,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 31"
+      }
+    },
+    {
+      "id": "sub-31",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 516458,
+      "duration_ms": 1250,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 32"
+      }
+    },
+    {
+      "id": "sub-32",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 532917,
+      "duration_ms": 1458,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 33"
+      }
+    },
+    {
+      "id": "sub-33",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 549375,
+      "duration_ms": 1667,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 34"
+      }
+    },
+    {
+      "id": "sub-34",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 565833,
+      "duration_ms": 1875,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 35"
+      }
+    },
+    {
+      "id": "sub-35",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 582292,
+      "duration_ms": 1042,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 36"
+      }
+    },
+    {
+      "id": "sub-36",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 598750,
+      "duration_ms": 1250,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 37"
+      }
+    },
+    {
+      "id": "sub-37",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 615208,
+      "duration_ms": 1458,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 38"
+      }
+    },
+    {
+      "id": "sub-38",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 631667,
+      "duration_ms": 1667,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 39"
+      }
+    },
+    {
+      "id": "sub-39",
+      "track": "sub",
+      "kind": "video",
+      "start_ms": 648125,
+      "duration_ms": 1875,
+      "source_in_ms": 0,
+      "priority": 0,
+      "locked": false,
+      "metadata": {
+        "text": "字幕卡 40"
+      }
+    },
+    {
+      "id": "dia-00",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 2083,
+      "duration_ms": 2500,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-0"
+      }
+    },
+    {
+      "id": "dia-01",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 18646,
+      "duration_ms": 2812,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-1"
+      }
+    },
+    {
+      "id": "dia-02",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 35208,
+      "duration_ms": 3125,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-2"
+      }
+    },
+    {
+      "id": "dia-03",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 51771,
+      "duration_ms": 3438,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-0"
+      }
+    },
+    {
+      "id": "dia-04",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 68333,
+      "duration_ms": 2500,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-1"
+      }
+    },
+    {
+      "id": "dia-05",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 84896,
+      "duration_ms": 2812,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-2"
+      }
+    },
+    {
+      "id": "dia-06",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 101458,
+      "duration_ms": 3125,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-0"
+      }
+    },
+    {
+      "id": "dia-07",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 118021,
+      "duration_ms": 3438,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-1"
+      }
+    },
+    {
+      "id": "dia-08",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 134583,
+      "duration_ms": 2500,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-2"
+      }
+    },
+    {
+      "id": "dia-09",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 151146,
+      "duration_ms": 2812,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-0"
+      }
+    },
+    {
+      "id": "dia-10",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 167708,
+      "duration_ms": 3125,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-1"
+      }
+    },
+    {
+      "id": "dia-11",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 184271,
+      "duration_ms": 3438,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-2"
+      }
+    },
+    {
+      "id": "dia-12",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 200833,
+      "duration_ms": 2500,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-0"
+      }
+    },
+    {
+      "id": "dia-13",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 217396,
+      "duration_ms": 2812,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-1"
+      }
+    },
+    {
+      "id": "dia-14",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 233958,
+      "duration_ms": 3125,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-2"
+      }
+    },
+    {
+      "id": "dia-15",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 250521,
+      "duration_ms": 3438,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-0"
+      }
+    },
+    {
+      "id": "dia-16",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 267083,
+      "duration_ms": 2500,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-1"
+      }
+    },
+    {
+      "id": "dia-17",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 283646,
+      "duration_ms": 2812,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-2"
+      }
+    },
+    {
+      "id": "dia-18",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 300208,
+      "duration_ms": 3125,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-0"
+      }
+    },
+    {
+      "id": "dia-19",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 316771,
+      "duration_ms": 3438,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-1"
+      }
+    },
+    {
+      "id": "dia-20",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 333333,
+      "duration_ms": 2500,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-2"
+      }
+    },
+    {
+      "id": "dia-21",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 349896,
+      "duration_ms": 2812,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-0"
+      }
+    },
+    {
+      "id": "dia-22",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 366458,
+      "duration_ms": 3125,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-1"
+      }
+    },
+    {
+      "id": "dia-23",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 383021,
+      "duration_ms": 3438,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-2"
+      }
+    },
+    {
+      "id": "dia-24",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 399583,
+      "duration_ms": 2500,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-0"
+      }
+    },
+    {
+      "id": "dia-25",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 416146,
+      "duration_ms": 2812,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-1"
+      }
+    },
+    {
+      "id": "dia-26",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 432708,
+      "duration_ms": 3125,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-2"
+      }
+    },
+    {
+      "id": "dia-27",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 449271,
+      "duration_ms": 3438,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-0"
+      }
+    },
+    {
+      "id": "dia-28",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 465833,
+      "duration_ms": 2500,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-1"
+      }
+    },
+    {
+      "id": "dia-29",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 482396,
+      "duration_ms": 2812,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-2"
+      }
+    },
+    {
+      "id": "dia-30",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 498958,
+      "duration_ms": 3125,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-0"
+      }
+    },
+    {
+      "id": "dia-31",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 515521,
+      "duration_ms": 3438,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-1"
+      }
+    },
+    {
+      "id": "dia-32",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 532083,
+      "duration_ms": 2500,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-2"
+      }
+    },
+    {
+      "id": "dia-33",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 548646,
+      "duration_ms": 2812,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-0"
+      }
+    },
+    {
+      "id": "dia-34",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 565208,
+      "duration_ms": 3125,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-1"
+      }
+    },
+    {
+      "id": "dia-35",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 581771,
+      "duration_ms": 3438,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-2"
+      }
+    },
+    {
+      "id": "dia-36",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 598333,
+      "duration_ms": 2500,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-0"
+      }
+    },
+    {
+      "id": "dia-37",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 614896,
+      "duration_ms": 2812,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-1"
+      }
+    },
+    {
+      "id": "dia-38",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 631458,
+      "duration_ms": 3125,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-2"
+      }
+    },
+    {
+      "id": "dia-39",
+      "track": "d1",
+      "kind": "audio",
+      "start_ms": 648021,
+      "duration_ms": 3438,
+      "source_in_ms": 0,
+      "priority": 50,
+      "locked": false,
+      "metadata": {
+        "speaker": "char-0"
+      }
+    },
+    {
+      "id": "mus-00",
+      "track": "m1",
+      "kind": "audio",
+      "start_ms": 0,
+      "duration_ms": 84417,
+      "source_in_ms": 0,
+      "priority": 5,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "mus-01",
+      "track": "m1",
+      "kind": "audio",
+      "start_ms": 83417,
+      "duration_ms": 84417,
+      "source_in_ms": 0,
+      "priority": 5,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "mus-02",
+      "track": "m1",
+      "kind": "audio",
+      "start_ms": 166833,
+      "duration_ms": 84417,
+      "source_in_ms": 0,
+      "priority": 5,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "mus-03",
+      "track": "m1",
+      "kind": "audio",
+      "start_ms": 250250,
+      "duration_ms": 84417,
+      "source_in_ms": 0,
+      "priority": 5,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "mus-04",
+      "track": "m1",
+      "kind": "audio",
+      "start_ms": 333667,
+      "duration_ms": 84417,
+      "source_in_ms": 0,
+      "priority": 5,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "mus-05",
+      "track": "m1",
+      "kind": "audio",
+      "start_ms": 417083,
+      "duration_ms": 84417,
+      "source_in_ms": 0,
+      "priority": 5,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "mus-06",
+      "track": "m1",
+      "kind": "audio",
+      "start_ms": 500500,
+      "duration_ms": 84417,
+      "source_in_ms": 0,
+      "priority": 5,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "mus-07",
+      "track": "m1",
+      "kind": "audio",
+      "start_ms": 583917,
+      "duration_ms": 83417,
+      "source_in_ms": 0,
+      "priority": 5,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "sfx-00",
+      "track": "fx",
+      "kind": "audio",
+      "start_ms": 41667,
+      "duration_ms": 938,
+      "source_in_ms": 0,
+      "priority": 30,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "sfx-01",
+      "track": "fx",
+      "kind": "audio",
+      "start_ms": 42021,
+      "duration_ms": 938,
+      "source_in_ms": 0,
+      "priority": 30,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "sfx-02",
+      "track": "fx",
+      "kind": "audio",
+      "start_ms": 42375,
+      "duration_ms": 938,
+      "source_in_ms": 0,
+      "priority": 30,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "sfx-03",
+      "track": "fx",
+      "kind": "audio",
+      "start_ms": 42729,
+      "duration_ms": 938,
+      "source_in_ms": 0,
+      "priority": 30,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "sfx-04",
+      "track": "fx",
+      "kind": "audio",
+      "start_ms": 43083,
+      "duration_ms": 938,
+      "source_in_ms": 0,
+      "priority": 30,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "sfx-05",
+      "track": "fx",
+      "kind": "audio",
+      "start_ms": 43438,
+      "duration_ms": 938,
+      "source_in_ms": 0,
+      "priority": 30,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "sfx-06",
+      "track": "fx",
+      "kind": "audio",
+      "start_ms": 43792,
+      "duration_ms": 938,
+      "source_in_ms": 0,
+      "priority": 30,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "sfx-07",
+      "track": "fx",
+      "kind": "audio",
+      "start_ms": 44146,
+      "duration_ms": 938,
+      "source_in_ms": 0,
+      "priority": 30,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "sfx-08",
+      "track": "fx",
+      "kind": "audio",
+      "start_ms": 44500,
+      "duration_ms": 938,
+      "source_in_ms": 0,
+      "priority": 30,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "sfx-09",
+      "track": "fx",
+      "kind": "audio",
+      "start_ms": 44854,
+      "duration_ms": 938,
+      "source_in_ms": 0,
+      "priority": 30,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "sfx-10",
+      "track": "fx",
+      "kind": "audio",
+      "start_ms": 45208,
+      "duration_ms": 938,
+      "source_in_ms": 0,
+      "priority": 30,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "sfx-11",
+      "track": "fx",
+      "kind": "audio",
+      "start_ms": 45562,
+      "duration_ms": 938,
+      "source_in_ms": 0,
+      "priority": 30,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "sfx-12",
+      "track": "fx",
+      "kind": "audio",
+      "start_ms": 45917,
+      "duration_ms": 938,
+      "source_in_ms": 0,
+      "priority": 30,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "sfx-13",
+      "track": "fx",
+      "kind": "audio",
+      "start_ms": 46271,
+      "duration_ms": 938,
+      "source_in_ms": 0,
+      "priority": 30,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "sfx-14",
+      "track": "fx",
+      "kind": "audio",
+      "start_ms": 46625,
+      "duration_ms": 938,
+      "source_in_ms": 0,
+      "priority": 30,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "sfx-15",
+      "track": "fx",
+      "kind": "audio",
+      "start_ms": 46979,
+      "duration_ms": 938,
+      "source_in_ms": 0,
+      "priority": 30,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "sfx-16",
+      "track": "fx",
+      "kind": "audio",
+      "start_ms": 47333,
+      "duration_ms": 938,
+      "source_in_ms": 0,
+      "priority": 30,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "sfx-17",
+      "track": "fx",
+      "kind": "audio",
+      "start_ms": 47688,
+      "duration_ms": 938,
+      "source_in_ms": 0,
+      "priority": 30,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "sfx-18",
+      "track": "fx",
+      "kind": "audio",
+      "start_ms": 48042,
+      "duration_ms": 938,
+      "source_in_ms": 0,
+      "priority": 30,
+      "locked": false,
+      "metadata": {}
+    },
+    {
+      "id": "sfx-19",
+      "track": "fx",
+      "kind": "audio",
+      "start_ms": 48396,
+      "duration_ms": 938,
+      "source_in_ms": 0,
+      "priority": 30,
+      "locked": false,
+      "metadata": {}
+    }
+  ],
+  "metadata": {
+    "episode": 1,
+    "series": "pair-wise"
+  },
+  "duration_ms": 667333,
+  "x_suite": "studio-2219",
+  "x_revision": 2
+}

@@ -1,0 +1,2639 @@
+{
+  "format": "etj",
+  "version": 2,
+  "name": "ep01-fixture",
+  "fps": "30000/1001",
+  "timebase": 48000,
+  "defaults": {
+    "priority": 0,
+    "locked": false
+  },
+  "tracks": [
+    {
+      "id": "v1",
+      "kind": "video",
+      "z_order": 0,
+      "origin": {
+        "samples": 0
+      },
+      "defaults": {
+        "priority": 10,
+        "locked": false,
+        "metadata": {
+          "role": "background"
+        }
+      },
+      "segments": [
+        {
+          "id": "bg-00",
+          "offset": {
+            "samples": 0
+          },
+          "duration": {
+            "samples": 2669333
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "shot": 1
+          },
+          "x_note": "show opener"
+        },
+        {
+          "id": "bg-01",
+          "offset": {
+            "samples": 0
+          },
+          "duration": {
+            "samples": 2669334
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "shot": 2
+          }
+        },
+        {
+          "id": "bg-02",
+          "offset": {
+            "samples": 0
+          },
+          "duration": {
+            "samples": 2669333
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "shot": 3
+          }
+        },
+        {
+          "id": "bg-03",
+          "offset": {
+            "samples": 0
+          },
+          "duration": {
+            "samples": 2669333
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "shot": 4
+          }
+        },
+        {
+          "id": "bg-04",
+          "offset": {
+            "samples": 0
+          },
+          "duration": {
+            "samples": 2669334
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "shot": 5
+          }
+        },
+        {
+          "id": "bg-05",
+          "offset": {
+            "samples": 0
+          },
+          "duration": {
+            "samples": 2669333
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "shot": 6
+          }
+        },
+        {
+          "id": "bg-06",
+          "offset": {
+            "samples": 0
+          },
+          "duration": {
+            "samples": 2669333
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "shot": 7
+          }
+        },
+        {
+          "id": "bg-07",
+          "offset": {
+            "samples": 0
+          },
+          "duration": {
+            "samples": 2669334
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "shot": 8
+          }
+        },
+        {
+          "id": "bg-08",
+          "offset": {
+            "samples": 0
+          },
+          "duration": {
+            "samples": 2669333
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "shot": 9
+          }
+        },
+        {
+          "id": "bg-09",
+          "offset": {
+            "samples": 0
+          },
+          "duration": {
+            "samples": 2669333
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "shot": 10
+          }
+        },
+        {
+          "id": "bg-10",
+          "offset": {
+            "samples": 0
+          },
+          "duration": {
+            "samples": 2669334
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "shot": 11
+          }
+        },
+        {
+          "id": "bg-11",
+          "offset": {
+            "samples": 0
+          },
+          "duration": {
+            "samples": 2669333
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "shot": 12
+          }
+        }
+      ],
+      "x_camera": "A"
+    },
+    {
+      "id": "v2",
+      "kind": "video",
+      "z_order": 1,
+      "origin": {
+        "samples": 0
+      },
+      "defaults": {
+        "priority": 20,
+        "locked": false,
+        "metadata": {
+          "role": "action"
+        }
+      },
+      "segments": [
+        {
+          "id": "v2-00",
+          "offset": {
+            "samples": 4000000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 21,
+          "metadata": {}
+        },
+        {
+          "id": "v2-01",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 2000
+          },
+          "priority": 21,
+          "metadata": {}
+        },
+        {
+          "id": "v2-02",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 4000
+          },
+          "priority": 21,
+          "metadata": {}
+        },
+        {
+          "id": "v2-03",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 6000
+          },
+          "priority": 21,
+          "metadata": {}
+        },
+        {
+          "id": "v2-04",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 8000
+          },
+          "priority": 21,
+          "metadata": {}
+        },
+        {
+          "id": "v2-05",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 10000
+          },
+          "priority": 21,
+          "metadata": {}
+        },
+        {
+          "id": "v2-06",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 12000
+          },
+          "priority": 21,
+          "metadata": {}
+        },
+        {
+          "id": "v2-07",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 14000
+          },
+          "priority": 21,
+          "metadata": {}
+        },
+        {
+          "id": "v2-08",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 16000
+          },
+          "priority": 21,
+          "metadata": {}
+        },
+        {
+          "id": "v2-09",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 18000
+          },
+          "priority": 21,
+          "metadata": {}
+        },
+        {
+          "id": "v2-10",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 20000
+          },
+          "priority": 21,
+          "metadata": {}
+        },
+        {
+          "id": "v2-11",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 22000
+          },
+          "priority": 21,
+          "metadata": {}
+        },
+        {
+          "id": "v2-12",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 24000
+          },
+          "priority": 21,
+          "metadata": {}
+        },
+        {
+          "id": "v2-13",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 26000
+          },
+          "priority": 21,
+          "metadata": {}
+        },
+        {
+          "id": "v2-14",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 28000
+          },
+          "priority": 21,
+          "metadata": {}
+        },
+        {
+          "id": "v2-15",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 30000
+          },
+          "priority": 21,
+          "metadata": {}
+        },
+        {
+          "id": "v2-16",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 32000
+          },
+          "priority": 21,
+          "metadata": {}
+        },
+        {
+          "id": "v2-17",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 34000
+          },
+          "priority": 21,
+          "metadata": {}
+        },
+        {
+          "id": "v2-18",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 36000
+          },
+          "priority": 21,
+          "metadata": {}
+        },
+        {
+          "id": "v2-19",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 38000
+          },
+          "priority": 21,
+          "metadata": {}
+        },
+        {
+          "id": "v2-20",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 40000
+          },
+          "priority": 21,
+          "metadata": {}
+        },
+        {
+          "id": "v2-21",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 42000
+          },
+          "priority": 21,
+          "metadata": {}
+        },
+        {
+          "id": "v2-22",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 44000
+          },
+          "priority": 21,
+          "metadata": {}
+        },
+        {
+          "id": "v2-23",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 46000
+          },
+          "priority": 21,
+          "metadata": {}
+        },
+        {
+          "id": "v2-24",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 48000
+          },
+          "priority": 21,
+          "metadata": {}
+        }
+      ]
+    },
+    {
+      "id": "v3",
+      "kind": "video",
+      "z_order": 2,
+      "origin": {
+        "samples": 0
+      },
+      "defaults": {
+        "priority": 20,
+        "locked": false,
+        "metadata": {
+          "role": "action"
+        }
+      },
+      "segments": [
+        {
+          "id": "v3-00",
+          "offset": {
+            "samples": 5000000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 22,
+          "metadata": {}
+        },
+        {
+          "id": "v3-01",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 2000
+          },
+          "priority": 22,
+          "metadata": {}
+        },
+        {
+          "id": "v3-02",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 4000
+          },
+          "priority": 22,
+          "metadata": {}
+        },
+        {
+          "id": "v3-03",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 6000
+          },
+          "priority": 22,
+          "metadata": {}
+        },
+        {
+          "id": "v3-04",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 8000
+          },
+          "priority": 22,
+          "metadata": {}
+        },
+        {
+          "id": "v3-05",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 10000
+          },
+          "priority": 22,
+          "metadata": {}
+        },
+        {
+          "id": "v3-06",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 12000
+          },
+          "priority": 22,
+          "metadata": {}
+        },
+        {
+          "id": "v3-07",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 14000
+          },
+          "priority": 22,
+          "metadata": {}
+        },
+        {
+          "id": "v3-08",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 16000
+          },
+          "priority": 22,
+          "metadata": {}
+        },
+        {
+          "id": "v3-09",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 18000
+          },
+          "priority": 22,
+          "metadata": {}
+        },
+        {
+          "id": "v3-10",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 20000
+          },
+          "priority": 22,
+          "metadata": {}
+        },
+        {
+          "id": "v3-11",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 22000
+          },
+          "priority": 22,
+          "metadata": {}
+        },
+        {
+          "id": "v3-12",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 24000
+          },
+          "priority": 22,
+          "metadata": {}
+        },
+        {
+          "id": "v3-13",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 26000
+          },
+          "priority": 22,
+          "metadata": {}
+        },
+        {
+          "id": "v3-14",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 28000
+          },
+          "priority": 22,
+          "metadata": {}
+        },
+        {
+          "id": "v3-15",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 30000
+          },
+          "priority": 22,
+          "metadata": {}
+        },
+        {
+          "id": "v3-16",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 32000
+          },
+          "priority": 22,
+          "metadata": {}
+        },
+        {
+          "id": "v3-17",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 34000
+          },
+          "priority": 22,
+          "metadata": {}
+        },
+        {
+          "id": "v3-18",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 36000
+          },
+          "priority": 22,
+          "metadata": {}
+        },
+        {
+          "id": "v3-19",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 38000
+          },
+          "priority": 22,
+          "metadata": {}
+        },
+        {
+          "id": "v3-20",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 40000
+          },
+          "priority": 22,
+          "metadata": {}
+        },
+        {
+          "id": "v3-21",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 42000
+          },
+          "priority": 22,
+          "metadata": {}
+        },
+        {
+          "id": "v3-22",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 44000
+          },
+          "priority": 22,
+          "metadata": {}
+        },
+        {
+          "id": "v3-23",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 46000
+          },
+          "priority": 22,
+          "metadata": {}
+        },
+        {
+          "id": "v3-24",
+          "offset": {
+            "samples": -10000
+          },
+          "duration": {
+            "samples": 40000
+          },
+          "source_in": {
+            "samples": 48000
+          },
+          "priority": 22,
+          "metadata": {}
+        }
+      ]
+    },
+    {
+      "id": "sub",
+      "kind": "video",
+      "z_order": 3,
+      "origin": {
+        "samples": 0
+      },
+      "defaults": {
+        "priority": 40,
+        "locked": false,
+        "metadata": {
+          "role": "subtitle"
+        }
+      },
+      "segments": [
+        {
+          "id": "sub-00",
+          "offset": {
+            "samples": 300000
+          },
+          "duration": {
+            "samples": 50000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 01"
+          }
+        },
+        {
+          "id": "sub-01",
+          "offset": {
+            "samples": 740000
+          },
+          "duration": {
+            "samples": 60000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 02"
+          }
+        },
+        {
+          "id": "sub-02",
+          "offset": {
+            "samples": 730000
+          },
+          "duration": {
+            "samples": 70000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 03"
+          }
+        },
+        {
+          "id": "sub-03",
+          "offset": {
+            "samples": 720000
+          },
+          "duration": {
+            "samples": 80000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 04"
+          }
+        },
+        {
+          "id": "sub-04",
+          "offset": {
+            "samples": 710000
+          },
+          "duration": {
+            "samples": 90000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 05"
+          }
+        },
+        {
+          "id": "sub-05",
+          "offset": {
+            "samples": 700000
+          },
+          "duration": {
+            "samples": 50000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 06"
+          }
+        },
+        {
+          "id": "sub-06",
+          "offset": {
+            "samples": 740000
+          },
+          "duration": {
+            "samples": 60000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 07"
+          }
+        },
+        {
+          "id": "sub-07",
+          "offset": {
+            "samples": 730000
+          },
+          "duration": {
+            "samples": 70000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 08"
+          }
+        },
+        {
+          "id": "sub-08",
+          "offset": {
+            "samples": 720000
+          },
+          "duration": {
+            "samples": 80000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 09"
+          }
+        },
+        {
+          "id": "sub-09",
+          "offset": {
+            "samples": 710000
+          },
+          "duration": {
+            "samples": 90000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 10"
+          }
+        },
+        {
+          "id": "sub-10",
+          "offset": {
+            "samples": 700000
+          },
+          "duration": {
+            "samples": 50000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 11"
+          }
+        },
+        {
+          "id": "sub-11",
+          "offset": {
+            "samples": 740000
+          },
+          "duration": {
+            "samples": 60000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 12"
+          }
+        },
+        {
+          "id": "sub-12",
+          "offset": {
+            "samples": 730000
+          },
+          "duration": {
+            "samples": 70000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 13"
+          }
+        },
+        {
+          "id": "sub-13",
+          "offset": {
+            "samples": 720000
+          },
+          "duration": {
+            "samples": 80000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 14"
+          }
+        },
+        {
+          "id": "sub-14",
+          "offset": {
+            "samples": 710000
+          },
+          "duration": {
+            "samples": 90000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 15"
+          }
+        },
+        {
+          "id": "sub-15",
+          "offset": {
+            "samples": 700000
+          },
+          "duration": {
+            "samples": 50000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 16"
+          }
+        },
+        {
+          "id": "sub-16",
+          "offset": {
+            "samples": 740000
+          },
+          "duration": {
+            "samples": 60000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 17"
+          }
+        },
+        {
+          "id": "sub-17",
+          "offset": {
+            "samples": 730000
+          },
+          "duration": {
+            "samples": 70000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 18"
+          }
+        },
+        {
+          "id": "sub-18",
+          "offset": {
+            "samples": 720000
+          },
+          "duration": {
+            "samples": 80000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 19"
+          }
+        },
+        {
+          "id": "sub-19",
+          "offset": {
+            "samples": 710000
+          },
+          "duration": {
+            "samples": 90000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 20"
+          }
+        },
+        {
+          "id": "sub-20",
+          "offset": {
+            "samples": 700000
+          },
+          "duration": {
+            "samples": 50000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 21"
+          }
+        },
+        {
+          "id": "sub-21",
+          "offset": {
+            "samples": 740000
+          },
+          "duration": {
+            "samples": 60000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 22"
+          }
+        },
+        {
+          "id": "sub-22",
+          "offset": {
+            "samples": 730000
+          },
+          "duration": {
+            "samples": 70000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 23"
+          }
+        },
+        {
+          "id": "sub-23",
+          "offset": {
+            "samples": 720000
+          },
+          "duration": {
+            "samples": 80000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 24"
+          }
+        },
+        {
+          "id": "sub-24",
+          "offset": {
+            "samples": 710000
+          },
+          "duration": {
+            "samples": 90000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 25"
+          }
+        },
+        {
+          "id": "sub-25",
+          "offset": {
+            "samples": 700000
+          },
+          "duration": {
+            "samples": 50000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 26"
+          }
+        },
+        {
+          "id": "sub-26",
+          "offset": {
+            "samples": 740000
+          },
+          "duration": {
+            "samples": 60000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 27"
+          }
+        },
+        {
+          "id": "sub-27",
+          "offset": {
+            "samples": 730000
+          },
+          "duration": {
+            "samples": 70000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 28"
+          }
+        },
+        {
+          "id": "sub-28",
+          "offset": {
+            "samples": 720000
+          },
+          "duration": {
+            "samples": 80000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 29"
+          }
+        },
+        {
+          "id": "sub-29",
+          "offset": {
+            "samples": 710000
+          },
+          "duration": {
+            "samples": 90000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 30"
+          }
+        },
+        {
+          "id": "sub-30",
+          "offset": {
+            "samples": 700000
+          },
+          "duration": {
+            "samples": 50000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 31"
+          }
+        },
+        {
+          "id": "sub-31",
+          "offset": {
+            "samples": 740000
+          },
+          "duration": {
+            "samples": 60000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 32"
+          }
+        },
+        {
+          "id": "sub-32",
+          "offset": {
+            "samples": 730000
+          },
+          "duration": {
+            "samples": 70000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 33"
+          }
+        },
+        {
+          "id": "sub-33",
+          "offset": {
+            "samples": 720000
+          },
+          "duration": {
+            "samples": 80000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 34"
+          }
+        },
+        {
+          "id": "sub-34",
+          "offset": {
+            "samples": 710000
+          },
+          "duration": {
+            "samples": 90000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 35"
+          }
+        },
+        {
+          "id": "sub-35",
+          "offset": {
+            "samples": 700000
+          },
+          "duration": {
+            "samples": 50000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 36"
+          }
+        },
+        {
+          "id": "sub-36",
+          "offset": {
+            "samples": 740000
+          },
+          "duration": {
+            "samples": 60000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 37"
+          }
+        },
+        {
+          "id": "sub-37",
+          "offset": {
+            "samples": 730000
+          },
+          "duration": {
+            "samples": 70000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 38"
+          }
+        },
+        {
+          "id": "sub-38",
+          "offset": {
+            "samples": 720000
+          },
+          "duration": {
+            "samples": 80000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 39"
+          }
+        },
+        {
+          "id": "sub-39",
+          "offset": {
+            "samples": 710000
+          },
+          "duration": {
+            "samples": 90000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "priority": 0,
+          "metadata": {
+            "text": "字幕卡 40"
+          }
+        }
+      ]
+    },
+    {
+      "id": "d1",
+      "kind": "audio",
+      "z_order": 0,
+      "origin": {
+        "samples": 0
+      },
+      "defaults": {
+        "priority": 50,
+        "locked": false,
+        "metadata": {
+          "role": "dialogue"
+        }
+      },
+      "segments": [
+        {
+          "id": "dia-00",
+          "offset": {
+            "samples": 100000
+          },
+          "duration": {
+            "samples": 120000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-0"
+          }
+        },
+        {
+          "id": "dia-01",
+          "offset": {
+            "samples": 675000
+          },
+          "duration": {
+            "samples": 135000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-1"
+          }
+        },
+        {
+          "id": "dia-02",
+          "offset": {
+            "samples": 660000
+          },
+          "duration": {
+            "samples": 150000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-2"
+          }
+        },
+        {
+          "id": "dia-03",
+          "offset": {
+            "samples": 645000
+          },
+          "duration": {
+            "samples": 165000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-0"
+          }
+        },
+        {
+          "id": "dia-04",
+          "offset": {
+            "samples": 630000
+          },
+          "duration": {
+            "samples": 120000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-1"
+          }
+        },
+        {
+          "id": "dia-05",
+          "offset": {
+            "samples": 675000
+          },
+          "duration": {
+            "samples": 135000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-2"
+          }
+        },
+        {
+          "id": "dia-06",
+          "offset": {
+            "samples": 660000
+          },
+          "duration": {
+            "samples": 150000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-0"
+          }
+        },
+        {
+          "id": "dia-07",
+          "offset": {
+            "samples": 645000
+          },
+          "duration": {
+            "samples": 165000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-1"
+          }
+        },
+        {
+          "id": "dia-08",
+          "offset": {
+            "samples": 630000
+          },
+          "duration": {
+            "samples": 120000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-2"
+          }
+        },
+        {
+          "id": "dia-09",
+          "offset": {
+            "samples": 675000
+          },
+          "duration": {
+            "samples": 135000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-0"
+          }
+        },
+        {
+          "id": "dia-10",
+          "offset": {
+            "samples": 660000
+          },
+          "duration": {
+            "samples": 150000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-1"
+          }
+        },
+        {
+          "id": "dia-11",
+          "offset": {
+            "samples": 645000
+          },
+          "duration": {
+            "samples": 165000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-2"
+          }
+        },
+        {
+          "id": "dia-12",
+          "offset": {
+            "samples": 630000
+          },
+          "duration": {
+            "samples": 120000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-0"
+          }
+        },
+        {
+          "id": "dia-13",
+          "offset": {
+            "samples": 675000
+          },
+          "duration": {
+            "samples": 135000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-1"
+          }
+        },
+        {
+          "id": "dia-14",
+          "offset": {
+            "samples": 660000
+          },
+          "duration": {
+            "samples": 150000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-2"
+          }
+        },
+        {
+          "id": "dia-15",
+          "offset": {
+            "samples": 645000
+          },
+          "duration": {
+            "samples": 165000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-0"
+          }
+        },
+        {
+          "id": "dia-16",
+          "offset": {
+            "samples": 630000
+          },
+          "duration": {
+            "samples": 120000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-1"
+          }
+        },
+        {
+          "id": "dia-17",
+          "offset": {
+            "samples": 675000
+          },
+          "duration": {
+            "samples": 135000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-2"
+          }
+        },
+        {
+          "id": "dia-18",
+          "offset": {
+            "samples": 660000
+          },
+          "duration": {
+            "samples": 150000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-0"
+          }
+        },
+        {
+          "id": "dia-19",
+          "offset": {
+            "samples": 645000
+          },
+          "duration": {
+            "samples": 165000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-1"
+          }
+        },
+        {
+          "id": "dia-20",
+          "offset": {
+            "samples": 630000
+          },
+          "duration": {
+            "samples": 120000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-2"
+          }
+        },
+        {
+          "id": "dia-21",
+          "offset": {
+            "samples": 675000
+          },
+          "duration": {
+            "samples": 135000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-0"
+          }
+        },
+        {
+          "id": "dia-22",
+          "offset": {
+            "samples": 660000
+          },
+          "duration": {
+            "samples": 150000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-1"
+          }
+        },
+        {
+          "id": "dia-23",
+          "offset": {
+            "samples": 645000
+          },
+          "duration": {
+            "samples": 165000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-2"
+          }
+        },
+        {
+          "id": "dia-24",
+          "offset": {
+            "samples": 630000
+          },
+          "duration": {
+            "samples": 120000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-0"
+          }
+        },
+        {
+          "id": "dia-25",
+          "offset": {
+            "samples": 675000
+          },
+          "duration": {
+            "samples": 135000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-1"
+          }
+        },
+        {
+          "id": "dia-26",
+          "offset": {
+            "samples": 660000
+          },
+          "duration": {
+            "samples": 150000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-2"
+          }
+        },
+        {
+          "id": "dia-27",
+          "offset": {
+            "samples": 645000
+          },
+          "duration": {
+            "samples": 165000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-0"
+          }
+        },
+        {
+          "id": "dia-28",
+          "offset": {
+            "samples": 630000
+          },
+          "duration": {
+            "samples": 120000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-1"
+          }
+        },
+        {
+          "id": "dia-29",
+          "offset": {
+            "samples": 675000
+          },
+          "duration": {
+            "samples": 135000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-2"
+          }
+        },
+        {
+          "id": "dia-30",
+          "offset": {
+            "samples": 660000
+          },
+          "duration": {
+            "samples": 150000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-0"
+          }
+        },
+        {
+          "id": "dia-31",
+          "offset": {
+            "samples": 645000
+          },
+          "duration": {
+            "samples": 165000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-1"
+          }
+        },
+        {
+          "id": "dia-32",
+          "offset": {
+            "samples": 630000
+          },
+          "duration": {
+            "samples": 120000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-2"
+          }
+        },
+        {
+          "id": "dia-33",
+          "offset": {
+            "samples": 675000
+          },
+          "duration": {
+            "samples": 135000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-0"
+          }
+        },
+        {
+          "id": "dia-34",
+          "offset": {
+            "samples": 660000
+          },
+          "duration": {
+            "samples": 150000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-1"
+          }
+        },
+        {
+          "id": "dia-35",
+          "offset": {
+            "samples": 645000
+          },
+          "duration": {
+            "samples": 165000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-2"
+          }
+        },
+        {
+          "id": "dia-36",
+          "offset": {
+            "samples": 630000
+          },
+          "duration": {
+            "samples": 120000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-0"
+          }
+        },
+        {
+          "id": "dia-37",
+          "offset": {
+            "samples": 675000
+          },
+          "duration": {
+            "samples": 135000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-1"
+          }
+        },
+        {
+          "id": "dia-38",
+          "offset": {
+            "samples": 660000
+          },
+          "duration": {
+            "samples": 150000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-2"
+          }
+        },
+        {
+          "id": "dia-39",
+          "offset": {
+            "samples": 645000
+          },
+          "duration": {
+            "samples": 165000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {
+            "speaker": "char-0"
+          }
+        }
+      ]
+    },
+    {
+      "id": "m1",
+      "kind": "audio",
+      "z_order": 0,
+      "origin": {
+        "samples": 0
+      },
+      "defaults": {
+        "priority": 5,
+        "locked": false,
+        "metadata": {
+          "role": "music"
+        }
+      },
+      "segments": [
+        {
+          "id": "mus-00",
+          "offset": {
+            "samples": 0
+          },
+          "duration": {
+            "samples": 4052000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {}
+        },
+        {
+          "id": "mus-01",
+          "offset": {
+            "samples": -48000
+          },
+          "duration": {
+            "samples": 4052000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {}
+        },
+        {
+          "id": "mus-02",
+          "offset": {
+            "samples": -48000
+          },
+          "duration": {
+            "samples": 4052000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {}
+        },
+        {
+          "id": "mus-03",
+          "offset": {
+            "samples": -48000
+          },
+          "duration": {
+            "samples": 4052000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {}
+        },
+        {
+          "id": "mus-04",
+          "offset": {
+            "samples": -48000
+          },
+          "duration": {
+            "samples": 4052000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {}
+        },
+        {
+          "id": "mus-05",
+          "offset": {
+            "samples": -48000
+          },
+          "duration": {
+            "samples": 4052000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {}
+        },
+        {
+          "id": "mus-06",
+          "offset": {
+            "samples": -48000
+          },
+          "duration": {
+            "samples": 4052000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {}
+        },
+        {
+          "id": "mus-07",
+          "offset": {
+            "samples": -48000
+          },
+          "duration": {
+            "samples": 4004000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {}
+        }
+      ]
+    },
+    {
+      "id": "fx",
+      "kind": "audio",
+      "z_order": 0,
+      "origin": {
+        "samples": 0
+      },
+      "defaults": {
+        "priority": 30,
+        "locked": false,
+        "metadata": {
+          "role": "effects"
+        }
+      },
+      "segments": [
+        {
+          "id": "sfx-00",
+          "offset": {
+            "samples": 2000000
+          },
+          "duration": {
+            "samples": 45000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {}
+        },
+        {
+          "id": "sfx-01",
+          "offset": {
+            "samples": -28000
+          },
+          "duration": {
+            "samples": 45000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {}
+        },
+        {
+          "id": "sfx-02",
+          "offset": {
+            "samples": -28000
+          },
+          "duration": {
+            "samples": 45000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {}
+        },
+        {
+          "id": "sfx-03",
+          "offset": {
+            "samples": -28000
+          },
+          "duration": {
+            "samples": 45000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {}
+        },
+        {
+          "id": "sfx-04",
+          "offset": {
+            "samples": -28000
+          },
+          "duration": {
+            "samples": 45000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {}
+        },
+        {
+          "id": "sfx-05",
+          "offset": {
+            "samples": -28000
+          },
+          "duration": {
+            "samples": 45000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {}
+        },
+        {
+          "id": "sfx-06",
+          "offset": {
+            "samples": -28000
+          },
+          "duration": {
+            "samples": 45000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {}
+        },
+        {
+          "id": "sfx-07",
+          "offset": {
+            "samples": -28000
+          },
+          "duration": {
+            "samples": 45000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {}
+        },
+        {
+          "id": "sfx-08",
+          "offset": {
+            "samples": -28000
+          },
+          "duration": {
+            "samples": 45000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {}
+        },
+        {
+          "id": "sfx-09",
+          "offset": {
+            "samples": -28000
+          },
+          "duration": {
+            "samples": 45000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {}
+        },
+        {
+          "id": "sfx-10",
+          "offset": {
+            "samples": -28000
+          },
+          "duration": {
+            "samples": 45000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {}
+        },
+        {
+          "id": "sfx-11",
+          "offset": {
+            "samples": -28000
+          },
+          "duration": {
+            "samples": 45000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {}
+        },
+        {
+          "id": "sfx-12",
+          "offset": {
+            "samples": -28000
+          },
+          "duration": {
+            "samples": 45000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {}
+        },
+        {
+          "id": "sfx-13",
+          "offset": {
+            "samples": -28000
+          },
+          "duration": {
+            "samples": 45000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {}
+        },
+        {
+          "id": "sfx-14",
+          "offset": {
+            "samples": -28000
+          },
+          "duration": {
+            "samples": 45000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {}
+        },
+        {
+          "id": "sfx-15",
+          "offset": {
+            "samples": -28000
+          },
+          "duration": {
+            "samples": 45000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {}
+        },
+        {
+          "id": "sfx-16",
+          "offset": {
+            "samples": -28000
+          },
+          "duration": {
+            "samples": 45000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {}
+        },
+        {
+          "id": "sfx-17",
+          "offset": {
+            "samples": -28000
+          },
+          "duration": {
+            "samples": 45000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {}
+        },
+        {
+          "id": "sfx-18",
+          "offset": {
+            "samples": -28000
+          },
+          "duration": {
+            "samples": 45000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {}
+        },
+        {
+          "id": "sfx-19",
+          "offset": {
+            "samples": -28000
+          },
+          "duration": {
+            "samples": 45000
+          },
+          "source_in": {
+            "samples": 0
+          },
+          "metadata": {}
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "episode": 1,
+    "series": "pair-wise"
+  },
+  "duration": {
+    "samples": 32032000
+  },
+  "x_suite": "studio-2219",
+  "x_revision": 2
+}
