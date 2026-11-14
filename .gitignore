@@ -71,3 +71,10 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Go build / generated fixtures ----
+/m3u8ctl
+/report.json
+/testdata/fx/
+*.test
+*.out
