@@ -71,3 +71,15 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- ABR lab build/runtime artifacts ----
+.venv/
+__pycache__/
+*.py[cod]
+work/
+out/
+*.db
+*.db-shm
+*.db-wal
+*.part
+.coverage
