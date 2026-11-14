@@ -71,3 +71,8 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 项目构建产物与中间文件 ----
+/out/
+/testdata/
+/tcr
