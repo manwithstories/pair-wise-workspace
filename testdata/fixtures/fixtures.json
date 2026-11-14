@@ -1,0 +1,24 @@
+{
+  "representations": [
+    {
+      "id": "r1",
+      "dir": "r1",
+      "bandwidth": 400000
+    },
+    {
+      "id": "r2",
+      "dir": "r2",
+      "bandwidth": 800000
+    },
+    {
+      "id": "r3",
+      "dir": "r3",
+      "bandwidth": 1500000
+    },
+    {
+      "id": "r4",
+      "dir": "r4",
+      "bandwidth": 3000000
+    }
+  ]
+}
