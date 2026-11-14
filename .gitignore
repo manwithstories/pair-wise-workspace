@@ -71,3 +71,10 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Generated mixer artifacts ----
+__pycache__/
+*.py[cod]
+.pytest_cache/
+/outputs/
+/fixtures/
