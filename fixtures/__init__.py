@@ -1,0 +1,1 @@
+"""Deterministic sample-data generators."""

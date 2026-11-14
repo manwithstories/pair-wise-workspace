@@ -71,3 +71,9 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- audiocut 运行产物（可由 fixtures/gen.py 与命令重新生成）----
+__pycache__/
+work/
+out/
+fixtures/*.wav
