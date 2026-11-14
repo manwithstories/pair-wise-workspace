@@ -71,3 +71,12 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Python / test / generated artifacts ----
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+fixtures/
+out/
+*.jsonl
