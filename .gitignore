@@ -71,3 +71,11 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# local toolchain
+.goenv.sh
+fixtures/
+outputs/
+.gitlocal/
+.gitcommit.sh
+.gitv2/
