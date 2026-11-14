@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "framefix"
+version = "0.1.0"
+description = "Streaming timestamp diagnostics and lossless repair for H.264/H.265 MP4 assets"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  "av==12.3.0",
+  "numpy==1.26.4",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<9"]
+
+[project.scripts]
+framefix = "framefix.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
+
