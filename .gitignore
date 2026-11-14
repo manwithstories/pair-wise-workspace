@@ -71,3 +71,8 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- rcx generated artifacts ----
+/testdata/
+/out/
+/bin/
