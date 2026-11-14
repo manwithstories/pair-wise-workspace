@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools==75.1.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "frameaudit"
+version = "0.1.0"
+description = "Offline frame audit, timeline repair, and CFR proxy generation"
+requires-python = ">=3.11"
+dependencies = [
+    "av==12.3.0",
+    "numpy==1.26.4",
+    "pytest==8.3.5",
+]
+
+[project.scripts]
+frameaudit = "frameaudit.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["frameaudit*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["."]
+

@@ -15,6 +15,16 @@
 .agents/
 AGENTS.md.local
 
+# ---- Python / project artifacts ----
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+fixtures/
+out/
+
+
 # ---- CodeBuddy / WorkBuddy (腾讯) ----
 .codebuddy/
 .workbuddy/
