@@ -71,3 +71,9 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# local build and generated acceptance artifacts
+/build/
+/fixtures/
+/out/
+/.brew-cache/
