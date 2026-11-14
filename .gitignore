@@ -71,3 +71,14 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Python 缓存与构建产物 ----
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+
+# ---- 本地生成的轨迹与报表产物 ----
+/traces/
+/out/
