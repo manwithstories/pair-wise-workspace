@@ -1,0 +1,12 @@
+{
+  "input": "/Users/clearliu/WorkSpace/pair-wise-workspace/442/work/src.yuv",
+  "input_sha256": "cf0012704392fdb50857b57b4f3be1df18236822162989deb4c746cdcb0290da",
+  "width": 640,
+  "height": 360,
+  "fps": 30,
+  "target_bps": 1200000,
+  "segment_frames": 30,
+  "total_frames": 240,
+  "segments": 8,
+  "state": "completed"
+}

@@ -1,0 +1,8 @@
+{
+  "segment": 8,
+  "frames": 30,
+  "qp": 36,
+  "bits": 1029566,
+  "psnr_db": 37.92003736623364,
+  "hash": "02ca55eb4282852dda1b2d9a9972178bbf58525add39e91e38aea63bc095eece"
+}
