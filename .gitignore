@@ -71,3 +71,11 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- relayctl 构建与运行产物 ----
+/out/
+/bin/
+/relayctl
+*.test
+*.out
+*.prof
