@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cutplan"
+version = "0.1.0"
+description = "Deterministic frame-accurate training-video cut plan tool"
+requires-python = ">=3.11"
+dependencies = [
+  "opentimelineio==0.17.0",
+  "Pillow==10.4.0",
+  "pytest==8.2.2",
+]
+
+[project.scripts]
+cutplan = "cutplan.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
