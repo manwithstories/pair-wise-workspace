@@ -1,0 +1,9 @@
+[project]
+name = "mp4qc"
+version = "0.1.0"
+description = "ISO BMFF (fragmented MP4) index verify & rebuild toolkit"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
