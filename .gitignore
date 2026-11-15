@@ -15,6 +15,26 @@
 .agents/
 AGENTS.md.local
 
+# ---- Local build / run artifacts ----
+__pycache__/
+*.py[cod]
+.pytest_cache/
+build/
+out/
+dist/
+demo/
+*.o
+*.a
+*.so
+*.sqlite3
+*.db
+.env
+.env.*
+*.pem
+*.key
+*token*
+*secret*
+
 # ---- CodeBuddy / WorkBuddy (腾讯) ----
 .codebuddy/
 .workbuddy/

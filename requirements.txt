@@ -1,0 +1,2 @@
+opentimelineio==0.17.0
+pytest>=8.0,<9.0
