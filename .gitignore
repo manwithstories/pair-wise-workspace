@@ -71,3 +71,8 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 本地构建、夹具与输出 ----
+build/
+fixtures/
+out/
