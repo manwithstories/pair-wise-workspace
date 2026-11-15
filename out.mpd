@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" mediaPresentationDuration="PT47S" minBufferTime="PT2S">
+  <Period duration="PT47S">
+    <AdaptationSet contentType="video" mimeType="video/mp4">
+      <Representation id="v1" bandwidth="2400000" codecs="avc1.64001f">
+        <SegmentTemplate timescale="90000" duration="180000" startNumber="1" media="v1/seg_$Number%05d$.m4s" initialization="v1/init.mp4">
+          <SegmentTimeline>
+            <S d="180000"></S>
+            <S d="180000" t="180000"></S>
+            <S d="180000" t="360000"></S>
+            <S d="180000" t="540000"></S>
+            <S d="180000" t="720000"></S>
+            <S d="180000" t="900000"></S>
+            <S d="180000" t="1080000"></S>
+            <S d="180000" t="1260000"></S>
+            <S d="180000" t="1440000"></S>
+            <S d="180000" t="1620000"></S>
+            <S d="180000" t="1800000"></S>
+            <S d="180000" t="1980000"></S>
+            <S d="180000" t="2160000"></S>
+            <S d="180000" t="2340000"></S>
+            <S d="180000" t="2520000"></S>
+            <S d="180000" t="2700000"></S>
+            <S d="180000" t="2880000"></S>
+            <S d="180000" t="3060000"></S>
+            <S d="180000" t="3240000"></S>
+            <S d="180000" t="3420000"></S>
+            <S d="180000" t="3600000"></S>
+            <S d="180000" t="3780000"></S>
+            <S d="180000" t="3960000"></S>
+            <S d="90000" t="4140000"></S>
+          </SegmentTimeline>
+        </SegmentTemplate>
+      </Representation>
+      <Representation id="v2" bandwidth="1600000" codecs="avc1.64001f">
+        <SegmentTemplate timescale="90000" duration="180000" startNumber="1" media="v2/seg_$Number%05d$.m4s" initialization="v2/init.mp4">
+          <SegmentTimeline>
+            <S d="180000"></S>
+            <S d="180000" t="180000"></S>
+            <S d="180000" t="360000"></S>
+            <S d="180000" t="540000"></S>
+            <S d="180000" t="720000"></S>
+            <S d="180000" t="900000"></S>
+            <S d="180000" t="1080000"></S>
+            <S d="180000" t="1260000"></S>
+            <S d="180000" t="1440000"></S>
+            <S d="180000" t="1620000"></S>
+            <S d="180000" t="1800000"></S>
+            <S d="180000" t="1980000"></S>
+            <S d="180000" t="2160000"></S>
+            <S d="180000" t="2340000"></S>
+            <S d="180000" t="2520000"></S>
+            <S d="180000" t="2700000"></S>
+            <S d="180000" t="2880000"></S>
+            <S d="180000" t="3060000"></S>
+            <S d="180000" t="3240000"></S>
+            <S d="180000" t="3420000"></S>
+            <S d="180000" t="3600000"></S>
+            <S d="180000" t="3780000"></S>
+            <S d="180000" t="3960000"></S>
+            <S d="90000" t="4140000"></S>
+          </SegmentTimeline>
+        </SegmentTemplate>
+      </Representation>
+      <Representation id="v3" bandwidth="800000" codecs="avc1.64001f">
+        <SegmentTemplate timescale="90000" duration="180000" startNumber="1" media="v3/seg_$Number%05d$.m4s" initialization="v3/init.mp4">
+          <SegmentTimeline>
+            <S d="180000"></S>
+            <S d="180000" t="180000"></S>
+            <S d="180000" t="360000"></S>
+            <S d="180000" t="540000"></S>
+            <S d="180000" t="720000"></S>
+            <S d="180000" t="900000"></S>
+            <S d="180000" t="1080000"></S>
+            <S d="180000" t="1260000"></S>
+            <S d="180000" t="1440000"></S>
+            <S d="180000" t="1620000"></S>
+            <S d="180000" t="1800000"></S>
+            <S d="180000" t="1980000"></S>
+            <S d="180000" t="2160000"></S>
+            <S d="180000" t="2340000"></S>
+            <S d="180000" t="2520000"></S>
+            <S d="180000" t="2700000"></S>
+            <S d="180000" t="2880000"></S>
+            <S d="180000" t="3060000"></S>
+            <S d="180000" t="3240000"></S>
+            <S d="180000" t="3420000"></S>
+            <S d="180000" t="3600000"></S>
+            <S d="180000" t="3780000"></S>
+            <S d="180000" t="3960000"></S>
+            <S d="90000" t="4140000"></S>
+          </SegmentTimeline>
+        </SegmentTemplate>
+      </Representation>
+    </AdaptationSet>
+    <AdaptationSet contentType="audio" mimeType="audio/mp4">
+      <Representation id="a1" bandwidth="128000" codecs="mp4a.40.2">
+        <SegmentTemplate timescale="48000" duration="96000" startNumber="1" media="a1/seg_$Number%05d$.m4s" initialization="a1/init.mp4">
+          <SegmentTimeline>
+            <S d="96000"></S>
+            <S d="96000" t="96000"></S>
+            <S d="96000" t="192000"></S>
+            <S d="96000" t="288000"></S>
+            <S d="96000" t="384000"></S>
+            <S d="96000" t="480000"></S>
+            <S d="96000" t="576000"></S>
+            <S d="96000" t="672000"></S>
+            <S d="96000" t="768000"></S>
+            <S d="96000" t="864000"></S>
+            <S d="96000" t="960000"></S>
+            <S d="96000" t="1056000"></S>
+            <S d="96000" t="1152000"></S>
+            <S d="96000" t="1248000"></S>
+            <S d="96000" t="1344000"></S>
+            <S d="96000" t="1440000"></S>
+            <S d="96000" t="1536000"></S>
+            <S d="96000" t="1632000"></S>
+            <S d="96000" t="1728000"></S>
+            <S d="96000" t="1824000"></S>
+            <S d="96000" t="1920000"></S>
+            <S d="96000" t="2016000"></S>
+            <S d="96000" t="2112000"></S>
+            <S d="48000" t="2208000"></S>
+          </SegmentTimeline>
+        </SegmentTemplate>
+      </Representation>
+    </AdaptationSet>
+  </Period>
+</MPD>

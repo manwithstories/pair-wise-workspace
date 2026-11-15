@@ -1,0 +1,76 @@
+{
+  "policy": "tolerant",
+  "period_duration_ms": 47000,
+  "common_start_ms": 0,
+  "repaired_items": 3,
+  "repairs": [
+    {
+      "rep_id": "v1",
+      "kind": "shift",
+      "index": 1,
+      "detail": "drop leading partial of 37ms"
+    },
+    {
+      "rep_id": "v1",
+      "kind": "truncate",
+      "index": 24,
+      "detail": "trim last segment by 1000ms at period boundary"
+    },
+    {
+      "rep_id": "v2",
+      "kind": "fill",
+      "index": 9,
+      "detail": "copy previous segment seg_00008.m4s"
+    },
+    {
+      "rep_id": "v2",
+      "kind": "truncate",
+      "index": 24,
+      "detail": "trim last segment by 1000ms at period boundary"
+    },
+    {
+      "rep_id": "v3",
+      "kind": "truncate",
+      "index": 24,
+      "detail": "trim last segment by 1000ms at period boundary"
+    }
+  ],
+  "representations": [
+    {
+      "rep_id": "v1",
+      "content_type": "video",
+      "timescale": 90000,
+      "max_deviation_ticks": 0,
+      "max_deviation_ms": 0,
+      "mean_deviation_ms": 0,
+      "misaligned_segments": []
+    },
+    {
+      "rep_id": "v2",
+      "content_type": "video",
+      "timescale": 90000,
+      "max_deviation_ticks": 0,
+      "max_deviation_ms": 0,
+      "mean_deviation_ms": 0,
+      "misaligned_segments": []
+    },
+    {
+      "rep_id": "v3",
+      "content_type": "video",
+      "timescale": 90000,
+      "max_deviation_ticks": 0,
+      "max_deviation_ms": 0,
+      "mean_deviation_ms": 0,
+      "misaligned_segments": []
+    },
+    {
+      "rep_id": "a1",
+      "content_type": "audio",
+      "timescale": 48000,
+      "max_deviation_ticks": 0,
+      "max_deviation_ms": 0,
+      "mean_deviation_ms": 0,
+      "misaligned_segments": []
+    }
+  ]
+}

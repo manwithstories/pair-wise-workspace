@@ -1,0 +1,638 @@
+{
+  "seed": 7,
+  "reps": [
+    {
+      "id": "v1",
+      "content_type": "video",
+      "bandwidth": 2400000,
+      "codecs": "avc1.64001f",
+      "timescale": 90000,
+      "nominal_ms": 2000,
+      "gop_ms": 2000,
+      "init_file": "init.mp4",
+      "media_template": "v1/seg_$Number%05d$.m4s",
+      "init_template": "v1/init.mp4",
+      "segments": [
+        {
+          "index": 1,
+          "file": "seg_00001.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 37
+        },
+        {
+          "index": 2,
+          "file": "seg_00002.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 3,
+          "file": "seg_00003.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 4,
+          "file": "seg_00004.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 5,
+          "file": "seg_00005.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 6,
+          "file": "seg_00006.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 7,
+          "file": "seg_00007.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 8,
+          "file": "seg_00008.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 9,
+          "file": "seg_00009.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 10,
+          "file": "seg_00010.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 11,
+          "file": "seg_00011.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 12,
+          "file": "seg_00012.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 13,
+          "file": "seg_00013.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 14,
+          "file": "seg_00014.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 15,
+          "file": "seg_00015.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 16,
+          "file": "seg_00016.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 17,
+          "file": "seg_00017.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 18,
+          "file": "seg_00018.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 19,
+          "file": "seg_00019.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 20,
+          "file": "seg_00020.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 21,
+          "file": "seg_00021.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 22,
+          "file": "seg_00022.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 23,
+          "file": "seg_00023.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 24,
+          "file": "seg_00024.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        }
+      ]
+    },
+    {
+      "id": "v2",
+      "content_type": "video",
+      "bandwidth": 1600000,
+      "codecs": "avc1.64001f",
+      "timescale": 90000,
+      "nominal_ms": 2000,
+      "gop_ms": 1000,
+      "init_file": "init.mp4",
+      "media_template": "v2/seg_$Number%05d$.m4s",
+      "init_template": "v2/init.mp4",
+      "segments": [
+        {
+          "index": 1,
+          "file": "seg_00001.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 2,
+          "file": "seg_00002.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 3,
+          "file": "seg_00003.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 4,
+          "file": "seg_00004.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 5,
+          "file": "seg_00005.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 6,
+          "file": "seg_00006.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 7,
+          "file": "seg_00007.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 8,
+          "file": "seg_00008.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 9,
+          "file": "seg_00009.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0,
+          "filled_from": "seg_00008.m4s"
+        },
+        {
+          "index": 10,
+          "file": "seg_00010.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 11,
+          "file": "seg_00011.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 12,
+          "file": "seg_00012.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 13,
+          "file": "seg_00013.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 14,
+          "file": "seg_00014.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 15,
+          "file": "seg_00015.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 16,
+          "file": "seg_00016.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 17,
+          "file": "seg_00017.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 18,
+          "file": "seg_00018.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 19,
+          "file": "seg_00019.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 20,
+          "file": "seg_00020.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 21,
+          "file": "seg_00021.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 22,
+          "file": "seg_00022.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 23,
+          "file": "seg_00023.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 24,
+          "file": "seg_00024.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        }
+      ]
+    },
+    {
+      "id": "v3",
+      "content_type": "video",
+      "bandwidth": 800000,
+      "codecs": "avc1.64001f",
+      "timescale": 90000,
+      "nominal_ms": 2000,
+      "gop_ms": 2000,
+      "init_file": "init.mp4",
+      "media_template": "v3/seg_$Number%05d$.m4s",
+      "init_template": "v3/init.mp4",
+      "segments": [
+        {
+          "index": 1,
+          "file": "seg_00001.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 2,
+          "file": "seg_00002.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 3,
+          "file": "seg_00003.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 4,
+          "file": "seg_00004.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 5,
+          "file": "seg_00005.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 6,
+          "file": "seg_00006.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 7,
+          "file": "seg_00007.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 8,
+          "file": "seg_00008.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 9,
+          "file": "seg_00009.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 10,
+          "file": "seg_00010.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 11,
+          "file": "seg_00011.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 12,
+          "file": "seg_00012.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 13,
+          "file": "seg_00013.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 14,
+          "file": "seg_00014.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 15,
+          "file": "seg_00015.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 16,
+          "file": "seg_00016.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 17,
+          "file": "seg_00017.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 18,
+          "file": "seg_00018.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 19,
+          "file": "seg_00019.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 20,
+          "file": "seg_00020.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 21,
+          "file": "seg_00021.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 22,
+          "file": "seg_00022.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 23,
+          "file": "seg_00023.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 24,
+          "file": "seg_00024.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        }
+      ]
+    },
+    {
+      "id": "a1",
+      "content_type": "audio",
+      "bandwidth": 128000,
+      "codecs": "mp4a.40.2",
+      "timescale": 48000,
+      "nominal_ms": 2000,
+      "gop_ms": 2000,
+      "init_file": "init.mp4",
+      "media_template": "a1/seg_$Number%05d$.m4s",
+      "init_template": "a1/init.mp4",
+      "segments": [
+        {
+          "index": 1,
+          "file": "seg_00001.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 2,
+          "file": "seg_00002.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 3,
+          "file": "seg_00003.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 4,
+          "file": "seg_00004.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 5,
+          "file": "seg_00005.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 6,
+          "file": "seg_00006.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 7,
+          "file": "seg_00007.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 8,
+          "file": "seg_00008.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 9,
+          "file": "seg_00009.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 10,
+          "file": "seg_00010.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 11,
+          "file": "seg_00011.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 12,
+          "file": "seg_00012.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 13,
+          "file": "seg_00013.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 14,
+          "file": "seg_00014.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 15,
+          "file": "seg_00015.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 16,
+          "file": "seg_00016.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 17,
+          "file": "seg_00017.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 18,
+          "file": "seg_00018.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 19,
+          "file": "seg_00019.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 20,
+          "file": "seg_00020.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 21,
+          "file": "seg_00021.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 22,
+          "file": "seg_00022.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 23,
+          "file": "seg_00023.m4s",
+          "duration_ms": 2000,
+          "offset_ms": 0
+        },
+        {
+          "index": 24,
+          "file": "seg_00024.m4s",
+          "duration_ms": 1000,
+          "offset_ms": 0
+        }
+      ]
+    }
+  ]
+}
