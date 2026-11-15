@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mixer-delivery-auditor"
+version = "0.1.0"
+description = "Deterministic offline and streaming mix rendering with delivery audits"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=1.26,<2",
+  "soundfile>=0.12,<0.13",
+]
+
+[tool.setuptools.packages.find]
+include = ["mixer*"]

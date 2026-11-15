@@ -71,3 +71,10 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# Generated runtime artifacts
+__pycache__/
+*.py[cod]
+out/
+fixtures/
+scratch/
