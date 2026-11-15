@@ -71,3 +71,8 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- sublay 构建产物与生成夹具 ----
+build/
+out/
+fixtures/
