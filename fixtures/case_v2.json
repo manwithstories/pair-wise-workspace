@@ -1,0 +1,7074 @@
+{
+  "name": "case-seed7",
+  "project": {
+    "fps": {
+      "rate": 1,
+      "value": 24
+    }
+  },
+  "tracks": [
+    {
+      "items": [
+        {
+          "enabled": true,
+          "id": "v1-020",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 76
+            },
+            "start": {
+              "rate": 24,
+              "value": -6
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-000",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 81250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 7500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-001",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 133750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 48750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-orphan-trans",
+          "left": "ghost-left",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 12
+            },
+            "start": {
+              "rate": 24,
+              "value": 96
+            }
+          },
+          "right": "ghost-right",
+          "type": "transition"
+        },
+        {
+          "enabled": true,
+          "id": "v1-002",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 92
+            },
+            "start": {
+              "rate": 24,
+              "value": 122
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-003",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 31
+            },
+            "start": {
+              "rate": 24,
+              "value": 214
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-004",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 28
+            },
+            "start": {
+              "rate": 24,
+              "value": 226
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-005",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 32
+            },
+            "start": {
+              "rate": 24,
+              "value": 266
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-006",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 78
+            },
+            "start": {
+              "rate": 24,
+              "value": 274
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-007",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 39
+            },
+            "start": {
+              "rate": 24,
+              "value": 376
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-008",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 130000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 518750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-009",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 97
+            },
+            "start": {
+              "rate": 24,
+              "value": 519
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-010",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 65000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 728750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-011",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 51250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 793750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-trans012",
+          "left": "v1-011",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 15000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 845000
+            }
+          },
+          "right": "v1-012",
+          "type": "transition"
+        },
+        {
+          "enabled": true,
+          "id": "v1-012",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 116250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 860000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-013",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 78750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 1006250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-trans014",
+          "left": "v1-013",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 12
+            },
+            "start": {
+              "rate": 24,
+              "value": 868
+            }
+          },
+          "right": "v1-014",
+          "type": "transition"
+        },
+        {
+          "enabled": true,
+          "id": "v1-014",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 58750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 1100000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-015",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 97
+            },
+            "start": {
+              "rate": 24,
+              "value": 927
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": false,
+          "id": "v1-016",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 45000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 1280000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-017",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 96
+            },
+            "start": {
+              "rate": 24,
+              "value": 1048
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-018",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 87
+            },
+            "start": {
+              "rate": 24,
+              "value": 1150
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-019",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 0
+            },
+            "start": {
+              "rate": 30000,
+              "value": 1553750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-021",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 141250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 1721250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-022",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 0
+            },
+            "start": {
+              "rate": 30000,
+              "value": 1870000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-023",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 83750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 1991250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-024",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 101
+            },
+            "start": {
+              "rate": 24,
+              "value": 1660
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-025",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 111250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 2201250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-026",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 43
+            },
+            "start": {
+              "rate": 24,
+              "value": 1856
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-027",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 29
+            },
+            "start": {
+              "rate": 24,
+              "value": 1899
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-028",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 118750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 2410000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-029",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 83750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 2543750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-030",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 87
+            },
+            "start": {
+              "rate": 24,
+              "value": 2108
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-031",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 32
+            },
+            "start": {
+              "rate": 24,
+              "value": 2195
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-032",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 105000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 2783750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-033",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 31
+            },
+            "start": {
+              "rate": 24,
+              "value": 2311
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-034",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 106
+            },
+            "start": {
+              "rate": 24,
+              "value": 2366
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-035",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 101250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 3097500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-036",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 109
+            },
+            "start": {
+              "rate": 24,
+              "value": 2565
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-gap037",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 13
+            },
+            "start": {
+              "rate": 24,
+              "value": 2674
+            }
+          },
+          "type": "gap"
+        },
+        {
+          "enabled": true,
+          "id": "v1-037",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 69
+            },
+            "start": {
+              "rate": 24,
+              "value": 2687
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-038",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 87
+            },
+            "start": {
+              "rate": 24,
+              "value": 2726
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-trans039",
+          "left": "v1-038",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 15000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 3516250
+            }
+          },
+          "right": "v1-039",
+          "type": "transition"
+        },
+        {
+          "enabled": true,
+          "id": "v1-039",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 60
+            },
+            "start": {
+              "rate": 24,
+              "value": 2825
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-040",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 55
+            },
+            "start": {
+              "rate": 24,
+              "value": 2891
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-gap041",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 38750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 3682500
+            }
+          },
+          "type": "gap"
+        },
+        {
+          "enabled": false,
+          "id": "v1-041",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 42500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 3721250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-042",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 117500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 3763750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-043",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 98750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 3881250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-044",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 142500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 3980000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-045",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 111
+            },
+            "start": {
+              "rate": 24,
+              "value": 3298
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-046",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 43
+            },
+            "start": {
+              "rate": 24,
+              "value": 3399
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-047",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 53
+            },
+            "start": {
+              "rate": 24,
+              "value": 3442
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-048",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 107500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 4368750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-049",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 71250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 4476250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-050",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 96250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 4562500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-051",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 96
+            },
+            "start": {
+              "rate": 24,
+              "value": 3727
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-052",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 140000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 4793750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-053",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 107
+            },
+            "start": {
+              "rate": 24,
+              "value": 3947
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-054",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 102500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 5097500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-055",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 118750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 5207500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-trans056",
+          "left": "v1-055",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 12
+            },
+            "start": {
+              "rate": 24,
+              "value": 4261
+            }
+          },
+          "right": "v1-056",
+          "type": "transition"
+        },
+        {
+          "enabled": true,
+          "id": "v1-056",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 74
+            },
+            "start": {
+              "rate": 24,
+              "value": 4273
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-057",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 131250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 5433750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-058",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 32
+            },
+            "start": {
+              "rate": 24,
+              "value": 4458
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-trans059",
+          "left": "v1-058",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 12
+            },
+            "start": {
+              "rate": 24,
+              "value": 4490
+            }
+          },
+          "right": "v1-059",
+          "type": "transition"
+        },
+        {
+          "enabled": true,
+          "id": "v1-059",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 55000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 5627500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-060",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 125000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 5675000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-trans061",
+          "left": "v1-060",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 12
+            },
+            "start": {
+              "rate": 24,
+              "value": 4640
+            }
+          },
+          "right": "v1-061",
+          "type": "transition"
+        },
+        {
+          "enabled": true,
+          "id": "v1-061",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 120000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 5815000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-062",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 36
+            },
+            "start": {
+              "rate": 24,
+              "value": 4760
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-063",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 33750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 5980000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-064",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 127500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 6043750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-065",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 70000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 6186250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-066",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 87500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 6256250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-067",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 107500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 6351250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-068",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 85
+            },
+            "start": {
+              "rate": 24,
+              "value": 5167
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-trans069",
+          "left": "v1-068",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 15000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 6565000
+            }
+          },
+          "right": "v1-069",
+          "type": "transition"
+        },
+        {
+          "enabled": true,
+          "id": "v1-069",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 42
+            },
+            "start": {
+              "rate": 24,
+              "value": 5264
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-070",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 67
+            },
+            "start": {
+              "rate": 24,
+              "value": 5312
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-gap071",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 7
+            },
+            "start": {
+              "rate": 24,
+              "value": 5379
+            }
+          },
+          "type": "gap"
+        },
+        {
+          "enabled": true,
+          "id": "v1-071",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 112
+            },
+            "start": {
+              "rate": 24,
+              "value": 5386
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-072",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 0
+            },
+            "start": {
+              "rate": 24,
+              "value": 5510
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-trans073",
+          "left": "v1-072",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 15000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 6950000
+            }
+          },
+          "right": "v1-073",
+          "type": "transition"
+        },
+        {
+          "enabled": true,
+          "id": "v1-073",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 70
+            },
+            "start": {
+              "rate": 24,
+              "value": 5572
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-074",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 93
+            },
+            "start": {
+              "rate": 24,
+              "value": 5654
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-075",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 77500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 7183750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-076",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 141250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 7276250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-077",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 70
+            },
+            "start": {
+              "rate": 24,
+              "value": 5934
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-078",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 65000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 7520000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-079",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 66
+            },
+            "start": {
+              "rate": 24,
+              "value": 6080
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-080",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 48
+            },
+            "start": {
+              "rate": 24,
+              "value": 6152
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-081",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 147500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 7750000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-082",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 112500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 7927500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-083",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 33750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 8040000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-084",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 105000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 8103750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-085",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 101
+            },
+            "start": {
+              "rate": 24,
+              "value": 6573
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-086",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 116
+            },
+            "start": {
+              "rate": 24,
+              "value": 6674
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-gap087",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 25000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 8487500
+            }
+          },
+          "type": "gap"
+        },
+        {
+          "enabled": true,
+          "id": "v1-087",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 34
+            },
+            "start": {
+              "rate": 24,
+              "value": 6810
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-gap088",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 19
+            },
+            "start": {
+              "rate": 24,
+              "value": 6844
+            }
+          },
+          "type": "gap"
+        },
+        {
+          "enabled": true,
+          "id": "v1-088",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 84
+            },
+            "start": {
+              "rate": 24,
+              "value": 6863
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-089",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 85
+            },
+            "start": {
+              "rate": 24,
+              "value": 6959
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-090",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 30000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 8835000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-091",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 68
+            },
+            "start": {
+              "rate": 24,
+              "value": 7092
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-trans092",
+          "left": "v1-091",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 15000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 8950000
+            }
+          },
+          "right": "v1-092",
+          "type": "transition"
+        },
+        {
+          "enabled": true,
+          "id": "v1-092",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 108
+            },
+            "start": {
+              "rate": 24,
+              "value": 7172
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-093",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 73
+            },
+            "start": {
+              "rate": 24,
+              "value": 7280
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-094",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 85
+            },
+            "start": {
+              "rate": 24,
+              "value": 7359
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-095",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 105
+            },
+            "start": {
+              "rate": 24,
+              "value": 7468
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-096",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 74
+            },
+            "start": {
+              "rate": 24,
+              "value": 7597
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-097",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 42500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 9588750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": false,
+          "id": "v1-098",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 50000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 9601250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-099",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 83
+            },
+            "start": {
+              "rate": 24,
+              "value": 7721
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-100",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 127500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 9762500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-101",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 135000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 9890000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-102",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 117500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 10025000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-103",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 31250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 10172500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-trans104",
+          "left": "v1-103",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 12
+            },
+            "start": {
+              "rate": 24,
+              "value": 8163
+            }
+          },
+          "right": "v1-104",
+          "type": "transition"
+        },
+        {
+          "enabled": true,
+          "id": "v1-104",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 0
+            },
+            "start": {
+              "rate": 30000,
+              "value": 10218750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-105",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 119
+            },
+            "start": {
+              "rate": 24,
+              "value": 8288
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-106",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 48
+            },
+            "start": {
+              "rate": 24,
+              "value": 8407
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-107",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 27
+            },
+            "start": {
+              "rate": 24,
+              "value": 8455
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-108",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 88
+            },
+            "start": {
+              "rate": 24,
+              "value": 8494
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": false,
+          "id": "v1-109",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 65
+            },
+            "start": {
+              "rate": 24,
+              "value": 8588
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-110",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 50000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 10780000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-111",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 86250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 10860000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-112",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 122500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 10961250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-113",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 77
+            },
+            "start": {
+              "rate": 24,
+              "value": 8879
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-114",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 40
+            },
+            "start": {
+              "rate": 24,
+              "value": 8968
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-115",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 89
+            },
+            "start": {
+              "rate": 24,
+              "value": 8988
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-116",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 47
+            },
+            "start": {
+              "rate": 24,
+              "value": 9077
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-trans117",
+          "left": "v1-116",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 15000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 11405000
+            }
+          },
+          "right": "v1-117",
+          "type": "transition"
+        },
+        {
+          "enabled": true,
+          "id": "v1-117",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 57500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 11420000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-118",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 103
+            },
+            "start": {
+              "rate": 24,
+              "value": 9194
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-119",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 38750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 11636250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v1-tailgap",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 48
+            },
+            "start": {
+              "rate": 24,
+              "value": 9340
+            }
+          },
+          "type": "gap"
+        }
+      ],
+      "kind": "video",
+      "name": "V1"
+    },
+    {
+      "items": [
+        {
+          "enabled": true,
+          "id": "v2-015",
+          "muted": true,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 80
+            },
+            "start": {
+              "rate": 24,
+              "value": -12
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v2-004",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 51250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 863750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v2-002",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 25,
+              "value": 61
+            },
+            "start": {
+              "rate": 25,
+              "value": 969
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v2-007",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 31250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 1297500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v2-022",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 51
+            },
+            "start": {
+              "rate": 24,
+              "value": 1198
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v2-001",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 67500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 2172500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v2-024",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 38750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 3162500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v2-003",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 60,
+              "value": 98
+            },
+            "start": {
+              "rate": 60,
+              "value": 7835
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v2-021",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 35000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 4927500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v2-014",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 25,
+              "value": 58
+            },
+            "start": {
+              "rate": 25,
+              "value": 4226
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v2-026",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 33
+            },
+            "start": {
+              "rate": 24,
+              "value": 4146
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v2-011",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 25,
+              "value": 38
+            },
+            "start": {
+              "rate": 25,
+              "value": 4730
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v2-023",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 37
+            },
+            "start": {
+              "rate": 24,
+              "value": 4960
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v2-020",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 65000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 6471250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v2-008",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 52
+            },
+            "start": {
+              "rate": 24,
+              "value": 5334
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v2-025",
+          "muted": true,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 69
+            },
+            "start": {
+              "rate": 24,
+              "value": 5999
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v2-019",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 25,
+              "value": 32
+            },
+            "start": {
+              "rate": 25,
+              "value": 6696
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v2-018",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 32
+            },
+            "start": {
+              "rate": 24,
+              "value": 6826
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v2-017",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 36
+            },
+            "start": {
+              "rate": 24,
+              "value": 7332
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v2-027",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 60,
+              "value": 80
+            },
+            "start": {
+              "rate": 60,
+              "value": 19158
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v2-013",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 72500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 9790000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v2-009",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 63
+            },
+            "start": {
+              "rate": 24,
+              "value": 8282
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v2-005",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 25,
+              "value": 31
+            },
+            "start": {
+              "rate": 25,
+              "value": 8665
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v2-012",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 25,
+              "value": 54
+            },
+            "start": {
+              "rate": 25,
+              "value": 8672
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v2-010",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 60,
+              "value": 155
+            },
+            "start": {
+              "rate": 60,
+              "value": 20978
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v2-000",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 71250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 11375000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v2-016",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 25,
+              "value": 42
+            },
+            "start": {
+              "rate": 25,
+              "value": 9549
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v2-006",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 52
+            },
+            "start": {
+              "rate": 24,
+              "value": 9203
+            }
+          },
+          "type": "clip"
+        }
+      ],
+      "kind": "video",
+      "name": "V2"
+    },
+    {
+      "items": [
+        {
+          "enabled": true,
+          "id": "v3-011",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 60,
+              "value": 130
+            },
+            "start": {
+              "rate": 60,
+              "value": 740
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v3-007",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 60,
+              "value": 110
+            },
+            "start": {
+              "rate": 60,
+              "value": 3775
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v3-000",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 38
+            },
+            "start": {
+              "rate": 24,
+              "value": 1542
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v3-002",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 60,
+              "value": 85
+            },
+            "start": {
+              "rate": 60,
+              "value": 9163
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v3-009",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 31250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 6921250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v3-006",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 25,
+              "value": 38
+            },
+            "start": {
+              "rate": 25,
+              "value": 6085
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v3-008",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 60,
+              "value": 175
+            },
+            "start": {
+              "rate": 60,
+              "value": 14988
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v3-004",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 56
+            },
+            "start": {
+              "rate": 24,
+              "value": 6616
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v3-005",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 56250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 8627500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v3-003",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 60,
+              "value": 85
+            },
+            "start": {
+              "rate": 60,
+              "value": 17675
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v3-010",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 60,
+              "value": 148
+            },
+            "start": {
+              "rate": 60,
+              "value": 18785
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "v3-001",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 60,
+              "value": 123
+            },
+            "start": {
+              "rate": 60,
+              "value": 19958
+            }
+          },
+          "type": "clip"
+        }
+      ],
+      "kind": "video",
+      "name": "V3"
+    },
+    {
+      "items": [
+        {
+          "enabled": true,
+          "id": "a1-000",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 91250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 15000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-001",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 76250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 106250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-002",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 38
+            },
+            "start": {
+              "rate": 24,
+              "value": 146
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-gap003",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 23
+            },
+            "start": {
+              "rate": 24,
+              "value": 184
+            }
+          },
+          "type": "gap"
+        },
+        {
+          "enabled": true,
+          "id": "a1-003",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 46250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 258750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": false,
+          "id": "a1-004",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 36250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 305000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-005",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 72500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 348750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-006",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 137500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 421250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-007",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 75
+            },
+            "start": {
+              "rate": 24,
+              "value": 459
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-008",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 121250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 667500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-009",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 43750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 818750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-010",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 58750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 862500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-011",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 72500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 951250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-012",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 43750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 1023750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-013",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 126250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 1067500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-014",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 0
+            },
+            "start": {
+              "rate": 24,
+              "value": 961
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-015",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 31250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 1287500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-016",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 77
+            },
+            "start": {
+              "rate": 24,
+              "value": 1055
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-017",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 128750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 1430000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-018",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 114
+            },
+            "start": {
+              "rate": 24,
+              "value": 1247
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-019",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 44
+            },
+            "start": {
+              "rate": 24,
+              "value": 1361
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-020",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 61250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 1786250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-021",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 78750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 1847500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-022",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 76250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 1956250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-023",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 46
+            },
+            "start": {
+              "rate": 24,
+              "value": 1626
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-024",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 70000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 2082500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-025",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 146250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 2152500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-026",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 111250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 2306250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-027",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 46250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 2447500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-028",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 0
+            },
+            "start": {
+              "rate": 30000,
+              "value": 2508750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-029",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 92500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 2607500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-030",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 112
+            },
+            "start": {
+              "rate": 24,
+              "value": 2160
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-031",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 83750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 2870000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-032",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 117
+            },
+            "start": {
+              "rate": 24,
+              "value": 2369
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-033",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 68
+            },
+            "start": {
+              "rate": 24,
+              "value": 2486
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-gap034",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 27500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 3192500
+            }
+          },
+          "type": "gap"
+        },
+        {
+          "enabled": true,
+          "id": "a1-034",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 25
+            },
+            "start": {
+              "rate": 24,
+              "value": 2576
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-035",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 79
+            },
+            "start": {
+              "rate": 24,
+              "value": 2601
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-036",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 109
+            },
+            "start": {
+              "rate": 24,
+              "value": 2692
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": false,
+          "id": "a1-037",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 136250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 3516250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-038",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 68750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 3652500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-039",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 82
+            },
+            "start": {
+              "rate": 24,
+              "value": 2977
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-040",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 81
+            },
+            "start": {
+              "rate": 24,
+              "value": 3042
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-041",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 82500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 3918750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-042",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 65
+            },
+            "start": {
+              "rate": 24,
+              "value": 3201
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-043",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 51
+            },
+            "start": {
+              "rate": 24,
+              "value": 3266
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-044",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 82500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 4153750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-045",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 59
+            },
+            "start": {
+              "rate": 24,
+              "value": 3389
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-046",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 55
+            },
+            "start": {
+              "rate": 24,
+              "value": 3448
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-047",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 35
+            },
+            "start": {
+              "rate": 24,
+              "value": 3503
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-048",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 42
+            },
+            "start": {
+              "rate": 24,
+              "value": 3538
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-049",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 92500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 4456250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-050",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 104
+            },
+            "start": {
+              "rate": 24,
+              "value": 3651
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-051",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 91
+            },
+            "start": {
+              "rate": 24,
+              "value": 3755
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-052",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 135000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 4822500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-053",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 91250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 4987500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-054",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 108750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 5108750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-055",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 103
+            },
+            "start": {
+              "rate": 24,
+              "value": 4174
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-056",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 115
+            },
+            "start": {
+              "rate": 24,
+              "value": 4301
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-057",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 97500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 5535000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-058",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 41
+            },
+            "start": {
+              "rate": 24,
+              "value": 4518
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-059",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 120000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 5698750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-060",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 111
+            },
+            "start": {
+              "rate": 24,
+              "value": 4679
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-061",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 111
+            },
+            "start": {
+              "rate": 24,
+              "value": 4814
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-gap062",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 8
+            },
+            "start": {
+              "rate": 24,
+              "value": 4925
+            }
+          },
+          "type": "gap"
+        },
+        {
+          "enabled": true,
+          "id": "a1-062",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 66250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 6166250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-063",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 41
+            },
+            "start": {
+              "rate": 24,
+              "value": 4986
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-064",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 72
+            },
+            "start": {
+              "rate": 24,
+              "value": 5039
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-065",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 30
+            },
+            "start": {
+              "rate": 24,
+              "value": 5135
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-066",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 115000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 6463750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-067",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 57
+            },
+            "start": {
+              "rate": 24,
+              "value": 5232
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-068",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 40000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 6626250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-gap069",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 48750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 6666250
+            }
+          },
+          "type": "gap"
+        },
+        {
+          "enabled": true,
+          "id": "a1-069",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 115000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 6715000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-070",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 32
+            },
+            "start": {
+              "rate": 24,
+              "value": 5470
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-071",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 56
+            },
+            "start": {
+              "rate": 24,
+              "value": 5502
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-072",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 67500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 6947500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-073",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 66250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 7022500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-074",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 87
+            },
+            "start": {
+              "rate": 24,
+              "value": 5671
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-075",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 85
+            },
+            "start": {
+              "rate": 24,
+              "value": 5758
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-076",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 36250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 7333750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-gap077",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 18750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 7370000
+            }
+          },
+          "type": "gap"
+        },
+        {
+          "enabled": true,
+          "id": "a1-077",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 49
+            },
+            "start": {
+              "rate": 24,
+              "value": 5911
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-078",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 82500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 7480000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-079",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 112
+            },
+            "start": {
+              "rate": 24,
+              "value": 6062
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-080",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 41
+            },
+            "start": {
+              "rate": 24,
+              "value": 6167
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-081",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 86
+            },
+            "start": {
+              "rate": 24,
+              "value": 6232
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-082",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 36
+            },
+            "start": {
+              "rate": 24,
+              "value": 6342
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-083",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 107500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 7987500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-084",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 60
+            },
+            "start": {
+              "rate": 24,
+              "value": 6482
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-085",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 48750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 8192500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-086",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 49
+            },
+            "start": {
+              "rate": 24,
+              "value": 6593
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-087",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 84
+            },
+            "start": {
+              "rate": 24,
+              "value": 6622
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-088",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 33
+            },
+            "start": {
+              "rate": 24,
+              "value": 6712
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-089",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 58
+            },
+            "start": {
+              "rate": 24,
+              "value": 6745
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-090",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 33
+            },
+            "start": {
+              "rate": 24,
+              "value": 6803
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-091",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 119
+            },
+            "start": {
+              "rate": 24,
+              "value": 6836
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-092",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 50000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 8723750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-093",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 111250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 8773750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-094",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 114
+            },
+            "start": {
+              "rate": 24,
+              "value": 7114
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-095",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 107500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 9035000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-096",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 24
+            },
+            "start": {
+              "rate": 24,
+              "value": 7338
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-097",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 81
+            },
+            "start": {
+              "rate": 24,
+              "value": 7386
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-098",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 42
+            },
+            "start": {
+              "rate": 24,
+              "value": 7473
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-099",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 64
+            },
+            "start": {
+              "rate": 24,
+              "value": 7515
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-100",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 24
+            },
+            "start": {
+              "rate": 24,
+              "value": 7579
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-101",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 92500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 9503750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-102",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 115
+            },
+            "start": {
+              "rate": 24,
+              "value": 7648
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-103",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 76250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 9703750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-104",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 74
+            },
+            "start": {
+              "rate": 24,
+              "value": 7836
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-105",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 33
+            },
+            "start": {
+              "rate": 24,
+              "value": 7916
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-106",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 120
+            },
+            "start": {
+              "rate": 24,
+              "value": 7949
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-gap107",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 60000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 10086250
+            }
+          },
+          "type": "gap"
+        },
+        {
+          "enabled": true,
+          "id": "a1-107",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 59
+            },
+            "start": {
+              "rate": 24,
+              "value": 8117
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-108",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 75000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 10220000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-109",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 68750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 10302500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-110",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 111250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 10371250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-111",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 97500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 10512500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-112",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 93750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 10625000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-113",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 117500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 10718750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-114",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 37500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 10843750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-115",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 81
+            },
+            "start": {
+              "rate": 24,
+              "value": 8705
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-116",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 132500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 10990000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-117",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 37500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 11137500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-118",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 50000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 11182500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-119",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 67
+            },
+            "start": {
+              "rate": 24,
+              "value": 8986
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-120",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 147500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 11346250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-121",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 71250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 11493750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-122",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 77500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 11595000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-gap123",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 47
+            },
+            "start": {
+              "rate": 24,
+              "value": 9338
+            }
+          },
+          "type": "gap"
+        },
+        {
+          "enabled": true,
+          "id": "a1-123",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 92500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 11731250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-gap124",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 38
+            },
+            "start": {
+              "rate": 24,
+              "value": 9459
+            }
+          },
+          "type": "gap"
+        },
+        {
+          "enabled": true,
+          "id": "a1-124",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 55000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 11871250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-125",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 108750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 11933750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-126",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 66
+            },
+            "start": {
+              "rate": 24,
+              "value": 9640
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-127",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 97500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 12132500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a1-tailgap",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 60000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 12230000
+            }
+          },
+          "type": "gap"
+        }
+      ],
+      "kind": "audio",
+      "name": "A1"
+    },
+    {
+      "items": [
+        {
+          "enabled": true,
+          "id": "a2-098",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 74
+            },
+            "start": {
+              "rate": 24,
+              "value": -19
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-029",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 41
+            },
+            "start": {
+              "rate": 24,
+              "value": -16
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-000",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 68750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 0
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-gap001",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 26250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 68750
+            }
+          },
+          "type": "gap"
+        },
+        {
+          "enabled": true,
+          "id": "a2-001",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 118750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 95000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-002",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 88750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 228750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-003",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 49
+            },
+            "start": {
+              "rate": 24,
+              "value": 278
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-004",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 76
+            },
+            "start": {
+              "rate": 24,
+              "value": 351
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-005",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 91
+            },
+            "start": {
+              "rate": 24,
+              "value": 427
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-006",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 67
+            },
+            "start": {
+              "rate": 24,
+              "value": 524
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-007",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 59
+            },
+            "start": {
+              "rate": 24,
+              "value": 591
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-008",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 50000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 827500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-009",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 104
+            },
+            "start": {
+              "rate": 24,
+              "value": 702
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-010",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 43750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 1007500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-011",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 73
+            },
+            "start": {
+              "rate": 24,
+              "value": 847
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-012",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 98750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 1150000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-013",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 40
+            },
+            "start": {
+              "rate": 24,
+              "value": 971
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-014",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 105000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 1271250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-gap015",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 48750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 1376250
+            }
+          },
+          "type": "gap"
+        },
+        {
+          "enabled": true,
+          "id": "a2-015",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 24
+            },
+            "start": {
+              "rate": 24,
+              "value": 1140
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-016",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 103750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 1455000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-017",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 37
+            },
+            "start": {
+              "rate": 24,
+              "value": 1247
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-018",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 112500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 1605000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-019",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 116
+            },
+            "start": {
+              "rate": 24,
+              "value": 1380
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-020",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 34
+            },
+            "start": {
+              "rate": 24,
+              "value": 1496
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-021",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 30000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 1912500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-022",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 120000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 1972500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-023",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 143750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 2092500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-024",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 130000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 2266250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-025",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 98750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 2396250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-gap026",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 48750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 2495000
+            }
+          },
+          "type": "gap"
+        },
+        {
+          "enabled": true,
+          "id": "a2-026",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 36
+            },
+            "start": {
+              "rate": 24,
+              "value": 2035
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-027",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 98
+            },
+            "start": {
+              "rate": 24,
+              "value": 2071
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-028",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 65000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 2711250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-030",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 59
+            },
+            "start": {
+              "rate": 24,
+              "value": 2276
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-031",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 55
+            },
+            "start": {
+              "rate": 24,
+              "value": 2335
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-032",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 94
+            },
+            "start": {
+              "rate": 24,
+              "value": 2396
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-033",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 142500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 3112500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-034",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 32500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 3285000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-035",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 132500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 3317500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-036",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 66250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 3450000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-037",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 53
+            },
+            "start": {
+              "rate": 24,
+              "value": 2837
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-038",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 83750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 3612500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-039",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 111
+            },
+            "start": {
+              "rate": 24,
+              "value": 2957
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": false,
+          "id": "a2-040",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 76250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 3850000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-041",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 32
+            },
+            "start": {
+              "rate": 24,
+              "value": 3141
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-042",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 78750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 3966250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-043",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 66250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 4045000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-gap044",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 56250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 4111250
+            }
+          },
+          "type": "gap"
+        },
+        {
+          "enabled": true,
+          "id": "a2-044",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 76250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 4167500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-045",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 108750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 4243750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-046",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 107500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 4382500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-047",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 38750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 4490000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-gap048",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 8750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 4528750
+            }
+          },
+          "type": "gap"
+        },
+        {
+          "enabled": true,
+          "id": "a2-048",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 92500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 4537500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-049",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 100
+            },
+            "start": {
+              "rate": 24,
+              "value": 3704
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-gap050",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 38750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 4755000
+            }
+          },
+          "type": "gap"
+        },
+        {
+          "enabled": true,
+          "id": "a2-050",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 142500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 4793750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-051",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 101250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 4936250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-gap052",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 11
+            },
+            "start": {
+              "rate": 24,
+              "value": 4030
+            }
+          },
+          "type": "gap"
+        },
+        {
+          "enabled": true,
+          "id": "a2-052",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 117
+            },
+            "start": {
+              "rate": 24,
+              "value": 4041
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-053",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 56250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 5197500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-054",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 133750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 5283750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-055",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 103750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 5383750
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-056",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 145000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 5487500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-057",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 82500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 5632500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-gap058",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 11
+            },
+            "start": {
+              "rate": 24,
+              "value": 4572
+            }
+          },
+          "type": "gap"
+        },
+        {
+          "enabled": true,
+          "id": "a2-058",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 24
+            },
+            "start": {
+              "rate": 24,
+              "value": 4583
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-059",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 68
+            },
+            "start": {
+              "rate": 24,
+              "value": 4607
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-060",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 95
+            },
+            "start": {
+              "rate": 24,
+              "value": 4675
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-061",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 72
+            },
+            "start": {
+              "rate": 24,
+              "value": 4770
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-gap062",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 45000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 6052500
+            }
+          },
+          "type": "gap"
+        },
+        {
+          "enabled": true,
+          "id": "a2-062",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 79
+            },
+            "start": {
+              "rate": 24,
+              "value": 4878
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-063",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 49
+            },
+            "start": {
+              "rate": 24,
+              "value": 4963
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-064",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 60000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 6295000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-065",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 105000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 6331250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-066",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 55
+            },
+            "start": {
+              "rate": 24,
+              "value": 5155
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-067",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 29
+            },
+            "start": {
+              "rate": 24,
+              "value": 5216
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-068",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 32
+            },
+            "start": {
+              "rate": 24,
+              "value": 5245
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-069",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 56
+            },
+            "start": {
+              "rate": 24,
+              "value": 5277
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-070",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 126250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 6666250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": false,
+          "id": "a2-071",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 66
+            },
+            "start": {
+              "rate": 24,
+              "value": 5446
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-072",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 36250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 6920000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-073",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 140000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 6956250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-074",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 62
+            },
+            "start": {
+              "rate": 24,
+              "value": 5647
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-075",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 100
+            },
+            "start": {
+              "rate": 24,
+              "value": 5733
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-076",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 32
+            },
+            "start": {
+              "rate": 24,
+              "value": 5820
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-077",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 37
+            },
+            "start": {
+              "rate": 24,
+              "value": 5858
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-078",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 91250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 7376250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-079",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 108750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 7475000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-080",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 47
+            },
+            "start": {
+              "rate": 24,
+              "value": 6032
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-081",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 118
+            },
+            "start": {
+              "rate": 24,
+              "value": 6103
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-082",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 43
+            },
+            "start": {
+              "rate": 24,
+              "value": 6221
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-083",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 80000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 7845000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-084",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 42500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 7932500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-085",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 120
+            },
+            "start": {
+              "rate": 24,
+              "value": 6386
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-086",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 40000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 8140000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-087",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 94
+            },
+            "start": {
+              "rate": 24,
+              "value": 6544
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-088",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 78
+            },
+            "start": {
+              "rate": 24,
+              "value": 6638
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-089",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 57
+            },
+            "start": {
+              "rate": 24,
+              "value": 6716
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-090",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 36
+            },
+            "start": {
+              "rate": 24,
+              "value": 6797
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-091",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 101250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 8541250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-092",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 96250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 8672500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-093",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 54
+            },
+            "start": {
+              "rate": 24,
+              "value": 7039
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-094",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 48750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 8866250
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-095",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 61
+            },
+            "start": {
+              "rate": 24,
+              "value": 7132
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-096",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 71
+            },
+            "start": {
+              "rate": 24,
+              "value": 7193
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-097",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 49
+            },
+            "start": {
+              "rate": 24,
+              "value": 7264
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-099",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 122500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 9210000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-100",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 92500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 9332500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-101",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 88
+            },
+            "start": {
+              "rate": 24,
+              "value": 7564
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-102",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 45000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 9565000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-103",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 46250
+            },
+            "start": {
+              "rate": 30000,
+              "value": 9567500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-104",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 53
+            },
+            "start": {
+              "rate": 24,
+              "value": 7691
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-105",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 29
+            },
+            "start": {
+              "rate": 24,
+              "value": 7744
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-gap106",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 55000
+            },
+            "start": {
+              "rate": 30000,
+              "value": 9716250
+            }
+          },
+          "type": "gap"
+        },
+        {
+          "enabled": true,
+          "id": "a2-106",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 39
+            },
+            "start": {
+              "rate": 24,
+              "value": 7817
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-107",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 122500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 9820000
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-108",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 88750
+            },
+            "start": {
+              "rate": 30000,
+              "value": 9942500
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-109",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 81
+            },
+            "start": {
+              "rate": 24,
+              "value": 8049
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-gap110",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 44
+            },
+            "start": {
+              "rate": 24,
+              "value": 8130
+            }
+          },
+          "type": "gap"
+        },
+        {
+          "enabled": true,
+          "id": "a2-110",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 24,
+              "value": 24
+            },
+            "start": {
+              "rate": 24,
+              "value": 8174
+            }
+          },
+          "type": "clip"
+        },
+        {
+          "enabled": true,
+          "id": "a2-111",
+          "muted": false,
+          "range": {
+            "duration": {
+              "rate": 30000,
+              "value": 142500
+            },
+            "start": {
+              "rate": 30000,
+              "value": 10247500
+            }
+          },
+          "type": "clip"
+        }
+      ],
+      "kind": "audio",
+      "name": "A2"
+    }
+  ],
+  "version": 2
+}
