@@ -71,3 +71,11 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ============================================================
+# tsprobe local build and generated artifacts
+# ============================================================
+
+/out/
+/testdata/
+/tsprobe
