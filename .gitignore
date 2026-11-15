@@ -71,3 +71,7 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 运行产物（报告、逐包日志、本地二进制）----
+/out/
+/rtprelay
