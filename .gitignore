@@ -71,3 +71,9 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Relayctl build and runtime output ----
+/bin/
+/out/
+*.test
+/relayctl
