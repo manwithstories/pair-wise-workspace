@@ -71,3 +71,11 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 本项目生成的演示数据与报告（源码内自生成，不交付）----
+/data/
+/reports/
+/build/
+/out/
+/dist/
+/target/
