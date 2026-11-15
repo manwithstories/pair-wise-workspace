@@ -69,5 +69,14 @@ AGENTS.md.local
 *buddy*/
 *qcoder*/
 *copilot*/
+
+# ---- mixgraph generated artifacts ----
+__pycache__/
+*.py[cod]
+.pytest_cache/
+fixtures/audio/
+fixtures/project.json
+out/
+
 .agent*/
 .ai*/
