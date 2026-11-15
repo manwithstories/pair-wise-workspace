@@ -71,3 +71,15 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 项目运行产物与中间文件（不交付）----
+work/
+build/
+out/
+dist/
+target/
+node_modules/
+__pycache__/
+*.o
+*.a
+*.so

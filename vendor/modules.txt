@@ -1,0 +1,8 @@
+# github.com/abema/go-mp4 v1.2.0
+## explicit; go 1.14
+github.com/abema/go-mp4
+github.com/abema/go-mp4/internal/bitio
+github.com/abema/go-mp4/internal/util
+# github.com/google/uuid v1.1.2
+## explicit
+github.com/google/uuid
