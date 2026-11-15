@@ -71,3 +71,16 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- cinecheck build/runtime artifacts (never commit) ----
+.venv/
+.fixtures/
+.gitlocal/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.env
+*.pem
+*.key

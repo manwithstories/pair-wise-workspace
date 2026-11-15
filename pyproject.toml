@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cinecheck"
+version = "0.1.0"
+description = "Terminal batch tool for H.264 frame inspection, reordering and PTS repair"
+requires-python = ">=3.11"
+dependencies = [
+    "av==12.3.0",
+    "numpy==1.26.4",
+]
+
+[project.optional-dependencies]
+test = ["pytest==8.2.0"]
+
+[project.scripts]
+cinecheck = "cinecheck.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
