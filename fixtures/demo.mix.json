@@ -1,0 +1,141 @@
+{
+  "target_sr": 48000,
+  "duration": 60.0,
+  "hop": 64,
+  "clip_threshold": 1.0,
+  "master_bus": "master",
+  "buses": [
+    {
+      "name": "vo",
+      "output": "master"
+    },
+    {
+      "name": "bed",
+      "output": "master"
+    },
+    {
+      "name": "master",
+      "output": null
+    }
+  ],
+  "tracks": [
+    {
+      "name": "dialogue",
+      "file": "wav/dialogue.wav",
+      "channels": 1,
+      "bus": "vo",
+      "gain_db": -2.0,
+      "muted": false,
+      "automation": [
+        {
+          "time": 0.0,
+          "db": -6.0
+        },
+        {
+          "time": 10.0,
+          "db": -1.0
+        },
+        {
+          "time": 30.0,
+          "db": -1.0
+        },
+        {
+          "time": 45.0,
+          "db": -8.0
+        },
+        {
+          "time": 45.0,
+          "db": -4.0
+        },
+        {
+          "time": 60.0,
+          "db": -6.0
+        }
+      ]
+    },
+    {
+      "name": "music",
+      "file": "wav/music.wav",
+      "channels": 2,
+      "bus": "bed",
+      "gain_db": -6.0,
+      "muted": false,
+      "automation": [
+        {
+          "time": 0.0,
+          "db": -3.0
+        },
+        {
+          "time": 20.0,
+          "db": 0.0
+        },
+        {
+          "time": 50.0,
+          "db": -5.0
+        }
+      ]
+    },
+    {
+      "name": "sfx",
+      "file": "wav/sfx.wav",
+      "channels": 2,
+      "bus": "bed",
+      "gain_db": 0.0,
+      "muted": false,
+      "automation": [
+        {
+          "time": 29.5,
+          "db": -6.0
+        },
+        {
+          "time": 29.98,
+          "db": -6.0
+        },
+        {
+          "time": 30.0,
+          "db": 2.6
+        },
+        {
+          "time": 30.02,
+          "db": -6.0
+        },
+        {
+          "time": 30.5,
+          "db": -6.0
+        }
+      ]
+    },
+    {
+      "name": "ambience",
+      "file": "wav/ambience.wav",
+      "channels": 2,
+      "bus": "bed",
+      "gain_db": 0.0,
+      "muted": false,
+      "automation": [
+        {
+          "time": 0.0,
+          "db": -2.0
+        }
+      ]
+    },
+    {
+      "name": "foley",
+      "file": "wav/foley.wav",
+      "channels": 2,
+      "bus": "bed",
+      "gain_db": -8.0,
+      "muted": false,
+      "automation": [
+        {
+          "time": 0.0,
+          "db": 0.0
+        },
+        {
+          "time": 60.0,
+          "db": -10.0
+        }
+      ]
+    }
+  ]
+}

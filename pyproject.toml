@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mixctl"
+version = "1.0.0"
+description = "本地多轨混音流水线：有理比重采样、自动化曲线、离线/流式双路径渲染"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy==1.26.4",
+    "soundfile==0.12.1",
+]
+
+[tool.setuptools]
+packages = ["mixctl"]
