@@ -71,3 +71,11 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 本项目的生成物 ----
+__pycache__/
+*.py[cod]
+fixtures/
+out/
+*.f32
+*.wav
