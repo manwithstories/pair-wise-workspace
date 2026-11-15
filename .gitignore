@@ -71,3 +71,13 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- build output, generated fixtures and vendored dependency builds ----
+/build/
+/out/
+/fixtures/
+/vendor/install/
+/vendor/libass-*/
+/vendor/*.tar.gz
+/vendor/*.tar.xz
+
