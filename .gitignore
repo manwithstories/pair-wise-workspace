@@ -71,3 +71,18 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# Build products and generated fixtures/reports
+build/
+out/
+*.o
+*.a
+*.so
+__pycache__/
+*.ppm
+*.tmp
+r.json
+v.json
+s.json
+report.json
+/f/
