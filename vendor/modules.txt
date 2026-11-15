@@ -1,0 +1,6 @@
+# github.com/google/uuid v1.6.0
+## explicit
+github.com/google/uuid
+# gopkg.in/yaml.v3 v3.0.1
+## explicit
+gopkg.in/yaml.v3

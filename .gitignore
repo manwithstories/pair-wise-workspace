@@ -71,3 +71,8 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- dashkit 构建产物与生成数据（不提交）----
+out/
+testdata/
+dashkit
