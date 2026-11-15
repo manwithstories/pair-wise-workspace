@@ -71,3 +71,12 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# Go build/test artifacts
+/loudness
+/bin/
+*.test
+coverage.out
+
+# Generated demo media (run scripts/genfixtures)
+/fixtures/
