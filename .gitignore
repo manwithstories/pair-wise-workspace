@@ -71,3 +71,14 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# 运行产物
+var/
+fixtures/*.yuv
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+fixtures/*.meta.json
