@@ -71,3 +71,17 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- m3u8ctl generated artifacts (sample segments, playlists, reports) ----
+/work/
+/out/
+/demo*/
+/*-work/
+/*-out/
+/report.json
+/*-report.json
+/tamper-out/
+/win-out/
+/perf-*/
+/clean-*/
+/bad*/
