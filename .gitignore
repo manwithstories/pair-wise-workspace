@@ -68,6 +68,19 @@ AGENTS.md.local
 # （不用 *coder*/ 以免误伤 encoder/ decoder/ 等正常目录）
 *buddy*/
 *qcoder*/
+
+# ---- Python build/runtime artifacts ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+build/
+dist/
+.pytest_cache/
+
+# ---- Generated audio, indexes, and exports ----
+data/
+out/
 *copilot*/
 .agent*/
 .ai*/

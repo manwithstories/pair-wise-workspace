@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "audiosplit"
+version = "0.1.0"
+description = "Local, streaming dialogue segmentation for WAV masters"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.26,<2"]
+
+[project.scripts]
+audiosplit = "audiosplit.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["audiosplit*"]
+
