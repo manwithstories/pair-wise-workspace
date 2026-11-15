@@ -71,3 +71,11 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- smx build artifacts and generated font ----
+/build/
+/out/
+/fixtures/synth.ttf
+.DS_Store
+__pycache__/
+*.pyc
