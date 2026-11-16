@@ -69,6 +69,7 @@ def probe_wav(path: str | Path, track: str | None = None) -> WavHeader:
         audio_format = channels = rate = bits = 0
         data_size = 0
         seen_fmt = False
+        seen_data = False
         while True:
             chunk_header = handle.read(8)
             if len(chunk_header) < 8:
@@ -83,13 +84,16 @@ def probe_wav(path: str | Path, track: str | None = None) -> WavHeader:
                     handle.seek(1, 1)
             elif chunk_id == b"data":
                 data_size = chunk_size
+                seen_data = True
                 break
             else:
                 handle.seek(chunk_size + (chunk_size % 2), 1)
     if not seen_fmt:
         raise format_error("invalid_wav", f"{file_path.name} has no fmt chunk", track=track)
-    if data_size == 0:
+    if not seen_data:
         raise format_error("invalid_wav", f"{file_path.name} has no data chunk", track=track)
+    # A zero-length data chunk is a legal, empty source: it renders as silence
+    # rather than failing the whole project.
     return WavHeader(audio_format, channels, rate, bits, data_size, size)
 
 

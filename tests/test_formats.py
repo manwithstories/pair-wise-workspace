@@ -173,3 +173,41 @@ def test_project_needs_four_tracks():
     with pytest.raises(MixerError) as excinfo:
         parse_project(project, base_dir=Path("/tmp"))
     assert excinfo.value.code == "invalid_project"
+
+
+def test_zero_length_source_is_an_empty_track(tmp_path):
+    """A legal zero-frame WAV must not fail the whole project."""
+    from src.mixer.engine import OfflineEngine
+    from src.mixer.model import parse_project
+
+    empty = tmp_path / "empty.wav"
+    sf.write(str(empty), np.zeros((0, 2)), 48000, subtype="FLOAT", format="WAV")
+    tone = tmp_path / "tone.wav"
+    sf.write(str(tone), np.full((4800, 2), 0.2), 48000, subtype="FLOAT", format="WAV")
+    raw = {
+        "schema": "mix-project/1",
+        "target_rate": 48000,
+        "tracks": [
+            {"name": "empty", "file": "empty.wav", "layout": "stereo"},
+            {"name": "a", "file": "tone.wav", "layout": "stereo"},
+            {"name": "b", "file": "tone.wav", "layout": "stereo"},
+            {"name": "c", "file": "tone.wav", "layout": "stereo"},
+        ],
+    }
+    result = OfflineEngine(parse_project(raw, base_dir=tmp_path)).render()
+    assert result.timeline_frames == 4800
+
+
+def test_header_without_data_chunk_is_rejected(tmp_path):
+    good = tmp_path / "good.wav"
+    _write(good, 48000, 2)
+    raw = bytearray(good.read_bytes())
+    index = raw.find(b"data")
+    assert index > 0
+    broken = tmp_path / "nodata.wav"
+    broken.write_bytes(bytes(raw[:index]))
+    with pytest.raises(MixerError) as excinfo:
+        probe_wav(broken)
+    # Cutting at the data chunk leaves the RIFF size overstated, which is a
+    # truncation; a file that simply never declares data is invalid_wav.
+    assert excinfo.value.code in {"truncated_file", "invalid_wav"}
