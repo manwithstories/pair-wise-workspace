@@ -128,6 +128,9 @@ func buildTrack(ra io.ReaderAt, trak *box.Node) (*box.Track, error) {
 			return nil, err
 		}
 		tr.Timescale, tr.Duration = ts, dur
+		if len(b) > 0 {
+			tr.MdhdVersion = b[0]
+		}
 	}
 	if tr.Timescale == 0 {
 		return nil, &box.StructureError{Offset: mdia.Offset, Reason: "zero mdhd timescale"}

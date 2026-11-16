@@ -150,12 +150,13 @@ func (t *SampleTable) KeyframeAtOrBefore(sample int) int {
 
 // Track is one indexed trak.
 type Track struct {
-	ID        uint32
-	Handler   string // "vide", "soun", or another 4cc
-	Timescale uint32 // mdhd media timescale
-	Duration  int64  // mdhd duration in media timescale units
-	Edits     []EditSegment
-	Table     *SampleTable
+	ID          uint32
+	Handler     string // "vide", "soun", or another 4cc
+	Timescale   uint32 // mdhd media timescale
+	Duration    int64  // mdhd duration in media timescale units
+	MdhdVersion uint8  // 0 = 32-bit timestamp domain, 1 = 64-bit
+	Edits       []EditSegment
+	Table       *SampleTable
 }
 
 // IsVideo / IsAudio classify the track by handler type.
