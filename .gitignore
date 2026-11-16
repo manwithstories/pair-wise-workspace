@@ -71,3 +71,9 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 本项目本地产物 ----
+outputs/
+__pycache__/
+*.pyc
+.pytest_cache/
