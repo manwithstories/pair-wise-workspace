@@ -246,36 +246,50 @@ class MixGraph:
         return seen
 
     # -- execution --------------------------------------------------------
-    def gain_path(self, track_name: str) -> list[tuple[str, float]]:
-        """The (node, gain) chain from a track up to the master.
+    def gain_paths(self, track_name: str) -> list[list[tuple[str, float]]]:
+        """Every (node, gain) chain from a track up to the master.
 
-        A track feeding several buses has one path per bus; each path's gain
-        product is applied to that branch, which is how bus summing works.
+        A track feeding several buses contributes once per branch; the branch
+        gains are summed, so a doubled route is twice as loud rather than
+        silently collapsed onto one path.
         """
-        path = self._find_path(track_name, set())
-        if path is None:
+        paths = self._find_all_paths(track_name, set())
+        if not paths:
             raise MixerError(
                 "graph_unconnected_output",
                 f"track {track_name!r} has no path to the master",
                 track=track_name,
             )
-        return path
+        return paths
 
-    def _find_path(self, name: str, seen: set[str]) -> list[tuple[str, float]] | None:
+    def gain_path(self, track_name: str) -> list[tuple[str, float]]:
+        """The first (node, gain) chain to the master (single-route case)."""
+        return self.gain_paths(track_name)[0]
+
+    def branch_gain(self, track_name: str) -> float:
+        """Sum of every branch's gain product from the track to the master."""
+        total = 0.0
+        for path in self.gain_paths(track_name):
+            product = 1.0
+            for _node, node_gain in path[1:]:
+                product *= node_gain
+            total += product
+        return total
+
+    def _find_all_paths(self, name: str, seen: set[str]) -> list[list[tuple[str, float]]]:
         if name in seen:
-            return None
-        seen = seen | {name}
+            return []
         node = self._nodes[name]
         if node.kind == KIND_MASTER:
-            return [(MASTER, node.gain)]
+            return [[(MASTER, node.gain)]]
         consumers = sorted(
             (n for n in self._nodes.values() if name in n.inputs), key=lambda n: n.name
         )
+        results: list[list[tuple[str, float]]] = []
         for consumer in consumers:
-            tail = self._find_path(consumer.name, seen)
-            if tail is not None:
-                return [(name, node.gain), *tail]
-        return None
+            for tail in self._find_all_paths(consumer.name, seen | {name}):
+                results.append([(name, node.gain), *tail])
+        return results
 
     def consumer_buses(self, track_name: str) -> list[str]:
         """Bus names directly fed by a track (used for bus-level gain)."""

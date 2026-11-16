@@ -330,3 +330,26 @@ def test_silence_window_zeroes_the_track(project):
         start = int(0.53 * session.rate)
         block = session._track_block(pad, start, 200)
     assert float(np.max(np.abs(block))) == 0.0
+
+
+def test_multi_bus_fanout_sums_branches(project):
+    """A track routed to two buses contributes twice, not just once."""
+    graph = MixGraph()
+    graph.add(MasterNode())
+    for track in project.tracks:
+        graph.add(TrackNode(track))
+    graph.add(BusNode("left", [], 0.0))
+    graph.add(BusNode("right", [], 0.0))
+    graph.connect("fx", "left")
+    graph.connect("fx", "right")
+    graph.connect("left", MASTER)
+    graph.connect("right", MASTER)
+    for name in ("drums", "bass", "pad"):
+        graph.connect(name, MASTER)
+    graph.validate()
+    paths = graph.gain_paths("fx")
+    assert len(paths) == 2
+    assert graph.branch_gain("fx") == pytest.approx(2.0)
+    offline = OfflineEngine(project, graph).render()
+    stream = StreamingEngine(project, graph, block_size=256).render()
+    assert float(np.max(np.abs(offline.audio - stream.audio))) <= 1e-5

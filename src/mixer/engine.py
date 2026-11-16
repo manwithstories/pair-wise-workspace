@@ -129,12 +129,12 @@ class MixSession:
             raise
 
     def _static_gain(self, name: str) -> float:
-        """Product of every node gain on the track's path to the master."""
-        path = self.graph.gain_path(name)
-        gain = 1.0
-        for _node, node_gain in path[1:]:  # path[0] is the track node itself
-            gain *= node_gain
-        return float(gain)
+        """Summed gain of every branch from the track to the master.
+
+        The track node's own gain is applied by the evaluator, so branch
+        products start at the first downstream node.
+        """
+        return float(self.graph.branch_gain(name))
 
     # -- timeline ---------------------------------------------------------
     def track_frames(self, name: str) -> int:
