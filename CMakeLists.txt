@@ -16,6 +16,7 @@ set(LUTGRADE_CORE_SOURCES
   src/lut_parser.cpp
   src/color_matrix.cpp
   src/interpolator.cpp
+  src/renderer_scalar.cpp
 )
 
 add_library(lutgrade_core STATIC ${LUTGRADE_CORE_SOURCES})
