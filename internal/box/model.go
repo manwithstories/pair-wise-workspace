@@ -99,15 +99,16 @@ func (f *Forest) Count() int {
 // ---------------------------------------------------------------------------
 
 // EditSegment is one elst entry. MediaTime == -1 marks an empty (gap)
-// segment: presentation time passes with no media playing.
+// segment: presentation time passes with no media playing. Other
+// negative values are legitimate (negative media-time offsets).
 type EditSegment struct {
 	SegmentDuration int64   // in movie (mvhd) timescale units
-	MediaTime       int64   // media timescale units; -1 = empty segment
+	MediaTime       int64   // media timescale units; exactly -1 = empty
 	MediaRate       float64 // normally 1.0
 }
 
 // Empty reports whether the segment is a gap.
-func (e EditSegment) Empty() bool { return e.MediaTime < 0 }
+func (e EditSegment) Empty() bool { return e.MediaTime == -1 }
 
 // SampleRecord describes one sample's decode/presentation time and its
 // on-disk location. DTS/PTS are raw media-timescale values; timeline

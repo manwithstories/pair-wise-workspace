@@ -11,12 +11,12 @@ import (
 type Segment struct {
 	Start     int64 // presentation start, movie timescale units
 	Duration  int64 // segment duration, movie timescale units
-	MediaTime int64 // media-time origin of the segment; -1 = empty gap
+	MediaTime int64 // media-time origin of the segment; exactly -1 = empty
 	Rate      float64
 }
 
 // Empty reports whether the segment is a gap.
-func (s Segment) Empty() bool { return s.MediaTime < 0 }
+func (s Segment) Empty() bool { return s.MediaTime == -1 }
 
 // End returns the presentation time one past the segment.
 func (s Segment) End() int64 { return s.Start + s.Duration }
