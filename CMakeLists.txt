@@ -48,6 +48,7 @@ if(LUTGRADE_BUILD_TESTS)
   enable_testing()
   add_executable(lutgrade_tests
     tests/integration.cpp
+    tests/render_tests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/.third_party/Catch2/catch_amalgamated.cpp)
   target_include_directories(lutgrade_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/.third_party/Catch2)
