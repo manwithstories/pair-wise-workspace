@@ -71,3 +71,7 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 构建与生成产物 ----
+build/
+out/
