@@ -43,24 +43,6 @@ def drop_short_runs(runs: Sequence[Interval], min_frames: int) -> list[Interval]
     return [r for r in runs if r.length >= min_frames]
 
 
-def merge_close_runs(runs: Sequence[Interval], max_gap_frames: int) -> list[Interval]:
-    """Merge runs separated by a gap shorter than the minimum silence."""
-
-    merged: list[Interval] = []
-    for run in runs:
-        if merged and run.start - merged[-1].end < max_gap_frames:
-            merged[-1] = Interval(merged[-1].start, run.end)
-        else:
-            merged.append(run)
-    return merged
-
-
-def ms_to_frames(ms: float, hop_ms: float) -> int:
-    if ms <= 0 or hop_ms <= 0:
-        return 0
-    return int(math.ceil(ms / hop_ms))
-
-
 def bridge_pulses(
     mask: np.ndarray, max_frames: int, min_gap_frames: int
 ) -> np.ndarray:
@@ -111,6 +93,33 @@ def apply_padding(
             right_budget = min(pad_samples, max(0, total_samples - cur.end))
         padded.append(Interval(cur.start - left_budget, cur.end + right_budget))
     return padded
+
+
+def merge_close_intervals(
+    intervals: Sequence[Interval], max_gap_samples: int
+) -> list[Interval]:
+    """Merge intervals whose separating gap is shorter than the min silence.
+
+    A gap at least as long as ``min_silence_ms`` is a real pause and is kept.
+    Working in samples (not frames) keeps the boundary exact regardless of
+    hop size, so a configured 120 ms threshold means 120 ms.
+    """
+
+    merged: list[Interval] = []
+    for run in intervals:
+        if merged and run.start - merged[-1].end < max_gap_samples:
+            merged[-1] = Interval(merged[-1].start, run.end)
+        else:
+            merged.append(run)
+    return merged
+
+
+def drop_short_intervals(
+    intervals: Sequence[Interval], min_length_samples: int
+) -> list[Interval]:
+    if min_length_samples <= 0:
+        return list(intervals)
+    return [i for i in intervals if i.length >= min_length_samples]
 
 
 def complement_intervals(

@@ -45,23 +45,36 @@ __all__ = [
 
 
 def estimate_noise_floor(db: np.ndarray, percentile: float) -> float:
-    """Robust background estimate from the quiet tail of the frame distribution.
+    """Background level from a low percentile of all analysis frames.
 
-    Digitally silent frames (level at the dB floor) are excluded: they are
-    *quieter than the room*, and including them would pull the estimate down
-    to -120 dB, which in turn makes the ramp gate so low that ordinary room
-    tone starts looking like a fade.  If a file is nothing but digital
-    silence, the floor is the dB floor.
+    Digital silence is included on purpose: when the quiet passages are true
+    zeros the floor is the dB floor, the relative threshold falls away, and
+    the absolute ``threshold_db`` governs.  That is the correct behaviour --
+    real silence should never *raise* the bar for what counts as content.
+    """
+
+    if db.size == 0:
+        return sig.DB_FLOOR
+    floor = float(np.percentile(db, percentile))
+    if not math.isfinite(floor):
+        return sig.DB_FLOOR
+    return max(sig.DB_FLOOR, floor)
+
+
+def audible_floor(db: np.ndarray, percentile: float) -> float:
+    """Low percentile ignoring digital zero frames.
+
+    Used only as the lower bound of the ramp gate.  With a floor of -120 dB
+    the gate would sink below ordinary room tone and every steady noise floor
+    would look like a fade.  If nothing is audible, the dB floor is returned.
     """
 
     if db.size == 0:
         return sig.DB_FLOOR
     audible = db[db > sig.DB_FLOOR + 0.5]
-    source = audible if audible.size else db
-    floor = float(np.percentile(source, percentile))
-    if not math.isfinite(floor):
+    if audible.size == 0:
         return sig.DB_FLOOR
-    return max(sig.DB_FLOOR, floor)
+    return max(sig.DB_FLOOR, float(np.percentile(audible, percentile)))
 
 
 def compute_thresholds(
@@ -152,6 +165,12 @@ def apply_ramp_compensation(
     return out
 
 
+def _ms_to_frames(ms: float, hop_ms: float) -> int:
+    if ms <= 0 or hop_ms <= 0:
+        return 0
+    return int(math.ceil(ms / hop_ms))
+
+
 def detect_from_features(
     features: sig.FrameFeatures, config: DetectionConfig
 ) -> tuple[list[Interval], float, float, float]:
@@ -163,26 +182,35 @@ def detect_from_features(
         return [], sig.DB_FLOOR, config.threshold_db, config.threshold_db
     smoothed = sig.smooth_db(db, sig.smoothing_frames(config.smooth_ms, hop_ms))
     noise_floor, enter_db, exit_db = compute_thresholds(smoothed, config)
+    ramp_floor = audible_floor(smoothed, config.noise_percentile)
     mask = hysteresis_mask(smoothed, enter_db, exit_db)
     mask = apply_ramp_compensation(
-        mask, smoothed, enter_db, noise_floor, config, hop_ms
+        mask, smoothed, enter_db, ramp_floor, config, hop_ms
     )
-    silence_frames = reg.ms_to_frames(config.min_silence_ms, hop_ms)
-    pulse_frames = reg.ms_to_frames(config.max_pulse_ms, hop_ms)
+    silence_frames = _ms_to_frames(config.min_silence_ms, hop_ms)
+    pulse_frames = _ms_to_frames(config.max_pulse_ms, hop_ms)
     mask = reg.bridge_pulses(mask, pulse_frames, silence_frames)
-    runs = reg.merge_close_runs(reg.runs_from_mask(mask), silence_frames)
-    min_frames = reg.ms_to_frames(config.min_segment_ms, hop_ms)
-    runs = reg.drop_short_runs(runs, min_frames)
-    if not runs:
+    runs = reg.runs_from_mask(mask)
+    hop = features.grid.hop_samples
+    total = features.total_samples
+    # Convert to samples before merging/filtering so millisecond settings are
+    # exact rather than rounded up to a whole hop.
+    sample_runs = [
+        Interval(r.start * hop, min(total, r.end * hop)) for r in runs
+    ]
+    min_gap = int(round(config.min_silence_ms / 1000.0 * features.grid.sample_rate))
+    sample_runs = reg.merge_close_intervals(sample_runs, min_gap)
+    min_length = int(
+        round(config.min_segment_ms / 1000.0 * features.grid.sample_rate)
+    )
+    sample_runs = reg.drop_short_intervals(sample_runs, min_length)
+    if not sample_runs:
         return [], noise_floor, enter_db, exit_db
 
-    starts = features.starts
-    ends = features.ends()
-    total = features.total_samples
     intervals: list[Interval] = []
-    for run in runs:
-        start = max(0, min(int(starts[run.start]), total))
-        end = max(start, min(int(ends[run.end - 1]), total))
+    for run in sample_runs:
+        start = max(0, min(run.start, total))
+        end = max(start, min(run.end, total))
         if intervals and start <= intervals[-1].end:
             prev = intervals[-1]
             intervals[-1] = Interval(prev.start, max(prev.end, end))

@@ -10,6 +10,7 @@ from helpers import TempWorkspace, fade, noise, silence, tone, write_wav
 
 from audio_segmenter import signal as sig
 from audio_segmenter.detector import (
+    audible_floor,
     compute_thresholds,
     detect_array,
     estimate_noise_floor,
@@ -29,6 +30,11 @@ class NoiseFloorTests(unittest.TestCase):
         floor = estimate_noise_floor(db, 15.0)
         self.assertGreaterEqual(floor, -70.0)
         self.assertLess(floor, -60.0)
+
+    def test_digital_silence_does_not_raise_the_floor(self) -> None:
+        db = np.array([sig.DB_FLOOR, sig.DB_FLOOR, -12.0, -10.0])
+        self.assertEqual(estimate_noise_floor(db, 15.0), sig.DB_FLOOR)
+        self.assertGreater(audible_floor(db, 15.0), sig.DB_FLOOR)
 
     def test_empty_input_is_floored(self) -> None:
         self.assertEqual(estimate_noise_floor(np.array([]), 15.0), sig.DB_FLOOR)
@@ -89,6 +95,55 @@ class PulseTests(unittest.TestCase):
         )
         result = detect_array(audio, sr, DetectionConfig(), path="gap.wav")
         self.assertEqual(len(result.segments), 2)
+
+
+class MinSilenceBoundaryTests(unittest.TestCase):
+    """The min-silence threshold is compared in samples, not frames."""
+
+    def _two_bursts(self, gap_seconds: float) -> np.ndarray:
+        burst = tone(SR, 1 / 3)
+        return np.concatenate(
+            [silence(SR, 0.25), burst, silence(SR, gap_seconds), burst, silence(SR, 0.25)]
+        )
+
+    def test_gap_below_min_silence_is_merged(self) -> None:
+        # 60 ms is far enough below the 120 ms threshold that frame
+        # quantisation (at most one hop) cannot flip the decision.
+        result = detect_array(
+            self._two_bursts(0.060), SR, DetectionConfig(), path="60.wav"
+        )
+        self.assertEqual(len(result.segments), 1)
+
+    def test_gap_above_min_silence_is_kept(self) -> None:
+        result = detect_array(
+            self._two_bursts(0.180), SR, DetectionConfig(), path="180.wav"
+        )
+        self.assertEqual(len(result.segments), 2)
+
+    def test_gap_measurement_error_is_within_one_hop(self) -> None:
+        # Padding is applied after the merge decision, so measure with
+        # padding disabled to isolate boundary accuracy.
+        config = DetectionConfig(padding_ms=0.0)
+        result = detect_array(self._two_bursts(0.240), SR, config, path="240.wav")
+        self.assertEqual(len(result.segments), 2)
+        gap = result.segments[1].start_sample - result.segments[0].end_sample
+        hop = int(round(SR * config.hop_ms / 1000.0))
+        self.assertLessEqual(abs(gap - int(round(SR * 0.240))), hop)
+
+    def test_padding_shrinks_reported_gap_by_twice_the_budget(self) -> None:
+        gap = 0.240
+        config = DetectionConfig()
+        padded = detect_array(self._two_bursts(gap), SR, config, path="pad.wav")
+        tight = detect_array(
+            self._two_bursts(gap), SR, DetectionConfig(padding_ms=0.0), path="nopad.wav"
+        )
+        reported = padded.segments[1].start_sample - padded.segments[0].end_sample
+        expected = (
+            tight.segments[1].start_sample
+            - tight.segments[0].end_sample
+            - 2 * int(round(SR * config.padding_ms / 1000.0))
+        )
+        self.assertEqual(reported, expected)
 
 
 class RampTests(unittest.TestCase):
