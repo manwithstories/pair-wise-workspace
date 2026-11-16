@@ -71,3 +71,12 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# sidxcheck generated output
+/fixtures/
+/rebuilt.sidx
+/rebuilt.json
+/verify.json
+__pycache__/
+*.py[cod]
+.pytest_cache/
