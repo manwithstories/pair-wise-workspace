@@ -1,7 +1,9 @@
 #include <catch_amalgamated.hpp>
 
+#include <cmath>
 #include <sstream>
 
+#include "color_matrix.hpp"
 #include "image_io.hpp"
 #include "lut_parser.hpp"
 
@@ -178,4 +180,111 @@ TEST_CASE("cube: domain max must exceed min") {
                            "DOMAIN_MAX 0.4 1 1\n" + data17,
                            "<mem>"),
       Catch::Matchers::ContainsSubstring("DOMAIN_MAX must be greater"));
+}
+
+// ------------------------------------------------------- colour matrices ----
+TEST_CASE("colour: same-space matrix is identity") {
+  for (const auto space : {lutgrade::ColorSpace::kSrgb, lutgrade::ColorSpace::kRec709,
+                           lutgrade::ColorSpace::kRec2020,
+                           lutgrade::ColorSpace::kAcescg}) {
+    const auto m = lutgrade::conversion_matrix(space, space);
+    for (std::size_t i = 0; i < 9; ++i) {
+      REQUIRE(m.m[i] == Catch::Approx(i % 4 == 0 ? 1.0 : 0.0).margin(1e-15));
+    }
+  }
+}
+
+TEST_CASE("colour: sRGB and Rec.709 share primaries") {
+  const auto m = lutgrade::conversion_matrix(lutgrade::ColorSpace::kSrgb,
+                                             lutgrade::ColorSpace::kRec709);
+  REQUIRE(m.m[0] == Catch::Approx(1.0).margin(1e-12));
+  REQUIRE(m.m[4] == Catch::Approx(1.0).margin(1e-12));
+  REQUIRE(m.m[8] == Catch::Approx(1.0).margin(1e-12));
+  REQUIRE(std::abs(m.m[1]) < 1e-12);
+  REQUIRE(std::abs(m.m[3]) < 1e-12);
+}
+
+TEST_CASE("colour: white maps to white and matrices invert") {
+  const std::array<double, 3> white{1.0, 1.0, 1.0};
+  const auto spaces = {lutgrade::ColorSpace::kSrgb, lutgrade::ColorSpace::kRec709,
+                       lutgrade::ColorSpace::kRec2020,
+                       lutgrade::ColorSpace::kAcescg};
+  for (const auto from : spaces) {
+    for (const auto to : spaces) {
+      const auto fwd = lutgrade::conversion_matrix(from, to);
+      const auto back = lutgrade::conversion_matrix(to, from);
+      const auto round = lutgrade::multiply(back, fwd);
+      for (std::size_t i = 0; i < 9; ++i) {
+        REQUIRE(round.m[i] ==
+                Catch::Approx(i % 4 == 0 ? 1.0 : 0.0).margin(1e-9));
+      }
+      const auto encoded_white = lutgrade::apply(fwd, white);
+      for (const double v : encoded_white) {
+        REQUIRE(v == Catch::Approx(1.0).margin(1e-9));
+      }
+    }
+  }
+}
+
+TEST_CASE("colour: sRGB->Rec.2020 primary shift is directionally correct") {
+  // Pure sRGB red must land mostly in Rec.2020 red and below 1.0 in the
+  // other channels; sRGB blue converts with a small green component.
+  const auto m = lutgrade::conversion_matrix(lutgrade::ColorSpace::kSrgb,
+                                             lutgrade::ColorSpace::kRec2020);
+  const auto red = lutgrade::apply(m, {1.0, 0.0, 0.0});
+  REQUIRE(red[0] == Catch::Approx(0.6274038959).margin(1e-9));
+  REQUIRE(red[1] == Catch::Approx(0.0690972894).margin(1e-9));
+  REQUIRE(red[2] == Catch::Approx(0.0163914389).margin(1e-9));
+  const auto blue = lutgrade::apply(m, {0.0, 0.0, 1.0});
+  REQUIRE(blue[2] == Catch::Approx(0.8955952532).margin(1e-9));
+  REQUIRE(blue[2] < 1.0);
+}
+
+TEST_CASE("colour: transfer round-trips and clamps") {
+  for (const auto space : {lutgrade::ColorSpace::kSrgb,
+                           lutgrade::ColorSpace::kRec709,
+                           lutgrade::ColorSpace::kRec2020}) {
+    for (double v = 0.0; v <= 1.0; v += 0.05) {
+      CAPTURE(v);
+      REQUIRE(lutgrade::encode_transfer(space, lutgrade::decode_transfer(space, v)) ==
+              Catch::Approx(v).margin(1e-12));
+    }
+  }
+  REQUIRE(lutgrade::decode_transfer(lutgrade::ColorSpace::kAcescg, 0.25) == 0.25);
+  REQUIRE(lutgrade::decode_transfer(lutgrade::ColorSpace::kSrgb, -1.0) == 0.0);
+  REQUIRE(lutgrade::encode_transfer(lutgrade::ColorSpace::kSrgb, 2.0) ==
+          Catch::Approx(1.0).margin(1e-12));
+  // sRGB decode is linear near zero and steepens in the shadows.
+  REQUIRE(lutgrade::decode_transfer(lutgrade::ColorSpace::kSrgb, 0.02) ==
+          Catch::Approx(0.02 / 12.92).margin(1e-15));
+  REQUIRE(lutgrade::decode_transfer(lutgrade::ColorSpace::kSrgb, 0.5) ==
+          Catch::Approx(0.21404114048223255).margin(1e-12));
+}
+
+TEST_CASE("colour: clamp_linear reports out-of-gamut channels") {
+  const auto in_range = lutgrade::clamp_linear({0.2, 0.5, 0.9});
+  REQUIRE_FALSE(in_range.clipped_low);
+  REQUIRE_FALSE(in_range.clipped_high);
+  const auto low = lutgrade::clamp_linear({-0.1, 0.5, 0.9});
+  REQUIRE(low.clipped_low);
+  REQUIRE(low.rgb[0] == 0.0);
+  const auto high = lutgrade::clamp_linear({0.1, 1.4, 0.9});
+  REQUIRE(high.clipped_high);
+  REQUIRE(high.rgb[1] == 1.0);
+  const auto nan = lutgrade::clamp_linear({std::nan(""), 0.5, 0.5});
+  REQUIRE(nan.non_finite);
+}
+
+TEST_CASE("colour: space names parse case-insensitively") {
+  REQUIRE(lutgrade::parse_color_space("sRGB") == lutgrade::ColorSpace::kSrgb);
+  REQUIRE(lutgrade::parse_color_space("Rec709") == lutgrade::ColorSpace::kRec709);
+  REQUIRE(lutgrade::parse_color_space("REC2020") == lutgrade::ColorSpace::kRec2020);
+  REQUIRE(lutgrade::parse_color_space("acescg") == lutgrade::ColorSpace::kAcescg);
+  try {
+    lutgrade::parse_color_space("adobe");
+    FAIL("expected throw");
+  } catch (const Error& e) {
+    REQUIRE(e.code() == ExitCode::kColor);
+    REQUIRE(e.kind() == "space_unknown");
+  }
 }
