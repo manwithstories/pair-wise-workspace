@@ -199,5 +199,13 @@ def run_mix(
     stats = _build_stats(config, result, mode, block, open_skipped)
     if stats.frames != total_frames:
         stats.frames = total_frames
-    write_report(report_path, stats)
+    try:
+        write_report(report_path, stats)
+    except OutputError:
+        # 报告失败同样回滚 WAV,保持“全成功或全失败”,不留下看似成功的产物
+        try:
+            Path(output_wav).unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
     return stats

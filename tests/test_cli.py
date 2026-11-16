@@ -124,6 +124,19 @@ class CliExitCodeTest(unittest.TestCase):
                 "shape_mismatch",
             )
 
+    def test_report_failure_rolls_back_wav(self):
+        # 报告路径不可写时退出码 4,且已生成的 WAV 被回滚,不留伪成功产物
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(self._run("generate", "--out", d).returncode, 0)
+            blocker = Path(d) / "afile"
+            blocker.write_text("not a directory")
+            wav = f"{d}/out.wav"
+            r = self._run("mix", "--config", f"{d}/project.json",
+                          "--output", wav, "--report", f"{blocker}/r.json",
+                          "--mode", "offline")
+            self.assertEqual(r.returncode, 4)
+            self.assertFalse(Path(wav).exists())
+
 
 if __name__ == "__main__":
     unittest.main()
