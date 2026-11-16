@@ -71,3 +71,8 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 项目临时产物 ----
+tmp-fixtures/
+tmp-report.json
+outputs/
