@@ -23,6 +23,7 @@ set(LUTGRADE_CORE_SOURCES
   src/cli.cpp
   src/report.cpp
   src/commands.cpp
+  src/compare.cpp
 )
 
 add_library(lutgrade_core STATIC ${LUTGRADE_CORE_SOURCES})

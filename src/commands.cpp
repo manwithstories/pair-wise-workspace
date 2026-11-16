@@ -1,9 +1,8 @@
 #include "commands.hpp"
 
-#include <algorithm>
-#include <cmath>
 #include <cstdio>
 
+#include "compare.hpp"
 #include "fixture.hpp"
 #include "image_io.hpp"
 #include "interpolator.hpp"
@@ -83,36 +82,8 @@ int execute_compare(const CompareOptions& options) {
   tiled.threads = options.color.threads;
   const RenderOutput threaded = render_tiled(input, kernel, tiled);
 
-  CompareReport report;
-  report.pixels = scalar.pixel_count();
-  report.threshold = options.threshold;
-  report.hash_scalar = compute_statistics(scalar).hash;
-  report.hash_tiled = compute_statistics(threaded).hash;
-
-  // Per-channel comparison over the final graded floats. The first difference
-  // beyond the threshold wins; later ones never overwrite it, so the report is
-  // independent of traversal details.
-  bool saw_diff = false;
-  double max_diff = 0.0;
-  for (std::size_t p = 0; p < report.pixels; ++p) {
-    for (std::size_t c = 0; c < 3; ++c) {
-      const float a = scalar.after[p * 3 + c];
-      const float b = threaded.after[p * 3 + c];
-      const double diff = std::fabs(static_cast<double>(a) - static_cast<double>(b));
-      max_diff = std::max(max_diff, diff);
-      if (!saw_diff && diff > options.threshold) {
-        saw_diff = true;
-        report.has_first_diff = true;
-        report.first_x = p % static_cast<std::size_t>(input.width);
-        report.first_y = p / static_cast<std::size_t>(input.width);
-        report.first_channel = static_cast<int>(c);
-        report.left = a;
-        report.right = b;
-      }
-    }
-  }
-  report.max_diff = max_diff;
-  report.match = !saw_diff;
+  CompareReport report =
+      compare_rendered(scalar, threaded, input.width, options.threshold);
 
   print_compare_report(report);
   return static_cast<int>(report.match ? ExitCode::kOk : ExitCode::kMismatch);
