@@ -43,7 +43,6 @@ from .model import (
     ChannelLayout,
     LoudnessStats,
     ProcessConfig,
-    SilentMaterialError,
     WriteError,
 )
 from .resampler import PolyphaseResampler
@@ -76,8 +75,31 @@ class NormalizeResult:
     def gain_linear(self) -> float:
         return 10.0 ** (self.gain_db / 20.0)
 
+    @property
+    def status(self) -> str:
+        """``ok``, ``silent`` (passed through at unity) or ``limited``."""
+
+        if self.before.digital_silence or self.before.lufs is None:
+            return "silent"
+        if self.true_peak_limited:
+            return "limited"
+        return "ok"
+
+    @property
+    def note(self) -> str | None:
+        if self.status == "silent":
+            return ("digital silence or below the -70 LUFS gate: loudness is "
+                    "undefined, so the file passes through at unity gain")
+        if self.status == "limited":
+            return ("gain reduced to honour the true-peak ceiling; measured "
+                    f"loudness lands above the {self.requested_gain_db:+.2f} dB "
+                    "request implies")
+        return None
+
     def to_dict(self) -> dict:
         return {
+            "status": self.status,
+            "note": self.note,
             "gain_db": round(self.gain_db, 4),
             "requested_gain_db": round(self.requested_gain_db, 4),
             "true_peak_limited": self.true_peak_limited,
@@ -98,15 +120,16 @@ class NormalizeResult:
 def compute_gain(before: LoudnessStats, config: ProcessConfig) -> tuple[float, float, bool]:
     """Return ``(applied_gain_db, requested_gain_db, true_peak_limited)``.
 
-    Raises :class:`SilentMaterialError` when the material sits below the
-    absolute gate: lifting digital silence to a loudness target is meaningless
-    and would report a gain the audio cannot justify.
+    Material below the absolute gate (including digital silence) has no
+    defined loudness, so no gain can move it toward the target.  It is passed
+    through at unity rather than rejected: a silent stem in a delivery set is
+    normal, and the report must still carry its (defined, finite) statistics.
+    ``before.digital_silence`` is the flag callers check to explain why the
+    gain is 0 dB.
     """
 
     if before.lufs is None or before.digital_silence:
-        raise SilentMaterialError(
-            "digital silence (or below the -70 LUFS absolute gate); "
-            "loudness is undefined so no gain can be derived")
+        return 0.0, 0.0, False
     requested = config.target_lufs - before.lufs
     ceiling = _ceiling_linear(config)
     if before.true_peak <= 0.0:

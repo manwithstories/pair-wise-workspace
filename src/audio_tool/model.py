@@ -68,12 +68,6 @@ class UnsupportedError(InputFormatError):
     code = "unsupported_format"
 
 
-class SilentMaterialError(InputFormatError):
-    """Digital silence: gain is undefined, so the file is skipped."""
-
-    code = "silent_material"
-
-
 # ---------------------------------------------------------------------------
 # Channel layouts
 # ---------------------------------------------------------------------------

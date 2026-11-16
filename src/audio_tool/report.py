@@ -38,6 +38,34 @@ def build_report(result: BatchResult, *, command: str,
     assert config is not None
     files = [outcome.to_dict() for outcome in result.outcomes]
     succeeded = [o for o in result.outcomes if o.ok]
+    stats = [o.result for o in succeeded if o.result is not None]
+
+    def total(field_name: str) -> int:
+        return sum(getattr(item, field_name) for item in stats)
+
+    summary = {
+        "total": len(files),
+        "succeeded": len(succeeded),
+        "failed": len(result.outcomes) - len(succeeded),
+        "output_sample_rate": config.target_rate,
+        "target_lufs": config.target_lufs,
+        "true_peak_db": config.true_peak_db,
+        "channels": sorted({item.input_channels for item in stats}),
+        "total_input_frames": total("input_frames"),
+        "total_output_frames": total("output_frames"),
+        "original_clipped": total("original_clipped"),
+        "output_clipped": total("output_clipped"),
+        "added_clipped": total("added_clipped"),
+        "zero_padded_frames": total("zero_padded_frames"),
+        "true_peak_limited": sum(1 for item in stats if item.true_peak_limited),
+        "silent": sum(1 for item in stats if item.status == "silent"),
+        "before_rms": _mean_before_rms(stats),
+        "after_rms": _mean_after_rms(stats),
+        "before_lufs": _mean_lufs(stats, "before"),
+        "after_lufs": _mean_lufs(stats, "after"),
+        "skipped": [{"source": o.relative, "code": o.error_code}
+                    for o in result.outcomes if not o.ok],
+    }
     return {
         "schema": SCHEMA,
         "algorithm_version": ALGORITHM_VERSION,
@@ -46,32 +74,7 @@ def build_report(result: BatchResult, *, command: str,
         "generated_at": started_at or datetime.now(timezone.utc).isoformat(),
         "config": config.signature(),
         "resampler_instances": _kernel_rates(result),
-        "summary": {
-            "total": len(files),
-            "succeeded": len(succeeded),
-            "failed": len(result.outcomes) - len(succeeded),
-            "output_sample_rate": config.target_rate,
-            "target_lufs": config.target_lufs,
-            "true_peak_db": config.true_peak_db,
-            "channels": sorted({o.result.input_channels for o in succeeded
-                                if o.result}),
-            "total_input_frames": sum(o.result.input_frames for o in succeeded
-                                      if o.result),
-            "total_output_frames": sum(o.result.output_frames for o in succeeded
-                                       if o.result),
-            "original_clipped": sum(o.result.original_clipped for o in succeeded
-                                    if o.result),
-            "output_clipped": sum(o.result.output_clipped for o in succeeded
-                                  if o.result),
-            "added_clipped": sum(o.result.added_clipped for o in succeeded
-                                 if o.result),
-            "zero_padded_frames": sum(o.result.zero_padded_frames for o in succeeded
-                                      if o.result),
-            "true_peak_limited": sum(1 for o in succeeded
-                                     if o.result and o.result.true_peak_limited),
-            "skipped": [{"source": o.relative, "code": o.error_code}
-                        for o in result.outcomes if not o.ok],
-        },
+        "summary": summary,
         "inputs_root": None if result.input_root is None else str(result.input_root),
         "outputs_root": None if result.output_root is None else str(result.output_root),
         "files": files,
@@ -80,6 +83,37 @@ def build_report(result: BatchResult, *, command: str,
 
 def _kernel_rates(result: BatchResult) -> list[int]:
     return sorted({o.result.input_rate for o in result.outcomes if o.result})
+
+
+def _mean_lufs(stats, side: str) -> float | None:
+    """Energy-weighted mean loudness across files, skips silent material."""
+
+    energies = []
+    for item in stats:
+        values = item.before if side == "before" else item.after
+        if values.lufs is None:
+            continue
+        energies.append(10.0 ** ((values.lufs - -0.691) / 10.0))
+    if not energies:
+        return None
+    mean = sum(energies) / len(energies)
+    return round(-0.691 + 10.0 * math.log10(mean), 4) if mean > 0 else None
+
+
+def _mean_before_rms(stats) -> float | None:
+    return _mean_rms(stats, "before")
+
+
+def _mean_after_rms(stats) -> float | None:
+    return _mean_rms(stats, "after")
+
+
+def _mean_rms(stats, side: str) -> float | None:
+    values = [getattr(item, side).rms for item in stats]
+    values = [value for value in values if value > 0.0]
+    if not values:
+        return None
+    return round(sum(values) / len(values), 8)
 
 
 def write_report(path: Path, report: dict) -> Path:
@@ -195,30 +229,39 @@ def verify_report(report: dict, *, output_root: Path | None = None) -> list[Veri
 
 
 def format_summary(report: dict) -> str:
-    """Human terminal summary: counts plus the per-file level table."""
+    """Human terminal summary: counts, aggregate levels, per-file table.
+
+    Every field the acceptance checklist names is printed literally
+    (``before_rms``, ``after_lufs``, ``original_clipped``,
+    ``zero_padded_frames``, ...) so the output can be read and grepped
+    without cross-referencing the JSON.
+    """
 
     summary = report.get("summary", {})
     lines: list[str] = []
     lines.append("=" * 78)
     lines.append("audio-tool batch summary")
     lines.append("=" * 78)
-    lines.append(f"algorithm     : {report.get('algorithm_version')}")
-    lines.append(f"target rate   : {summary.get('output_sample_rate')} Hz")
-    lines.append(f"target loudness: {summary.get('target_lufs')} LUFS  "
-                 f"(true-peak ceiling {summary.get('true_peak_db')} dBTP)")
-    lines.append(f"files         : {summary.get('succeeded')} ok / "
+    lines.append(f"algorithm          : {report.get('algorithm_version')}")
+    lines.append(f"output_sample_rate : {summary.get('output_sample_rate')} Hz")
+    lines.append(f"target_lufs        : {summary.get('target_lufs')} LUFS  "
+                 f"(true_peak {summary.get('true_peak_db')} dBTP)")
+    lines.append(f"files              : {summary.get('succeeded')} ok / "
                  f"{summary.get('failed')} failed / {summary.get('total')} total")
-    lines.append(f"channels      : {summary.get('channels')}")
-    lines.append(f"frames        : in {summary.get('total_input_frames')} -> "
-                 f"out {summary.get('total_output_frames')}")
-    lines.append(f"clipping      : original {summary.get('original_clipped')} / "
-                 f"output {summary.get('output_clipped')} / "
-                 f"added {summary.get('added_clipped')}")
-    lines.append(f"zero padding  : {summary.get('zero_padded_frames')} frames")
-    lines.append(f"TP protected  : {summary.get('true_peak_limited')} file(s)")
+    lines.append(f"channels           : {summary.get('channels')}")
+    lines.append(f"before_rms         : {_fmt(summary.get('before_rms'), '.6f')}")
+    lines.append(f"after_rms          : {_fmt(summary.get('after_rms'), '.6f')}")
+    lines.append(f"before_lufs        : {_fmt(summary.get('before_lufs'))}")
+    lines.append(f"after_lufs         : {_fmt(summary.get('after_lufs'))}")
+    lines.append(f"original_clipped   : {summary.get('original_clipped')}")
+    lines.append(f"output_clipped     : {summary.get('output_clipped')}")
+    lines.append(f"added_clipped      : {summary.get('added_clipped')}")
+    lines.append(f"zero_padded_frames : {summary.get('zero_padded_frames')}")
+    lines.append(f"true_peak_limited  : {summary.get('true_peak_limited')} file(s)")
+    lines.append(f"silent             : {summary.get('silent')} file(s)")
     lines.append("-" * 78)
     header = (f"{'file':30s} {'ch':>3s} {'before':>8s} {'after':>8s} "
-              f"{'gain':>7s} {'TP':>7s} {'clip':>6s}")
+              f"{'gain':>7s} {'TP':>7s} {'clipped':>7s}")
     lines.append(header)
     lines.append("-" * 78)
     for entry in report.get("files", []):
@@ -238,11 +281,13 @@ def format_summary(report: dict) -> str:
         gain = stats.get("gain_db")
         true_peak = after.get("true_peak_dbtp")
         channels = stats.get("input_channels", 0)
+        status = stats.get("status", "ok")
+        suffix = "" if status == "ok" else f"  [{status}]"
         lines.append(
             f"{name:30s} {channels:>3d} "
             f"{_fmt(before_lufs):>8s} {_fmt(after_lufs):>8s} "
             f"{_fmt(gain, '+.2f'):>7s} {_fmt(true_peak):>7s} "
-            f"{stats.get('output_clipped', 0):>6d}")
+            f"{stats.get('output_clipped', 0):>7d}{suffix}")
     lines.append("=" * 78)
     return "\n".join(lines)
 
