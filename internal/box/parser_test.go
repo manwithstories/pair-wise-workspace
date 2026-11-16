@@ -53,8 +53,8 @@ func TestParseTinyTree(t *testing.T) {
 
 func TestParseTruncated(t *testing.T) {
 	data := buildTiny(t)
-	// Cut inside the moov payload.
-	if _, err := Parse(bytes.NewReader(data[:20]), 20, nil); err == nil {
+	// Cut inside the moov payload (ftyp is 20 bytes, moov follows).
+	if _, err := Parse(bytes.NewReader(data[:25]), 25, nil); err == nil {
 		t.Fatal("expected error for truncated file")
 	} else if !IsStructure(err) {
 		t.Fatalf("want StructureError, got %T: %v", err, err)
@@ -75,8 +75,8 @@ func TestParseOverrunningBox(t *testing.T) {
 }
 
 func TestParseDepthLimit(t *testing.T) {
-	lim := &Limits{MaxDepth: 1}
-	data := buildTiny(t) // moov>trak is depth 2
+	lim := &Limits{MaxDepth: 0} // forbid any container recursion
+	data := buildTiny(t)
 	if _, err := Parse(bytes.NewReader(data), int64(len(data)), lim); err == nil {
 		t.Fatal("expected depth limit error")
 	}
