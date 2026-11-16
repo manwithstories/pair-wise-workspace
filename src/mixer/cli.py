@@ -55,23 +55,27 @@ def load_project(path: str | Path, block: int | None = None) -> Project:
     return project
 
 
-def automation_summary(project: Project) -> dict[str, Any]:
-    """Point counts per track plus block-boundary continuity measurements."""
+def automation_summary(project: Project, block_size: int | None = None) -> dict[str, Any]:
+    """Point counts, sampled-edge counts and block-boundary continuity."""
     points = {track.name: len(track.automation) for track in project.tracks}
     gaps: dict[str, float] = {}
+    sampled: dict[str, int] = {}
     try:
         with MixSession(project) as session:
             if session.timeline_frames() > 0:
                 for size in (256, 1024):
                     session.reset()
                     measured = session.check_continuity(size)
+                    sampled[str(size)] = session.automation_sample_count(size)
                     for name, value in measured.items():
                         gaps[f"{name}@{size}"] = round(value, 8)
+                sampled["offline"] = session.automation_sample_count(None)
     except MixerError:
         pass
     return {
         "points": points,
         "total": sum(points.values()),
+        "sampled_points": sampled,
         "boundary_jump_db": gaps,
     }
 
@@ -253,6 +257,13 @@ def compare_masters(
         with MixSession(project) as session:
             session.timeline_frames()
             track_stats = [s.to_dict() for s in session.track_statistics()]
+            # Sample counts for each path: offline evaluates 2 edges per track,
+            # streaming 2 per block, so density differences are explicit.
+            counts = {
+                "offline": session.automation_sample_count(None),
+                "stream@256": session.automation_sample_count(256),
+            }
+        automation.setdefault("sampled_points", {}).update(counts)
 
     matched = max_abs <= max_error and frame_delta == 0
     payload = {
@@ -350,16 +361,26 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _human_line(payload: dict[str, Any]) -> str:
     command = payload.get("command")
+    topology = payload.get("topology")
+    if topology and command in ("render", "stream"):
+        layers = " | ".join(" ".join(layer) for layer in topology["layers"])
+        graph_line = (
+            f"graph: {topology['track_nodes']} tracks + {topology['bus_nodes']} buses "
+            f"-> master ({topology['edges']} edges)\n  layers: {layers}"
+        )
+    else:
+        graph_line = None
     if command == "generate":
         return f"generated {len(payload['tracks'])} tracks in {payload['out']}"
     if command in ("render", "stream"):
         limiter = payload.get("limiter", {})
-        return (
+        summary = (
             f"{command}: tracks={payload['tracks']} target_rate={payload['target_rate']} "
             f"frames={payload['frames']} peak_dbfs={limiter.get('peak_out_dbfs')} "
             f"rms_dbfs={limiter.get('rms_out_dbfs')} clip_count={limiter.get('clip_count')} "
             f"blocks={payload.get('blocks', 1)}"
         )
+        return f"{graph_line}\n{summary}" if graph_line else summary
     if command == "compare":
         return (
             f"compare: max_abs_error={payload['max_abs_error']:.3e} "

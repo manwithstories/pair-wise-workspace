@@ -123,6 +123,9 @@ class Limiter:
         self._attack_state = math.inf  # min over k of (g[k] - slope_a * k)
         self._release_state = math.inf  # min over k of (f[k] - slope_r * k)
         self.max_reduction_db = 0.0
+        self.max_gain_delta_db = 0.0
+        self._last_envelope = 1.0
+        self._has_block = False
 
     # -- core -------------------------------------------------------------
     def _envelope(self, desired: np.ndarray) -> np.ndarray:
@@ -157,6 +160,14 @@ class Limiter:
         envelope = self._envelope(desired)
         self.min_envelope = min(self.min_envelope, float(envelope.min()))
         self.max_reduction_db = -peak_db(self.min_envelope)
+        # Instantaneous gain change across the block edges and interior, so a
+        # pumping limiter is measurable rather than a matter of opinion.
+        edges = np.concatenate(([self._last_envelope], envelope)) if self._has_block else envelope
+        if edges.size > 1:
+            step = 20.0 * np.log10(np.maximum(edges[1:], EPS) / np.maximum(edges[:-1], EPS))
+            self.max_gain_delta_db = max(self.max_gain_delta_db, float(np.abs(step).max()))
+        self._last_envelope = float(envelope[-1])
+        self._has_block = True
         reduced = block * envelope[:, None]
         output = self._soft_clip(reduced)
         self.output_meter.add(output)
@@ -188,6 +199,7 @@ class Limiter:
             "clip_count": after.clip_count,
             "frames": after.frames,
             "max_reduction_db": round(self.max_reduction_db, 4),
+            "max_gain_delta_db": round(self.max_gain_delta_db, 6),
         }
 
 

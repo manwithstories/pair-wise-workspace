@@ -28,6 +28,7 @@ from .resample import LinearResampler
 STREAM_BLOCKS = (256, 1024)
 MIN_BLOCK = 64
 MAX_BLOCK = 8192
+MAX_TIMELINE_SECONDS = 600.0
 
 
 @dataclass
@@ -160,8 +161,31 @@ class MixSession:
                 longest = max(longest, runtime.offset_frames + self.track_frames(name))
             if longest <= 0:
                 raise MixerError("empty_timeline", "every track is empty; nothing to render")
+            if longest > MAX_TIMELINE_SECONDS * self.rate:
+                raise argument_error(
+                    "timeline_too_long",
+                    f"timeline is {longest / self.rate:.1f}s; the limit is "
+                    f"{MAX_TIMELINE_SECONDS:.0f}s",
+                    details={"frames": longest, "limit_seconds": MAX_TIMELINE_SECONDS},
+                )
             self._frames_cache = longest
         return self._frames_cache
+
+    def automation_sample_count(self, block_size: int | None = None) -> int:
+        """Automation points evaluated for one render.
+
+        The offline engine asks for two block edges per track (start and end of
+        the whole timeline); the streaming engine asks for two per block. The
+        value is the count ``compare`` reports so drift in evaluation density is
+        visible rather than silent.
+        """
+        total = self.timeline_frames()
+        if block_size is None:
+            blocks = 1
+        else:
+            size = validate_block(block_size)
+            blocks = (total + size - 1) // size
+        return 2 * blocks * len(self.track_order)
 
     # -- per-track mixing -------------------------------------------------
     def _track_block(self, runtime: TrackRuntime, start: int, frames: int) -> np.ndarray:

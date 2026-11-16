@@ -269,3 +269,33 @@ def test_timeline_covers_longest_track(project):
         )
     assert frames == expected
     assert frames > 0
+
+
+def test_limiter_reports_max_instantaneous_gain_change():
+    signal = np.zeros((4000, 2))
+    signal[1000:1200] = 1.8
+    limiter = Limiter(48000)
+    limiter.process_block(signal.copy())
+    stats = limiter.stats()
+    assert stats["max_gain_delta_db"] >= 0.0
+    assert stats["max_gain_delta_db"] < 60.0  # attack is 2 ms, not a cliff
+
+
+def test_timeline_limit_rejects_absurd_lengths(project, monkeypatch):
+    from src.mixer import engine
+
+    monkeypatch.setattr(engine, "MAX_TIMELINE_SECONDS", 0.5)
+    with pytest.raises(Exception) as excinfo:
+        with MixSession(project) as session:
+            session.timeline_frames()
+    assert excinfo.value.code == "timeline_too_long"
+
+
+def test_automation_sample_count_scales_with_blocks(project):
+    with MixSession(project) as session:
+        total = session.timeline_frames()
+        offline = session.automation_sample_count(None)
+        stream = session.automation_sample_count(256)
+    assert offline == 2 * 4
+    assert stream == 2 * 4 * ((total + 255) // 256)
+    assert stream > offline
