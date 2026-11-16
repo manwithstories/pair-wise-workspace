@@ -6,6 +6,7 @@
 - resample:   确定性加窗 sinc 重采样
 - automation: 分段线性自动化曲线
 - graph:      声道映射、增益与求和
+- sources:    WAV/内存源与有界预取线程
 - metrics:    峰值/RMS/削波统计
 - stream:     块式混音引擎(离线与流式共享)
 - offline:    整段离线处理与 WAV/JSON 落盘
