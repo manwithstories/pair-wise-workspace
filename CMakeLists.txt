@@ -20,6 +20,7 @@ set(LUTGRADE_CORE_SOURCES
   src/renderer_tiled.cpp
   src/statistics.cpp
   src/fixture.cpp
+  src/cli.cpp
 )
 
 add_library(lutgrade_core STATIC ${LUTGRADE_CORE_SOURCES})
