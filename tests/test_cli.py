@@ -222,3 +222,21 @@ def test_manifest_input_works(fixture_tree, tmp_path):
                 "--workspace", str(tmp_path), "--quiet"])
     assert code == 0
     assert len(list((tmp_path / "out").glob("*.wav"))) == 2
+
+
+def test_report_paths_are_relative_and_portable(fixture_tree, tmp_path, monkeypatch):
+    # A report describes the delivery set, not this machine's layout: paths
+    # are stored relative to their roots so the file can be compared across
+    # runs and machines.
+    monkeypatch.chdir(tmp_path)
+    inputs = copy_fixtures(fixture_tree, tmp_path / "in", ["tone_44100_stereo"])
+    report_path = tmp_path / "reports" / "run.json"
+    code = run(["batch", str(inputs), "--output", str(tmp_path / "out"),
+                "--report", str(report_path), "--workspace", str(tmp_path),
+                "--quiet"])
+    assert code == 0
+    document = json.loads(report_path.read_text())
+    assert document["outputs_root"] == "out"
+    entry = document["files"][0]
+    assert not Path(entry["output"]).is_absolute()
+    assert entry["output"] == "tone_44100_stereo.wav"
