@@ -71,3 +71,20 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ============================================================
+# audio-tool: 构建与运行时产物（均可由源码复现，不提交）
+# ============================================================
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+
+# 生成的夹具、输出、报告与临时暂存文件
+/fixtures/
+/out/
+/reports/
+*.part
+.*.stage.*.wav

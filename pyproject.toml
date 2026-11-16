@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "audio-tool"
+version = "1.0.0"
+description = "Offline WAV sample-rate and programme-loudness normalizer (ITU-R BS.1770-4)"
+requires-python = ">=3.11"
+dependencies = ["soundfile==0.12.1"]
+
+[project.scripts]
+audio-tool = "audio_tool.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
