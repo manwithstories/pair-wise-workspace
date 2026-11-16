@@ -74,10 +74,10 @@ func TestParseOverrunningBox(t *testing.T) {
 	}
 }
 
-func TestParseDepthLimit(t *testing.T) {
-	lim := &Limits{MaxDepth: 0} // forbid any container recursion
+func TestParseBoxCountLimit(t *testing.T) {
+	lim := &Limits{MaxBoxes: 2} // tiny file has 4 boxes
 	data := buildTiny(t)
 	if _, err := Parse(bytes.NewReader(data), int64(len(data)), lim); err == nil {
-		t.Fatal("expected depth limit error")
+		t.Fatal("expected box count limit error")
 	}
 }
