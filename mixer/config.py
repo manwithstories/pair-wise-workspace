@@ -58,6 +58,21 @@ def _parse_channels(raw: Any, context: str) -> tuple[int, int]:
     return (int(raw[0]), int(raw[1]))
 
 
+def _parse_routes(raw: Any, context: str) -> dict[int, str] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ConfigError(f"{context}: routes 必须是 源声道索引->去向 的对象")
+    routes: dict[int, str] = {}
+    for key, value in raw.items():
+        if not isinstance(key, str) or not key.isdigit():
+            raise ConfigError(f"{context}.routes: 键必须是非负整数声道索引")
+        if value not in ("L", "R", "L+R"):
+            raise ConfigError(f"{context}.routes[{key}]: 去向仅支持 L / R / L+R")
+        routes[int(key)] = value
+    return routes
+
+
 def parse_track(raw: Any, index: int) -> TrackSpec:
     """解析配置中的单个 track 对象,缺字段即抛 ConfigError。"""
 
@@ -82,6 +97,7 @@ def parse_track(raw: Any, index: int) -> TrackSpec:
         channels=_parse_channels(raw.get("channels"), context),
         gain=gain_f,
         automation=_parse_automation(raw.get("automation"), context),
+        routes=_parse_routes(raw.get("routes"), context),
     )
 
 

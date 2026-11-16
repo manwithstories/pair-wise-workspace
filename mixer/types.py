@@ -69,7 +69,12 @@ class AutomationPoint:
 
 @dataclass(frozen=True)
 class TrackSpec:
-    """单轨声明:来源 WAV、偏移、目标声道、增益与自动化。"""
+    """单轨声明:来源 WAV、偏移、目标声道、增益与自动化。
+
+    channels: stereo 及以下的双索引映射;
+    routes:   多声道(>2)输入的显式 downmix,键为源声道索引,
+              值为 "L" / "R" / "L+R",必须覆盖全部源声道。
+    """
 
     name: str
     path: str
@@ -77,6 +82,7 @@ class TrackSpec:
     channels: tuple[int, int] = (0, 1)
     gain: float = 1.0
     automation: tuple[AutomationPoint, ...] = ()
+    routes: Optional[dict[int, str]] = None
 
 
 @dataclass(frozen=True)
