@@ -253,10 +253,14 @@ def compare_masters(
 
     automation = {"points": {}, "total": 0} if project is None else automation_summary(project)
     track_stats: list[dict[str, Any]] = []
+    rendered_limiter: dict[str, Any] | None = None
     if project is not None:
+        # Render once so per-track meters reflect real content; a session that
+        # only validates has empty meters and would report -inf for everything.
         with MixSession(project) as session:
-            session.timeline_frames()
-            track_stats = [s.to_dict() for s in session.track_statistics()]
+            result = session.render(block_size=session.timeline_frames())
+            track_stats = [s.to_dict() for s in result.stats]
+            rendered_limiter = result.limiter
             # Sample counts for each path: offline evaluates 2 edges per track,
             # streaming 2 per block, so density differences are explicit.
             counts = {
@@ -279,6 +283,7 @@ def compare_masters(
         "offline": meter(offline),
         "stream": meter(stream),
         "track_stats": track_stats,
+        "rendered_limiter": rendered_limiter,
         "verdict": "match" if matched else "mismatch",
     }
     if not matched:

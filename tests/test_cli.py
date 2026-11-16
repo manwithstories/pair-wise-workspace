@@ -63,6 +63,12 @@ def test_compare_matches_and_reports_error(rendered, capsys):
     assert payload["max_abs_error"] <= 1e-5
     assert payload["automation"]["total"] >= 8
     assert len(payload["track_stats"]) == 4
+    # Stats must come from a real render, not an unrendered session.
+    for stats in payload["track_stats"]:
+        assert stats["frames"] > 0
+        assert stats["peak_in_dbfs"] is not None
+        assert stats["peak_in_dbfs"] > -120.0
+    assert payload["rendered_limiter"]["frames"] > 0
 
 
 def test_compare_mismatch_exits_4(rendered, capsys):
