@@ -99,27 +99,45 @@ Lut3D parse_cube(const std::string& text, const std::string& origin) {
     cursor = (nl == std::string::npos) ? text.size() + 1 : nl + 1;
     ++line_no;
 
-    const std::size_t hash = line.find('#');
-    if (hash != std::string::npos) line.erase(hash);
+    // Strip a comment, but not a '#' inside a quoted TITLE.
+    {
+      bool in_quotes = false;
+      for (std::size_t i = 0; i < line.size(); ++i) {
+        if (line[i] == '"') in_quotes = !in_quotes;
+        if (line[i] == '#' && !in_quotes) {
+          line.erase(i);
+          break;
+        }
+      }
+    }
     line = trim(line);
     if (line.empty()) continue;
+
+    // TITLE is the one directive whose payload may contain spaces, so handle it
+    // before tokenising.
+    if (line.compare(0, 5, "TITLE") == 0 &&
+        (line.size() == 5 || is_blank(line[5]))) {
+      if (saw_data) fail(origin, line_no, "TITLE after LUT data");
+      if (have_title) fail(origin, line_no, "duplicate TITLE");
+      std::string payload = trim(line.substr(5));
+      if (payload.size() < 2 || payload.front() != '"' || payload.back() != '"') {
+        fail(origin, line_no, "TITLE expects one double-quoted string");
+      }
+      const std::string inner = payload.substr(1, payload.size() - 2);
+      if (inner.find('"') != std::string::npos) {
+        fail(origin, line_no, "TITLE contains an embedded quote");
+      }
+      lut.title = inner;
+      have_title = true;
+      continue;
+    }
 
     const std::vector<std::string> tokens = split_tokens(line);
     const std::string& head = tokens[0];
 
     if (head == "TITLE") {
-      if (saw_data) fail(origin, line_no, "TITLE after LUT data");
-      if (have_title) fail(origin, line_no, "duplicate TITLE");
-      if (tokens.size() != 2 || tokens[1].size() < 2 ||
-          tokens[1].front() != '"' || tokens[1].back() != '"') {
-        fail(origin, line_no, "TITLE expects one double-quoted string");
-      }
-      if (tokens[1].find('"', 1) != tokens[1].size() - 1) {
-        fail(origin, line_no, "TITLE contains an embedded quote");
-      }
-      lut.title = tokens[1].substr(1, tokens[1].size() - 2);
-      have_title = true;
-      continue;
+      // Only reachable when TITLE was not followed by whitespace, e.g. "TITLEX".
+      fail(origin, line_no, "malformed TITLE directive");
     }
 
     if (head == "LUT_3D_SIZE") {
