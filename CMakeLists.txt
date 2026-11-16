@@ -49,10 +49,14 @@ if(LUTGRADE_BUILD_TESTS)
   add_executable(lutgrade_tests
     tests/integration.cpp
     tests/render_tests.cpp
+    tests/cli_tests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/.third_party/Catch2/catch_amalgamated.cpp)
   target_include_directories(lutgrade_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/.third_party/Catch2)
   target_link_libraries(lutgrade_tests PRIVATE lutgrade_core)
+  target_compile_definitions(lutgrade_tests PRIVATE
+    LUTGRADE_BINARY="$<TARGET_FILE:lutgrade>")
+  add_dependencies(lutgrade_tests lutgrade)
   if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(lutgrade_tests PRIVATE -Wall -Wextra -Wpedantic)
   endif()
