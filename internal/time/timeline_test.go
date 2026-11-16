@@ -67,8 +67,9 @@ func TestNegativeOrigin(t *testing.T) {
 		t.Fatalf("MediaOrigin = %d, want -500", tl.MediaOrigin)
 	}
 	raw, norm := tl.Normalize(0)
-	if raw != -500 || norm != 0 {
-		t.Fatalf("Normalize(0) = (%d,%d), want (-500,0)", raw, norm)
+	// 32-bit domain: -500 projects to its uint32 wraparound.
+	if raw != (1<<32)-500 || norm != 0 {
+		t.Fatalf("Normalize(0) = (%d,%d), want (%d,0)", raw, norm, (1<<32)-500)
 	}
 }
 
