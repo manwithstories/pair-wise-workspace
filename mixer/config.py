@@ -31,6 +31,7 @@ def _parse_automation(raw: Any, context: str) -> tuple[AutomationPoint, ...]:
     if not isinstance(raw, list):
         raise ConfigError(f"{context}: automation 必须是点对象数组")
     points: list[AutomationPoint] = []
+    seen_times: set[int] = set()
     for idx, item in enumerate(raw):
         if not isinstance(item, dict):
             raise ConfigError(f"{context}.automation[{idx}]: 必须是对象")
@@ -39,6 +40,9 @@ def _parse_automation(raw: Any, context: str) -> tuple[AutomationPoint, ...]:
         value_v = _require(item, "value", sub)
         if not isinstance(time_v, int) or isinstance(time_v, bool) or time_v < 0:
             raise ConfigError(f"{sub}: time 必须是非负整数采样点")
+        if time_v in seen_times:
+            raise ConfigError(f"{sub}: 自动化曲线存在重复时间点 {time_v}")
+        seen_times.add(time_v)
         if not isinstance(value_v, (int, float)) or isinstance(value_v, bool):
             raise ConfigError(f"{sub}: value 必须是数值")
         value_f = float(value_v)

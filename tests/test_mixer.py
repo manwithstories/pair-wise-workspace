@@ -157,6 +157,25 @@ class ConfigTest(unittest.TestCase):
             with self.assertRaises(ConfigError):
                 load_config(p)
 
+    def test_automation_validated_at_config_layer(self):
+        bad_automations = [
+            [{"time": -1, "value": 1.0}],                                  # 负时间
+            [{"time": 0, "value": float("inf")}],                          # 无穷大
+            [{"time": 0, "value": float("nan")}],                          # NaN
+            [{"time": 0, "value": 1.0}, {"time": 0, "value": 2.0}],        # 重复时间
+        ]
+        with tempfile.TemporaryDirectory() as d:
+            for i, automation in enumerate(bad_automations):
+                p = Path(d) / f"c{i}.json"
+                p.write_text(json.dumps({
+                    "sample_rate": 48000, "duration_frames": 10,
+                    "tracks": [{
+                        "name": "a", "path": "a.wav", "automation": automation,
+                    }],
+                }, allow_nan=True))
+                with self.assertRaises(ConfigError):
+                    load_config(p)
+
 
 class MediaErrorTest(unittest.TestCase):
     def test_empty_and_corrupt_wav(self):
