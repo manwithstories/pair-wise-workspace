@@ -69,6 +69,21 @@ func Analyze(path string) (*Analysis, error) {
 		f.Close()
 		return nil, err
 	}
+	// Validate every sample's on-disk range before reporting anything:
+	// a corrupt stco/co64 must surface here, not at hash time.
+	for _, tr := range movie.Tracks {
+		for i := range tr.Table.Samples {
+			s := &tr.Table.Samples[i]
+			if s.Offset < 0 || s.Offset+int64(s.Size) > size {
+				f.Close()
+				return nil, &box.StructureError{
+					Offset: s.Offset,
+					Reason: fmt.Sprintf("track %d sample %d range [%d,%d) exceeds file size %d",
+						tr.ID, i, s.Offset, s.Offset+int64(s.Size), size),
+				}
+			}
+		}
+	}
 	a := &Analysis{
 		Movie:     movie,
 		Timelines: map[uint32]*timeline.Timeline{},

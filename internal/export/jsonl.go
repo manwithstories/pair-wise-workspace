@@ -32,15 +32,14 @@ func WriteJSONL(w io.Writer, a *Analysis) error {
 		tl := a.Timelines[tr.ID]
 		for _, k := range tr.Table.Keyframes {
 			s := tr.Table.Samples[k]
-			pts := tl.MediaOrigin + s.PTS
 			if err := enc.Encode(map[string]interface{}{
-				"type":         "keyframe",
-				"track_id":     tr.ID,
-				"sample":       k,
-				"file_offset":  s.Offset,
-				"sample_size":  s.Size,
-				"pts":          pts,
-				"pts_seconds":  tl.MediaToSeconds(pts),
+				"type":        "keyframe",
+				"track_id":    tr.ID,
+				"sample":      k,
+				"file_offset": s.Offset,
+				"sample_size": s.Size,
+				"pts":         s.PTS,
+				"pts_seconds": tl.MediaToSeconds(s.PTS),
 			}); err != nil {
 				return err
 			}

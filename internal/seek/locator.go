@@ -82,10 +82,9 @@ func Locate(tl *timeline.Timeline, targetSec float64, before, after int) (*Landi
 	}
 	if landing < 0 {
 		first := candidates[0]
-		boundaryPres := tl.MediaOrigin + tr.Table.Samples[first].PTS
 		return nil, &LocateError{
 			Reason:    "no_keyframe_before_target",
-			Boundary:  tl.MediaToSeconds(boundaryPres),
+			Boundary:  tl.MediaToSeconds(tr.Table.Samples[first].PTS),
 			TrackID:   tr.ID,
 			TargetSec: targetSec,
 		}
@@ -105,11 +104,12 @@ func Locate(tl *timeline.Timeline, targetSec float64, before, after int) (*Landi
 		window = append(window, i)
 	}
 	s := tr.Table.Samples[landing]
-	pts := tl.MediaOrigin + s.PTS
+	// Landing PTS is the normalized (presentation-zero-relative) media
+	// time: the monotonic timeline with the edit origin factored out.
 	return &Landing{
 		Sample:      landing,
-		PTS:         pts,
-		PTSSeconds:  tl.MediaToSeconds(pts),
+		PTS:         s.PTS,
+		PTSSeconds:  tl.MediaToSeconds(s.PTS),
 		Offset:      s.Offset,
 		Size:        s.Size,
 		Window:      window,

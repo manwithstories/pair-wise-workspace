@@ -94,17 +94,18 @@ func (tl *Timeline) detectWraps() {
 	}
 }
 
-// Normalize maps a media DTS to (raw, normalized) media time. For
-// 32-bit-domain tracks raw is the uint32 projection; normalized is the
-// monotonic 64-bit value. For 64-bit tracks the two are identical.
-func (tl *Timeline) Normalize(dts int64) (raw, norm int64) {
-	norm = tl.MediaOrigin + dts
+// Normalize maps a media DTS/PTS to (raw, normalized) media time. raw is
+// the value as a 32-bit field would carry it (the uint32 projection of
+// MediaOrigin + v) for 32-bit-domain tracks; normalized is the
+// monotonic, presentation-zero-relative value — i.e. with the edit-list
+// origin factored out. For 64-bit tracks raw == MediaOrigin + v.
+func (tl *Timeline) Normalize(v int64) (raw, norm int64) {
 	if tl.Domain32 {
-		raw = int64(uint32(norm))
+		raw = int64(uint32(tl.MediaOrigin + v))
 	} else {
-		raw = norm
+		raw = tl.MediaOrigin + v
 	}
-	return raw, norm
+	return raw, v
 }
 
 // LocateResult is the outcome of mapping a presentation target to media
