@@ -93,14 +93,17 @@ func (r *Reader) parseHeader() error {
 			return ErrCorrupt
 		}
 		size := uint64(binary.LittleEndian.Uint32(hdr[4:8]))
+		consumed := false // fmt/bext handlers consume their own payload
 		switch string(hdr[0:4]) {
 		case "fmt ":
 			if err := r.parseFmt(size); err != nil {
 				return err
 			}
 			haveFmt = true
+			consumed = true
 		case "bext":
 			r.parseBext(size)
+			consumed = true
 		case "data":
 			if !haveFmt {
 				return ErrCorrupt
@@ -119,9 +122,9 @@ func (r *Reader) parseHeader() error {
 			haveData = true
 		}
 		if !haveData {
-			// skip chunk payload (bext already consumed) + pad byte
+			// skip payload not yet consumed, plus the pad byte
 			skip := int64(size)
-			if string(hdr[0:4]) == "bext" {
+			if consumed {
 				skip = 0
 			}
 			if size%2 == 1 {
@@ -151,8 +154,8 @@ func (r *Reader) parseFmt(size uint64) error {
 	rate := int(binary.LittleEndian.Uint32(buf[4:8]))
 	align := int(binary.LittleEndian.Uint16(buf[12:14]))
 	bits := int(binary.LittleEndian.Uint16(buf[14:16]))
-	// skip any extension bytes
-	if _, err := r.f.Seek(int64(size)-16+int64(size%2), io.SeekCurrent); err != nil {
+	// skip any extension bytes (pad byte handled by the caller)
+	if _, err := r.f.Seek(int64(size)-16, io.SeekCurrent); err != nil {
 		return ErrCorrupt
 	}
 	var isFloat bool

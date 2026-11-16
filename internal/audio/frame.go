@@ -104,15 +104,13 @@ func LayoutForChannels(n int) Layout {
 	return LayoutGeneric
 }
 
-// ResolveLayout combines a declared layout with the actual channel count.
-// A declared layout whose channel count mismatches the stream is an error.
+// ResolveLayout combines a declared layout with the actual channel
+// count. A declared layout whose channel count does not match the
+// stream falls back to the channel-count default, so a single
+// declared layout can be applied to a mixed batch.
 func ResolveLayout(declared Layout, channels int) (Layout, error) {
-	if declared == LayoutAuto {
+	if declared == LayoutAuto || declared.Channels() != channels {
 		return LayoutForChannels(channels), nil
-	}
-	if declared.Channels() != channels {
-		return LayoutAuto, fmt.Errorf("declared layout %s (%d ch) does not match stream (%d ch)",
-			declared, declared.Channels(), channels)
 	}
 	return declared, nil
 }
