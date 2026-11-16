@@ -115,4 +115,28 @@ std::vector<NalUnit> NalScanner::scanStream(std::istream &in,
   return nals;
 }
 
+void NalScanner::scanStreamCb(
+    std::istream &in, const std::function<void(const NalUnit &)> &sink,
+    size_t chunk_size) {
+  std::vector<uint8_t> chunk(chunk_size);
+  NalScanner s;
+  std::vector<NalUnit> batch;
+  while (in) {
+    in.read(reinterpret_cast<char *>(chunk.data()),
+            static_cast<std::streamsize>(chunk_size));
+    const std::streamsize got = in.gcount();
+    if (got > 0)
+      s.feed(chunk.data(), static_cast<size_t>(got), batch);
+    // 立即交付本批 NAL 并清空，驻留内存不随码流总长增长
+    for (const NalUnit &n : batch)
+      sink(n);
+    batch.clear();
+    if (got < static_cast<std::streamsize>(chunk_size))
+      break;
+  }
+  s.finish(batch);
+  for (const NalUnit &n : batch)
+    sink(n);
+}
+
 } // namespace h264

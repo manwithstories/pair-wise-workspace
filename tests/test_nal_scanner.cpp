@@ -132,3 +132,26 @@ TEST_CASE(scanner_stream_and_garbage_prefix) {
   CHECK_EQ(nals[0].start_offset, 2u);
   CHECK_EQ(nals[0].nal_unit_type, (unsigned)NAL_SPS);
 }
+
+TEST_CASE(scanner_callback_stream_matches_vector) {
+  // 回调式流式扫描与整缓冲扫描结果必须逐 NAL 一致，且回调即交付不累积
+  StreamBuilder b;
+  for (int i = 0; i < 12; ++i)
+    b.nal(static_cast<uint8_t>(0x60 + (i % 8)),
+          {static_cast<uint8_t>(i), 0xAB});
+  const auto &full = b.bytes();
+  auto expect = NalScanner::scanAll(full.data(), full.size());
+
+  std::istringstream in(
+      std::string(reinterpret_cast<const char *>(full.data()), full.size()));
+  std::vector<NalUnit> got;
+  NalScanner::scanStreamCb(
+      in, [&](const NalUnit &n) { got.push_back(n); }, /*chunk=*/5);
+
+  CHECK_EQ(got.size(), expect.size());
+  for (size_t i = 0; i < got.size(); ++i) {
+    CHECK_EQ(got[i].start_offset, expect[i].start_offset);
+    CHECK_EQ(got[i].nal_unit_type, expect[i].nal_unit_type);
+    CHECK(got[i].ebsp == expect[i].ebsp);
+  }
+}

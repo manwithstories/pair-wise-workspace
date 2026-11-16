@@ -106,7 +106,8 @@ bool parseArgs(int argc, char **argv, const std::string &sub, Args &a,
 int runAnalyze(const Args &a) {
   const bool strict = (a.mode == "strict");
 
-  // 流式扫描：stdin 或文件均按分块读取，内存仅随单个 NAL 增长
+  // 流式扫描：stdin 或文件均按分块读取，每发现一个 NAL 立即分析，
+  // 不累积全部 NAL，驻留内存仅随单个 NAL 大小增长。
   std::ifstream file;
   std::istream *in = &std::cin;
   std::string source = a.input;
@@ -120,17 +121,13 @@ int runAnalyze(const Args &a) {
   } else {
     source = "stdin";
   }
-#ifdef _WIN32
-  std::cin.sync_with_stdio(false);
-#endif
 
-  std::vector<NalUnit> nals = NalScanner::scanStream(*in);
   GopAnalyzer analyzer(strict);
   bool hard_fail = false;
-  for (const NalUnit &nal : nals) {
+  NalScanner::scanStreamCb(*in, [&](const NalUnit &nal) {
     if (!analyzer.processNal(nal))
       hard_fail = true; // strict 下记录但继续，最终以非零退出
-  }
+  });
   AnalysisResult result = analyzer.finish();
 
   const ReportFormat fmt =

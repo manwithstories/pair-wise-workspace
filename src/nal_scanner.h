@@ -3,6 +3,7 @@
 // 记录每个 NAL 的绝对字节偏移。支持分块喂入，内存只保留当前 NAL。
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <iosfwd>
 #include <vector>
 
@@ -46,6 +47,12 @@ public:
   // 流式文件接口：按 chunk_size 分块读取，适合大文件
   static std::vector<NalUnit> scanStream(std::istream &in,
                                          size_t chunk_size = 65536);
+
+  // 回调式流式扫描：每发现一个 NAL 立即调用 sink，不累积全部 NAL，
+  // 内存仅随当前 NAL 大小增长。满足大文件不整流复制的约束。
+  static void scanStreamCb(std::istream &in,
+                           const std::function<void(const NalUnit &)> &sink,
+                           size_t chunk_size = 65536);
 
   static bool isVclNal(uint8_t nal_unit_type) {
     return nal_unit_type >= 1 && nal_unit_type <= 5;
