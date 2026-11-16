@@ -75,14 +75,30 @@ def build_report(result: BatchResult, *, command: str,
         "config": config.signature(),
         "resampler_instances": _kernel_rates(result),
         "summary": summary,
-        "inputs_root": None if result.input_root is None else str(result.input_root),
-        "outputs_root": None if result.output_root is None else str(result.output_root),
+        "inputs_root": _relative_root(result.input_root),
+        "outputs_root": _relative_root(result.output_root),
         "files": files,
     }
 
 
 def _kernel_rates(result: BatchResult) -> list[int]:
     return sorted({o.result.input_rate for o in result.outcomes if o.result})
+
+
+def _relative_root(root: Path | None) -> str | None:
+    """Record a root relative to the working directory when it is under it.
+
+    Absolute machine paths make a report hard to compare across machines and
+    leak the local layout; when the root sits inside the run directory its
+    relative form is just as unambiguous and stays portable.
+    """
+
+    if root is None:
+        return None
+    try:
+        return str(Path(root).resolve().relative_to(Path.cwd().resolve()))
+    except ValueError:
+        return str(Path(root))
 
 
 def _mean_lufs(stats, side: str) -> float | None:

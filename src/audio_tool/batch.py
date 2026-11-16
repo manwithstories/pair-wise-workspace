@@ -38,7 +38,13 @@ INPUT_SUFFIXES = (".wav", ".flac")
 
 @dataclass
 class FileOutcome:
-    """Result of attempting one input file."""
+    """Result of attempting one input file.
+
+    The report records ``source`` and ``output`` *relative* to their roots so
+    it stays portable: it describes the shape of a delivery set instead of
+    embedding the machine's absolute paths.  ``destination`` keeps the real
+    path for the batch itself to use.
+    """
 
     source: Path
     relative: str
@@ -55,7 +61,7 @@ class FileOutcome:
     def to_dict(self) -> dict:
         payload = {
             "source": self.relative,
-            "output": None if self.destination is None else str(self.destination),
+            "output": self.relative if self.destination is not None else None,
             "ok": self.ok,
             "input_sha256": self.input_sha256,
         }
