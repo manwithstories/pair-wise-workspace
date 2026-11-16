@@ -6,7 +6,6 @@ separately testable and keeps every file inside the patch-size budget.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from typing import Sequence
 
@@ -35,12 +34,6 @@ def runs_from_mask(mask: np.ndarray) -> list[Interval]:
     if start is not None:
         runs.append(Interval(start, mask.size))
     return runs
-
-
-def drop_short_runs(runs: Sequence[Interval], min_frames: int) -> list[Interval]:
-    if min_frames <= 0:
-        return list(runs)
-    return [r for r in runs if r.length >= min_frames]
 
 
 def bridge_pulses(
