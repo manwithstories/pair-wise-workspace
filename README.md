@@ -48,7 +48,9 @@ python -m src.mixer.cli compare --offline /tmp/offline.wav --stream /tmp/stream.
 - `stream --input P --output W --block {256,1024}`：按固定块流式渲染。
 - `inspect --path P`：项目摘要（轨道/布局/自动化）或 WAV 摘要。
 - `compare --offline A --stream B [--automation P] [--max-error X]`：
-  比较帧数、最大绝对误差、MSE、自动化采样点与逐轨统计。
+  比较帧数、最大绝对误差、MSE、自动化采样点（`sampled_points`：离线边缘数、
+  256/1024 分块数）与逐轨统计；`rendered_limiter` 附带限幅前后峰值/有效值、
+  削波计数与最大瞬时增益变化。
 
 退出码：`0` 全部通过；`2` 参数或输入错误；`3` 素材格式错误；`4` 离线与流式超差。
 
