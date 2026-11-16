@@ -166,11 +166,21 @@ def write_csv(analyses: Iterable[FileAnalysis], path: str) -> int:
     return written
 
 
-def write_sqlite(analyses: Iterable[FileAnalysis], path: str) -> int:
-    """Materialise a standalone sqlite database in the store schema."""
+def write_sqlite(
+    analyses: Iterable[FileAnalysis], path: str, overwrite: bool = False
+) -> int:
+    """Materialise a standalone sqlite database in the store schema.
+
+    An existing file is never clobbered silently: ``overwrite`` must be set
+    explicitly, otherwise the caller gets ``export_exists``.
+    """
 
     _ensure_parent(path)
     if os.path.exists(path):
+        if not overwrite:
+            raise ExportError(
+                "export_exists", f"refusing to overwrite existing database: {path}"
+            )
         os.remove(path)
     try:
         conn = sqlite3.connect(path)
@@ -182,7 +192,7 @@ def write_sqlite(analyses: Iterable[FileAnalysis], path: str) -> int:
         batch_id = conn.execute(
             "INSERT INTO batches(created_at, root, config_json, status)"
             " VALUES(datetime('now'), ?, '{}', 'exported')",
-            (path,),
+            ("<export>",),
         ).lastrowid
         for analysis in analyses:
             segments, silences = _result_rows(analysis)
@@ -240,6 +250,7 @@ def export_all(
     jsonl_path: Optional[str] = None,
     csv_path: Optional[str] = None,
     sqlite_path: Optional[str] = None,
+    overwrite: bool = False,
 ) -> ExportReport:
     """Export every requested format from the same result set."""
 
@@ -257,7 +268,7 @@ def export_all(
         report.records_written += write_csv(analyses, csv_path)
         report.csv_path = csv_path
     if sqlite_path:
-        report.records_written += write_sqlite(analyses, sqlite_path)
+        report.records_written += write_sqlite(analyses, sqlite_path, overwrite)
         report.sqlite_path = sqlite_path
     return report
 

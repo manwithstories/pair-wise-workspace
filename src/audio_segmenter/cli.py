@@ -137,6 +137,7 @@ def cmd_batch(args: argparse.Namespace) -> int:
                 jsonl_path=args.jsonl,
                 csv_path=args.csv,
                 sqlite_path=args.sqlite_out,
+                overwrite=args.overwrite,
             )
         except ExportError as exc:
             print(f"ERROR: {exc.code}: {exc.message}", file=sys.stderr)
@@ -233,6 +234,11 @@ def build_parser() -> argparse.ArgumentParser:
     bat.add_argument("--jsonl")
     bat.add_argument("--csv")
     bat.add_argument("--sqlite-out", dest="sqlite_out")
+    bat.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="allow replacing an existing --sqlite-out database",
+    )
     bat.add_argument("--workers", type=int, default=None)
     _add_common_detection_args(bat)
     bat.set_defaults(func=cmd_batch)

@@ -163,7 +163,7 @@ class Store:
         """Insert or replace one file's digest + results; returns file_id."""
 
         with self.transaction() as conn:
-            file_id = self._save_analysis(conn, analysis)
+            file_id = self.save_analysis_within(conn, analysis)
             if batch_id is not None:
                 conn.execute(
                     "INSERT OR IGNORE INTO batch_files(batch_id, file_id) VALUES(?, ?)",
@@ -171,7 +171,15 @@ class Store:
                 )
             return file_id
 
-    def _save_analysis(self, conn: sqlite3.Connection, analysis: FileAnalysis) -> int:
+    def save_analysis_within(
+        self, conn: sqlite3.Connection, analysis: FileAnalysis
+    ) -> int:
+        """Upsert one file inside a caller-owned transaction.
+
+        Kept public so batch writers can group many files in a single
+        transaction without reaching into private helpers.
+        """
+
         info = analysis.info
         result = analysis.result
         conn.execute(

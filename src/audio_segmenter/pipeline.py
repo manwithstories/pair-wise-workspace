@@ -157,7 +157,7 @@ def persist_batch(
     try:
         with store.transaction() as conn:
             for analysis in analyses:
-                store._save_analysis(conn, analysis)
+                store.save_analysis_within(conn, analysis)
                 row = conn.execute(
                     "SELECT id FROM files WHERE sha256=?", (analysis.sha256,)
                 ).fetchone()

@@ -131,7 +131,7 @@ class BatchIsolationTests(TempWorkspace):
         with Store(db_path) as store:
             paths = discover_wavs(self.root)
             analyses = run_batch(paths, DetectionConfig())
-            original = store._save_analysis
+            original = store.save_analysis_within
             calls = {"n": 0}
 
             def flaky(conn, analysis):
@@ -140,12 +140,12 @@ class BatchIsolationTests(TempWorkspace):
                     raise RuntimeError("simulated write failure")
                 return original(conn, analysis)
 
-            store._save_analysis = flaky  # type: ignore[assignment]
+            store.save_analysis_within = flaky  # type: ignore[assignment]
             with self.assertRaises(RuntimeError):
                 from audio_segmenter.pipeline import persist_batch
 
                 persist_batch(store, analyses, DetectionConfig(), self.root)
-            store._save_analysis = original  # type: ignore[assignment]
+            store.save_analysis_within = original  # type: ignore[assignment]
             self.assertEqual(store.stats()["files"], 0, "partial writes must be rolled back")
             batch = store.batch_summary(1)
             self.assertEqual(batch["status"], "failed")
@@ -198,6 +198,16 @@ class ExportTests(TempWorkspace):
             conn.close()
         self.assertEqual(file_count, 3)
         self.assertGreaterEqual(seg_count, 6)
+
+    def test_sqlite_export_refuses_silent_overwrite(self) -> None:
+        path = self.path("keep.sqlite")
+        export_all(self.analyses, sqlite_path=path)
+        before = os.path.getmtime(path)
+        with self.assertRaises(ExportError) as ctx:
+            export_all(self.analyses, sqlite_path=path)
+        self.assertEqual(ctx.exception.code, "export_exists")
+        self.assertEqual(os.path.getmtime(path), before)
+        export_all(self.analyses, sqlite_path=path, overwrite=True)
 
     def test_export_to_missing_directory_fails_cleanly(self) -> None:
         with self.assertRaises(ExportError) as ctx:
