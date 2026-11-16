@@ -94,7 +94,7 @@ class Limiter:
     def __init__(
         self,
         rate: int,
-        threshold_db: float = -1.0,
+        threshold_db: float = -0.5,
         attack_ms: float = 2.0,
         release_ms: float = 80.0,
         knee: float = 0.98,
