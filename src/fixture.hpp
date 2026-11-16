@@ -32,8 +32,9 @@ inline constexpr double kDemoCurveAmplitude = 2.0e-5;
 Image make_fixture_image();
 std::string make_demo_cube(int grid_size, const std::string& title);
 
-// Writes input.ppm, demo.cube, lut17.cube, lut33.cube and lut65.cube into
-// `dir` (created if missing). Throws Error(kUsage) on I/O trouble.
+// Writes input.ppm plus demo.cube (at `grid_size`) and the two other
+// lut17/lut33/lut65 variants, so the directory always has all three grids.
+// `dir` is created recursively if missing. Throws Error(kUsage) on I/O trouble.
 void generate_fixtures(const std::string& dir, int grid_size);
 
 }  // namespace lutgrade
