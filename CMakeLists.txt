@@ -56,3 +56,6 @@ add_executable(generate_fixture tests/generate_fixture.cpp)
 target_link_libraries(generate_fixture PRIVATE h264lib)
 add_test(NAME generate_fixture
          COMMAND generate_fixture ${CMAKE_BINARY_DIR}/fixture_sample.264 24 3 0)
+
+add_executable(h264inspect src/main.cpp)
+target_link_libraries(h264inspect PRIVATE h264lib)
