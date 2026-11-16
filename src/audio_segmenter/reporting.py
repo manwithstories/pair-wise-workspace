@@ -40,7 +40,10 @@ def format_segment_lines(analysis: FileAnalysis) -> list[str]:
     for seg in analysis.result.segments:
         lines.append(
             f"SEGMENT index={seg.index} start_sample={seg.start_sample}"
-            f" end_sample={seg.end_sample} duration={seg.duration_seconds:.3f}"
+            f" end_sample={seg.end_sample} sample_count={seg.sample_count}"
+            f" start_seconds={seg.start_seconds:.3f}"
+            f" end_seconds={seg.end_seconds:.3f}"
+            f" duration={seg.duration_seconds:.3f}"
             f" peak={seg.peak:.4f} rms={seg.rms:.4f}"
         )
     return lines
@@ -49,10 +52,14 @@ def format_segment_lines(analysis: FileAnalysis) -> list[str]:
 def format_detect(analyses: Sequence[FileAnalysis], exported: int | None = None) -> list[str]:
     total_segments = sum(len(a.result.segments) for a in analyses if a.result)
     total_silence = sum(a.result.total_silence_seconds for a in analyses if a.result)
+    total_silence_samples = sum(
+        a.result.total_silence_samples for a in analyses if a.result
+    )
     lines = [
         f"FILE_COUNT={len(analyses)}",
         f"TOTAL_SEGMENTS={total_segments}",
         f"TOTAL_SILENCE_SECONDS={total_silence:.3f}",
+        f"TOTAL_SILENCE_SAMPLES={total_silence_samples}",
     ]
     for analysis in analyses:
         lines.append(format_file_line(analysis))
