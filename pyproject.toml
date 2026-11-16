@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "media-probe"
+version = "0.1.0"
+description = "Frame-level timestamp audit and repair planner for H.264/HEVC archives"
+requires-python = ">=3.11"
+dependencies = [
+    "av>=12.0,<13",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7.4"]
+
+[project.scripts]
+media-probe = "media_probe.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["media_probe*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
