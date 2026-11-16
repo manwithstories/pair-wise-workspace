@@ -8,7 +8,7 @@ import unittest
 
 import numpy as np
 
-from helpers import TempWorkspace, noise, tone, write_wav
+from helpers import TempWorkspace, tone, write_wav
 
 from audio_segmenter.model import DetectionConfig
 from audio_segmenter.pipeline import analyze_file

@@ -8,15 +8,14 @@ any detection logic.
 from __future__ import annotations
 
 import csv
-import io
 import json
 import os
 import sqlite3
 from dataclasses import dataclass
-from typing import IO, Any, Iterable, Iterator, Optional, Sequence
+from typing import Any, Iterable, Iterator, Optional, Sequence
 
-from .model import DetectionResult, FileAnalysis
-from .store import SCHEMA, Store
+from .model import FileAnalysis
+from .store import SCHEMA
 
 SEGMENT_FIELDS = [
     "path",

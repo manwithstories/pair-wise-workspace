@@ -12,10 +12,9 @@ import json
 import os
 import sqlite3
 from contextlib import contextmanager
-from dataclasses import dataclass
 from typing import Any, Iterator, Optional, Sequence
 
-from .model import DetectionConfig, DetectionResult, FileAnalysis
+from .model import DetectionConfig, FileAnalysis
 
 SCHEMA_VERSION = 1
 

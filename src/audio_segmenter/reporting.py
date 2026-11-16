@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
-from typing import Iterable, Sequence
+from typing import Sequence
 
 from .model import FileAnalysis
 from .pipeline import BatchReport

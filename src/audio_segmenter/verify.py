@@ -17,7 +17,7 @@ Invariants, per file:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional, Sequence
+from typing import Sequence
 
 from .model import DetectionResult, FileAnalysis
 
