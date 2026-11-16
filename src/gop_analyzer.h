@@ -25,8 +25,9 @@ struct PictureInfo {
   uint8_t slice_type = SLICE_UNKNOWN; // 以首个分片为准
   bool is_i = false, is_p = false, is_b = false;
   bool idr = false;
-  bool field_pic = false;
-  bool bottom_field = false;
+  bool field_pic = false;       // 该图像由场（而非整帧）构成
+  bool top_field_present = false;
+  bool bottom_field_present = false;
   uint32_t slice_count = 0;
   uint32_t first_mb_min = 0;
   uint32_t first_mb_max = 0;

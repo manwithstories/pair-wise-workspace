@@ -26,11 +26,10 @@ bool GopAnalyzer::samePicture(const PictureInfo &pic, const SliceInfo &sl,
                               bool field, bool bottom) {
   if (pic.frame_num != sl.frame_num)
     return false;
-  if (field) {
-    // 场图像：同 frame_num 下以场方向区分；同方向的多个分片属同一图像
-    return pic.field_pic && pic.bottom_field == bottom;
-  }
-  return !pic.field_pic; // 帧图像
+  if (!field)
+    return !pic.field_pic; // 帧图像：同 frame_num 的帧分片
+  // 场图像：同 frame_num 的顶/底两场属于同一图像；同场多分片也归并
+  return pic.field_pic;
 }
 
 PictureInfo *GopAnalyzer::findOrCreatePicture(const SliceInfo &sl,
@@ -38,13 +37,12 @@ PictureInfo *GopAnalyzer::findOrCreatePicture(const SliceInfo &sl,
   const bool field = sl.field_pic_flag;
   const bool bottom = sl.bottom_field_flag;
 
-  // 仅在最近若干图像内回溯，避免 O(n^2)；同 frame_num 的场/帧必然相邻
+  // 同 frame_num 的场/帧必然相邻，回溯到不同 frame_num 即停
   for (size_t i = r_.pictures.size(); i-- > 0;) {
     PictureInfo &pic = r_.pictures[i];
     if (samePicture(pic, sl, field, bottom))
       return &pic;
-    // frame_num 回绕或已越过当前 frame_num，停止回溯
-    if (pic.frame_num != sl.frame_num && !field)
+    if (pic.frame_num != sl.frame_num)
       break;
   }
 
@@ -56,16 +54,18 @@ PictureInfo *GopAnalyzer::findOrCreatePicture(const SliceInfo &sl,
   pic.is_b = sl.is_b;
   pic.idr = idr;
   pic.field_pic = field;
-  pic.bottom_field = bottom;
+  if (field)
+    (bottom ? pic.bottom_field_present : pic.top_field_present) = true;
   pic.slice_count = 0;
   pic.first_mb_min = sl.first_mb_in_slice;
   pic.first_mb_max = sl.first_mb_in_slice;
   pic.first_nal_offset = nal.start_offset;
   pic.last_nal_offset = nal.start_offset;
-  pic.gop_index = cur_gop_;
 
-  // 随机访问点：IDR 一定开新 GOP；非 IDR 的 I 帧也视为恢复点开新 GOP
-  const bool random_access = idr || sl.is_i;
+  // 随机访问点开新 GOP。底场是同 frame_num 顶场的配对，不是新图像起点，
+  // 故仅在顶场/帧（bottom_field==false）上判定边界。
+  const bool picture_starts_here = !(field && bottom);
+  const bool random_access = picture_starts_here && (idr || sl.is_i);
   if (r_.gops.empty() || random_access)
     openGop(pic);
   pic.gop_index = cur_gop_ - 1;
@@ -111,6 +111,11 @@ bool GopAnalyzer::processNal(const NalUnit &nal) {
     return true; // AUD/SEI 等非 VCL 单元已计入 nal_count，不做结构解析
 
   ++r_.vcl_nal_count;
+
+  // 截断 NAL（EOF 前未见下一起始码）是结构性事件：单独统计，不产生
+  // 语法 warning，也不计入完整分片，后续文件解析不受影响。
+  if (nal.truncated)
+    return true;
   ++r_.slice_count;
 
   if (!has_sps_ || !has_pps_) {
@@ -132,6 +137,12 @@ bool GopAnalyzer::processNal(const NalUnit &nal) {
 
   const bool idr = nal.nal_unit_type == NAL_IDR_SLICE;
   PictureInfo *pic = findOrCreatePicture(sl, nal, idr);
+  if (sl.field_pic_flag) {
+    if (sl.bottom_field_flag)
+      pic->bottom_field_present = true;
+    else
+      pic->top_field_present = true;
+  }
   pic->slice_count++;
   pic->last_nal_offset = nal.start_offset;
   pic->first_mb_min = std::min(pic->first_mb_min, sl.first_mb_in_slice);
@@ -154,30 +165,19 @@ AnalysisResult GopAnalyzer::finish() {
       ++g.b_count;
   }
 
-  // 隔行场对：按 frame_num 归并顶/底场
+  // 隔行场对：每个场图像即一个 frame_num 的顶/底配对单元
   for (const PictureInfo &pic : r_.pictures) {
     if (!pic.field_pic)
       continue;
-    FieldPairInfo *fp = nullptr;
-    for (auto &cand : r_.field_pairs) {
-      if (cand.frame_num == pic.frame_num) {
-        fp = &cand;
-        break;
-      }
-    }
-    if (!fp) {
-      FieldPairInfo fresh;
-      fresh.frame_num = pic.frame_num;
-      r_.field_pairs.push_back(fresh);
-      fp = &r_.field_pairs.back();
-    }
-    if (pic.bottom_field)
-      fp->bottom_present = true;
-    else
-      fp->top_present = true;
+    FieldPairInfo fp;
+    fp.frame_num = pic.frame_num;
+    fp.top_present = pic.top_field_present;
+    fp.bottom_present = pic.bottom_field_present;
+    fp.complete = fp.top_present && fp.bottom_present;
+    r_.field_pairs.push_back(fp);
   }
   for (const auto &fp : r_.field_pairs) {
-    if (fp.top_present && fp.bottom_present)
+    if (fp.complete)
       ++r_.field_pair_complete;
     else
       ++r_.field_pair_incomplete;

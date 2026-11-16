@@ -18,6 +18,7 @@ add_library(h264lib STATIC
   src/slice_parser.cpp
   src/gop_analyzer.cpp
   src/report_writer.cpp
+  src/fixture_writer.cpp
 )
 target_include_directories(h264lib PUBLIC src)
 
@@ -50,3 +51,8 @@ add_test(NAME gop COMMAND test_gop)
 add_executable(test_report tests/test_report.cpp tests/test_framework.cpp)
 target_link_libraries(test_report PRIVATE h264lib)
 add_test(NAME report COMMAND test_report)
+
+add_executable(generate_fixture tests/generate_fixture.cpp)
+target_link_libraries(generate_fixture PRIVATE h264lib)
+add_test(NAME generate_fixture
+         COMMAND generate_fixture ${CMAKE_BINARY_DIR}/fixture_sample.264 24 3 0)
