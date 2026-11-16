@@ -71,3 +71,15 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Python 构建产物（不入交付）----
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+
+# ---- 本地运行产物 ----
+out/
+fixtures/

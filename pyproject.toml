@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "audio-slicer"
+version = "0.1.0"
+description = "Game SFX pack ingest: silence-based event slicing, QC and export"
+requires-python = ">=3.11"
+dependencies = ["numpy==1.26.4"]
+
+[project.scripts]
+audio-slicer = "audio_slicer.cli:main"
+
+[tool.setuptools]
+packages = ["audio_slicer"]
