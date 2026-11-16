@@ -5,6 +5,7 @@
 
 #include "color_matrix.hpp"
 #include "image_io.hpp"
+#include "interpolator.hpp"
 #include "lut_parser.hpp"
 
 using lutgrade::decode_ppm;
@@ -287,4 +288,100 @@ TEST_CASE("colour: space names parse case-insensitively") {
     REQUIRE(e.code() == ExitCode::kColor);
     REQUIRE(e.kind() == "space_unknown");
   }
+}
+
+// ------------------------------------------------------- interpolation ----
+namespace {
+
+// Identity LUT of size n, built directly so tests do not depend on the fixture.
+lutgrade::Lut3D identity_lut(int n) {
+  lutgrade::Lut3D lut;
+  lut.size = n;
+  lut.table.reserve(static_cast<std::size_t>(n) * n * n);
+  const double d = n - 1.0;
+  for (int b = 0; b < n; ++b)
+    for (int g = 0; g < n; ++g)
+      for (int r = 0; r < n; ++r)
+        lut.table.push_back({static_cast<float>(r / d),
+                             static_cast<float>(g / d),
+                             static_cast<float>(b / d)});
+  return lut;
+}
+
+}  // namespace
+
+TEST_CASE("interp: identity LUT is transparent at grid points") {
+  const auto lut = identity_lut(17);
+  for (int i = 0; i < 17; ++i) {
+    const double t = i / 16.0;
+    const auto out = lutgrade::lut_sample_trilinear(lut, {t, t, t});
+    REQUIRE(out[0] == Catch::Approx(t).margin(1e-6));
+    REQUIRE(out[2] == Catch::Approx(t).margin(1e-6));
+  }
+}
+
+TEST_CASE("interp: identity LUT is exact between grid points too") {
+  const auto lut = identity_lut(33);
+  for (double t = 0.0; t <= 1.0; t += 0.013) {
+    CAPTURE(t);
+    const auto out = lutgrade::lut_sample_trilinear(lut, {t, 1.0 - t, t * 0.5});
+    REQUIRE(out[0] == Catch::Approx(t).margin(1e-6));
+    REQUIRE(out[1] == Catch::Approx(1.0 - t).margin(1e-6));
+    REQUIRE(out[2] == Catch::Approx(t * 0.5).margin(1e-6));
+  }
+}
+
+TEST_CASE("interp: trilinear matches a hand-computed midpoint") {
+  // 2x2x2 cube with value = r + 2g + 4b at the corners; the centre must be the
+  // average of all eight, i.e. 3.5/7 scaled. A 2-grid is built by hand because
+  // the parser only accepts 17/33/65.
+  lutgrade::Lut3D lut;
+  lut.size = 2;
+  for (int b = 0; b < 2; ++b)
+    for (int g = 0; g < 2; ++g)
+      for (int r = 0; r < 2; ++r)
+        lut.table.push_back({static_cast<float>(r + 2 * g + 4 * b) / 7.0f,
+                             static_cast<float>(r) ,
+                             static_cast<float>(b)});
+  const auto out = lutgrade::lut_sample_trilinear(lut, {0.5, 0.5, 0.5});
+  REQUIRE(out[0] == Catch::Approx(3.5 / 7.0).margin(1e-6));
+  REQUIRE(out[1] == Catch::Approx(0.5).margin(1e-6));
+  REQUIRE(out[2] == Catch::Approx(0.5).margin(1e-6));
+}
+
+TEST_CASE("interp: boundary values clamp to the cube edge") {
+  const auto lut = identity_lut(17);
+  const auto low = lutgrade::lut_sample_trilinear(lut, {-5.0, -0.2, -1e-9});
+  REQUIRE(low[0] == Catch::Approx(0.0).margin(1e-9));
+  const auto high = lutgrade::lut_sample_trilinear(lut, {2.0, 1.5, 1.0001});
+  REQUIRE(high[0] == Catch::Approx(1.0).margin(1e-6));
+}
+
+TEST_CASE("interp: domain mapping is honoured") {
+  const auto lut = identity_lut(17);
+  lutgrade::Lut3D scoped = lut;
+  scoped.domain_min = {0.2, 0.2, 0.2};
+  scoped.domain_max = {0.8, 0.8, 0.8};
+  // 0.2 is the low edge -> identity grid value 0; 0.8 the high edge -> 1.
+  const auto at_min = lutgrade::lut_sample_trilinear(scoped, {0.2, 0.2, 0.2});
+  REQUIRE(at_min[0] == Catch::Approx(0.0).margin(1e-6));
+  const auto at_max = lutgrade::lut_sample_trilinear(scoped, {0.8, 0.8, 0.8});
+  REQUIRE(at_max[0] == Catch::Approx(1.0).margin(1e-6));
+  const auto outside = lutgrade::lut_sample_trilinear(scoped, {0.1, 0.1, 0.1});
+  REQUIRE(outside[0] == Catch::Approx(0.0).margin(1e-6));
+}
+
+TEST_CASE("interp: non-finite input is an error, not a silent NaN") {
+  const auto lut = identity_lut(17);
+  REQUIRE_THROWS_AS(
+      lutgrade::lut_sample_trilinear(lut, {std::nan(""), 0.5, 0.5}),
+      Error);
+  REQUIRE_THROWS_AS(lutgrade::lut_sample_trilinear(lut, {0.5, INFINITY, 0.5}),
+                    Error);
+}
+
+TEST_CASE("interp: malformed LUT table is rejected at sample time") {
+  lutgrade::Lut3D bad;
+  bad.size = 17;  // no entries
+  REQUIRE_THROWS_AS(lutgrade::lut_sample_trilinear(bad, {0.5, 0.5, 0.5}), Error);
 }
