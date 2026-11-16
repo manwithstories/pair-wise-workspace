@@ -112,8 +112,13 @@ class BlockEngine:
         self.master = MetricsAccumulator(config.clip_threshold)
         self._automation_samples = sum(len(s.automation) for s in config.tracks)
 
-    def run(self, block_frames: int) -> EngineResult:
-        blocks: list[MixBlock] = []
+    def iter_blocks(self, block_frames: int):
+        """逐块生成 MixBlock,块产出后即可写出/丢弃,不在引擎内累积。
+
+        这是满足流式内存约束的主入口:任意时刻驻留的只有当前块、
+        各轨重采样器的有限窗缓冲和有界预取队列,与轨道总时长无关。
+        """
+
         total = self.config.duration_frames
         index = 0
         for start in range(0, total, block_frames):
@@ -121,17 +126,29 @@ class BlockEngine:
             block_buf = np.zeros((size, 2), dtype=np.float64)
             for rt in self.runtimes:
                 self._render_into(rt, start, size, block_buf)
-            blocks.append(MixBlock(index=index, start=start, frames=size,
-                                   buffer=block_buf))
             self.master.add(block_buf)
+            yield MixBlock(index=index, start=start, frames=size, buffer=block_buf)
             index += 1
+
+    def run(self, block_frames: int) -> EngineResult:
+        """兼容入口:消费完整块流。需内存有界时应直接用 iter_blocks。"""
+
+        blocks = list(self.iter_blocks(block_frames))
+        return self._snapshot(blocks)
+
+    def result_snapshot(self) -> EngineResult:
+        """不携带块缓冲的统计快照(配合 iter_blocks 增量写出后使用)。"""
+
+        return self._snapshot([])
+
+    def _snapshot(self, blocks: list[MixBlock]) -> EngineResult:
         return EngineResult(
             blocks=blocks,
             master=self.master,
             track_stats=[rt.stat for rt in self.runtimes],
             skipped=self.skipped,
             automation_samples=self._automation_samples,
-            project_frames=total,
+            project_frames=self.config.duration_frames,
         )
 
     def _render_into(self, rt: _Runtime, block_start: int, size: int,

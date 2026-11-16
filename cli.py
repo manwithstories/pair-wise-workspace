@@ -55,7 +55,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
 
 def _cmd_mix(args: argparse.Namespace) -> int:
     config = load_config(args.config)
-    _, stats = run_mix(
+    stats = run_mix(
         config=config,
         config_path=args.config,
         output_wav=args.output,

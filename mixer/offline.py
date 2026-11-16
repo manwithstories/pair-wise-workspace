@@ -19,7 +19,6 @@ from typing import Optional
 import numpy as np
 import soundfile as sf
 
-from .metrics import to_dbfs
 from .sources import FileSource, PrefetchSource, StreamSource
 from .stream import BlockEngine, EngineResult
 from .types import (
@@ -94,12 +93,33 @@ def _build_stats(
 
 
 def write_wav(path: str | Path, signal: np.ndarray, sample_rate: int) -> None:
-    """写 32-bit float WAV;任何 IO 失败统一成 OutputError(退出码 4)。"""
+    """整段写 32-bit float WAV;任何 IO 失败统一成 OutputError(退出码 4)。"""
 
     p = Path(path)
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
         sf.write(str(p), signal, sample_rate, subtype="FLOAT")
+    except (OSError, ValueError, sf.LibsndfileError) as exc:
+        raise OutputError(
+            f"输出 WAV 写入失败: {p}: {exc}",
+            details={"path": str(p), "reason": "write_failed"},
+        ) from exc
+
+
+def open_wav_writer(path: str | Path, sample_rate: int, channels: int = 2):
+    """打开可逐块写入的 WAV 句柄,供流式路径增量落盘。
+
+    失败(目录不可写、路径被文件占用等)在打开时即抛 OutputError,
+    不会产生半成品成功结果。
+    """
+
+    p = Path(path)
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return sf.SoundFile(
+            str(p), mode="w", samplerate=sample_rate,
+            channels=channels, subtype="FLOAT",
+        )
     except (OSError, ValueError, sf.LibsndfileError) as exc:
         raise OutputError(
             f"输出 WAV 写入失败: {p}: {exc}",
@@ -129,8 +149,12 @@ def run_mix(
     report_path: str | Path,
     mode: str,
     block_frames: Optional[int] = None,
-) -> tuple[np.ndarray, StatsResult]:
-    """执行完整混音并落盘,返回 (总线信号, 统计)。mode 仅用于报告标注。"""
+) -> StatsResult:
+    """执行完整混音并增量落盘,返回统计结果。mode 仅用于报告标注。
+
+    两条路径都走 iter_blocks + 逐块写 WAV:总线从不整段驻留,
+    内存占用由 block_frames 与轨道数界定,与素材总时长无关。
+    """
 
     if mode not in ("offline", "stream"):
         raise OutputError(f"未知执行模式: {mode}")
@@ -142,13 +166,38 @@ def run_mix(
     prefetch = mode == "stream"
     sources, open_skipped = build_sources(config, base_dir, prefetch=prefetch)
     engine = BlockEngine(config, sources)
+    writer = open_wav_writer(output_wav, config.sample_rate, channels=2)
+    total_frames = 0
     try:
-        result = engine.run(block)
-        signal = np.concatenate([mb.buffer for mb in result.blocks], axis=0)
-    finally:
-        engine.close()
+        try:
+            for mb in engine.iter_blocks(block):
+                writer.write(mb.buffer)
+                total_frames += mb.frames
+        except (OSError, sf.LibsndfileError) as exc:
+            raise OutputError(
+                f"输出 WAV 写入中断: {output_wav}: {exc}",
+                details={"path": str(output_wav), "reason": "write_interrupted"},
+            ) from exc
+        finally:
+            engine.close()
+            try:
+                writer.close()
+            except (OSError, sf.LibsndfileError) as exc:
+                raise OutputError(
+                    f"输出 WAV 关闭失败: {output_wav}: {exc}",
+                    details={"path": str(output_wav), "reason": "write_failed"},
+                ) from exc
+        result = engine.result_snapshot()
+    except OutputError:
+        # 写入失败不留下伪造成功:尽力删除半成品
+        try:
+            Path(output_wav).unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
     stats = _build_stats(config, result, mode, block, open_skipped)
-    write_wav(output_wav, signal, config.sample_rate)
+    if stats.frames != total_frames:
+        stats.frames = total_frames
     write_report(report_path, stats)
-    return signal, stats
+    return stats

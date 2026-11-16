@@ -204,10 +204,10 @@ class EndToEndTest(unittest.TestCase):
                     {"name": "s", "path": "s.wav", "offset": 500, "gain": 0.5},
                 ],
             }))
-            _, stats_off = run_mix(config, cfg_path, root / "o.wav",
-                                   root / "o.json", "offline", block_frames=4096)
-            _, stats_st = run_mix(config, cfg_path, root / "s.wav",
-                                  root / "s.json", "stream", block_frames=37)
+            stats_off = run_mix(config, cfg_path, root / "o.wav",
+                                root / "o.json", "offline", block_frames=4096)
+            stats_st = run_mix(config, cfg_path, root / "s.wav",
+                               root / "s.json", "stream", block_frames=37)
             with sf.SoundFile(str(root / "o.wav")) as f:
                 off = f.read(dtype="float64", always_2d=True)
             with sf.SoundFile(str(root / "s.wav")) as f:
@@ -232,8 +232,8 @@ class EndToEndTest(unittest.TestCase):
                 ],
             }))
             cfg = load_config(cfg_path)
-            _, stats = run_mix(cfg, cfg_path, root / "o.wav",
-                               root / "o.json", "offline")
+            stats = run_mix(cfg, cfg_path, root / "o.wav",
+                            root / "o.json", "offline")
             self.assertEqual(len(stats.skipped_tracks), 1)
             self.assertEqual(stats.skipped_tracks[0].reason, "empty_file")
 
