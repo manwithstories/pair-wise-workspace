@@ -45,11 +45,20 @@ __all__ = [
 
 
 def estimate_noise_floor(db: np.ndarray, percentile: float) -> float:
-    """Robust background estimate from the quiet tail of the frame distribution."""
+    """Robust background estimate from the quiet tail of the frame distribution.
+
+    Digitally silent frames (level at the dB floor) are excluded: they are
+    *quieter than the room*, and including them would pull the estimate down
+    to -120 dB, which in turn makes the ramp gate so low that ordinary room
+    tone starts looking like a fade.  If a file is nothing but digital
+    silence, the floor is the dB floor.
+    """
 
     if db.size == 0:
         return sig.DB_FLOOR
-    floor = float(np.percentile(db, percentile))
+    audible = db[db > sig.DB_FLOOR + 0.5]
+    source = audible if audible.size else db
+    floor = float(np.percentile(source, percentile))
     if not math.isfinite(floor):
         return sig.DB_FLOOR
     return max(sig.DB_FLOOR, floor)

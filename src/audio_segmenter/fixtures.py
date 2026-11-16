@@ -93,14 +93,18 @@ def build_ambience(sr: int, rng: np.random.Generator) -> np.ndarray:
 
 
 def build_sfx(sr: int, rng: np.random.Generator) -> np.ndarray:
-    """Mono 48 kHz: two short effects plus a 25 ms noise pulse between them."""
+    """Mono 48 kHz: two short effects plus a 25 ms noise pulse between them.
+
+    Noise amplitudes stay below 0.2 so a ~3-sigma tail never reaches full
+    scale; the fixture must measure the detector, not PCM clipping.
+    """
 
     room = _noise(sr, 0.30, 0.0010, rng)
-    hit = _with_fades(_noise(sr, 0.18, 0.45, rng), sr, 0.004, 0.06)
+    hit = _with_fades(_noise(sr, 0.18, 0.22, rng), sr, 0.004, 0.06)
     brief = _silence(sr, 0.30)
-    pulse = _with_fades(_noise(sr, 0.025, 0.30, rng), sr, 0.002, 0.002)
+    pulse = _with_fades(_noise(sr, 0.025, 0.18, rng), sr, 0.002, 0.002)
     brief2 = _silence(sr, 0.35)
-    hit2 = _with_fades(_noise(sr, 0.14, 0.40, rng), sr, 0.004, 0.05)
+    hit2 = _with_fades(_noise(sr, 0.14, 0.20, rng), sr, 0.004, 0.05)
     tail = _noise(sr, 0.30, 0.0010, rng)
     return np.concatenate([room, hit, brief, pulse, brief2, hit2, tail])
 

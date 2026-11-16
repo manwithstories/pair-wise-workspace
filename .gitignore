@@ -71,3 +71,15 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 本项目运行产物 ----
+demo_data/
+outputs/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.jsonl
+*.csv
+__pycache__/
+*.py[cod]
+.pytest_cache/
