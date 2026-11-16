@@ -71,3 +71,7 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 项目本地生成物（夹具/报告/构建输出，不交付）----
+/tmp/
+/outputs/
