@@ -77,30 +77,53 @@ def resample_duration_frames(source_frames: int, source_rate: int, target_rate: 
 
 
 class LinearResampler:
-    """Piecewise-linear resampling of a pre-read source window."""
+    """Piecewise-linear resampling of a pre-read source window.
 
-    def __init__(self, source: np.ndarray, source_rate: int, target_rate: int = TARGET_RATE):
+    Absolute source positions are ``dest_frame * ratio + source_origin``. The
+    window array holds source frames starting at ``window_start`` (default: the
+    frame under ``dest_start``), so reading a mid-timeline block yields the
+    same values the whole-array conversion would.
+    """
+
+    def __init__(
+        self,
+        source: np.ndarray,
+        source_rate: int,
+        target_rate: int = TARGET_RATE,
+        source_origin: int = 0,
+    ):
         if source.ndim != 2:
             raise ValueError("resampler expects a 2-D (frames, channels) array")
         self.source = source
         self.source_rate = validate_rate(source_rate)
         self.target_rate = validate_rate(target_rate)
+        self.source_origin = int(source_origin)
 
-    def convert(self, count: int, start_frame: int = 0) -> np.ndarray:
-        """Resample ``count`` destination frames starting at ``start_frame``.
+    @property
+    def ratio(self) -> float:
+        return self.source_rate / float(self.target_rate)
 
-        Reads at most ``ceil(count * ratio) + 2`` source frames, zero-padding
-        past the end of the source so short tails and empty clips are handled
-        without special cases.
-        """
+    def window_bounds(self, dest_start: int, count: int) -> tuple[int, int]:
+        """Absolute source frames needed for a destination block, inclusive start."""
+        first = int(math.floor(dest_start * self.ratio)) + self.source_origin
+        last = int(math.ceil((dest_start + count) * self.ratio)) + 2 + self.source_origin
+        return first, last
+
+    def convert(self, count: int, dest_start: int = 0, window_start: int | None = None) -> np.ndarray:
+        """Resample ``count`` destination frames beginning at ``dest_start``."""
         channels = self.source.shape[1]
         if count <= 0:
             return np.zeros((0, channels), dtype=np.float64)
         if self.source.shape[0] == 0:
             return np.zeros((count, channels), dtype=np.float64)
 
-        ratio = self.source_rate / float(self.target_rate)
-        positions = start_frame * ratio + np.arange(count, dtype=np.float64) * ratio
+        if window_start is None:
+            window_start = int(math.floor(dest_start * self.ratio)) + self.source_origin
+        positions = (
+            (dest_start * self.ratio + self.source_origin)
+            + np.arange(count, dtype=np.float64) * self.ratio
+            - window_start
+        )
         index = np.floor(positions).astype(np.int64)
         frac = positions - index
 
@@ -115,7 +138,7 @@ class LinearResampler:
 
     def convert_all(self) -> np.ndarray:
         frames = resample_duration_frames(self.source.shape[0], self.source_rate, self.target_rate)
-        return self.convert(frames, 0)
+        return self.convert(frames, 0, window_start=0)
 
 
 def trim_or_pad(source: np.ndarray, offset: int, length: int | None) -> np.ndarray:
