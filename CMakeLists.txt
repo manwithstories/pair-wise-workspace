@@ -15,6 +15,7 @@ set(LUTGRADE_CORE_SOURCES
   src/image_io.cpp
   src/lut_parser.cpp
   src/color_matrix.cpp
+  src/interpolator.cpp
 )
 
 add_library(lutgrade_core STATIC ${LUTGRADE_CORE_SOURCES})
@@ -29,6 +30,10 @@ target_link_libraries(lutgrade PRIVATE lutgrade_core)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(lutgrade_core PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(lutgrade PRIVATE -Wall -Wextra -Wpedantic)
+  # CLI11's Encoding header uses std::codecvt, deprecated in C++17 but still
+  # the only portable converter in the vendored release. Silence it here only;
+  # our own sources keep full warnings.
+  target_compile_options(lutgrade PRIVATE -Wno-deprecated-declarations)
 endif()
 
 option(LUTGRADE_BUILD_TESTS "Build integration tests" ON)
