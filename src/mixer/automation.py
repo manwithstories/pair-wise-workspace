@@ -72,7 +72,20 @@ class AutomationCurve:
     # -- construction -----------------------------------------------------
     @classmethod
     def from_track(cls, track, rate: int = 48000) -> "AutomationCurve":
-        return cls(track.automation, track.gain_db, track.max_slew_db_per_s, rate)
+        """Build a track's curve: automation dB is an offset on ``gain_db``.
+
+        With no automation the track is a flat line at its static gain. With
+        automation, a point of ``gain_db`` means "the track gain" and +6 means
+        "6 dB above the track gain", so the two never fight each other.
+        """
+        offset = track.gain_db if track.automation else 0.0
+        shifted = [AutomationPoint(p.time, p.gain_db + offset) for p in track.automation]
+        return cls(
+            shifted,
+            track.gain_db if not track.automation else offset,
+            track.max_slew_db_per_s,
+            rate,
+        )
 
     def _slope_limit(self, slew: float) -> tuple[np.ndarray, np.ndarray]:
         """Rewrite breakpoints so no segment exceeds ``slew`` dB/s."""

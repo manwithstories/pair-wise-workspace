@@ -353,3 +353,31 @@ def test_multi_bus_fanout_sums_branches(project):
     offline = OfflineEngine(project, graph).render()
     stream = StreamingEngine(project, graph, block_size=256).render()
     assert float(np.max(np.abs(offline.audio - stream.audio))) <= 1e-5
+
+
+def test_gain_db_applies_even_with_automation(project, tmp_path):
+    """Automation is an offset on gain_db, not a replacement for it."""
+    import soundfile as sf
+
+    from src.mixer.model import parse_project
+
+    sf.write(str(tmp_path / "flat.wav"), np.full((4800, 2), 0.25), 48000,
+             subtype="FLOAT", format="WAV")
+    base = [
+        {"name": "b", "file": "flat.wav", "layout": "stereo", "gain_db": -300.0},
+        {"name": "c", "file": "flat.wav", "layout": "stereo", "gain_db": -300.0},
+        {"name": "d", "file": "flat.wav", "layout": "stereo", "gain_db": -300.0},
+    ]
+
+    def peak(gain_db, automation):
+        tracks = [
+            {"name": "t", "file": "flat.wav", "layout": "stereo", "gain_db": gain_db,
+             **({"automation": automation} if automation else {})}
+        ] + base
+        raw = {"schema": "mix-project/1", "target_rate": 48000, "tracks": tracks}
+        return float(np.abs(OfflineEngine(parse_project(raw, tmp_path)).render().audio).max())
+
+    flat_zero = [{"time": 0.0, "gain_db": 0.0}, {"time": 0.01, "gain_db": 0.0}]
+    flat_plus = [{"time": 0.0, "gain_db": 6.0}, {"time": 0.01, "gain_db": 6.0}]
+    assert peak(-6.0, None) == pytest.approx(peak(-6.0, flat_zero), rel=1e-6)
+    assert peak(-6.0, flat_plus) == pytest.approx(peak(0.0, flat_zero), rel=1e-6)

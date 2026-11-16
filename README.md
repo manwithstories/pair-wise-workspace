@@ -36,9 +36,9 @@ python -m src.mixer.cli compare --offline /tmp/offline.wav --stream /tmp/stream.
 | `frames` | 数十万 | 192000 |
 | `automation_points` | 8–32 | 17 |
 | `peak_dbfs` | −1…0 | −0.5 |
-| `rms_dbfs` | −24…−6 | −23.16 |
-| `clip_count` | 0…数十 | 0 |
-| `max_error` | ≤1e-5 | ≈3e-8 |
+| `rms_dbfs` | −24…−6 | −20.91 |
+| `clip_count` | 0…数十 | 0（母带）/ 22（逐轨路由） |
+| `max_error` | ≤1e-5 | ≈4e-9 |
 
 ## 子命令
 
@@ -79,6 +79,8 @@ python -m src.mixer.cli compare --offline /tmp/offline.wav --stream /tmp/stream.
 ```
 
 - 自动化节点按时间排序；同一时间点重复定义时**最后一条生效**。
+- 自动化 dB 是 `gain_db` 之上的**偏移**：`gain_db=-6` + 节点 `0dB` = −6 dB，
+  节点 `+6dB` = 0 dB；无自动化时整条轨道恒为 `gain_db`。
 - 时间与静音窗均以母带时间线秒为单位；`clips` 的偏移/长度以源文件采样率为单位。
 - `automation.time` 与 `silences` 语义一致，便于直接按听感对齐。
 
