@@ -76,6 +76,13 @@ int main(int argc, char** argv) {
     const int code = app.exit(e);
     if (code == 0) return 0;
     return static_cast<int>(lutgrade::ExitCode::kUsage);
+  } catch (const lutgrade::Error& e) {
+    // Subcommand callbacks validate while parse() runs, so their Errors surface
+    // here rather than in the execute block below.
+    return report_error(e);
+  } catch (const std::exception& e) {
+    std::cerr << "lutgrade: unexpected error: " << e.what() << "\n";
+    return static_cast<int>(lutgrade::ExitCode::kUsage);
   }
 
   try {

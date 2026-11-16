@@ -78,3 +78,4 @@ AGENTS.md.local
 build/
 fixtures/
 .lutgrade_test/
+.lutgrade_cli/
