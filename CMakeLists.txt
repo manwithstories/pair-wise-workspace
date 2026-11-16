@@ -21,6 +21,7 @@ set(LUTGRADE_CORE_SOURCES
   src/statistics.cpp
   src/fixture.cpp
   src/cli.cpp
+  src/report.cpp
 )
 
 add_library(lutgrade_core STATIC ${LUTGRADE_CORE_SOURCES})
