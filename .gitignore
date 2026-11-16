@@ -71,3 +71,15 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# 本地 git 元数据重定向（沙箱不可写 worktree 上级目录）
+.gitlocal/
+
+# 测试临时产物
+.test_tmp/
+__pycache__/
+*.pyc
+talkmap.egg-info/
+.pytest_cache/
+build/
+dist/
