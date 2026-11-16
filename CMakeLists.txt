@@ -18,6 +18,7 @@ set(LUTGRADE_CORE_SOURCES
   src/interpolator.cpp
   src/renderer_scalar.cpp
   src/renderer_tiled.cpp
+  src/statistics.cpp
 )
 
 add_library(lutgrade_core STATIC ${LUTGRADE_CORE_SOURCES})
