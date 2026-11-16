@@ -29,6 +29,12 @@ AGENTS.md.local
 # ---- MiMo Code (小米) ----
 .mimo/
 
+# ---- 本项目运行时生成的夹具与构建输出 ----
+/fixtures/
+/out/
+/fx_*/
+/out_*/
+
 # ---- 其他常见 AI Agent / 编码助手（包括但不限于）----
 .agent/
 .ai/
