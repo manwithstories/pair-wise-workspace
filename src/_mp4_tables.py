@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import struct
-from ._mp4_core import Box, Mp4Error, box, full_box
 
-MAX_32BIT_OFFSET = 0xFFFFFFFF
+from ._mp4_core import Box, Mp4Error, box, full_box
 from ._mp4_samples import (
     AudioEntry,
     VisualEntry,
@@ -18,6 +17,8 @@ from ._mp4_samples import (
 )
 from .index_rebuilder import TrackIndex
 from .track_mapper import MappedTrack
+
+MAX_32BIT_OFFSET = 0xFFFFFFFF
 
 
 def _stts_from_table(index: TrackIndex) -> Box:
