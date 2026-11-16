@@ -133,6 +133,40 @@ TEST_CASE(sps_baseline_profile_no_extension) {
   CHECK_EQ(s.coded_height, 720u);
 }
 
+TEST_CASE(sps_large_dimensions_use_wide_arithmetic) {
+  // 32 位码长约束下最大可解码 codeNum=65534（31 位码字）；验证大尺寸走
+  // 64 位运算且结果正确（65535 个宏块 *16 = 1048560 像素），不回绕。
+  const uint32_t big_mbs = 65534;
+  BitWriter w;
+  w.writeBits(100, 8);
+  w.writeBits(0, 8);
+  w.writeBits(40, 8);
+  w.writeUE(0);
+  w.writeUE(1);
+  w.writeUE(0);
+  w.writeUE(0);
+  w.writeUE(0);
+  w.writeUE(0);
+  w.writeUE(0);
+  w.writeUE(0);
+  w.writeUE(4);
+  w.writeUE(1);
+  w.writeBit(false);
+  w.writeUE(big_mbs);
+  w.writeUE(big_mbs);
+  w.writeBit(true);
+  w.writeBit(true);
+  w.writeBit(false);
+  w.writeBit(false);
+  w.writeRbspTrailingBits();
+  auto nal = wrapNal(0x67, w.bytes());
+  SpsInfo s;
+  CHECK(SpsParser::parse(nal, s).ok);
+  CHECK_EQ(s.pic_width_in_mbs_minus1, big_mbs);
+  CHECK_EQ(s.coded_width, (big_mbs + 1u) * 16u);
+  CHECK_EQ(s.coded_height, (big_mbs + 1u) * 16u);
+}
+
 TEST_CASE(sps_truncated_returns_error_not_throw) {
   NalUnit nal;
   nal.ebsp = {0x67, 100, 0}; // 头后几乎无内容

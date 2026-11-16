@@ -34,23 +34,33 @@ bool skipScalingList(BitReader &br, ExpGolomb &eg, unsigned size) {
 }
 
 void deriveDimensions(SpsInfo &o) {
-  const uint32_t width_mbs = o.pic_width_in_mbs_minus1 + 1;
-  const uint32_t height_map = o.pic_height_in_map_units_minus1 + 1;
-  const uint32_t raw_width = width_mbs * 16u;
-  const uint32_t raw_height =
-      (o.frame_mbs_only_flag ? 1u : 2u) * height_map * 16u;
+  const uint64_t width_mbs =
+      static_cast<uint64_t>(o.pic_width_in_mbs_minus1) + 1;
+  const uint64_t height_map =
+      static_cast<uint64_t>(o.pic_height_in_map_units_minus1) + 1;
+  // 用 64 位运算避免恶意超大 ue(v) 值导致 32 位乘法溢出
+  const uint64_t raw_width = width_mbs * 16ull;
+  const uint64_t raw_height =
+      (o.frame_mbs_only_flag ? 1ull : 2ull) * height_map * 16ull;
 
   // 裁剪单位（规范 7.4.2.1.1，公式 7-18/7-19/7-20/7-21）
-  const uint32_t sub_w_c = (o.chroma_format_idc == 0) ? 1u : 2u;
-  const uint32_t sub_h_c_base =
-      (o.chroma_format_idc == 1) ? 2u : 1u;
-  const uint32_t sub_h_c =
-      sub_h_c_base * (o.frame_mbs_only_flag ? 1u : 2u);
-  const uint32_t crop_x = sub_w_c * (o.frame_crop_left + o.frame_crop_right);
-  const uint32_t crop_y = sub_h_c * (o.frame_crop_top + o.frame_crop_bottom);
+  const uint64_t sub_w_c = (o.chroma_format_idc == 0) ? 1ull : 2ull;
+  const uint64_t sub_h_c_base = (o.chroma_format_idc == 1) ? 2ull : 1ull;
+  const uint64_t sub_h_c =
+      sub_h_c_base * (o.frame_mbs_only_flag ? 1ull : 2ull);
+  const uint64_t crop_x =
+      sub_w_c *
+      (static_cast<uint64_t>(o.frame_crop_left) + o.frame_crop_right);
+  const uint64_t crop_y =
+      sub_h_c *
+      (static_cast<uint64_t>(o.frame_crop_top) + o.frame_crop_bottom);
 
-  o.coded_width = raw_width > crop_x ? raw_width - crop_x : 0;
-  o.coded_height = raw_height > crop_y ? raw_height - crop_y : 0;
+  const uint64_t w = raw_width > crop_x ? raw_width - crop_x : 0;
+  const uint64_t h = raw_height > crop_y ? raw_height - crop_y : 0;
+  // 钳制到 32 位可表达范围，拒绝静默截断导致的错误尺寸
+  constexpr uint64_t kMaxDim = 0xFFFFFFFFull;
+  o.coded_width = static_cast<uint32_t>(w > kMaxDim ? kMaxDim : w);
+  o.coded_height = static_cast<uint32_t>(h > kMaxDim ? kMaxDim : h);
 }
 
 // 仅解析 VUI 中与时序相关的部分；其余字段软跳过，失败不致命。
