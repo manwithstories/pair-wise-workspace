@@ -84,6 +84,7 @@ dist/
 
 # 生成的夹具、输出、报告与临时暂存文件
 /fixtures/
+/fixtures_broken/
 /out/
 /reports/
 *.part
