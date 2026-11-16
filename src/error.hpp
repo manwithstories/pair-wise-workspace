@@ -1,4 +1,5 @@
 #pragma once
+#include <exception>
 #include <string>
 #include <utility>
 
@@ -20,7 +21,9 @@ enum class ExitCode : int {
 // Thrown by parsing / validation / rendering code and translated into the
 // matching exit code in main(). Carries a stable machine-ish `kind` so
 // callers can distinguish e.g. "missing LUT_3D_SIZE" from "size not cubic".
-class Error {
+// Derives from std::exception so test frameworks and generic handlers can
+// read the message via what().
+class Error : public std::exception {
  public:
   Error(ExitCode code, std::string kind, std::string message)
       : code_(code), kind_(std::move(kind)), message_(std::move(message)) {}
@@ -28,6 +31,7 @@ class Error {
   ExitCode code() const noexcept { return code_; }
   const std::string& kind() const noexcept { return kind_; }
   const std::string& message() const noexcept { return message_; }
+  const char* what() const noexcept override { return message_.c_str(); }
 
  private:
   ExitCode code_;
