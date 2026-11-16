@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "media-cli"
+version = "0.1.0"
+description = "Local video timeline repair and pixel statistics CLI"
+requires-python = ">=3.11"
+dependencies = [
+  "av>=12.3,<13",
+  "numpy>=1.26,<2",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[project.scripts]
+media-cli = "media_cli.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["media_cli*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

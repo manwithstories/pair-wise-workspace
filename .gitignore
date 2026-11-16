@@ -71,3 +71,16 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Python/test/build outputs ----
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+build/
+dist/
+*.egg-info/
+
+# Generated media fixtures and reports (sources stay tracked)
+/fixtures/
+/out/
