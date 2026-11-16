@@ -299,3 +299,34 @@ def test_automation_sample_count_scales_with_blocks(project):
     assert offline == 2 * 4
     assert stream == 2 * 4 * ((total + 255) // 256)
     assert stream > offline
+
+
+def test_deliberately_muted_track_is_silent(project, tmp_path):
+    """A -300 dB gain must not floor at an audible residual."""
+    import soundfile as sf
+
+    source = tmp_path / "flat.wav"
+    sf.write(str(source), np.full((24000, 2), 0.5), 48000, subtype="FLOAT", format="WAV")
+    from src.mixer.model import parse_project
+
+    raw = {
+        "schema": "mix-project/1",
+        "target_rate": 48000,
+        "tracks": [
+            {"name": "muted", "file": "flat.wav", "layout": "stereo", "gain_db": -300.0},
+            {"name": "b", "file": "flat.wav", "layout": "stereo", "gain_db": -300.0},
+            {"name": "c", "file": "flat.wav", "layout": "stereo", "gain_db": -300.0},
+            {"name": "d", "file": "flat.wav", "layout": "stereo", "gain_db": -300.0},
+        ],
+    }
+    muted = parse_project(raw, base_dir=tmp_path)
+    result = OfflineEngine(muted).render()
+    assert float(np.max(np.abs(result.audio))) < 1e-12
+
+
+def test_silence_window_zeroes_the_track(project):
+    with MixSession(project) as session:
+        pad = session._runtimes["pad"]
+        start = int(0.53 * session.rate)
+        block = session._track_block(pad, start, 200)
+    assert float(np.max(np.abs(block))) == 0.0

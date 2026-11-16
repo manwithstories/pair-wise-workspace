@@ -22,8 +22,11 @@ import numpy as np
 from .errors import MixerError
 from .model import AutomationPoint
 
-MIN_DB = -120.0
-MAX_DB = 24.0
+# Overflow guard only: these bounds are far outside any real gain setting, so
+# user values pass through unchanged. A narrow clamp (e.g. -120 dB) would
+# silently floor a deliberately muted track at an audible residual.
+MIN_DB = -1000.0
+MAX_DB = 300.0
 
 
 def dedupe_points(points: Iterable[AutomationPoint]) -> list[AutomationPoint]:
