@@ -204,14 +204,17 @@ class TraceGenerator:
         d = cfg.duration_s
         bw, lat, loss = self._base_arrays(len(t))
         base, low_bw = cfg.base_bandwidth_kbps, cfg.min_bandwidth_kbps
-        # 中间恢复电平略低于基线，制造三个不同的带宽平台
-        mid = low_bw + (base - low_bw) * 0.55
+        # 两级恢复电平：分别落在基线的 ~38% 与 ~68%，使每次平台切换都
+        # 跨越若干码率档位边界，驱动稳健的档位往返（对抖动/种子不敏感）
+        mid_low = low_bw + (base - low_bw) * 0.38
+        mid_high = low_bw + (base - low_bw) * 0.68
         windows = [
-            (0.00, 0.25, base),    # 平稳起步
-            (0.25, 0.42, low_bw),  # 第一次阶跃下降
-            (0.42, 0.60, mid),     # 部分恢复
-            (0.60, 0.77, low_bw),  # 第二次阶跃下降
-            (0.77, 1.01, base),    # 完全恢复
+            (0.00, 0.20, base),     # 平稳起步
+            (0.20, 0.36, low_bw),   # 第一次阶跃下降
+            (0.36, 0.52, mid_high),  # 较强恢复
+            (0.52, 0.68, mid_low),   # 第二次回落（较浅）
+            (0.68, 0.82, low_bw),   # 第二次深度阶跃下降
+            (0.82, 1.01, base),     # 完全恢复
         ]
         for start, end, level in windows:
             mask = (t >= d * start) & (t < d * end)
