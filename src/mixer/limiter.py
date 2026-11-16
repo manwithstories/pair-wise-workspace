@@ -49,6 +49,7 @@ class Meter:
     def __init__(self, clip_threshold: float = CLIP_THRESHOLD) -> None:
         self.clip_threshold = float(clip_threshold)
         self.frames = 0
+        self.samples = 0
         self.peak = 0.0
         self.sum_squares = 0.0
         self.clip_count = 0
@@ -59,6 +60,7 @@ class Meter:
             return
         magnitude = np.abs(block)
         self.frames += int(block.shape[0])
+        self.samples += int(block.size)
         self.peak = max(self.peak, float(magnitude.max()))
         self.sum_squares += float(np.sum(np.square(block, dtype=np.float64)))
         self.clip_count += int(np.count_nonzero(magnitude >= self.clip_threshold))
@@ -72,7 +74,8 @@ class Meter:
 
     @property
     def rms(self) -> float:
-        return 0.0 if self.frames == 0 else math.sqrt(self.sum_squares / self.frames)
+        """RMS across all channels (correct for mono and multichannel blocks)."""
+        return 0.0 if self.samples == 0 else math.sqrt(self.sum_squares / self.samples)
 
     def snapshot(self) -> MeterSnapshot:
         return MeterSnapshot(

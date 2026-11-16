@@ -113,6 +113,13 @@ class Clip:
 
 @dataclass
 class Track:
+    """One mixer track.
+
+    ``start_time`` delays the track's audio on the master timeline.
+    ``automation`` times and ``silences`` windows are both expressed in
+    master-timeline seconds, so they line up with what is heard.
+    """
+
     name: str
     file: str
     layout: ChannelLayout

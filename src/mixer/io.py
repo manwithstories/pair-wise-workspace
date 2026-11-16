@@ -42,23 +42,28 @@ class WavHeader:
 
 
 
-def probe_wav(path: str | Path) -> WavHeader:
+def probe_wav(path: str | Path, track: str | None = None) -> WavHeader:
     """Parse the RIFF/fmt chunks to spot truncation and unsupported formats."""
     file_path = Path(path)
     if not file_path.exists():
-        raise format_error("file_not_found", f"audio file not found: {file_path}")
+        raise format_error("file_not_found", f"audio file not found: {file_path}", track=track)
     size = file_path.stat().st_size
     with file_path.open("rb") as handle:
         header = handle.read(_RIFF_HEADER)
         if len(header) < _RIFF_HEADER:
-            raise format_error("truncated_file", f"{file_path.name} is shorter than a RIFF header")
+            raise format_error(
+                "truncated_file", f"{file_path.name} is shorter than a RIFF header", track=track
+            )
         tag, riff_size, wave_tag = struct.unpack("<4sI4s", header[:12])
         if tag not in (b"RIFF", b"RIFX") or wave_tag != b"WAVE":
-            raise format_error("invalid_wav", f"{file_path.name} is not a RIFF/WAVE file")
+            raise format_error(
+                "invalid_wav", f"{file_path.name} is not a RIFF/WAVE file", track=track
+            )
         if riff_size + 8 > size:
             raise format_error(
                 "truncated_file",
                 f"{file_path.name} declares {riff_size + 8} bytes but has {size}",
+                track=track,
                 details={"declared": riff_size + 8, "actual": size},
             )
         audio_format = channels = rate = bits = 0
@@ -82,9 +87,9 @@ def probe_wav(path: str | Path) -> WavHeader:
             else:
                 handle.seek(chunk_size + (chunk_size % 2), 1)
     if not seen_fmt:
-        raise format_error("invalid_wav", f"{file_path.name} has no fmt chunk")
+        raise format_error("invalid_wav", f"{file_path.name} has no fmt chunk", track=track)
     if data_size == 0:
-        raise format_error("invalid_wav", f"{file_path.name} has no data chunk")
+        raise format_error("invalid_wav", f"{file_path.name} has no data chunk", track=track)
     return WavHeader(audio_format, channels, rate, bits, data_size, size)
 
 
@@ -100,7 +105,7 @@ class SourceFile:
         self.path = Path(path)
         self.track = track
         self.layout = layout
-        self.header = probe_wav(self.path)
+        self.header = probe_wav(self.path, track)
         try:
             self._handle = sf.SoundFile(str(self.path))
         except Exception as exc:  # noqa: BLE001 - surfaced as a format error
