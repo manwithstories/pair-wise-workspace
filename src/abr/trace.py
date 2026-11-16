@@ -193,21 +193,33 @@ class TraceGenerator:
         return bw, lat, loss
 
     def _mixed(self, t):
-        """组合场景：平稳 → 阶跃下降 → 周期恢复 → 突发丢失。"""
+        """组合场景：平稳起步，两次阶跃下降-恢复循环 + 一次突发零带宽。
+
+        两个低谷分别落在 ~25%-42% 与 ~60%-77%，中间和结尾恢复到基线，
+        使带宽反复穿越码率档位边界，驱动策略在档位间产生真实的升降往返
+        （而非单次平滑振荡被 EMA 抹平）。所有窗口位置由时长决定，
+        窗口内的随机抖动仍由种子控制。
+        """
         cfg = self._cfg
         d = cfg.duration_s
         bw, lat, loss = self._base_arrays(len(t))
-        # 阶段 2：30%-55% 处阶跃下降
-        low = (t >= d * 0.30) & (t < d * 0.55)
-        bw[low] = cfg.min_bandwidth_kbps
-        lat[low] += 30.0
-        loss[low] = np.maximum(loss[low], 0.04)
-        # 阶段 3：55%-80% 处正弦恢复振荡
-        rec = (t >= d * 0.55) & (t < d * 0.80)
-        phase = (t[rec] - d * 0.55) / max(d * 0.25, 1e-6)
-        osc = 0.5 + 0.5 * np.sin(2.0 * np.pi * phase)
-        bw[rec] = cfg.min_bandwidth_kbps + (cfg.base_bandwidth_kbps - cfg.min_bandwidth_kbps) * osc
-        # 阶段 4：85% 附近一次短时突发零带宽
+        base, low_bw = cfg.base_bandwidth_kbps, cfg.min_bandwidth_kbps
+        # 中间恢复电平略低于基线，制造三个不同的带宽平台
+        mid = low_bw + (base - low_bw) * 0.55
+        windows = [
+            (0.00, 0.25, base),    # 平稳起步
+            (0.25, 0.42, low_bw),  # 第一次阶跃下降
+            (0.42, 0.60, mid),     # 部分恢复
+            (0.60, 0.77, low_bw),  # 第二次阶跃下降
+            (0.77, 1.01, base),    # 完全恢复
+        ]
+        for start, end, level in windows:
+            mask = (t >= d * start) & (t < d * end)
+            bw[mask] = level
+            if level <= low_bw:
+                lat[mask] += 30.0
+                loss[mask] = np.maximum(loss[mask], 0.04)
+        # 85% 附近一次短时突发零带宽（落在完全恢复段内）
         burst = np.abs(t - d * 0.85) <= max(d * 0.02, 0.3) / 2.0
         bw[burst] = 0.0
         lat[burst] += 120.0

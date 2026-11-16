@@ -144,6 +144,7 @@ class DecisionResult:
     safety_margin: float         # 估计带宽相对所选档码率的倍数余量
     risk_rejected: bool = False  # 是否因风险（预计下溢）拒绝了更高档位
     cooldown_applied: bool = False  # 是否因冷却周期抑制了切换
+    upshift_safe: bool = False   # 当前带宽是否满足升档安全余量（确认计数信号）
 
 
 @dataclass(frozen=True, slots=True)

@@ -30,6 +30,7 @@ class PolicyConfig:
     cooldown_segments: int = 2       # 切换后的冷却段数（紧急降档豁免）
     recovery_hysteresis_s: float = 6.0  # 保护解除后抑制升档的缓冲滞后窗口
     trend_weight: float = 0.15       # 趋势对有效带宽的修正强度
+    buffer_warn_ratio: float = 0.6   # 缓冲预警水位 = target * ratio，触发预防性降档
 
     def validate(self) -> None:
         if self.safety_margin < 1.0:
@@ -40,6 +41,8 @@ class PolicyConfig:
             raise ValueError("confirm_segments 至少为 1")
         if self.cooldown_segments < 0:
             raise ValueError("cooldown_segments 不能为负")
+        if not (0.0 < self.buffer_warn_ratio <= 1.0):
+            raise ValueError("buffer_warn_ratio 必须落在 (0,1]")
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,17 +86,33 @@ class ABRPolicy:
             chosen = min(cur, highest_feasible) if cur in feasible else highest_feasible
             return self._result(ctx, chosen, effective_bw,
                                 SwitchReason.UNDERFLOW_PROTECTION, pred, margin,
-                                cooldown_applied=False)
+                                cooldown_applied=False, upshift_safe=False)
 
         # 2) 非保护态但当前档已不可行（带宽/时间硬约束）-> 紧急降档，豁免冷却
         if cur not in feasible:
             return self._result(ctx, highest_feasible, effective_bw,
                                 SwitchReason.FEASIBILITY, pred, margin,
-                                cooldown_applied=False)
+                                cooldown_applied=False, upshift_safe=False)
 
-        # 3) 升档评估：连续余量 + 冷却 + 恢复滞后
+        # 2.5) 缓冲感知预防性降档：缓冲跌破预警水位且当前档得不到有效带宽
+        # 安全支撑时，主动降一档以保住缓冲（受冷却与最低质量约束）
+        warn_level = pb.target_buffer_s * cfg.buffer_warn_ratio
+        cur_sustainable = (
+            effective_bw >= levels[cur].bitrate_kbps * cfg.downshift_margin
+        )
+        if (pb.buffer_seconds < warn_level and not cur_sustainable
+                and cur > 0 and ctx.cooldown_remaining == 0):
+            target_down = max(0, cur - 1)
+            # 只能降到可行档，否则交给后续保护/可行性逻辑
+            if target_down in feasible:
+                return self._result(ctx, target_down, effective_bw,
+                                    SwitchReason.FEASIBILITY, pred, margin,
+                                    cooldown_applied=False, upshift_safe=False)
+
+        # 3) 升档评估：先独立判断“带宽是否持续够安全余量”，再叠加门限
         target = self._upshift_target(ctx, feasible, effective_bw)
-        if target > cur:
+        upshift_safe = target > cur
+        if upshift_safe:
             in_recovery = (not pb.in_protection
                            and pb.buffer_seconds < pb.underflow_threshold_s
                            + cfg.recovery_hysteresis_s)
@@ -101,27 +120,44 @@ class ABRPolicy:
             if enough_confirm and ctx.cooldown_remaining == 0 and not in_recovery:
                 return self._result(ctx, target, effective_bw,
                                     SwitchReason.OPPORTUNISTIC, pred, margin,
-                                    cooldown_applied=False)
-            # 条件不足：记录一次风险拒绝（仍保持当前档）
+                                    cooldown_applied=False, upshift_safe=True)
+            # 带宽已达标但门限（确认/冷却/恢复滞后）未满足：记录风险拒绝，
+            # 但 upshift_safe 仍为 True，确认计数由控制器继续累计而非清零
             return self._result(ctx, cur, effective_bw, SwitchReason.NONE,
                                 pred, margin, risk_rejected=True,
-                                cooldown_applied=ctx.cooldown_remaining > 0)
+                                cooldown_applied=ctx.cooldown_remaining > 0,
+                                upshift_safe=True)
 
-        # 4) 无档可升或冷却中：保持
+        # 4) 带宽不支持升档：保持，确认信号为 False
         return self._result(ctx, cur, effective_bw, SwitchReason.NONE,
                             pred, margin,
-                            cooldown_applied=ctx.cooldown_remaining > 0)
+                            cooldown_applied=ctx.cooldown_remaining > 0,
+                            upshift_safe=False)
 
     # ------------------------------------------------------------------
     def _effective_bandwidth(self, est: BandwidthEstimate) -> float:
-        """结合趋势修正的有效带宽；无样本时返回 0（触发保守降档）。"""
+        """结合趋势修正的有效带宽；无样本时返回 0（触发保守降档）。
+
+        以估计器的原始 EMA（未经安全折扣）为基准，先做有界趋势修正，
+        再统一施加一次安全折扣。若直接使用已折扣的 estimated_kbps 会
+        与升档 safety_margin 形成双重保守，导致策略永远无法升档。
+        """
         if est.sample_count == 0:
             return 0.0
-        # 趋势按一个展望步长加权，限幅在 ±50% 估计值，避免外推失控
+        # 趋势按一个展望步长加权，限幅在 ±50% EMA，避免外推失控
         adjustment = est.trend_kbps_per_sample * self._cfg.trend_weight
-        cap = est.estimated_kbps * 0.5
+        cap = est.raw_ema_kbps * 0.5
         adjustment = max(-cap, min(cap, adjustment))
-        return max(0.0, est.estimated_kbps + adjustment)
+        adjusted = max(0.0, est.raw_ema_kbps + adjustment)
+        # 安全折扣在此一次性施加（估计器的折扣不在此重复叠加）
+        return adjusted * self._safety_discount(est)
+
+    @staticmethod
+    def _safety_discount(est: BandwidthEstimate) -> float:
+        """从估计器输出反推安全折扣系数（estimated = ema * discount）。"""
+        if est.raw_ema_kbps <= 0.0:
+            return 1.0
+        return max(0.0, min(1.0, est.estimated_kbps / est.raw_ema_kbps))
 
     def _feasible_levels(self, ctx: PolicyContext, effective_bw: float) -> list[int]:
         """返回所有预计可在缓冲耗尽前完成下载的档位索引。
@@ -164,7 +200,8 @@ class ABRPolicy:
     def _result(self, ctx: PolicyContext, chosen: int, effective_bw: float,
                 reason: SwitchReason, pred_cur: float, margin_cur: float,
                 risk_rejected: bool = False,
-                cooldown_applied: bool = False) -> DecisionResult:
+                cooldown_applied: bool = False,
+                upshift_safe: bool = False) -> DecisionResult:
         chosen_lvl = ctx.levels[chosen]
         pred = self._predict_seconds(chosen_lvl, effective_bw,
                                      ctx.segment_duration_s)
@@ -185,4 +222,5 @@ class ABRPolicy:
                            if chosen_lvl.bitrate_kbps > 0 else 0.0),
             risk_rejected=risk_rejected,
             cooldown_applied=cooldown_applied,
+            upshift_safe=upshift_safe,
         )

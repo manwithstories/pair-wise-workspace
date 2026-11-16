@@ -78,6 +78,8 @@ class BufferSimulator:
 
         got_bytes = 0
         sent_bytes = 0
+        capacity_kbit = 0.0   # 下载窗内各块有效信道容量（kbit），含丢包折损
+        transfer_chunks = 0   # 传输墙钟时间块数（含零带宽停滞，不含段首 RTT）
         underflow_s = 0.0
         stall_s = 0.0
         loss_accum = 0.0
@@ -96,9 +98,11 @@ class BufferSimulator:
             chunk_bw = sample.bandwidth_kbps  # kbit/s
             loss_accum += sample.loss_rate
             loss_weight += 1
+            transfer_chunks += 1
 
             if chunk_bw <= 0.0:
-                # 零带宽：不传输，播放仍在消耗；累计连续停滞
+                # 零带宽：不传输、无有效容量，但仍计入传输墙钟时间，
+                # 从而真实拉低该段观测吞吐；播放继续消耗缓冲
                 stall_s += cfg.chunk_seconds
                 underflow_s += self._consume(cfg.chunk_seconds)
                 self.wall_time_s += cfg.chunk_seconds
@@ -118,6 +122,8 @@ class BufferSimulator:
             delivered = self._send_with_retries(cap_bytes, remaining, sample.loss_rate)
             got_bytes += delivered
             sent_bytes += int(round(min(cap_bytes, max(remaining, 0.0))))
+            # 有效信道容量（kbit）= 带宽(kbit/s) * 块时长 * (1-丢包率)
+            capacity_kbit += chunk_bw * cfg.chunk_seconds * (1.0 - sample.loss_rate)
             underflow_s += self._consume(cfg.chunk_seconds)
             self.wall_time_s += cfg.chunk_seconds
 
@@ -130,11 +136,13 @@ class BufferSimulator:
         self._update_protection(download_s, underflow_s > 0.0)
 
         avg_loss = loss_accum / loss_weight if loss_weight else 0.0
-        # 吞吐分母剔除段首 RTT（传播延迟不承载数据，否则系统性低估带宽）
-        transfer_s = max(download_s - rtt_s, cfg.chunk_seconds)
-        # 有效吞吐 goodput = 成功交付的 payload / 传输时间；丢包/重传通过
-        # 拉长下载时间与减少交付自然压低 goodput，这是 ABR 决策关心的量
-        throughput = self._throughput(got_bytes, transfer_s, index, avg_loss,
+        # 传输墙钟时间（含零带宽停滞，不含段首 RTT）
+        transfer_s = max(transfer_chunks * cfg.chunk_seconds, cfg.chunk_seconds)
+        # 有效吞吐 = 下载窗内有效信道容量(kbit) / 传输墙钟时间(s) -> kbit/s。
+        # 时间加权使观测忠实反映该段经历的真实带宽/丢包/停滞，而与分段
+        # 本身大小无关，避免“小段秒下完”导致的系统性高估。
+        effective_kbps = capacity_kbit / transfer_s
+        throughput = self._throughput(effective_kbps, transfer_s, index, avg_loss,
                                       wire_bytes=sent_bytes)
         return throughput, download_s, underflow_s, failure
 
@@ -191,16 +199,15 @@ class BufferSimulator:
             # 仅当重新爬回目标水位才解除保护（滞后恢复）
             self.in_protection = False
 
-    def _throughput(self, delivered_bytes: int, transfer_s: float, index: int,
+    def _throughput(self, effective_kbps: float, transfer_s: float, index: int,
                     loss: float, wire_bytes: int):
         if transfer_s <= 0.0 or not math.isfinite(transfer_s):
             raise SimulationError(f"第 {index} 段下载耗时非法: {transfer_s!r}")
-        kbps = delivered_bytes * 8.0 / 1000.0 / transfer_s
-        if not math.isfinite(kbps) or kbps < 0.0:
-            raise SimulationError(f"第 {index} 段计算出非法吞吐 {kbps!r}")
+        if not math.isfinite(effective_kbps) or effective_kbps < 0.0:
+            raise SimulationError(f"第 {index} 段计算出非法吞吐 {effective_kbps!r}")
         return ThroughputSample(
             segment_index=index,
-            throughput_kbps=kbps,
+            throughput_kbps=effective_kbps,
             duration_s=transfer_s,
             bytes_sent=int(wire_bytes),
             loss_rate=loss,
