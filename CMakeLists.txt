@@ -12,6 +12,7 @@ endif()
 add_library(h264lib STATIC
   src/bit_reader.cpp
   src/exp_golomb.cpp
+  src/nal_scanner.cpp
 )
 target_include_directories(h264lib PUBLIC src)
 
@@ -24,3 +25,7 @@ add_test(NAME bit_reader COMMAND test_bit_reader)
 add_executable(test_exp_golomb tests/test_exp_golomb.cpp tests/test_framework.cpp)
 target_link_libraries(test_exp_golomb PRIVATE h264lib)
 add_test(NAME exp_golomb COMMAND test_exp_golomb)
+
+add_executable(test_nal_scanner tests/test_nal_scanner.cpp tests/test_framework.cpp)
+target_link_libraries(test_nal_scanner PRIVATE h264lib)
+add_test(NAME nal_scanner COMMAND test_nal_scanner)
