@@ -17,8 +17,6 @@ from .metrics import MetricsAccumulator, TrackMetrics
 from .resample import Resampler
 from .sources import StreamSource
 from .types import (
-    ErrorPolicy,
-    MediaError,
     MixBlock,
     ProjectConfig,
     TrackStat,
@@ -105,13 +103,9 @@ class BlockEngine:
         for spec in config.tracks:
             source = sources.get(spec.name)
             if source is None:
-                if config.error_policy is ErrorPolicy.BEST_EFFORT:
-                    self.skipped.append(
-                        TrackStat(name=spec.name, error="media_error",
-                                  reason="source_unavailable")
-                    )
-                    continue
-                raise MediaError(f"轨道 {spec.name!r} 缺少可用数据源")
+                # best-effort 下坏轨已在 build_sources 记录并从 sources 排除,
+                # 引擎直接跳过;fail-fast 不会出现缺源(build_sources 已抛错)
+                continue
             self.runtimes.append(
                 _Runtime(spec, source, config.sample_rate, config.clip_threshold)
             )
