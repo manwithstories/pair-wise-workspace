@@ -124,7 +124,9 @@ ParseStatus SpsParser::parse(const NalUnit &nal, SpsInfo &o) {
   BitReader br(rbsp.data() + 1, rbsp.size() - 1); // 跳过 NAL 头
   ExpGolomb eg(br);
 
-  auto fail = [](const std::string &m) { return ParseStatus{false, m}; };
+  auto fail = [&](const std::string &m) {
+    return ParseStatus{false, m, eg.stats()};
+  };
   auto ue = [&](uint32_t &v) -> bool { return eg.readUE(v); };
   auto fixed = [&](unsigned n, uint32_t &v) -> bool {
     return br.tryReadBits(n, v);
@@ -227,7 +229,7 @@ ParseStatus SpsParser::parse(const NalUnit &nal, SpsInfo &o) {
     parseVui(br, eg, o); // VUI 软失败：时序缺失不致命
 
   deriveDimensions(o);
-  return {true, ""};
+  return {true, "", eg.stats()};
 }
 
 ParseStatus PpsParser::parse(const NalUnit &nal, PpsInfo &o) {
@@ -239,7 +241,9 @@ ParseStatus PpsParser::parse(const NalUnit &nal, PpsInfo &o) {
                                       had_epb);
   BitReader br(rbsp.data() + 1, rbsp.size() - 1);
   ExpGolomb eg(br);
-  auto fail = [](const std::string &m) { return ParseStatus{false, m}; };
+  auto fail = [&](const std::string &m) {
+    return ParseStatus{false, m, eg.stats()};
+  };
 
   if (!eg.readUE(o.pps_id) || !eg.readUE(o.sps_id))
     return fail("PPS: exhausted reading ids");
@@ -255,7 +259,7 @@ ParseStatus PpsParser::parse(const NalUnit &nal, PpsInfo &o) {
     if (!eg.readUE(map_type))
       return fail("PPS: exhausted slice group map type");
     // 本工具不支持 FMO 细分，消费主字段后即返回（夹具不使用 FMO）
-    return {true, ""};
+    return {true, "", eg.stats()};
   }
   if (!eg.readUE(o.num_ref_idx_l0_default) ||
       !eg.readUE(o.num_ref_idx_l1_default))
@@ -278,7 +282,7 @@ ParseStatus PpsParser::parse(const NalUnit &nal, PpsInfo &o) {
     return fail("PPS: exhausted control flags");
   o.deblocking_filter_control = dblk != 0;
   o.redundant_pic_cnt_present = redundant != 0;
-  return {true, ""};
+  return {true, "", eg.stats()};
 }
 
 } // namespace h264

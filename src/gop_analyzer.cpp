@@ -15,6 +15,13 @@ void GopAnalyzer::openGop(const PictureInfo &pic) {
   r_.gops.push_back(g);
 }
 
+void GopAnalyzer::addGolomb(const GolombStats &s) {
+  r_.golomb.success += s.success;
+  r_.golomb.failure += s.failure;
+  r_.golomb.max_code_bits =
+      std::max(r_.golomb.max_code_bits, s.max_code_bits);
+}
+
 bool GopAnalyzer::samePicture(const PictureInfo &pic, const SliceInfo &sl,
                               bool field, bool bottom) {
   if (pic.frame_num != sl.frame_num)
@@ -74,6 +81,7 @@ bool GopAnalyzer::processNal(const NalUnit &nal) {
   if (nal.nal_unit_type == NAL_SPS) {
     SpsInfo s;
     auto st = SpsParser::parse(nal, s);
+    addGolomb(st.golomb);
     if (!st.ok) {
       ++r_.parse_failure_count;
       r_.warnings.push_back({nal.start_offset, "SPS: " + st.error});
@@ -87,6 +95,7 @@ bool GopAnalyzer::processNal(const NalUnit &nal) {
   if (nal.nal_unit_type == NAL_PPS) {
     PpsInfo p;
     auto st = PpsParser::parse(nal, p);
+    addGolomb(st.golomb);
     if (!st.ok) {
       ++r_.parse_failure_count;
       r_.warnings.push_back({nal.start_offset, "PPS: " + st.error});
@@ -113,6 +122,7 @@ bool GopAnalyzer::processNal(const NalUnit &nal) {
 
   SliceInfo sl;
   auto st = SliceParser::parse(nal, active_sps_, active_pps_, sl);
+  addGolomb(st.golomb);
   if (!st.ok) {
     // 上下文不完整的 slice：进入异常统计，后续 NAL 继续解析
     ++r_.parse_failure_count;

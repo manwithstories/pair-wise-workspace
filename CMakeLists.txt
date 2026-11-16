@@ -17,6 +17,7 @@ add_library(h264lib STATIC
   src/sps_parser.cpp
   src/slice_parser.cpp
   src/gop_analyzer.cpp
+  src/report_writer.cpp
 )
 target_include_directories(h264lib PUBLIC src)
 
@@ -45,3 +46,7 @@ add_test(NAME slice COMMAND test_slice)
 add_executable(test_gop tests/test_gop.cpp tests/test_framework.cpp)
 target_link_libraries(test_gop PRIVATE h264lib)
 add_test(NAME gop COMMAND test_gop)
+
+add_executable(test_report tests/test_report.cpp tests/test_framework.cpp)
+target_link_libraries(test_report PRIVATE h264lib)
+add_test(NAME report COMMAND test_report)

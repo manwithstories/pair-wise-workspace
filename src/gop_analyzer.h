@@ -9,6 +9,7 @@
 #include "nal_scanner.h"
 #include "slice_parser.h"
 #include "sps_parser.h"
+#include "exp_golomb.h"
 
 namespace h264 {
 
@@ -66,6 +67,7 @@ struct AnalysisResult {
   uint32_t field_pair_incomplete = 0;
   uint32_t min_slices_per_pic = 0;
   uint32_t max_slices_per_pic = 0;
+  GolombStats golomb; // 全流 Exp-Golomb 调用累计
 };
 
 class GopAnalyzer {
@@ -78,6 +80,7 @@ public:
 
 private:
   void openGop(const PictureInfo &pic);
+  void addGolomb(const GolombStats &s);
   PictureInfo *findOrCreatePicture(const SliceInfo &sl, const NalUnit &nal,
                                    bool idr);
   static bool samePicture(const PictureInfo &pic, const SliceInfo &sl,

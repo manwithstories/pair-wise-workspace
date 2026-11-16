@@ -27,7 +27,9 @@ ParseStatus SliceParser::parse(const NalUnit &nal, const SpsInfo &sps,
                                       had_epb);
   BitReader br(rbsp.data() + 1, rbsp.size() - 1); // 跳过 NAL 头
   ExpGolomb eg(br);
-  auto fail = [](const std::string &m) { return ParseStatus{false, m}; };
+  auto fail = [&](const std::string &m) {
+    return ParseStatus{false, m, eg.stats()};
+  };
 
   if (!eg.readUE(o.first_mb_in_slice))
     return fail("slice: exhausted first_mb_in_slice");
@@ -100,7 +102,7 @@ ParseStatus SliceParser::parse(const NalUnit &nal, const SpsInfo &sps,
   }
 
   // 后续参考帧列表/加权预测/解码参考帧标记与结构分析无关，到此停止。
-  return {true, ""};
+  return {true, "", eg.stats()};
 }
 
 } // namespace h264

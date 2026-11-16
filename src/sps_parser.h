@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "exp_golomb.h"
 #include "nal_scanner.h"
 
 namespace h264 {
@@ -67,6 +68,7 @@ struct PpsInfo {
 struct ParseStatus {
   bool ok = false;
   std::string error; // 失败原因（ok=false 时有值）
+  GolombStats golomb; // 本次解析的 Exp-Golomb 调用统计
 };
 
 class SpsParser {
