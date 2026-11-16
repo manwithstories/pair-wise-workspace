@@ -10,8 +10,7 @@ per-frame aggregates, so memory grows with the frame grid (roughly
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
-from typing import Iterable, Optional
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -227,63 +226,3 @@ def smoothing_frames(config_smooth_ms: float, hop_ms: float) -> int:
     if hop_ms <= 0:
         return 1
     return max(1, int(round(config_smooth_ms / hop_ms)))
-
-
-@dataclass
-class RegionStats:
-    """Peak/RMS reconstructed from per-frame aggregates."""
-
-    start_sample: int
-    end_sample: int
-    peak: float
-    rms: float
-
-    @property
-    def sample_count(self) -> int:
-        return self.end_sample - self.start_sample
-
-
-def stats_for_region(
-    features: FrameFeatures, start_sample: int, end_sample: int
-) -> RegionStats:
-    """Merge frame aggregates overlapping [start_sample, end_sample)."""
-
-    if end_sample <= start_sample:
-        return RegionStats(start_sample, end_sample, 0.0, 0.0)
-    ends = features.ends()
-    mask = (ends > start_sample) & (features.starts < end_sample)
-    if not np.any(mask):
-        idx = int(np.argmin(np.abs(features.starts - start_sample)))
-        return RegionStats(
-            start_sample, end_sample, float(features.peak[idx]), to_db(0.0)
-        )
-    total = float(np.sum(features.sum_square[mask]))
-    counts = float(np.sum(features.counts[mask]))
-    peak = float(np.max(features.peak[mask]))
-    rms = math.sqrt(total / counts) if counts else 0.0
-    return RegionStats(start_sample, end_sample, peak, rms)
-
-
-def trend_slope_db_per_frame(values: np.ndarray, window: int) -> np.ndarray:
-    """Centered linear trend slope (dB per frame) over a sliding window.
-
-    Used by ramp compensation to tell a genuine fade from a steady floor.
-    """
-
-    if values.size == 0:
-        return values.astype(np.float64, copy=True)
-    window = max(3, int(window))
-    if window > values.size:
-        window = values.size if values.size % 2 == 1 else values.size - 1
-    if window < 3:
-        return np.zeros_like(values, dtype=np.float64)
-    half = window // 2
-    padded = np.pad(values, (half, half), mode="edge")
-    x = np.arange(window, dtype=np.float64)
-    x = x - x.mean()
-    denom = float(np.sum(x * x))
-    slopes = np.empty(values.size, dtype=np.float64)
-    for i in range(values.size):
-        seg = padded[i : i + window]
-        slopes[i] = float(np.dot(x, seg - seg.mean()) / denom)
-    return slopes
