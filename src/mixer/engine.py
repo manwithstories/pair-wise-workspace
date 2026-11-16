@@ -406,7 +406,16 @@ class StreamingEngine:
                 raise argument_error("invalid_block_plan", "chunk plan is empty")
             if any(s < 0 for s in self.chunk_sizes):
                 raise argument_error("invalid_block_plan", "chunk sizes must be >= 0")
-            sizes = list(self.chunk_sizes)
+            pattern = list(self.chunk_sizes)
+            sizes = []
+            # Repeat the pattern over the timeline, then close with the tail,
+            # so short/empty/ragged plans still cover every frame exactly once.
+            pattern_total = sum(pattern)
+            while pattern_total > 0 and sum(sizes) + pattern_total <= total:
+                sizes.extend(pattern)
+            remainder = total - sum(sizes)
+            if remainder > 0:
+                sizes.append(remainder)
         chunks: list[StreamChunk] = []
         position = 0
         for index, size in enumerate(sizes):

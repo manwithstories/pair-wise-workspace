@@ -158,13 +158,16 @@ def cmd_render(args: argparse.Namespace) -> dict[str, Any]:
 def cmd_stream(args: argparse.Namespace) -> dict[str, Any]:
     block = validate_block(args.block, streaming=True)
     project = load_project(args.input, block=block)
-    engine = StreamingEngine(project, block_size=block)
+    chunk_sizes = _chunk_plan(args.simulate, block) if args.simulate else None
+    engine = StreamingEngine(project, block_size=block, chunk_sizes=chunk_sizes)
     result = engine.render()
     summary = summarize(_write(args.output, result.audio, 48000))
     with MixSession(project, block_size=block) as session:
         continuity = {n: round(v, 8) for n, v in session.check_continuity(block).items()}
         topology = session.summary.to_dict()
         plan = engine.plan(session.timeline_frames())
+    empty_blocks = sum(1 for chunk in plan if chunk.frames == 0)
+    short_blocks = sum(1 for chunk in plan if 0 < chunk.frames < block)
     return {
         "ok": True,
         "command": "stream",
@@ -175,6 +178,9 @@ def cmd_stream(args: argparse.Namespace) -> dict[str, Any]:
         "block_size": block,
         "blocks": len(plan),
         "tail_block": plan[-1].frames if plan else 0,
+        "simulate": args.simulate or None,
+        "empty_blocks": empty_blocks,
+        "short_blocks": short_blocks,
         "automation": automation_summary(project),
         "topology": topology,
         "continuity_db": continuity,
@@ -182,6 +188,23 @@ def cmd_stream(args: argparse.Namespace) -> dict[str, Any]:
         "track_stats": [s.to_dict() for s in result.stats],
         "output": summary,
     }
+
+
+def _chunk_plan(kind: str, block: int) -> list[int]:
+    """Deterministic pathological chunk plan patterns for ``--simulate``.
+
+    Patterns repeat; :class:`StreamingEngine` appends the remaining frame count
+    as a tail chunk when the plan is shorter than the timeline.
+    """
+    if kind == "short":
+        pattern = [block // 3]
+    elif kind == "empty":
+        pattern = [0, block]
+    elif kind == "ragged":
+        pattern = [1, 0, 7, block - 1]
+    else:
+        raise argument_error("invalid_simulate", f"unknown simulate mode {kind!r}")
+    return pattern
 
 
 def cmd_inspect(args: argparse.Namespace) -> dict[str, Any]:
@@ -337,6 +360,11 @@ def build_parser() -> argparse.ArgumentParser:
     stream.add_argument("--output", required=True, help="master WAV path")
     stream.add_argument("--rate", type=int, default=48000, choices=[48000])
     stream.add_argument("--block", type=int, default=256, choices=[256, 1024])
+    stream.add_argument(
+        "--simulate",
+        choices=["short", "empty", "ragged"],
+        help="inject short reads, empty chunks or ragged chunk sizes",
+    )
     stream.set_defaults(func=cmd_stream)
 
     inspect = sub.add_parser("inspect", help="summarise a project JSON or WAV file")

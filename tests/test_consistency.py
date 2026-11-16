@@ -52,12 +52,24 @@ def test_empty_chunks_do_not_advance_state(project):
     assert float(np.max(np.abs(offline.audio - result.audio))) <= MAX_ERROR
 
 
-def test_short_plan_is_rejected(project):
+def test_short_plan_is_extended_to_cover_the_timeline(project):
+    """A short pattern repeats, then a tail closes the remaining frames."""
+    offline = OfflineEngine(project).render()
+    total = offline.timeline_frames
+    engine = StreamingEngine(project, block_size=256, chunk_sizes=[100, 100])
+    chunks = engine.plan(total)
+    assert sum(chunk.frames for chunk in chunks) == total
+    result = engine.render()
+    assert result.audio.shape[0] == total
+    assert float(np.max(np.abs(offline.audio - result.audio))) <= MAX_ERROR
+
+
+def test_negative_chunk_size_is_rejected(project):
     from src.mixer.errors import MixerError
 
     with pytest.raises(MixerError) as excinfo:
-        StreamingEngine(project, block_size=256, chunk_sizes=[100, 100]).render()
-    assert excinfo.value.code == "short_stream"
+        StreamingEngine(project, block_size=256, chunk_sizes=[100, -1]).plan(1000)
+    assert excinfo.value.code == "invalid_block_plan"
 
 
 def test_curve_sampling_is_block_size_independent():

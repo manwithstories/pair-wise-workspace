@@ -45,7 +45,8 @@ python -m src.mixer.cli compare --offline /tmp/offline.wav --stream /tmp/stream.
 - `generate --out DIR [--seed N]`：生成 4 条素材（44.1 kHz 单声道、48 kHz 立体声、
   96 kHz 四声道、48 kHz 双片段立体声）与 `project.json`。
 - `render --input P --output W --block N`：一次处理完整时间线。
-- `stream --input P --output W --block {256,1024}`：按固定块流式渲染。
+- `stream --input P --output W --block {256,1024} [--simulate short|empty|ragged]`：
+  按固定块流式渲染；`--simulate` 注入短读、空块或锯齿块，用于演示分块鲁棒性。
 - `inspect --path P`：项目摘要（轨道/布局/自动化）或 WAV 摘要。
 - `compare --offline A --stream B [--automation P] [--max-error X]`：
   比较帧数、最大绝对误差、MSE、自动化采样点（`sampled_points`：离线边缘数、
