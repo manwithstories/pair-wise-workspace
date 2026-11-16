@@ -192,38 +192,46 @@ class ResamplerStream:
         bank, phases = kernel._bank, kernel._phases
         taps = kernel._taps
         out_planes = [array("d", bytes(8 * count)) for _ in range(channels)]
+        planes = self._planes
         hist_start = self._hist_start
-        hist_len = self._hist_frames
+        hist_end = hist_start + self._hist_frames
+
+        # Walk the output clock incrementally instead of dividing per sample:
+        # `base`/`rem` hold floor(n*down/up) and the remainder, advanced by
+        # `down` each step.  Saves two integer divisions per output sample,
+        # which is a measurable share of pure-Python DSP time.
+        numerator = self._emitted * down
+        base, rem = divmod(numerator, up)
         for offset in range(count):
-            out_index = self._emitted + offset
-            numerator = out_index * down
-            base = numerator // up
-            phase = ((numerator % up) * phases) // up
+            phase = (rem * phases) // up
             coeffs = bank[phase]
-            # Absolute input indices spanned by this output's tap window.
             win_lo = base - half
+            lo = win_lo if win_lo > hist_start else hist_start
             win_hi = win_lo + taps
-            lo = max(win_lo, hist_start)
-            hi = min(win_hi, hist_start + hist_len)
-            left = lo - win_lo
+            hi = win_hi if win_hi < hist_end else hist_end
             if hi <= lo:
-                continue  # whole window lies outside retained data: all zeros
-            body_len = hi - lo
-            if left or body_len < taps:
+                pass  # window lies entirely outside retained history: zeros
+            elif lo == win_lo and hi == win_hi:
+                # Interior fast path: a full window of real samples, no pad.
+                start = lo - hist_start
+                end = start + taps
+                for chan in range(channels):
+                    out_planes[chan][offset] = sum(
+                        map(operator.mul, coeffs, planes[chan][start:end]))
+            else:
+                left = lo - win_lo
+                body_len = hi - lo
                 tail_pad = taps - left - body_len
                 for chan in range(channels):
-                    piece = list(self._planes[chan][lo - hist_start:hi - hist_start])
+                    piece = list(planes[chan][lo - hist_start:hi - hist_start])
                     if left:
                         piece = [0.0] * left + piece
                     if tail_pad:
                         piece.extend([0.0] * tail_pad)
                     out_planes[chan][offset] = sum(map(operator.mul, coeffs, piece))
-            else:
-                for chan in range(channels):
-                    start = lo - hist_start
-                    out_planes[chan][offset] = sum(
-                        map(operator.mul, coeffs,
-                            self._planes[chan][start:start + taps]))
+            rem += down
+            base += rem // up
+            rem %= up
         self._emitted = limit
         self._trim()
         return AudioBlock(planes=out_planes, frames=count)

@@ -22,6 +22,7 @@ from __future__ import annotations
 import concurrent.futures
 import hashlib
 import os
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Sequence
@@ -183,18 +184,29 @@ def plan_destinations(inputs: Sequence[Path], output_root: Path,
 
 
 class KernelCache:
-    """Lazily build and share resampler kernels keyed by input rate."""
+    """Lazily build and share resampler kernels keyed by input rate.
+
+    Thread-safe: construction happens under a lock, so a concurrent batch
+    builds exactly one kernel per rate rather than one per racing worker.
+    Kernels are immutable after construction; each file still takes its own
+    ``stream()``, so sharing the instance carries no per-file state.
+    """
 
     def __init__(self, config: ProcessConfig):
         self.config = config
         self._kernels: dict[int, PolyphaseResampler] = {}
+        self._lock = threading.Lock()
 
     def get(self, input_rate: int) -> PolyphaseResampler:
         kernel = self._kernels.get(input_rate)
-        if kernel is None:
-            kernel = PolyphaseResampler(
-                self.config.resampler, input_rate, self.config.target_rate)
-            self._kernels[input_rate] = kernel
+        if kernel is not None:
+            return kernel
+        with self._lock:
+            kernel = self._kernels.get(input_rate)
+            if kernel is None:
+                kernel = PolyphaseResampler(
+                    self.config.resampler, input_rate, self.config.target_rate)
+                self._kernels[input_rate] = kernel
         return kernel
 
     @property
