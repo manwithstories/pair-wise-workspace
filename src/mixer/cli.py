@@ -123,7 +123,7 @@ def cmd_generate(args: argparse.Namespace) -> dict[str, Any]:
 def cmd_render(args: argparse.Namespace) -> dict[str, Any]:
     block = validate_block(args.block, streaming=False)
     project = load_project(args.input, block=block)
-    graph = build_default_graph(project)
+    graph = build_default_graph(project, project.bus_map(), project.bus_gains())
     session = MixSession(project, graph, block_size=block)
     try:
         result = session.render(block_size=args.block if args.mode == "stream" else None)

@@ -164,13 +164,29 @@ class TrackStats:
 
 
 @dataclass
+class BusSpec:
+    """A group bus: member track names plus the bus gain in dB."""
+
+    name: str
+    tracks: list[str]
+    gain_db: float = 0.0
+
+
+@dataclass
 class Project:
     target_rate: int
     tracks: list[Track]
+    buses: list[BusSpec] = field(default_factory=list)
     block_size: int = 1024
 
     def track_names(self) -> list[str]:
         return [t.name for t in self.tracks]
+
+    def bus_map(self) -> dict[str, list[str]]:
+        return {bus.name: list(bus.tracks) for bus in self.buses}
+
+    def bus_gains(self) -> dict[str, float]:
+        return {bus.name: bus.gain_db for bus in self.buses}
 
 
 def _as_float(raw: Any, what: str, track: str | None = None) -> float:
@@ -296,8 +312,23 @@ def parse_project(raw: Mapping[str, Any], base_dir: Any = None, default_block: i
     if len(set(names)) != len(names):
         raise argument_error("invalid_project", "track names must be unique")
 
+    buses: list[BusSpec] = []
+    for item in raw.get("buses", []) or []:
+        name = str(item.get("name") or "").strip()
+        members = item.get("tracks") or []
+        if not name or not isinstance(members, list) or not members:
+            raise argument_error("invalid_project", "each bus needs a name and tracks list")
+        buses.append(
+            BusSpec(
+                name=name,
+                tracks=[str(member) for member in members],
+                gain_db=_as_float(item.get("gain_db", 0.0), "bus gain_db"),
+            )
+        )
+
     return Project(
         target_rate=rate,
         tracks=tracks,
+        buses=buses,
         block_size=_as_int(raw.get("block_size", default_block), "block_size"),
     )

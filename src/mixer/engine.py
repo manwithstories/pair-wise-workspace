@@ -40,6 +40,7 @@ class TrackRuntime:
     matrix: np.ndarray
     offset_frames: int
     meter: Meter
+    route_meter: Meter
     ratio: float
 
 
@@ -87,7 +88,9 @@ class MixSession:
             raise argument_error(
                 "invalid_target_rate", f"master rate must be 48000, got {self.rate}"
             )
-        self.graph = graph or build_default_graph(project)
+        self.graph = graph or build_default_graph(
+            project, project.bus_map(), project.bus_gains()
+        )
         self.summary = self.graph.validate()
         self.track_order = [n.name for n in self.graph.nodes() if n.kind == KIND_TRACK]
         self.block_size = int(block_size or project.block_size)
@@ -116,6 +119,7 @@ class MixSession:
                     matrix=np.asarray(track.channel_matrix, dtype=np.float64),
                     offset_frames=int(round(track.start_time * self.rate)),
                     meter=Meter(),
+                    route_meter=Meter(),
                     ratio=source.rate / float(self.rate),
                 )
                 self._paths[name] = self._static_gain(name)
@@ -171,8 +175,12 @@ class MixSession:
         if track.silences:
             block = self._mask_silences(runtime, block, start, frames)
         gain = runtime.evaluator.linear_gains(frames)
-        runtime.meter.add(block, gain)
-        return block * gain[:, None]
+        # Meter the post-gain, post-mute contribution so per-track peak/RMS
+        # describe what that track actually sends to the bus.
+        track_out = block * gain[:, None]
+        runtime.meter.add(track_out, gain)
+        runtime.route_meter.add(track_out * self._paths[runtime.track.name])
+        return track_out
 
     def _mix_track_source(self, runtime: TrackRuntime, start: int, frames: int) -> np.ndarray:
         """Track-start offset applied before reading the source window."""
@@ -274,7 +282,24 @@ class MixSession:
         )
 
     def track_statistics(self) -> list[TrackStats]:
-        return [track_stats(name, self._runtimes[name].meter) for name in self.track_order]
+        """Per-track stats: post-gain contribution plus the routed (bus) level."""
+        stats: list[TrackStats] = []
+        for name in self.track_order:
+            runtime = self._runtimes[name]
+            local = track_stats(name, runtime.meter)
+            routed = runtime.route_meter.snapshot()
+            stats.append(
+                TrackStats(
+                    name=name,
+                    frames=local.frames,
+                    peak_in_dbfs=routed.peak_db,
+                    peak_out_dbfs=routed.peak_db,
+                    rms_dbfs=routed.rms_db,
+                    clip_count=routed.clip_count,
+                    max_gain_delta_db=local.max_gain_delta_db,
+                )
+            )
+        return stats
 
     def check_continuity(self, block_size: int) -> dict:
         """Largest dB jump at block boundaries across every track's automation."""
@@ -296,6 +321,7 @@ class MixSession:
         for runtime in self._runtimes.values():
             runtime.evaluator.reset()
             runtime.meter = Meter()
+            runtime.route_meter = Meter()
 
     def __enter__(self) -> "MixSession":
         return self
