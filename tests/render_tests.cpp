@@ -3,6 +3,7 @@
 #include <cmath>
 #include <string>
 
+#include "compare.hpp"
 #include "fixture.hpp"
 #include "image_io.hpp"
 #include "interpolator.hpp"
@@ -198,4 +199,56 @@ TEST_CASE("fixture: quantize rounds and clamps") {
   REQUIRE(q.rgb[0] == 0);
   REQUIRE(q.rgb[1] == 128);
   REQUIRE(q.rgb[2] == 255);
+}
+
+// ------------------------------------------------------------- compare ----
+TEST_CASE("compare: identical renders match with zero diff") {
+  const Image input = make_fixture_image();
+  const Lut3D lut = identity_lut(17);
+  const GradingKernel kernel(&lut, settings_for(ColorSpace::kSrgb,
+                                                ColorSpace::kSrgb));
+  const RenderOutput a = render_scalar(input, kernel);
+  const RenderOutput b = render_scalar(input, kernel);
+  const CompareReport report =
+      compare_rendered(a, b, input.width, 1e-9);
+  REQUIRE(report.match);
+  REQUIRE(report.max_diff == 0.0);
+  REQUIRE_FALSE(report.has_first_diff);
+  REQUIRE(report.hash_scalar == report.hash_tiled);
+}
+
+TEST_CASE("compare: a single perturbed channel reports its coordinate") {
+  const Image input = make_fixture_image();
+  const Lut3D lut = identity_lut(17);
+  const GradingKernel kernel(&lut, settings_for(ColorSpace::kSrgb,
+                                                ColorSpace::kSrgb));
+  const RenderOutput base = render_scalar(input, kernel);
+  RenderOutput tweaked = base;
+
+  // Perturb pixel (5, 7), green channel only.
+  const std::size_t pixel = 7 * static_cast<std::size_t>(input.width) + 5;
+  tweaked.after[pixel * 3 + 1] += 0.25f;
+
+  const CompareReport report =
+      compare_rendered(base, tweaked, input.width, 1e-6);
+  REQUIRE_FALSE(report.match);
+  REQUIRE(report.has_first_diff);
+  REQUIRE(report.first_x == 5);
+  REQUIRE(report.first_y == 7);
+  REQUIRE(report.first_channel == 1);
+  REQUIRE(report.max_diff == Catch::Approx(0.25).margin(1e-6));
+  REQUIRE(report.left != report.right);
+}
+
+TEST_CASE("compare: differences below threshold still match") {
+  const Image input = make_fixture_image();
+  const Lut3D lut = identity_lut(17);
+  const GradingKernel kernel(&lut, settings_for(ColorSpace::kSrgb,
+                                                ColorSpace::kSrgb));
+  const RenderOutput base = render_scalar(input, kernel);
+  RenderOutput tweaked = base;
+  tweaked.after[0] += 1e-8f;
+  const CompareReport report = compare_rendered(base, tweaked, input.width, 1e-6);
+  REQUIRE(report.match);
+  REQUIRE_FALSE(report.has_first_diff);
 }
