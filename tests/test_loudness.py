@@ -189,3 +189,28 @@ def test_momentary_and_short_term_maxima_are_reported():
     assert stats.momentary_max is not None
     assert stats.short_term_max is not None
     assert stats.momentary_max > stats.lufs
+
+
+def test_true_peak_catches_inter_sample_peaks():
+    # The canonical true-peak case: a quarter-rate tone phased so every sample
+    # is 1/sqrt(2) but the analog waveform reaches full scale between them.
+    # A sample-peak meter reads -3 dB here; the true-peak meter must see ~1.0.
+    rate = 48000
+    data = array("d", [math.sin(2 * math.pi * (rate / 4) * i / rate + math.pi / 4)
+                       for i in range(2000)])
+    stats = measure(1, rate, [data])
+    assert stats.peak == pytest.approx(0.7071, abs=0.01)
+    assert stats.true_peak == pytest.approx(1.0, abs=0.03)
+    # ~+3 dB above the sample peak, which a sample meter would miss entirely.
+    overshoot_db = 20 * math.log10(stats.true_peak / stats.peak)
+    assert overshoot_db == pytest.approx(3.01, abs=0.4)
+
+
+def test_true_peak_is_stable_across_block_sizes():
+    rate = 48000
+    data = array("d", [math.sin(2 * math.pi * 997 * i / rate + 0.4)
+                       for i in range(rate)])
+    readings = set()
+    for block in (8192, 1000, 97):
+        readings.add(round(measure(1, rate, [data], block=block).true_peak, 9))
+    assert len(readings) == 1
