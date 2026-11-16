@@ -285,6 +285,20 @@ class CliExitCodeTests(TempWorkspace):
             2,
         )
 
+    def test_verify_with_only_invalid_inputs_exits_2(self) -> None:
+        bad_dir = self.path("allbad")
+        os.makedirs(bad_dir)
+        write_float_wav(os.path.join(bad_dir, "f.wav"))
+        write_truncated_wav(os.path.join(bad_dir, "t.wav"))
+        self.assertEqual(cli.main(["verify", "--input", bad_dir]), 2)
+
+    def test_verify_skips_invalid_and_passes_valid(self) -> None:
+        data_dir = self.path("mixed")
+        os.makedirs(data_dir)
+        generate_fixtures(data_dir)
+        write_float_wav(os.path.join(data_dir, "f.wav"))
+        self.assertEqual(cli.main(["verify", "--input", data_dir]), 0)
+
     def test_database_in_unwritable_place_exits_3(self) -> None:
         data_dir = self.path("db")
         os.makedirs(data_dir)

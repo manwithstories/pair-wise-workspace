@@ -36,7 +36,15 @@ class VerificationIssue:
 
 @dataclass
 class VerificationReport:
+    """Counts only files that were actually verified.
+
+    Files whose analysis failed are reported separately as ``skipped``; they
+    were never checked, so they must not inflate ``checked_files`` and let a
+    run of nothing but bad inputs look like a pass.
+    """
+
     checked_files: int = 0
+    skipped_files: int = 0
     issues: list[VerificationIssue] = field(default_factory=list)
 
     @property
@@ -49,6 +57,7 @@ class VerificationReport:
     def to_dict(self) -> dict:
         return {
             "checked_files": self.checked_files,
+            "skipped_files": self.skipped_files,
             "passed": self.passed,
             "issue_count": len(self.issues),
             "issues": [i.to_dict() for i in self.issues],
@@ -124,10 +133,17 @@ def verify_result(result: DetectionResult) -> VerificationReport:
 
 
 def verify_analyses(analyses: Sequence[FileAnalysis]) -> VerificationReport:
+    """Verify every successfully analysed file.
+
+    Failed inputs are counted as skipped, never as checked: verification
+    answers "are these results sound?", and an unreadable file has no results
+    to sound out.
+    """
+
     report = VerificationReport()
     for analysis in analyses:
         if analysis.status != "ok" or analysis.result is None:
-            report.checked_files += 1
+            report.skipped_files += 1
             if analysis.status == "ok":
                 report.add(analysis.path, "analysis is marked ok but has no result")
             continue

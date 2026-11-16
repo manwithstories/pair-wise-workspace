@@ -191,7 +191,13 @@ def cmd_verify(args: argparse.Namespace) -> int:
             f"VERIFY_FAIL file={os.path.basename(issue.path)}"
             f" reason={issue.reason}"
         )
-    ok = report.passed and report.checked_files > 0
+    if report.checked_files == 0:
+        # Nothing could be read: this is an input-format failure, not a pass.
+        print(
+            f"VERIFY=FAIL reason=no verifiable input ({report.skipped_files} skipped)"
+        )
+        return EXIT_ARG
+    ok = report.passed
     print(f"VERIFY={'PASS' if ok else 'FAIL'}")
     return EXIT_OK if ok else EXIT_VERIFY
 
