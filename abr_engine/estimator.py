@@ -79,9 +79,10 @@ class BandwidthEstimator:
         """Drop median-relative outliers without discarding a genuine dip.
 
         A sustained dip shifts the median itself, so its samples survive;
-        only a lone spike/crash relative to the local median is filtered.
-        With two samples or less nothing is filtered (the median has no
-        leverage yet).
+        only a *minority* of lone spikes/crashes relative to the local
+        median are filtered. The minority cap (25% of the window) means a
+        cluster of low values — a real capacity change — is never removed
+        just because it sits below the median band.
         """
         if len(values) <= 2:
             return values
@@ -95,9 +96,14 @@ class BandwidthEstimator:
             return values
         low = median / self.outlier_ratio
         high = median * self.outlier_ratio
+        candidates = [v for v in values if not (low <= v <= high)]
+        # Keep the bulk of the window; suppress only sparse outliers.
+        max_outliers = max(1, len(values) // 4)
+        if len(candidates) > max_outliers:
+            return values
         robust = [v for v in values if low <= v <= high]
-        # Guard against a pathological window where the median-relative band
-        # removes everything: fall back to the full window rather than crash.
+        # Guard against a pathological window where the band removes
+        # everything: fall back to the full window rather than crash.
         return robust if robust else values
 
     def estimate(self) -> Estimate:
