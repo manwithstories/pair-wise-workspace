@@ -13,6 +13,7 @@ find_package(Threads REQUIRED)
 
 set(LUTGRADE_CORE_SOURCES
   src/image_io.cpp
+  src/lut_parser.cpp
 )
 
 add_library(lutgrade_core STATIC ${LUTGRADE_CORE_SOURCES})
