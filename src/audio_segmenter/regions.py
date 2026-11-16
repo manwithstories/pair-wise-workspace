@@ -87,19 +87,29 @@ def bridge_pulses(
 def apply_padding(
     intervals: Sequence[Interval], pad_samples: int, total_samples: int
 ) -> list[Interval]:
-    """Grow each interval into neighbouring silence, bounded by neighbours."""
+    """Grow each interval into neighbouring silence, bounded by neighbours.
+
+    A gap between two intervals is shared: each side may take at most half of
+    it, so padding can never make neighbours overlap.  File edges may use the
+    full padding budget up to the file boundary.
+    """
 
     if pad_samples <= 0 or not intervals:
         return [Interval(i.start, i.end) for i in intervals]
     padded: list[Interval] = []
     for idx, cur in enumerate(intervals):
-        left_limit = intervals[idx - 1].end if idx > 0 else 0
-        right_limit = (
-            intervals[idx + 1].start if idx + 1 < len(intervals) else total_samples
-        )
-        pad_left = min(pad_samples, max(0, cur.start - left_limit))
-        pad_right = min(pad_samples, max(0, right_limit - cur.end))
-        padded.append(Interval(cur.start - pad_left, cur.end + pad_right))
+        if idx > 0:
+            gap_left = max(0, cur.start - intervals[idx - 1].end)
+            left_budget = min(pad_samples, gap_left // 2)
+            left_budget = min(left_budget, cur.start)
+        else:
+            left_budget = min(pad_samples, cur.start)
+        if idx + 1 < len(intervals):
+            gap_right = max(0, intervals[idx + 1].start - cur.end)
+            right_budget = min(pad_samples, gap_right // 2)
+        else:
+            right_budget = min(pad_samples, max(0, total_samples - cur.end))
+        padded.append(Interval(cur.start - left_budget, cur.end + right_budget))
     return padded
 
 
