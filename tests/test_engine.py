@@ -203,5 +203,203 @@ class PolicyTests(unittest.TestCase):
         )
 
 
+def make_config(**overrides) -> SimulationConfig:
+    defaults = dict(
+        bitrates=LADDER,
+        segment_seconds=2.0,
+        initial_buffer=6.0,
+        max_buffer=30.0,
+        window=6,
+        upshift_confirm=3,
+    )
+    defaults.update(overrides)
+    return SimulationConfig(**defaults)
+
+
+class SimulatorTests(unittest.TestCase):
+    def test_steady_high_bandwidth_ramps_up_and_never_stalls(self) -> None:
+        trace = Trace(
+            tuple(sample(float(i) * 2.0, 9000.0) for i in range(30)), 2.0
+        )
+        decisions = Simulator(make_config()).run(trace)
+        self.assertEqual(decisions[0].bitrate_kbps, 800)  # warmup floor
+        # 9000 * 0.85 safety margin = 7650, so 5000 is the top affordable
+        # rung (the 8000 level deliberately stays out of reach).
+        self.assertEqual(decisions[-1].bitrate_kbps, 5000)
+        self.assertFalse(any(d.stall for d in decisions))
+        self.assertTrue(all(d.buffer_seconds >= 0.0 for d in decisions))
+
+    def test_buffer_never_negative_under_long_outage(self) -> None:
+        # 10 healthy segments then a 20-segment total outage.
+        samples = [sample(float(i) * 2.0, 8000.0) for i in range(10)]
+        samples += [
+            sample(float(10 + i) * 2.0, 0.0, rtt=300.0, loss=0.8)
+            for i in range(20)
+        ]
+        decisions = Simulator(make_config()).run(Trace(tuple(samples), 2.0))
+        self.assertTrue(all(d.buffer_seconds >= 0.0 for d in decisions))
+        self.assertTrue(all(d.download_seconds >= 0.0 for d in decisions))
+        self.assertTrue(any(d.stall for d in decisions))
+        # The outage collapses to a single contiguous stall episode.
+        episodes = find_stall_episodes(decisions)
+        self.assertEqual(len(episodes), 1)
+        self.assertGreater(episodes[0].segments, 1)  # sustained, not brief
+
+    def test_stall_seconds_match_download_minus_buffer(self) -> None:
+        # One segment whose download (at 200 kbps for a 5000 kbps level)
+        # far exceeds the available buffer.
+        samples = (
+            sample(0.0, 9000.0), sample(2.0, 9000.0),
+            sample(4.0, 9000.0), sample(6.0, 200.0),
+        )
+        decisions = Simulator(
+            make_config(initial_buffer=2.0, max_buffer=10.0)
+        ).run(Trace(samples, 2.0))
+        stalled = [d for d in decisions if d.stall]
+        self.assertEqual(len(stalled), 1)
+        hit = stalled[0]
+        expected = round(hit.download_seconds - hit.buffer_seconds, 3)
+        self.assertAlmostEqual(hit.stall_seconds, expected, places=2)
+
+    def test_sudden_dip_does_not_repeatedly_upshift(self) -> None:
+        trace = generate_trace(180, 2.0, 42)
+        decisions = Simulator(make_config()).run(trace)
+        # Dip phase occupies roughly segments 54..75; within it the level
+        # may fall but must not bounce back up more than once.
+        dip = decisions[54:76]
+        upshifts = 0
+        for prev, cur in zip(dip, dip[1:]):
+            if cur.bitrate_kbps > prev.bitrate_kbps:
+                upshifts += 1
+        self.assertLessEqual(upshifts, 1)
+
+    def test_recovery_shows_hysteresis(self) -> None:
+        # A flapping link: confirmation gating must keep switches bounded
+        # even though the raw estimate oscillates every segment.
+        throughput = []
+        for i in range(40):
+            throughput.append(4500.0 if i % 2 == 0 else 900.0)
+        trace = Trace(
+            tuple(sample(float(i) * 2.0, v) for i, v in enumerate(throughput)),
+            2.0,
+        )
+        decisions = Simulator(make_config(upshift_confirm=3)).run(trace)
+        switches = sum(1 for d in decisions if d.switch)
+        # 40 wildly alternating segments must not produce 20+ switches.
+        self.assertLess(switches, 12)
+
+    def test_segment_second_mismatch_is_runtime_error(self) -> None:
+        trace = Trace((sample(0.0, 1000.0),), 4.0)
+        with self.assertRaises(ABRSimulationError):
+            Simulator(make_config(segment_seconds=2.0)).run(trace)
+
+    def test_summary_metrics_are_consistent(self) -> None:
+        trace = generate_trace(180, 2.0, 42)
+        decisions = Simulator(make_config()).run(trace)
+        summary = summarize(decisions)
+        self.assertEqual(summary.segments, 180)
+        self.assertEqual(
+            summary.switch_count, sum(1 for d in decisions if d.switch)
+        )
+        self.assertEqual(
+            summary.stall_segment_count,
+            sum(1 for d in decisions if d.stall),
+        )
+        self.assertGreaterEqual(summary.average_bitrate_kbps,
+                                summary.min_bitrate_kbps)
+        self.assertLessEqual(summary.average_bitrate_kbps,
+                             summary.max_bitrate_kbps)
+
+
+class DeterminismAndIOTests(unittest.TestCase):
+    def test_seeded_trace_is_byte_reproducible(self) -> None:
+        first = generate_trace(180, 2.0, 42)
+        second = generate_trace(180, 2.0, 42)
+        self.assertEqual(first.samples, second.samples)
+        different = generate_trace(180, 2.0, 43)
+        self.assertNotEqual(first.samples, different.samples)
+
+    def test_trace_json_round_trip_preserves_samples(self) -> None:
+        trace = generate_trace(24, 2.0, 7)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = save_trace(trace, Path(tmp) / "trace.json")
+            loaded = load_trace(path)
+        self.assertEqual(loaded.samples, trace.samples)
+        self.assertEqual(loaded.seed, 7)
+
+    def _write_bad_trace(self, tmp: Path, payload: dict) -> Path:
+        path = tmp / "bad.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return path
+
+    def test_illegal_traces_are_rejected(self) -> None:
+        good_sample = {"t": 1.0, "throughput": 1000.0, "rtt": 30.0, "loss": 0.0}
+        with tempfile.TemporaryDirectory() as name:
+            tmp = Path(name)
+            cases = {
+                "empty": {"segment_seconds": 2.0, "samples": []},
+                "duplicate": {"segment_seconds": 2.0, "samples": [
+                    good_sample,
+                    {"t": 1.0, "throughput": 2000.0, "rtt": 30.0, "loss": 0.0},
+                ]},
+                "negative_loss": {"segment_seconds": 2.0, "samples": [
+                    {"t": 1.0, "throughput": 1.0, "rtt": 1.0, "loss": -0.2},
+                ]},
+                "missing_field": {"segment_seconds": 2.0, "samples": [
+                    {"t": 1.0, "throughput": 1.0},
+                ]},
+            }
+            for label, payload in cases.items():
+                with self.subTest(label=label):
+                    with self.assertRaises(ABRTraceError):
+                        load_trace(self._write_bad_trace(tmp, payload))
+            not_json = tmp / "notjson.json"
+            not_json.write_text("<html>not json</html>", encoding="utf-8")
+            with self.assertRaises(ABRTraceError):
+                load_trace(not_json)
+            with self.assertRaises(ABRTraceError):
+                load_trace(tmp / "does_not_exist.json")
+
+    def test_illegal_ladder_and_config_rejected(self) -> None:
+        for text in ("", "800,,1600", "800,abc", "1600,800", "0,800"):
+            with self.subTest(text=text):
+                with self.assertRaises(ABRConfigError):
+                    parse_bitrates(text)
+        with self.assertRaises(ABRConfigError):
+            make_config(initial_buffer=40.0, max_buffer=30.0)
+        with self.assertRaises(ABRConfigError):
+            make_config(window=0)
+        with self.assertRaises(ABRConfigError):
+            make_config(upshift_confirm=0)
+
+    def test_model_constructors_reject_bad_numbers(self) -> None:
+        with self.assertRaises(ABRTraceError):
+            sample(0.0, -1.0)
+        with self.assertRaises(ABRTraceError):
+            NetworkSample(0.0, 1.0, 1.0, 1.5)
+        with self.assertRaises(ABRConfigError):
+            BitrateLadder(())
+        with self.assertRaises(ABRConfigError):
+            BitrateLadder((800, 800))
+
+
+class LargeTraceTests(unittest.TestCase):
+    def test_hundred_thousand_segments_linear_and_finite(self) -> None:
+        trace = generate_trace(100_000, 2.0, 42)
+        config = make_config()
+        decisions = Simulator(config).run(trace)
+        self.assertEqual(len(decisions), 100_000)
+        # No NaN / negative state anywhere in the full run.
+        for decision in decisions:
+            self.assertGreaterEqual(decision.buffer_seconds, 0.0)
+            self.assertGreaterEqual(decision.download_seconds, 0.0)
+            self.assertGreater(decision.bitrate_kbps, 0)
+        summary = summarize(decisions)
+        self.assertEqual(summary.segments, 100_000)
+        # Every selected level must be a real ladder entry.
+        valid = set(LADDER)
+        self.assertTrue(all(d.bitrate_kbps in valid for d in decisions))
+
+
 if __name__ == "__main__":
     unittest.main()
