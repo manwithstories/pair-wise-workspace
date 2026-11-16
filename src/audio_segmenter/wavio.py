@@ -17,7 +17,7 @@ import os
 import struct
 import wave
 from dataclasses import dataclass
-from typing import BinaryIO, Optional
+from typing import BinaryIO, Iterator, Optional
 
 import numpy as np
 
@@ -174,62 +174,113 @@ def _decode_pcm24(raw: bytes, channels: int) -> np.ndarray:
 def read_wav(path: str) -> WavData:
     """Read and validate a PCM16/PCM24 mono or stereo WAV file."""
 
-    if not os.path.exists(path):
-        raise WavError("wav_not_found", "file does not exist", path)
-    if not os.path.isfile(path):
-        raise WavError("wav_not_found", "path is not a regular file", path)
-    if os.path.getsize(path) == 0:
-        raise WavError("wav_empty", "file is empty", path)
-
-    try:
-        with open(path, "rb") as fh:
-            channels, sample_rate, bits, block_align = _read_fmt_chunk(fh, path)
-    except WavError:
-        raise
-    except OSError as exc:
-        raise WavError("wav_io_error", str(exc), path) from exc
-
-    try:
-        with wave.open(path, "rb") as wf:
-            if wf.getcomptype() != "NONE":
-                raise WavError(
-                    "wav_unsupported_codec",
-                    f"compressed WAV ({wf.getcomptype()}) is not supported",
-                    path,
-                )
-            nframes = wf.getnframes()
-            raw = wf.readframes(nframes)
-    except wave.Error as exc:
-        raise WavError("wav_corrupt", str(exc), path) from exc
-    except OSError as exc:
-        raise WavError("wav_io_error", str(exc), path) from exc
-    except EOFError as exc:
-        raise WavError("wav_corrupt", "unexpected end of file", path) from exc
-
-    if nframes == 0:
-        raise WavError("wav_empty", "file contains no sample frames", path)
-    if len(raw) < nframes * block_align:
-        raise WavError("wav_corrupt", "sample data is truncated", path)
-
-    if bits == 16:
-        samples = np.frombuffer(
-            raw[: nframes * block_align], dtype="<i2"
-        ).astype(np.float32) / 32768.0
-        samples = samples.reshape(-1, channels)
+    reader = WavReader(path)
+    chunks = [block for block in reader.iter_blocks()]
+    if chunks:
+        samples = np.concatenate(chunks, axis=0)
     else:
-        try:
-            samples = _decode_pcm24(raw[: nframes * block_align], channels)
-        except ValueError as exc:
-            raise WavError("wav_corrupt", str(exc), path) from exc
+        samples = np.empty((0, reader.info.channels), dtype=np.float32)
+    if samples.shape[0] != reader.info.nframes:  # pragma: no cover - defensive
+        raise WavError("wav_corrupt", "decoded frame count mismatch", path)
+    return WavData(info=reader.info, samples=samples)
 
-    info = WavInfo(
-        path=path,
-        sample_rate=sample_rate,
-        channels=channels,
-        sample_width=bits // 8,
-        nframes=nframes,
-    )
-    return WavData(info=info, samples=np.ascontiguousarray(samples))
+
+class WavReader:
+    """Validated, streaming PCM reader.
+
+    ``iter_blocks`` yields float32 arrays of shape ``(frames, channels)`` and
+    never holds more than one block at a time, so callers can run multi-pass
+    analysis in constant memory.
+    """
+
+    def __init__(self, path: str) -> None:
+        if not os.path.exists(path):
+            raise WavError("wav_not_found", "file does not exist", path)
+        if not os.path.isfile(path):
+            raise WavError("wav_not_found", "path is not a regular file", path)
+        if os.path.getsize(path) == 0:
+            raise WavError("wav_empty", "file is empty", path)
+        try:
+            with open(path, "rb") as fh:
+                channels, sample_rate, bits, block_align = _read_fmt_chunk(fh, path)
+        except WavError:
+            raise
+        except OSError as exc:
+            raise WavError("wav_io_error", str(exc), path) from exc
+        try:
+            with wave.open(path, "rb") as wf:
+                if wf.getcomptype() != "NONE":
+                    raise WavError(
+                        "wav_unsupported_codec",
+                        f"compressed WAV ({wf.getcomptype()}) is not supported",
+                        path,
+                    )
+                nframes = wf.getnframes()
+        except wave.Error as exc:
+            raise WavError("wav_corrupt", str(exc), path) from exc
+        except OSError as exc:
+            raise WavError("wav_io_error", str(exc), path) from exc
+        if nframes == 0:
+            raise WavError("wav_empty", "file contains no sample frames", path)
+        self.path = path
+        self._block_align = block_align
+        self._bits = bits
+        self.info = WavInfo(
+            path=path,
+            sample_rate=sample_rate,
+            channels=channels,
+            sample_width=bits // 8,
+            nframes=nframes,
+        )
+
+    def iter_blocks(self, block_size: int = 1 << 15) -> Iterator[np.ndarray]:
+        """Yield ``(frames, channels)`` float32 blocks in [-1, 1)."""
+
+        info = self.info
+        frames_read = 0
+        try:
+            with wave.open(self.path, "rb") as wf:
+                if wf.getcomptype() != "NONE":
+                    raise WavError(
+                        "wav_unsupported_codec",
+                        f"compressed WAV ({wf.getcomptype()}) is not supported",
+                        self.path,
+                    )
+                while frames_read < info.nframes:
+                    want = min(block_size, info.nframes - frames_read)
+                    raw = wf.readframes(want)
+                    if not raw:
+                        break
+                    available = len(raw) // self._block_align
+                    if available <= 0:
+                        break
+                    payload = raw[: available * self._block_align]
+                    if self._bits == 16:
+                        block = np.frombuffer(payload, dtype="<i2").astype(
+                            np.float32
+                        ) / 32768.0
+                        block = block.reshape(-1, info.channels)
+                    else:
+                        try:
+                            block = _decode_pcm24(payload, info.channels)
+                        except ValueError as exc:
+                            raise WavError("wav_corrupt", str(exc), self.path) from exc
+                    if block.size:
+                        yield block
+                        frames_read += int(block.shape[0])
+        except wave.Error as exc:
+            raise WavError("wav_corrupt", str(exc), self.path) from exc
+        except OSError as exc:
+            raise WavError("wav_io_error", str(exc), self.path) from exc
+        except EOFError as exc:
+            raise WavError("wav_corrupt", "unexpected end of file", self.path) from exc
+        if frames_read < info.nframes:
+            raise WavError(
+                "wav_corrupt",
+                f"sample data is truncated: expected {info.nframes} frames,"
+                f" read {frames_read}",
+                self.path,
+            )
 
 
 def file_sha256(path: str, chunk_size: int = 1 << 20) -> str:
