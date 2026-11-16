@@ -27,9 +27,9 @@ func IsStructure(err error) bool {
 
 // Limits bound parser resource use. Zero fields take defaults.
 type Limits struct {
-	MaxBoxes  int   // default 1<<20
-	MaxDepth  int   // default 32
-	MaxFile   int64 // default 1<<40 (1 TiB)
+	MaxBoxes int   // default 1<<20
+	MaxDepth int   // default 32
+	MaxFile  int64 // default 1<<40 (1 TiB)
 }
 
 func (l *Limits) withDefaults() Limits {
