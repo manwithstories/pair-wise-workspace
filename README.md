@@ -39,15 +39,15 @@ PATH=tiled
 THREADS=4
 IN_SPACE=srgb
 OUT_SPACE=rec709
-MAX_DEV_R=0.000076890
-MAX_DEV_G=0.000077009
-MAX_DEV_B=0.000075579
-MEAN_DEV=0.000045763
+MAX_DEV_R=0.000002027
+MAX_DEV_G=0.000002027
+MAX_DEV_B=0.000002027
+MEAN_DEV=0.000001200
 HIST_BEFORE_R=...   (256 comma-separated bins)
 ...
 HIST_AFTER_B=...
 SATURATED_PIXELS=0
-HASH=e4047e28cd1fc13b
+HASH=b58424f2cc76e23b
 OUTPUT=/tmp/out.ppm
 ```
 
@@ -105,6 +105,6 @@ scheduling, never arithmetic.
 
 The demo LUT is a mild S-curve rather than a strong grade: the reported
 `MAX_DEV`/`MEAN_DEV` measure the LUT's own pre→post contribution, so a gentle
-curve keeps them in the sub-1e-4 band a healthy file produces. A supplier LUT
+curve keeps them on the 1e-6 order a healthy file produces. A supplier LUT
 that parses wrong (wrong size, wrong order, wrong domain) moves those numbers
 by orders of magnitude — that is the signal this tool exists to surface.

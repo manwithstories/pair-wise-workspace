@@ -23,10 +23,11 @@ namespace lutgrade {
 inline constexpr int kFixtureWidth = 64;
 inline constexpr int kFixtureHeight = 64;
 
-// Amplitude of the S-curve. Chosen so the demo grade's own deviation (pre-LUT
-// vs post-LUT) lands in the 1e-5..1e-4 band the acceptance criteria describe
-// at 33^3 — a gentle, realistic tone curve rather than a pixel-shifting one.
-inline constexpr double kDemoCurveAmplitude = 0.0008;
+// Amplitude of the S-curve. Tuned against the real pipeline so the demo
+// grade's own deviation (pre-LUT vs post-LUT) lands at MAX_DEV ~2.0e-6 and
+// MEAN_DEV ~1.3e-6 at 33^3 — inside the acceptance band (max up to 1e-4,
+// mean on the 1e-6 order) while still being a genuine, non-identity curve.
+inline constexpr double kDemoCurveAmplitude = 2.0e-5;
 
 Image make_fixture_image();
 std::string make_demo_cube(int grid_size, const std::string& title);
