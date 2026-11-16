@@ -71,3 +71,9 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 混音器项目:演示输出与 Python 构建产物 ----
+.demo/
+**/__pycache__/
+*.pyc
+.pytest_cache/
