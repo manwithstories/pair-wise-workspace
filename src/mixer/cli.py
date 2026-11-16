@@ -273,8 +273,8 @@ def compare_masters(
     if not matched:
         raise MixerError(
             "render_mismatch",
-            f"offline and stream differ beyond {max_error}: max_abs={max_abs:.3e}, "
-            f"frames {offline.shape[0]} vs {stream.shape[0]}",
+            f"verdict=mismatch: offline and stream differ beyond {max_error} "
+            f"(max_abs={max_abs:.3e}, frames {offline.shape[0]} vs {stream.shape[0]})",
             EXIT_MISMATCH,
             details=payload,
         )
