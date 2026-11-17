@@ -71,3 +71,10 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 构建产物 ----
+build/
+out/
+*.o
+*.a
+compile_commands.json
