@@ -21,6 +21,7 @@ add_library(timecode_core STATIC
   src/dropframe.cpp
   src/converter.cpp
   src/audit.cpp
+  src/fixture_generator.cpp
 )
 target_include_directories(timecode_core PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include

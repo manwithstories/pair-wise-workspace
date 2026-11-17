@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
+#include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 
 #include "timecode/audit.hpp"
 #include "timecode/converter.hpp"
 #include "timecode/dropframe.hpp"
+#include "timecode/fixture_generator.hpp"
 #include "timecode/parser.hpp"
 #include "timecode/rate_table.hpp"
 
@@ -260,4 +262,50 @@ TEST_CASE("clean frame-dense sequence has zero drift and is sorted",
     // Stable output keeps ascending frame order.
     for (std::size_t i = 1; i < out.records.size(); ++i)
         REQUIRE(out.records[i - 1].source_frame <= out.records[i].source_frame);
+}
+
+TEST_CASE("fixture generator is deterministic and complete", "[fixture]") {
+    auto a = build_fixture(FixtureProfile::Overnight, Rate::F2997_DF);
+    auto b = build_fixture(FixtureProfile::Overnight, Rate::F2997_DF);
+    REQUIRE(a.lines.size() == b.lines.size());
+    for (std::size_t i = 0; i < a.lines.size(); ++i)
+        REQUIRE(a.lines[i].text == b.lines[i].text);
+    // Three pre-midnight then three post-midnight samples.
+    REQUIRE(a.lines.size() == 6);
+    REQUIRE(a.lines.front().note == "pre_midnight");
+    REQUIRE(a.lines.back().note == "post_midnight");
+
+    auto run = build_fixture(FixtureProfile::LongRun, Rate::F2997_DF);
+    // 219 minute-boundary records (the acceptance compensation window).
+    REQUIRE(run.lines.size() == 219);
+    for (const auto& l : run.lines)
+        REQUIRE(parse_timecode(l.text, Rate::F2997_DF).ok);
+}
+
+TEST_CASE("twelve-hour drop compensation matches acceptance figure",
+          "[fixture]") {
+    const std::int64_t comp = twelve_hour_compensation(Rate::F2997_DF);
+    REQUIRE(comp == 43164);
+    REQUIRE(twelve_hour_compensation(Rate::F2997_NDF) == 0);
+    // The auditor's summed per-record compensation must equal the same figure.
+    auto run = build_fixture(FixtureProfile::LongRun, Rate::F2997_DF);
+    std::vector<AuditInput> lines;
+    for (const auto& l : run.lines) lines.push_back(AuditInput{l.text, l.step});
+    auto audited = audit_sequence(lines, Rate::F2997_DF);
+    REQUIRE(audited.summary.total_drop_compensation == 43164);
+    REQUIRE(audited.summary.max_abs_drift < 1);
+    REQUIRE(audited.summary.clean());
+}
+
+TEST_CASE("boundary fixture contains the canonical acceptance labels",
+          "[fixture]") {
+    auto fx = build_fixture(FixtureProfile::Boundary, Rate::F2997_DF);
+    std::vector<std::string> texts;
+    for (const auto& l : fx.lines) texts.push_back(l.text);
+    auto has = [&](const std::string& t) {
+        return std::find(texts.begin(), texts.end(), t) != texts.end();
+    };
+    REQUIRE(has("00:00:00;00"));
+    REQUIRE(has("00:10:00;00"));
+    REQUIRE(has("23:59:59;29"));
 }
