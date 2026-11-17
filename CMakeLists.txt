@@ -23,6 +23,7 @@ add_library(popfix_core STATIC
   src/wav_io.cpp
   src/clip_detector.cpp
   src/interpolator.cpp
+  src/repair_pipeline.cpp
 )
 target_include_directories(popfix_core PUBLIC src)
 find_package(Threads REQUIRED)
