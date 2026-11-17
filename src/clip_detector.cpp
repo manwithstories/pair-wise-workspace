@@ -102,7 +102,8 @@ std::vector<RawSpan> ClipDetector::detect_channel(
   const std::size_t n = ch.size();
   const double thr = cfg_.threshold;
 
-  std::vector<RawSpan> raw;
+  // 第一步：收集所有跨阈值的同号连续段（先不判真伪）。
+  std::vector<RawSpan> all;
   std::size_t i = 0;
   while (i < n) {
     if (std::fabs(ch[i]) < thr) {
@@ -120,9 +121,38 @@ std::vector<RawSpan> ClipDetector::detect_channel(
     span.end = i - 1;
     span.single_sample = (span.end == span.start);
     span.positive_rail = positive;
-    if (passes_recovery_shape(ch, span)) raw.push_back(span);
+    all.push_back(span);
   }
 
+  // 第二步：识别方波——至少 3 段、轨符号交替、段长与周期高度规整。
+  // 真实削波是单轨持续异常，不会出现这种周期性正负满幅交替。
+  std::vector<bool> is_square(all.size(), false);
+  if (all.size() >= 3) {
+    for (std::size_t k = 0; k + 2 < all.size(); ++k) {
+      const RawSpan& a = all[k];
+      const RawSpan& b = all[k + 1];
+      const RawSpan& c = all[k + 2];
+      const bool alternates =
+          a.positive_rail != b.positive_rail &&
+          b.positive_rail != c.positive_rail;
+      const auto len = [](const RawSpan& s) {
+        return s.end - s.start + 1;
+      };
+      const std::size_t la = len(a), lb = len(b), lc = len(c);
+      const bool regular =
+          std::max(la, lc) <= std::min(la, lc) + 2 &&
+          std::max(lb, la) <= std::min(lb, la) * 2 + 2;
+      if (alternates && regular)
+        is_square[k] = is_square[k + 1] = is_square[k + 2] = true;
+    }
+  }
+
+  // 第三步：剔掉方波段，其余做局部恢复形态检查后同轨合并。
+  std::vector<RawSpan> raw;
+  for (std::size_t k = 0; k < all.size(); ++k) {
+    if (is_square[k]) continue;
+    if (passes_recovery_shape(ch, all[k])) raw.push_back(all[k]);
+  }
   return merge_same_channel(std::move(raw), cfg_.merge_gap);
 }
 
