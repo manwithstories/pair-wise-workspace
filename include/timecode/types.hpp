@@ -37,6 +37,7 @@ struct Rational {
     bool operator<(const Rational& o) const;
     bool operator<=(const Rational& o) const;
     bool operator>(const Rational& o) const;
+    bool operator>=(const Rational& o) const;
 
     // Round-half-away-from-zero to an integer (used for cross-rate conversion).
     std::int64_t round() const;

@@ -61,6 +61,7 @@ bool Rational::operator<(const Rational& o) const {
 }
 bool Rational::operator<=(const Rational& o) const { return !(o < *this); }
 bool Rational::operator>(const Rational& o) const { return o < *this; }
+bool Rational::operator>=(const Rational& o) const { return !(*this < o); }
 
 std::int64_t Rational::round() const {
     // Half away from zero.

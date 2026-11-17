@@ -18,6 +18,8 @@ find_package(CLI11 2.4 REQUIRED)
 add_library(timecode_core STATIC
   src/rate_table.cpp
   src/parser.cpp
+  src/dropframe.cpp
+  src/converter.cpp
 )
 target_include_directories(timecode_core PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
