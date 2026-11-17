@@ -79,19 +79,6 @@ class MiniJson {
       ++i_;
     return std::stod(s_.substr(start, i_ - start));
   }
-  // 在当前对象内查找键；未找到返回 false（调用方决定是否必需）。
-  bool find_key(const std::string& key) {
-    skip_ws();
-    while (i_ < s_.size() && s_[i_] != '}') {
-      const std::string k = parse_string();
-      expect(':');
-      if (k == key) return true;
-      skip_value();
-      skip_ws();
-      if (!consume(',')) break;
-    }
-    return false;
-  }
   void skip_value() {
     skip_ws();
     if (i_ >= s_.size()) return;
@@ -106,6 +93,11 @@ class MiniJson {
         if (s_[i_] == close) --depth;
         ++i_;
       } while (i_ < s_.size() && depth > 0);
+    } else if (s_[i_] == 't' || s_[i_] == 'f') {
+      // 布尔字面量：true / false
+      i_ += s_[i_] == 't' ? 4 : 5;
+    } else if (s_[i_] == 'n') {
+      i_ += 4;  // null
     } else {
       parse_number();
     }
@@ -229,86 +221,102 @@ StoredReport read_report(const std::string& path) {
   if (!f) throw WavIOError("无法打开报告: " + path, false);
   const std::string content((std::istreambuf_iterator<char>(f)),
                             std::istreambuf_iterator<char>());
+  MiniJson j(content);
 
-  // 报告由本工具生成、结构受控；对每个需要的字段用独立探针按键查找。
-  auto top_number = [&](const std::string& key) -> double {
-    MiniJson probe(content);
-    probe.expect('{');
-    if (probe.find_key(key)) return probe.parse_number();
-    return 0.0;
-  };
-
+  // 单次递归下降：报告结构由本工具生成且受控，遍历中直接填充目标字段。
   StoredReport rep;
-  rep.sample_rate =
-      static_cast<std::uint32_t>(top_number("sample_rate"));
-  rep.channels = static_cast<std::uint16_t>(top_number("channels"));
-  rep.frames = static_cast<std::size_t>(top_number("frames"));
-  rep.threshold = top_number("threshold");
-  rep.context = static_cast<std::size_t>(top_number("context"));
+  j.expect('{');
+  while (true) {
+    j.skip_ws();
+    if (j.consume('}')) break;
+    const std::string key = j.parse_string();
+    j.expect(':');
+    j.skip_ws();
 
-  // stats 子对象：find_key 命中后游标停在值起点，顺序取所需字段。
-  {
-    MiniJson p(content);
-    p.expect('{');
-    if (p.find_key("stats")) {
-      p.expect('{');
-      if (p.find_key("events"))
-        rep.stats.event_count =
-            static_cast<std::size_t>(p.parse_number());
-      if (p.find_key("repaired_frames"))
-        rep.stats.repaired_frames =
-            static_cast<std::size_t>(p.parse_number());
-      if (p.find_key("repaired_samples"))
-        rep.stats.repaired_samples =
-            static_cast<std::size_t>(p.parse_number());
-      if (p.find_key("peak_before"))
-        rep.stats.peak_before = p.parse_number();
-      if (p.find_key("peak_after"))
-        rep.stats.peak_after = p.parse_number();
-      if (p.find_key("residual_energy"))
-        rep.stats.residual_energy = p.parse_number();
-    }
-  }
-
-  // events 数组：逐对象解析，未知键跳过。
-  {
-    MiniJson p(content);
-    p.expect('{');
-    if (p.find_key("events")) {
-      p.expect('[');
-      p.skip_ws();
-      while (p.consume('{')) {
-        EventRepair r;
-        p.skip_ws();
-        while (true) {
-          const std::string key = p.parse_string();
-          p.expect(':');
-          if (key == "event_id")
-            r.event_id = static_cast<std::size_t>(p.parse_number());
-          else if (key == "channel_mask")
-            r.channel_mask =
-                static_cast<std::uint8_t>(p.parse_number());
-          else if (key == "repair_start")
-            r.repair_start =
-                static_cast<std::size_t>(p.parse_number());
-          else if (key == "repair_end")
-            r.repair_end =
-                static_cast<std::size_t>(p.parse_number());
-          else if (key == "residual_energy")
-            r.residual_energy = p.parse_number();
-          else
-            p.skip_value();
-          p.skip_ws();
-          if (!p.consume(',')) break;
-          p.skip_ws();
-        }
-        p.expect('}');
-        rep.repairs.push_back(r);
-        p.skip_ws();
-        if (!p.consume(',')) break;
-        p.skip_ws();
+    if (key == "sample_rate") {
+      rep.sample_rate = static_cast<std::uint32_t>(j.parse_number());
+    } else if (key == "channels") {
+      rep.channels = static_cast<std::uint16_t>(j.parse_number());
+    } else if (key == "frames") {
+      rep.frames = static_cast<std::size_t>(j.parse_number());
+    } else if (key == "threshold") {
+      rep.threshold = j.parse_number();
+    } else if (key == "context") {
+      rep.context = static_cast<std::size_t>(j.parse_number());
+    } else if (key == "stats") {
+      j.expect('{');
+      while (true) {
+        j.skip_ws();
+        if (j.consume('}')) break;
+        const std::string sk = j.parse_string();
+        j.expect(':');
+        j.skip_ws();
+        if (sk == "events")
+          rep.stats.event_count =
+              static_cast<std::size_t>(j.parse_number());
+        else if (sk == "repaired_frames")
+          rep.stats.repaired_frames =
+              static_cast<std::size_t>(j.parse_number());
+        else if (sk == "repaired_samples")
+          rep.stats.repaired_samples =
+              static_cast<std::size_t>(j.parse_number());
+        else if (sk == "peak_before")
+          rep.stats.peak_before = j.parse_number();
+        else if (sk == "peak_after")
+          rep.stats.peak_after = j.parse_number();
+        else if (sk == "residual_energy")
+          rep.stats.residual_energy = j.parse_number();
+        else
+          j.skip_value();
+        j.skip_ws();
+        j.consume(',');
       }
+    } else if (key == "events") {
+      j.expect('[');
+      while (true) {
+        j.skip_ws();
+        if (!j.consume('{')) break;  // 数组结束 ']'
+        EventRepair r;
+        while (true) {
+          j.skip_ws();
+          if (j.consume('}')) break;
+          const std::string ek = j.parse_string();
+          j.expect(':');
+          j.skip_ws();
+          if (ek == "event_id")
+            r.event_id = static_cast<std::size_t>(j.parse_number());
+          else if (ek == "start_frame")
+            r.start_frame =
+                static_cast<std::size_t>(j.parse_number());
+          else if (ek == "end_frame")
+            r.end_frame =
+                static_cast<std::size_t>(j.parse_number());
+          else if (ek == "channel_mask")
+            r.channel_mask =
+                static_cast<std::uint8_t>(j.parse_number());
+          else if (ek == "repair_start")
+            r.repair_start =
+                static_cast<std::size_t>(j.parse_number());
+          else if (ek == "repair_end")
+            r.repair_end =
+                static_cast<std::size_t>(j.parse_number());
+          else if (ek == "residual_energy")
+            r.residual_energy = j.parse_number();
+          else
+            j.skip_value();
+          j.skip_ws();
+          j.consume(',');
+        }
+        rep.repairs.push_back(r);
+        j.skip_ws();
+        j.consume(',');
+      }
+      j.expect(']');  // 消费 events 数组的闭合括号
+    } else {
+      j.skip_value();  // 其它顶层键（schema/dry_run/success/warnings）
     }
+    j.skip_ws();
+    j.consume(',');
   }
   return rep;
 }

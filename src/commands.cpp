@@ -174,10 +174,91 @@ ExitCode cmd_analyze(const std::vector<std::string>& tokens) {
   return ExitCode::Ok;
 }
 
-// verify 处理器在批次 8b 接入（读取修复文件并复算残差）。
+// verify：重读原始与修复文件，核对帧数/声道/采样合法性，并复算残差。
 ExitCode cmd_verify(const std::vector<std::string>& tokens) {
-  (void)tokens;
-  std::cerr << "verify 将在批次 8b 实现\n";
+  std::string orig_path, rep_path, report_path;
+  if (!Opt::get(tokens, "--original", orig_path) ||
+      !Opt::get(tokens, "--repaired", rep_path) ||
+      !Opt::get(tokens, "--report", report_path)) {
+    std::cerr << "verify 需要 --original、--repaired、--report 三个参数\n";
+    return ExitCode::UsageOrInputError;
+  }
+
+  WavReadInfo info_o, info_r;
+  AudioBuffer original, repaired;
+  StoredReport stored;
+  try {
+    original = read_wav(orig_path, info_o);
+    repaired = read_wav(rep_path, info_r);
+    stored = read_report(report_path);
+  } catch (const WavIOError& e) {
+    std::cerr << "verify 读取失败: " << e.what() << "\n";
+    return e.write_failure() ? ExitCode::OutputFailure
+                             : ExitCode::UsageOrInputError;
+  }
+
+  std::vector<std::string> failures;
+
+  // 1. 帧数不变、声道数不变、采样率与位深保持。
+  if (repaired.frames() != original.frames())
+    failures.push_back("帧数不一致: original=" +
+                       std::to_string(original.frames()) + " repaired=" +
+                       std::to_string(repaired.frames()));
+  if (repaired.channels != original.channels)
+    failures.push_back("声道数不一致");
+  if (repaired.sample_rate != original.sample_rate)
+    failures.push_back("采样率不一致");
+  if (repaired.bits_per_sample != original.bits_per_sample)
+    failures.push_back("位深不一致");
+
+  // 2. 无非法采样：所有样本落在 [-1, 1]，且修复后不得再达满幅削波。
+  for (double s : repaired.data) {
+    if (!(s >= -1.0 && s <= 1.0)) {
+      failures.push_back("存在越界非法采样");
+      break;
+    }
+  }
+
+  // 3. 报告头字段与实际文件一致。
+  if (stored.frames != 0 && stored.frames != repaired.frames())
+    failures.push_back("报告帧数与修复文件不符");
+  if (stored.channels != 0 && stored.channels != repaired.channels)
+    failures.push_back("报告声道数与修复文件不符");
+  if (stored.repairs.size() != stored.stats.event_count &&
+      stored.stats.event_count != 0)
+    failures.push_back("报告事件数与事件数组长度不符");
+
+  // 4. 残差统计可复现：用原始/修复文件按报告窗口重新计算全局 MSE。
+  const double recomputed =
+      RepairPipeline::recompute_residual(original, repaired,
+                                         stored.repairs);
+  const double reported = stored.stats.residual_energy;
+  const double tol = std::max(1e-9, 1e-3 * std::fabs(reported));
+  if (std::fabs(recomputed - reported) > tol)
+    failures.push_back("残差不可复现: report=" +
+                       std::to_string(reported) + " recomputed=" +
+                       std::to_string(recomputed));
+
+  // 5. 对修复文件再跑一次检测：满幅削波应已消除（阈值沿用报告值）。
+  DetectorConfig dcfg;
+  dcfg.threshold = stored.threshold > 0 ? stored.threshold : 0.995;
+  ClipDetector detector(dcfg);
+  const auto remaining = detector.detect(repaired);
+  if (!remaining.empty())
+    failures.push_back("修复后仍检测到 " +
+                       std::to_string(remaining.size()) + " 个削波事件");
+
+  std::printf("verify_frames=%zu verify_channels=%u residual_report=%.9g "
+              "residual_recomputed=%.9g\n",
+              repaired.frames(),
+              static_cast<unsigned>(repaired.channels), reported,
+              recomputed);
+  if (failures.empty()) {
+    std::cout << "verify=PASS\n";
+    return ExitCode::Ok;
+  }
+  std::cout << "verify=FAIL\n";
+  for (const auto& msg : failures) std::cerr << "  - " << msg << "\n";
   return ExitCode::VerifyFailure;
 }
 
