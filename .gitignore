@@ -71,3 +71,9 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# hdrcheck 构建产物与生成的夹具/输出
+/fixtures/
+/out/
+/hdrcheck
+*.test
