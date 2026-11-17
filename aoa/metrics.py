@@ -79,11 +79,14 @@ def binaural_crosstalk_db(
     """Worst-case interaural leakage of the binaural render path.
 
     Each virtual loudspeaker is fed alone; the crosstalk is the
-    contralateral-to-ipsilateral ear-gain ratio. Set by the synthetic
-    head-shadow curve (worst at +-90 deg azimuth).
+    contralateral-to-ipsilateral ear-gain ratio. Loudspeakers on the
+    front/back symmetry axis feed both ears equally and are excluded.
+    Set by the synthetic head-shadow curve (worst at +-45/+-90 deg).
     """
     worst = -120.0
     for gl, gr in zip(left_gains, right_gains):
+        if abs(gl - gr) < 1e-9:  # symmetry axis: no contralateral side
+            continue
         ipsi, contra = max(gl, gr), min(gl, gr)
         if ipsi > 0.0:
             worst = max(worst, 20.0 * math.log10(max(contra, _EPS) / ipsi))
@@ -96,7 +99,7 @@ def interaural_leakage_db(
     """Per-source contralateral leakage of a rendered binaural pair."""
     li = float(np.sqrt(np.mean(np.asarray(left) ** 2)))
     ri = float(np.sqrt(np.mean(np.asarray(right) ** 2)))
-    if azimuth_deg == 0.0:
+    if abs(math.sin(math.radians(azimuth_deg))) < 1e-9:  # front/back: symmetric
         return 0.0
     ipsi, contra = (li, ri) if azimuth_deg > 0.0 else (ri, li)
     if ipsi <= 0.0:
