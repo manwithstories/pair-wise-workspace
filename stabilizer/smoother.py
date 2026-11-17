@@ -35,9 +35,24 @@ def _smooth_onesided(signal: np.ndarray, kernel: np.ndarray) -> np.ndarray:
     return out
 
 
+def detrend(signal: np.ndarray, poly_deg: int = 2,
+            window: int = 31) -> tuple[np.ndarray, np.ndarray]:
+    """Split signal into (trend, residual): low-order polynomial plus a
+    heavy one-sided Gaussian on the remainder. Boundary-safe: the
+    polynomial absorbs ramps, so the one-sided window never lags."""
+    n = len(signal)
+    t = np.arange(n, dtype=np.float64)
+    coeffs = np.polyfit(t, signal, min(poly_deg, max(n - 1, 0)))
+    poly = np.polyval(coeffs, t)
+    rest = signal - poly
+    kernel = _gaussian_kernel(min(window, max(3, n // 2 * 2 + 1)))
+    trend = poly + _smooth_onesided(rest, kernel)
+    return trend, signal - trend
+
+
 def smooth_path(poses: list[np.ndarray], frame_shape: tuple[int, int],
                 max_crop: float = 0.18, max_correction: float | None = None,
-                max_accel: float = 6.0, window: int = 15,
+                max_accel: float = 6.0, window: int = 21,
                 iterations: int = 4):
     """Constrained smoothing. Returns (smoothed_poses, info)."""
     n = len(poses)
@@ -46,36 +61,39 @@ def smooth_path(poses: list[np.ndarray], frame_shape: tuple[int, int],
         max_correction = max_crop * min(h, w)
     raw = np.array([pose_params(p) for p in poses])  # (N, 3): tx, ty, th
     kernel = _gaussian_kernel(window)
-    scales = np.array([1.0, 1.0, min(h, w)])  # theta limits in px-equiv
     max_corr = np.array([max_correction, max_correction,
                          max_correction / min(h, w)])
     max_acc = np.array([max_accel, max_accel,
                         max_accel / min(h, w)])
-    smoothed = raw.copy()
+    # detrend: intentional motion (pan/drift) is preserved exactly;
+    # only the residual (jitter) is smoothed, with one-sided windows
+    trends = np.zeros_like(raw)
+    resid = np.zeros_like(raw)
+    for ch in range(3):
+        trends[:, ch], resid[:, ch] = detrend(raw[:, ch])
+    sm_resid = resid.copy()
     for _ in range(iterations):
         for ch in range(3):
-            smoothed[:, ch] = _smooth_onesided(smoothed[:, ch], kernel)
-        # correction clamp (crop budget)
-        corr = (smoothed - raw) * scales
-        excess = np.abs(corr) - max_corr * scales
-        for ch in range(3):
-            over = excess[:, ch] > 0
-            smoothed[over, ch] = raw[over, ch] + np.sign(
-                smoothed[over, ch] - raw[over, ch]) * max_corr[ch]
-        # acceleration clamp (limit 2nd difference)
+            sm_resid[:, ch] = _smooth_onesided(sm_resid[:, ch], kernel)
+        # acceleration clamp on the smoothed residual
         for ch in range(3):
             acc = np.zeros(n)
-            acc[1:-1] = smoothed[2:, ch] - 2 * smoothed[1:-1, ch] \
-                + smoothed[:-2, ch]
-            too = np.abs(acc) > max_acc[ch]
-            if too.any():
-                idx = np.where(too)[0]
-                idx = idx[(idx > 0) & (idx < n - 1)]
-                smoothed[idx, ch] = 0.5 * (smoothed[idx - 1, ch]
-                                           + smoothed[idx + 1, ch]
-                                           + np.sign(acc[idx])
-                                           * max_acc[ch] * 0.5)
-    corrections = np.abs((smoothed - raw) * scales)
+            acc[1:-1] = sm_resid[2:, ch] - 2 * sm_resid[1:-1, ch] \
+                + sm_resid[:-2, ch]
+            idx = np.where(np.abs(acc) > max_acc[ch])[0]
+            idx = idx[(idx > 0) & (idx < n - 1)]
+            if len(idx):
+                sm_resid[idx, ch] = 0.5 * (
+                    sm_resid[idx - 1, ch] + sm_resid[idx + 1, ch]
+                    - np.sign(acc[idx]) * max_acc[ch])
+        # correction clamp (crop budget) — last, so it always holds
+        for ch in range(3):
+            corr = sm_resid[:, ch] - resid[:, ch]
+            over = np.abs(corr) > max_corr[ch]
+            sm_resid[over, ch] = resid[over, ch] + np.sign(
+                corr[over]) * max_corr[ch]
+    smoothed = trends + sm_resid
+    corrections = np.abs((smoothed - raw) * np.array([1.0, 1.0, min(h, w)]))
     max_seen = float(corrections[:, :2].max()) if n else 0.0
     info = {
         "max_correction_px": max_seen,
