@@ -201,7 +201,8 @@ def sanitize_transforms(transforms: list[np.ndarray],
     return cleaned, failures
 
 
-def compose_path(transforms: list[np.ndarray]) -> list[np.ndarray]:    """Cumulative 3x3 poses; T_k maps frame k-1 coords into frame k."""
+def compose_path(transforms: list[np.ndarray]) -> list[np.ndarray]:
+    """Cumulative 3x3 poses; T_k maps frame k-1 coords into frame k."""
     poses = [np.eye(3)]
     for t in transforms:
         t3 = np.eye(3)
