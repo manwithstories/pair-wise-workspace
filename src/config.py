@@ -46,6 +46,10 @@ class NumericConstraintError(RuntimeError):
     """NaN/Inf or other numeric constraint violated (maps to exit code 3)."""
 
 
+class PathMismatchError(RuntimeError):
+    """Offline/streaming disagreement or wrong tail length (exit code 4)."""
+
+
 class StreamBlockError(RuntimeError):
     """A streaming block failed; writing must stop (maps to exit code 3).
 

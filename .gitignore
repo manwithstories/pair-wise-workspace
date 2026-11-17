@@ -71,3 +71,14 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Python 构建缓存与本项目生成产物（不纳入交付）----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+.venv/
+venv/
+artifacts/

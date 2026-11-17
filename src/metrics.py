@@ -12,6 +12,7 @@ import numpy as np
 from .config import (
     NumericConstraintError,
     PATH_MAX_ABS_ERROR_TOLERANCE,
+    PathMismatchError,
 )
 
 
@@ -48,7 +49,7 @@ def output_length(output: np.ndarray) -> int:
 def path_max_abs_error(offline: np.ndarray, streaming: np.ndarray) -> float:
     """Maximum absolute sample difference between the two render paths."""
     if offline.shape != streaming.shape:
-        raise NumericConstraintError(
+        raise PathMismatchError(
             f"path shape mismatch: offline {offline.shape} vs "
             f"streaming {streaming.shape}"
         )
@@ -90,7 +91,7 @@ def assert_path_agreement(offline: np.ndarray, streaming: np.ndarray,
     """Raise unless the two paths agree within the shared tolerance."""
     err = path_max_abs_error(offline, streaming)
     if not math.isfinite(err) or err > tolerance:
-        raise NumericConstraintError(
+        raise PathMismatchError(
             f"offline/streaming max abs error {err:.3e} exceeds "
             f"tolerance {tolerance:.0e}"
         )
