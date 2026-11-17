@@ -17,24 +17,36 @@ MIN_INLIERS = 6
 
 def estimate_affine(src: np.ndarray, dst: np.ndarray,
                     w: np.ndarray | None = None) -> np.ndarray:
-    """Weighted least-squares 2x3 affine mapping src -> dst."""
+    """Weighted least-squares 2x3 affine mapping src -> dst.
+
+    Solved in centroid-centered coordinates so the translation is not
+    corrupted by rotation/scale lever-arm effects at the image corner.
+    """
     n = len(src)
     if n < 3:
         raise NumericalError("need >=3 points for affine fit",
                              {"points": n})
-    x, y = src[:, 0], src[:, 1]
+    if w is None:
+        w = np.ones(n)
+    wsum = w.sum()
+    if wsum <= 0:
+        raise NumericalError("degenerate weights", {"points": n})
+    cs = (src * w[:, None]).sum(0) / wsum
+    cd = (dst * w[:, None]).sum(0) / wsum
+    xs = src - cs
+    xd = dst - cd
+    x, y = xs[:, 0], xs[:, 1]
     a = np.zeros((2 * n, 6))
     a[0::2] = np.stack([x, y, np.ones(n), np.zeros(n), np.zeros(n),
                         np.zeros(n)], axis=1)
     a[1::2] = np.stack([np.zeros(n), np.zeros(n), np.zeros(n), x, y,
                         np.ones(n)], axis=1)
     b = np.empty(2 * n)
-    b[0::2] = dst[:, 0]
-    b[1::2] = dst[:, 1]
-    if w is not None:
-        sw = np.sqrt(np.repeat(w, 2))[:, None]
-        a = a * sw
-        b = b * sw[:, 0]
+    b[0::2] = xd[:, 0]
+    b[1::2] = xd[:, 1]
+    sw = np.sqrt(np.repeat(w, 2))[:, None]
+    a = a * sw
+    b = b * sw[:, 0]
     try:
         sol, *_ = np.linalg.lstsq(a, b, rcond=None)
     except np.linalg.LinAlgError as exc:
@@ -42,7 +54,10 @@ def estimate_affine(src: np.ndarray, dst: np.ndarray,
                              {"points": n}) from exc
     if not np.isfinite(sol).all():
         raise NumericalError("non-finite affine solution", {"points": n})
-    return sol.reshape(2, 3)
+    m = sol.reshape(2, 3)
+    # translation back in original coordinates: t = cd - A @ cs + t_c
+    m[:, 2] = cd - m[:, :2] @ cs + m[:, 2]
+    return m
 
 
 def robust_affine(src: np.ndarray, dst: np.ndarray, iters: int = 6,
@@ -161,8 +176,8 @@ def band_translations(src: np.ndarray, dst: np.ndarray, m: np.ndarray,
 
 def sanitize_transforms(transforms: list[np.ndarray],
                         residuals: list[float], max_rms: float = 3.0,
-                        max_rot_deg: float = 2.5,
-                        max_scale_dev: float = 0.05, window: int = 5):
+                        max_rot_deg: float = 4.0,
+                        max_scale_dev: float = 0.08, window: int = 5):
     """Flag geometrically implausible pairs and repair them.
 
     A pair whose robust fit still shows high RMS, wild rotation or zoom
@@ -199,6 +214,27 @@ def sanitize_transforms(transforms: list[np.ndarray],
         cleaned[i] = np.array([[c * ref[3], -s * ref[3], ref[0]],
                                [s * ref[3], c * ref[3], ref[1]]])
     return cleaned, failures
+
+
+def interpolate_path(poses: list[np.ndarray], bad_pairs: list[int]):
+    """Linearly interpolate the cumulative path across failed pairs.
+
+    Pair index i (0-based) maps to pose index i+1. Replacing a failed
+    pair's transform with a neighbor median leaves a permanent step in
+    the cumulative path; interpolating the path itself avoids that.
+    """
+    n = len(poses)
+    bad = sorted({min(max(i + 1, 1), n - 1) for i in bad_pairs})
+    if not bad:
+        return poses
+    params = np.array([pose_params(p) for p in poses])
+    good = np.ones(n, dtype=bool)
+    good[bad] = False
+    idx = np.arange(n)
+    out = params.copy()
+    for ch in range(3):
+        out[:, ch] = np.interp(idx, idx[good], params[good, ch])
+    return [params_pose(*out[i]) for i in range(n)]
 
 
 def compose_path(transforms: list[np.ndarray]) -> list[np.ndarray]:
