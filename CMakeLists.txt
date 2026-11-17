@@ -18,20 +18,25 @@ else()
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
+# ---- 共享静态库（主程序与测试复用同一份实现）---------------------------
+add_library(popfix_core STATIC
+  src/wav_io.cpp
+)
+target_include_directories(popfix_core PUBLIC src)
+find_package(Threads REQUIRED)
+target_link_libraries(popfix_core PUBLIC Threads::Threads)
+
 # ---- 主程序 ------------------------------------------------------------
 add_executable(popfix
   src/main.cpp
 )
-target_include_directories(popfix PRIVATE src)
-find_package(Threads REQUIRED)
-target_link_libraries(popfix PRIVATE Threads::Threads)
+target_link_libraries(popfix PRIVATE popfix_core)
 
 # ---- 测试 --------------------------------------------------------------
 if(POPFIX_ENABLE_TESTS)
   enable_testing()
   add_executable(test_popfix tests/test_detector.cpp)
-  target_include_directories(test_popfix PRIVATE src)
-  target_link_libraries(test_popfix PRIVATE Threads::Threads)
+  target_link_libraries(test_popfix PRIVATE popfix_core)
   add_test(NAME popfix_unit_tests COMMAND test_popfix)
 endif()
 
