@@ -1,0 +1,395 @@
+{
+  "schema": "hdrcheck-report/v1",
+  "input": {
+    "name": "hdr-mixed.garc",
+    "size_bytes": 393,
+    "sha256": "24e3df2dd8d997b7bbd3cfb84902347808b6b4c407c6350203b84e058e2f608f"
+  },
+  "summary": {
+    "video_track_count": 3,
+    "conflict_count": 1,
+    "missing_count": 1,
+    "error_count": 0,
+    "warning_count": 2,
+    "input_sha256": "24e3df2dd8d997b7bbd3cfb84902347808b6b4c407c6350203b84e058e2f608f",
+    "input_bytes": 393
+  },
+  "tracks": [
+    {
+      "track_id": 1,
+      "hdr_flag": true,
+      "mastering_display": {
+        "present": true,
+        "source": "container",
+        "status": "ok",
+        "value": {
+          "present": true,
+          "source": "container",
+          "display_primaries": [
+            [
+              35400,
+              14600
+            ],
+            [
+              8500,
+              39850
+            ],
+            [
+              6550,
+              2300
+            ],
+            [
+              35400,
+              14600
+            ],
+            [
+              8500,
+              39850
+            ],
+            [
+              6550,
+              2300
+            ]
+          ],
+          "white_point": [
+            15635,
+            16450
+          ],
+          "min_display_mastering_luminance": 50,
+          "max_display_mastering_luminance": 10000000,
+          "provenance": {
+            "offset": 173
+          }
+        },
+        "container_value": {
+          "present": true,
+          "source": "container",
+          "display_primaries": [
+            [
+              35400,
+              14600
+            ],
+            [
+              8500,
+              39850
+            ],
+            [
+              6550,
+              2300
+            ],
+            [
+              35400,
+              14600
+            ],
+            [
+              8500,
+              39850
+            ],
+            [
+              6550,
+              2300
+            ]
+          ],
+          "white_point": [
+            15635,
+            16450
+          ],
+          "min_display_mastering_luminance": 50,
+          "max_display_mastering_luminance": 10000000,
+          "provenance": {
+            "offset": 173
+          }
+        },
+        "sei_values": [
+          {
+            "present": true,
+            "source": "sei",
+            "display_primaries": [
+              [
+                35400,
+                14600
+              ],
+              [
+                8500,
+                39850
+              ],
+              [
+                6550,
+                2300
+              ],
+              [
+                35400,
+                14600
+              ],
+              [
+                8500,
+                39850
+              ],
+              [
+                6550,
+                2300
+              ]
+            ],
+            "white_point": [
+              15635,
+              16450
+            ],
+            "min_display_mastering_luminance": 50,
+            "max_display_mastering_luminance": 10000000,
+            "provenance": {
+              "offset": 243,
+              "track_id": 1,
+              "time_end_ms": 5000
+            }
+          }
+        ]
+      },
+      "max_content_light_level": {
+        "present": true,
+        "nits": 1000,
+        "source": "container",
+        "status": "ok",
+        "container_value": 1000,
+        "sei_values": [
+          {
+            "nits": 1000,
+            "provenance": {
+              "offset": 301,
+              "track_id": 1,
+              "seq_num": 1,
+              "time_start_ms": 5000,
+              "time_end_ms": 10000
+            }
+          }
+        ]
+      },
+      "max_frame_average_light_level": {
+        "present": true,
+        "nits": 400,
+        "source": "container",
+        "status": "ok",
+        "container_value": 400,
+        "sei_values": [
+          {
+            "nits": 400,
+            "provenance": {
+              "offset": 303,
+              "track_id": 1,
+              "seq_num": 1,
+              "time_start_ms": 5000,
+              "time_end_ms": 10000
+            }
+          }
+        ]
+      },
+      "issues": null
+    },
+    {
+      "track_id": 2,
+      "hdr_flag": true,
+      "mastering_display": {
+        "present": true,
+        "source": "container",
+        "status": "ok",
+        "value": {
+          "present": true,
+          "source": "container",
+          "display_primaries": [
+            [
+              35400,
+              14600
+            ],
+            [
+              8500,
+              39850
+            ],
+            [
+              6550,
+              2300
+            ],
+            [
+              35400,
+              14600
+            ],
+            [
+              8500,
+              39850
+            ],
+            [
+              6550,
+              2300
+            ]
+          ],
+          "white_point": [
+            15635,
+            16450
+          ],
+          "min_display_mastering_luminance": 50,
+          "max_display_mastering_luminance": 10000000,
+          "provenance": {
+            "offset": 173
+          }
+        },
+        "container_value": {
+          "present": true,
+          "source": "container",
+          "display_primaries": [
+            [
+              35400,
+              14600
+            ],
+            [
+              8500,
+              39850
+            ],
+            [
+              6550,
+              2300
+            ],
+            [
+              35400,
+              14600
+            ],
+            [
+              8500,
+              39850
+            ],
+            [
+              6550,
+              2300
+            ]
+          ],
+          "white_point": [
+            15635,
+            16450
+          ],
+          "min_display_mastering_luminance": 50,
+          "max_display_mastering_luminance": 10000000,
+          "provenance": {
+            "offset": 173
+          }
+        },
+        "sei_values": [
+          {
+            "present": true,
+            "source": "sei",
+            "display_primaries": [
+              [
+                35400,
+                14600
+              ],
+              [
+                8500,
+                39850
+              ],
+              [
+                6550,
+                2300
+              ],
+              [
+                35400,
+                14600
+              ],
+              [
+                8500,
+                39850
+              ],
+              [
+                6550,
+                2300
+              ]
+            ],
+            "white_point": [
+              15635,
+              16450
+            ],
+            "min_display_mastering_luminance": 50,
+            "max_display_mastering_luminance": 10000000,
+            "provenance": {
+              "offset": 327,
+              "track_id": 2,
+              "time_end_ms": 5000
+            }
+          }
+        ]
+      },
+      "max_content_light_level": {
+        "present": true,
+        "nits": 1000,
+        "source": "container",
+        "status": "ok",
+        "container_value": 1000,
+        "sei_values": [
+          {
+            "nits": 1000,
+            "provenance": {
+              "offset": 385,
+              "track_id": 2,
+              "seq_num": 1,
+              "time_start_ms": 5000,
+              "time_end_ms": 10000
+            }
+          }
+        ]
+      },
+      "max_frame_average_light_level": {
+        "present": true,
+        "nits": 400,
+        "source": "container",
+        "status": "conflict",
+        "container_value": 400,
+        "sei_values": [
+          {
+            "nits": 250,
+            "provenance": {
+              "offset": 387,
+              "track_id": 2,
+              "seq_num": 1,
+              "time_start_ms": 5000,
+              "time_end_ms": 10000
+            }
+          }
+        ]
+      },
+      "issues": [
+        {
+          "code": "FIELD_CONFLICT",
+          "severity": "warning",
+          "track_id": 2,
+          "offset": 0,
+          "message": "MaxFALL differs: container=400 nits vs SEI=250 nits (seq 1)"
+        }
+      ]
+    },
+    {
+      "track_id": 3,
+      "hdr_flag": false,
+      "mastering_display": {
+        "present": false,
+        "source": "missing",
+        "status": "missing"
+      },
+      "max_content_light_level": {
+        "present": false,
+        "source": "missing",
+        "status": "missing"
+      },
+      "max_frame_average_light_level": {
+        "present": false,
+        "source": "missing",
+        "status": "missing"
+      },
+      "issues": [
+        {
+          "code": "HDR_FLAG_MISSING",
+          "severity": "warning",
+          "track_id": 3,
+          "offset": 0,
+          "message": "video track does not declare the HDR marker and carries no SEI",
+          "hint": "re-export with the HDR flag set, or route the track as SDR"
+        }
+      ]
+    }
+  ],
+  "global_issues": []
+}

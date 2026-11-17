@@ -72,11 +72,11 @@
 
 标签：
 
-- `0x0001` MASTERING_DISPLAY，payload 固定 24 字节：
-  - display_primaries: 6 × uint16（RGB 三色 x/y），单位 0.0001 坐标
-  - white_point: 2 × uint16，单位 0.0001 坐标
-  - min_display_mastering_luminance: uint32，单位 0.0001 nit
-  - max_display_mastering_luminance: uint32，单位 0.0001 nit
+- `0x0001` MASTERING_DISPLAY，payload 固定 36 字节：
+  - display_primaries: 6 × uint16（RGB 三色 x/y，每色 4 字节，共 24）
+  - white_point: 2 × uint16，单位 0.0001 坐标（4 字节）
+  - min_display_mastering_luminance: uint32，单位 0.0001 nit（4 字节）
+  - max_display_mastering_luminance: uint32，单位 0.0001 nit（4 字节）
 - `0x0002` CONTENT_LIGHT_LEVEL，payload 固定 4 字节：
   - max_content_light_level: uint16（nits）
   - max_frame_average_light_level: uint16（nits）
@@ -104,7 +104,7 @@ SEI 区由若干记录顺序拼接，每条记录：
 
 Payload（紧凑、无对齐填充）：
 
-- type 1：6×uint16 原色 + 2×uint16 白点 + uint32 min + uint32 max = 24B
+- type 1：6×uint16 原色 + 2×uint16 白点 + uint32 min + uint32 max = 36B
 - type 2：uint16 max_cll + uint16 max_fall = 4B
 - 未知 payload_type：UNKNOWN_FIELD，跳过该记录。
 - crc 不符：CHECKSUM_ERROR，该记录字段全部丢弃（不参与合并）。

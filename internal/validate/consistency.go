@@ -162,7 +162,7 @@ func mergeMastering(c *hdr.ContainerMetadata, recs []hdr.SEIRecord, trackID uint
 		for i := range mf.SEIValues {
 			if !hdr.EqualMastering(*cVal, mf.SEIValues[i]) {
 				mf.Status = StatusConflict
-				issues = append(issues, fieldIssue(trackID, CodeFieldConflict, fmt.Sprintf(
+				issues = append(issues, fieldIssue(trackID, mf.SEIValues[i].Provenance.Offset, CodeFieldConflict, fmt.Sprintf(
 					"mastering display differs: container vs SEI seq %d at offset %d",
 					mf.SEIValues[i].Provenance.SeqNum, mf.SEIValues[i].Provenance.Offset)))
 			}
@@ -174,7 +174,7 @@ func mergeMastering(c *hdr.ContainerMetadata, recs []hdr.SEIRecord, trackID uint
 		mf.Present, mf.Source, mf.Value, mf.Status = true, hdr.SourceSEI, &v, StatusInherited
 	default:
 		mf.Status = StatusMissing
-		issues = append(issues, fieldIssue(trackID, CodeFieldMissing,
+		issues = append(issues, fieldIssue(trackID, 0, CodeFieldMissing,
 			"mastering display missing from both container and SEI"))
 	}
 	return mf, issues
@@ -214,7 +214,7 @@ func mergeScalar(c *hdr.ContainerMetadata, recs []hdr.SEIRecord, trackID uint32,
 		for _, sv := range sf.SEIValues {
 			if sv.Nits != *cVal {
 				sf.Status = StatusConflict
-				issues = append(issues, fieldIssue(trackID, CodeFieldConflict, fmt.Sprintf(
+				issues = append(issues, fieldIssue(trackID, sv.Provenance.Offset, CodeFieldConflict, fmt.Sprintf(
 					"%s differs: container=%d nits vs SEI=%d nits (seq %d)",
 					field, *cVal, sv.Nits, sv.Provenance.SeqNum)))
 			}
@@ -228,7 +228,7 @@ func mergeScalar(c *hdr.ContainerMetadata, recs []hdr.SEIRecord, trackID uint32,
 		sf.Provenance = &p
 	default:
 		sf.Status = StatusMissing
-		issues = append(issues, fieldIssue(trackID, CodeFieldMissing,
+		issues = append(issues, fieldIssue(trackID, 0, CodeFieldMissing,
 			fmt.Sprintf("%s missing from both container and SEI", field)))
 	}
 	return sf, issues
@@ -328,8 +328,8 @@ func (r *Report) collectCounts() {
 
 // --- 小工具 ---
 
-func fieldIssue(trackID uint32, code, msg string) hdr.Issue {
-	return hdr.Issue{Code: code, Severity: hdr.SeverityWarning, TrackID: trackID, Message: msg}
+func fieldIssue(trackID uint32, off int64, code, msg string) hdr.Issue {
+	return hdr.Issue{Code: code, Severity: hdr.SeverityWarning, TrackID: trackID, Offset: off, Message: msg}
 }
 
 func missingMastering() MasteringField {

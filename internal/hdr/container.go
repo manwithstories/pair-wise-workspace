@@ -15,7 +15,7 @@ const (
 )
 
 const (
-	masteringPayloadLen = 24
+	masteringPayloadLen = 36
 	cllPayloadLen       = 4
 	tlvHeaderLen        = 8 // tag u16 + length u16 + ... + crc u32
 )

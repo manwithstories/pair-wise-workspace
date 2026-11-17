@@ -74,7 +74,7 @@ func (b *Builder) AddVideoTrack(id uint32, hdrFlag bool, seiCount uint32) {
 
 // AddMasteringTLV 写入母版显示 TLV（坐标 1e-4，亮度 1e-4 nit）。
 func (b *Builder) AddMasteringTLV(m hdr.MasteringDisplay) {
-	p := make([]byte, 24)
+	p := make([]byte, 36)
 	for i := 0; i < 6; i++ {
 		b.order.PutUint16(p[i*4:], m.DisplayPrimaries[i][0])
 		b.order.PutUint16(p[i*4+2:], m.DisplayPrimaries[i][1])
@@ -112,7 +112,7 @@ func (b *Builder) AddSEICLL(trackID, seq, tStart, tEnd uint32, maxCLL, maxFALL u
 
 // AddSEIMastering 写入一条 mastering-display SEI 记录。
 func (b *Builder) AddSEIMastering(trackID, seq, tStart, tEnd uint32, m hdr.MasteringDisplay) {
-	p := make([]byte, 24)
+	p := make([]byte, 36)
 	for i := 0; i < 6; i++ {
 		b.order.PutUint16(p[i*4:], m.DisplayPrimaries[i][0])
 		b.order.PutUint16(p[i*4+2:], m.DisplayPrimaries[i][1])
