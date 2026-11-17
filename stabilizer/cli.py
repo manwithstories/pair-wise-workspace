@@ -27,7 +27,6 @@ from .synthetic import generate_sequence
 from .tracker import FeatureTracker
 
 MIN_ACTIVE_POINTS = 20
-_IDENT_2x3 = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
 
 
 def run_pipeline(frames: np.ndarray, min_points: int = MIN_ACTIVE_POINTS,
@@ -45,6 +44,7 @@ def run_pipeline(frames: np.ndarray, min_points: int = MIN_ACTIVE_POINTS,
              "required": min_points})
 
     n_rows = frames.shape[1]
+    ident = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
     # pass 1: per-pair euclidean fits for RS slope/velocity estimation
     cache: dict[int, tuple] = {}
     slopes, velocities, vel_pairs = [], [], []
@@ -111,7 +111,7 @@ def run_pipeline(frames: np.ndarray, min_points: int = MIN_ACTIVE_POINTS,
             except InsufficientTracksError:
                 pair_failures.append({"pair": k - 1, "reason": "affine fit"})
         if m is None:  # failed pair: keep sequence alive, flag it
-            m = prev_t if prev_t is not None else np.array(_IDENT_2x3)
+            m = prev_t if prev_t is not None else ident
             if not any(f["pair"] == k - 1 for f in pair_failures):
                 pair_failures.append({"pair": k - 1, "reason": "no matches"})
         transforms.append(m)
