@@ -159,6 +159,16 @@ AudioBuffer read_wav(const std::string& path, WavReadInfo& info) {
   const std::uint32_t frame_bytes = bytes_per_sample * channels;
   if (frame_bytes == 0) throw WavIOError("块长度非法", false);
 
+  // 先按头部"声明"的帧数做内存上限检查，再校验实际字节是否截断：
+  // 这样畸形大帧数头部即使数据不全，也会在任何分配尝试前被拒绝。
+  const std::size_t declared_frames = data_size / frame_bytes;
+  if (declared_frames > kMaxFrames) {
+    throw WavIOError("帧数超过安全上限 " + std::to_string(kMaxFrames) +
+                         "（声明 " + std::to_string(declared_frames) +
+                         " 帧），拒绝分配内存",
+                     false);
+  }
+
   const std::size_t available = bytes.size() - data_pos;
   if (data_size > available) {
     info.truncated = true;
@@ -169,11 +179,6 @@ AudioBuffer read_wav(const std::string& path, WavReadInfo& info) {
   }
   const std::size_t frames = data_size / frame_bytes;
   if (frames == 0) throw WavIOError("空音频：data 块无完整帧", false);
-  if (frames > kMaxFrames) {
-    throw WavIOError("帧数超过安全上限 " + std::to_string(kMaxFrames) +
-                         "，拒绝分配内存",
-                     false);
-  }
 
   AudioBuffer audio;
   audio.sample_rate = rate;
