@@ -189,15 +189,21 @@ def _match_level(prev, curr, templ_pts, centers, search_r, patch_r):
 
 
 def track_points(prev_img, curr_img, points, levels: int = 3,
-                 search_r: int = 4, patch_r: int = 4):
+                 search_r: int = 4, patch_r: int = 4,
+                 predict: np.ndarray | None = None):
     """Coarse-to-fine pyramidal matching of (N,2) (x, y) points.
 
+    `predict` is an optional (2,) or (N,2) displacement guess (e.g. the
+    previous frame's median motion) used to center the coarsest search.
     Returns (new_xy, confidence, match_residual, valid).
     """
     points = np.asarray(points, dtype=np.float64)
     if len(points) == 0:
         z = np.zeros(0)
         return points.copy(), z, z, np.zeros(0, dtype=bool)
+    if predict is None:
+        predict = np.zeros(2)
+    predict = np.asarray(predict, dtype=np.float64)
     prev_pyr = build_pyramid(prev_img, levels)
     curr_pyr = build_pyramid(curr_img, levels)
     scale = 2.0 ** (levels - 1)
@@ -206,6 +212,17 @@ def track_points(prev_img, curr_img, points, levels: int = 3,
     new, conf, resid, valid = _match_level(
         prev_pyr[-1], curr_pyr[-1], templ, centers,
         2 * search_r + 2, patch_r)
+    if np.any(predict):
+        # dual hypothesis: constant-velocity prediction vs. no prediction;
+        # keep whichever explains the frame better (jitter can make the
+        # prediction itself wrong by tens of pixels)
+        new_p, conf_p, resid_p, valid_p = _match_level(
+            prev_pyr[-1], curr_pyr[-1], templ,
+            (points + predict) / scale, 2 * search_r + 2, patch_r)
+        score = np.median(resid[valid]) if valid.any() else np.inf
+        score_p = np.median(resid_p[valid_p]) if valid_p.any() else np.inf
+        if score_p < score:
+            new, conf, resid, valid = new_p, conf_p, resid_p, valid_p
     for lvl in range(levels - 2, -1, -1):
         templ = points / (2.0 ** lvl)
         centers = new * 2.0

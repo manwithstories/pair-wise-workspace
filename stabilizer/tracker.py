@@ -52,7 +52,7 @@ class FeatureTracker:
                  max_lost: int = 3, redetect_below: int = 60,
                  conf_min: float = 0.02, resid_max: float = 40.0,
                  detect_min_dist: int = 8, levels: int = 3,
-                 search_r: int = 4, patch_r: int = 4):
+                 search_r: int = 4, patch_r: int = 5):
         self.max_points = max_points
         self.min_points = min_points
         self.max_lost = max_lost
@@ -91,6 +91,7 @@ class FeatureTracker:
         result = TrackResult(n)
         active: dict[int, dict] = {}
         next_id = 0
+        predict = np.zeros(2)  # constant-velocity motion prediction
         next_id, _ = self._spawn(frames[0], active, next_id, result, 0)
         self._record(result, active)
         for k in range(1, n):
@@ -99,7 +100,11 @@ class FeatureTracker:
                 pts = np.array([active[i]["xy"] for i in ids])
                 new, conf, resid, valid = track_points(
                     frames[k - 1], frames[k], pts, levels=self.levels,
-                    search_r=self.search_r, patch_r=self.patch_r)
+                    search_r=self.search_r, patch_r=self.patch_r,
+                    predict=predict)
+                ok_mask = valid & (conf >= self.conf_min) & (resid <= self.resid_max)
+                if ok_mask.sum() >= 8:  # update prediction from inliers
+                    predict = np.median((new - pts)[ok_mask], axis=0)
                 for j, tid in enumerate(ids):
                     tr = active[tid]
                     ok = (valid[j] and conf[j] >= self.conf_min
@@ -126,11 +131,15 @@ class FeatureTracker:
 
     @staticmethod
     def _record(result, active):
-        ids = np.array(sorted(active.keys()), dtype=int)
-        xy = np.array([active[i]["xy"] for i in ids]) \
+        # Only points matched on THIS frame (lost == 0) are recorded;
+        # a lost point keeps its stale position and must never enter a
+        # correspondence (it would fake a zero-displacement measurement).
+        visible = {i: a for i, a in active.items() if a["lost"] == 0}
+        ids = np.array(sorted(visible.keys()), dtype=int)
+        xy = np.array([visible[i]["xy"] for i in ids]) \
             if len(ids) else np.zeros((0, 2))
-        conf = np.array([active[i]["conf"][-1] if active[i]["conf"] else 1.0
+        conf = np.array([visible[i]["conf"][-1] if visible[i]["conf"] else 1.0
                          for i in ids]) if len(ids) else np.zeros(0)
-        resid = np.array([active[i]["resid"][-1] if active[i]["resid"] else 0.0
+        resid = np.array([visible[i]["resid"][-1] if visible[i]["resid"] else 0.0
                           for i in ids]) if len(ids) else np.zeros(0)
         result.add_frame(ids, xy, conf, resid)

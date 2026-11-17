@@ -39,6 +39,11 @@ def make_world(width: int, height: int,
         xs = np.linspace(x0, x1, n).astype(int)
         ys = np.linspace(y0, y1, n).astype(int)
         world[ys, xs] = val
+    for _ in range(max(10, width // 80)):  # unique blocks (buildings/rocks)
+        bw, bh = int(rng.integers(8, 40)), int(rng.integers(6, 30))
+        bx, by = int(rng.integers(0, width - bw)), int(rng.integers(0, height - bh))
+        world[by:by + bh, bx:bx + bw] = rng.uniform(0.1, 0.95)
+        world[by:by + 2, bx:bx + bw] = rng.uniform(0.0, 1.0)  # distinct rim
     lo, hi = world.min(), world.max()
     return (world - lo) / max(hi - lo, 1e-9)
 
