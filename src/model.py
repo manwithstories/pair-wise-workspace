@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from fractions import Fraction
-from typing import FrozenSet, Mapping, Optional, Sequence, Tuple
+from typing import Mapping, Optional, Sequence, Tuple
 
 
 @dataclass(frozen=True)
@@ -116,7 +116,11 @@ class ExchangeDoc:
         return {s.sequence_id: s for s in self.sequences}
 
     def root_sequences(self) -> Sequence[Sequence]:
-        """未被任何片段引用的序列即顶层序列。"""
+        """顶层序列：未被任何片段引用者。
+
+        若所有序列都被引用（纯循环图），退化为声明顺序的第一个序列，
+        保证循环引用仍有遍历入口、可被时间线展开检测并剪枝。
+        """
         referenced = {
             c.seq_ref
             for seq in self.sequences
@@ -124,7 +128,10 @@ class ExchangeDoc:
             for c in tr.clips
             if c.seq_ref is not None
         }
-        return tuple(s for s in self.sequences if s.sequence_id not in referenced)
+        roots = tuple(s for s in self.sequences if s.sequence_id not in referenced)
+        if roots:
+            return roots
+        return self.sequences[:1]
 
 
 @dataclass(frozen=True)

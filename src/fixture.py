@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import List, Tuple
+from typing import Tuple
 
 from .model import FP_CHUNK
 

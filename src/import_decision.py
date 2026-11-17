@@ -8,12 +8,12 @@ from __future__ import annotations
 
 from pathlib import Path
 from fractions import Fraction
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 from .errors import FormatError
 from .format_parser import (
     Block, child_blocks, parse_blocks, parse_file, parse_fraction,
-    parse_int, parse_timecode, require_field,
+    parse_timecode, require_field,
 )
 from .model import Clip, ExchangeDoc, Sequence, SpeedSegment, TimeBase, Track
 

@@ -6,15 +6,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from fractions import Fraction
-from typing import Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Dict, List, Sequence, Tuple
 
 from .model import (
-    AMBIGUOUS, ERROR, WARNING, Asset, ConformEntry, ExchangeDoc, Issue,
+    AMBIGUOUS, ERROR, WARNING, ConformEntry, ExchangeDoc, Issue,
     LeafClip, LOCATED, MISSING,
 )
 from .resolver import AssetResolver, LocateResult
-from .timeline import ExpansionResult, expand
+from .timeline import expand
 
 
 @dataclass(frozen=True)

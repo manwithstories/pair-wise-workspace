@@ -7,10 +7,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from .errors import FormatError
-from .format_parser import Block, child_blocks, parse_blocks, parse_file, parse_fraction, parse_int, require_field
+from .format_parser import Block, child_blocks, parse_blocks, parse_file, parse_int, require_field
 from .model import Alias, Asset, ExchangeDoc, TimeBase
 
 

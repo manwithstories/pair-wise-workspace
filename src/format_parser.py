@@ -131,10 +131,11 @@ def _iter_lines(lines: Iterator[str]) -> Iterator[Tuple[int, str]]:
 def iter_blocks(lines: Iterator[str], source: str = "") -> Iterator[Block]:
     """流式产出顶层块；嵌套块挂在父块 ``children`` 中。
 
-    叶块（ALIAS/SPEED）不压栈；其后若出现同名 ``END ALIAS`` 则吸收，
-    裸 ``END`` 永远属于栈顶的普通块。
+    块的 END 允许省略：当一个块开始后，遇到另一个同级开始块或父级 END 时，
+    前一块自动关闭。显式 ``END [KIND]`` 优先做配对校验。ALIAS/SPEED 这类
+    纯叶块同样支持显式/隐式两种结束方式。
     """
-    stack: List[List[object]] = []   # 每项 [block-kind, ident, fields, children, start-line]
+    stack: List[List[object]] = []   # 每项 [kind, ident, fields, children, start-line]
     roots: List[Block] = []
 
     def build(frame: List[object]) -> Block:
@@ -146,18 +147,19 @@ def iter_blocks(lines: Iterator[str], source: str = "") -> Iterator[Block]:
         tokens = text.split()
         head = tokens[0]
         if head == "END":
-            if len(tokens) > 1 and tokens[1] in _LEAF_BLOCKS:
-                # 叶块的显式 END：必须与最近一个子块同名
-                if not stack or not stack[-1][3] or \
-                        stack[-1][3][-1].kind != tokens[1]:  # type: ignore[index]
-                    raise FormatError(
-                        f"END {tokens[1]} 没有匹配的开始块", current_line, source)
-                continue
+            target = tokens[1] if len(tokens) > 1 else None
             if not stack:
                 raise FormatError("END 没有匹配的开始块", current_line, source)
-            if len(tokens) > 1 and tokens[1] != stack[-1][0]:
-                raise FormatError(
-                    f"END {tokens[1]} 与开始块 {stack[-1][0]} 不匹配", current_line, source)
+            if target is not None and target != stack[-1][0]:
+                # 显式 END 名字不符：可能是叶块的 END，向上找匹配帧
+                match = next((f for f in reversed(stack) if f[0] == target), None)
+                if match is None:
+                    raise FormatError(
+                        f"END {target} 与开始块 {stack[-1][0]} 不匹配",
+                        current_line, source)
+                while stack[-1] is not match:
+                    block = build(stack.pop())
+                    stack[-1][3].append(block)  # type: ignore[index]
             block = build(stack.pop())
             if stack:
                 stack[-1][3].append(block)  # type: ignore[index]
@@ -165,6 +167,7 @@ def iter_blocks(lines: Iterator[str], source: str = "") -> Iterator[Block]:
                 roots.append(block)
                 yield block
             continue
+
         kind, ident, fields = _split_head(tokens, current_line, source)
         parent = stack[-1][0] if stack else None
         if parent not in _PARENT_RULES[kind]:
@@ -172,16 +175,21 @@ def iter_blocks(lines: Iterator[str], source: str = "") -> Iterator[Block]:
                               current_line, source)
         frame = [kind, ident, fields, [], current_line]
         if kind in _LEAF_BLOCKS:
+            # 纯叶块：直接挂到父块，不压栈；其后的同名 END 由上面的回溯逻辑吸收
             if not stack:
                 raise FormatError(f"块 {kind} 不能出现在根层级", current_line, source)
-            block = build(frame)
-            stack[-1][3].append(block)  # type: ignore[index]
+            stack[-1][3].append(build(frame))  # type: ignore[index]
             continue
         stack.append(frame)
 
+    # 文件结束：自动关闭所有未显式 END 的块（叶式语法）
+    while len(stack) > 1:
+        block = build(stack.pop())
+        stack[-1][3].append(block)  # type: ignore[index]
     if stack:
-        innermost = stack[-1]
-        raise FormatError(f"块 {innermost[0]} 缺少 END", innermost[4], source)  # type: ignore[index]
+        block = build(stack.pop())
+        roots.append(block)
+        yield block
     if not roots or roots[0].kind != "EXCHANGE" or len(roots) > 1:
         raise FormatError("文件必须以唯一的 EXCHANGE ... END 作为根块", 0, source)
 

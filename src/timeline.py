@@ -13,22 +13,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from fractions import Fraction
-from typing import Dict, List, Optional, Sequence, Set, Tuple
+from typing import List, Sequence, Set, Tuple
 
 from .model import (
-    Clip, ERROR, ExchangeDoc, Issue, LeafClip, Sequence, SpeedSegment, TimeBase,
+    Clip, ERROR, ExchangeDoc, Issue, LeafClip, Sequence, TimeBase,
 )
 
 
 def half_up(value: Fraction) -> int:
-    """半向上取整：1/2 -> 1，-1/2 -> -1。"""
-    q, r = divmod(value, 1)
-    if r == 0:
-        return int(q)
-    if value > 0:
-        return int(q) + 1 if r >= Fraction(1, 2) else int(q)
-    # 负数：远离零方向对称
-    return int(q) - 1 if (1 - r) >= Fraction(1, 2) else int(q)
+    """半向上取整：1/2 -> 1，-1/2 -> -1（负数沿绝对值方向对称进位）。"""
+    if value >= 0:
+        q, r = divmod(value, 1)
+        return int(q) + (1 if r >= Fraction(1, 2) else 0)
+    return -half_up(-value)
 
 
 @dataclass(frozen=True)

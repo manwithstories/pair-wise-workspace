@@ -71,3 +71,15 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Python 构建/测试产物与缓存 ----
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# ---- 本项目运行期生成的 fixture 与报告（可由 generate-fixture 重建）----
+.tmp_fixture/
+

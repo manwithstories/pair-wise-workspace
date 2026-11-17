@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import Optional, Sequence
 
 from .errors import ExitCode, FormatError
 from .fixture import generate_fixture

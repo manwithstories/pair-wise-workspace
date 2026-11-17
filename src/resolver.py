@@ -48,7 +48,7 @@ def normalize_rel(rel: str) -> str:
     p = PurePosixPath(rel.replace("\\", "/"))
     parts: List[str] = []
     for part in p.parts:
-        if part in ("", "."):
+        if part in ("", ".", "/"):
             continue
         if part == "..":
             if parts:
