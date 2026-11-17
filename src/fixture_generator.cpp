@@ -74,12 +74,39 @@ Fixture build_fixture(FixtureProfile profile, Rate rate) {
         }
         case FixtureProfile::Overnight: {
             // Last three labeled seconds of the day then first three after
-            // midnight: exactly one provable wrap. Per-second stride.
-            const std::int64_t day = info.frames_per_day;
-            for (std::int64_t s = 3; s >= 1; --s)
-                add_frame(day - s * per_second, per_second, "pre_midnight");
-            for (std::int64_t s = 0; s < 3; ++s)
-                add_frame(s * per_second, per_second, "post_midnight");
+            // midnight: exactly one provable wrap. Labels are built as legal
+            // wall-clock timecodes (frame 02 inside a drop minute, 00 in an
+            // exempt one), then their real frames supply the per-second stride.
+            auto make_tc = [&](int hh, int mm, int ss) {
+                Timecode tc;
+                tc.hour = hh;
+                tc.minute = mm;
+                tc.second = ss;
+                tc.frame = (info.drop_frame && (mm % 10) != 0) ? 2 : 0;
+                return tc;
+            };
+            const Timecode pre[3] = {
+                make_tc(23, 59, 57), make_tc(23, 59, 58), make_tc(23, 59, 59)};
+            const Timecode post[3] = {
+                make_tc(0, 0, 0), make_tc(0, 0, 1), make_tc(0, 0, 2)};
+            // Emit in chronological order but compute each stride from real
+            // frame numbers so the wrap boundary carries its true delta and a
+            // clean overnight run audits with zero drift.
+            std::int64_t prev_real = 0;
+            for (int i = 0; i < 3; ++i) {
+                const std::int64_t real = to_frame_number(pre[i], rate);
+                const std::int64_t step = i == 0 ? per_second : real - prev_real;
+                fx.lines.push_back(FixtureLine{format_timecode(pre[i], rate),
+                                               step, false, "pre_midnight"});
+                prev_real = real;
+            }
+            for (int i = 0; i < 3; ++i) {
+                const std::int64_t real = to_frame_number(post[i], rate);
+                const std::int64_t step = real + info.frames_per_day - prev_real;
+                fx.lines.push_back(FixtureLine{format_timecode(post[i], rate),
+                                               step, false, "post_midnight"});
+                prev_real = real + info.frames_per_day;
+            }
             break;
         }
         case FixtureProfile::LongRun: {
@@ -112,16 +139,20 @@ Fixture build_fixture(FixtureProfile profile, Rate rate) {
             break;
         }
         case FixtureProfile::Anomalies: {
-            add_frame(0, 1, "anchor");
-            add_frame(per_second, 1, "ok");
-            fx.lines.push_back(FixtureLine{frame_to_text(per_second, rate), 1,
-                                           false, "duplicate_of_prior"});
-            add_frame(3 * per_second, 1, "gap_before_this");
-            add_frame(4 * per_second, 1, "ok_after_gap");
-            fx.lines.push_back(FixtureLine{"not-a-timecode", 1, true,
+            // One sample per nominal second (stride = one second in frames),
+            // with deliberate defects: a duplicate, a one-second gap, one
+            // unparseable line and a backward (out-of-order) sample.
+            add_frame(0, per_second, "anchor");
+            add_frame(per_second, per_second, "ok");
+            fx.lines.push_back(FixtureLine{frame_to_text(per_second, rate),
+                                           per_second, false,
+                                           "duplicate_of_prior"});
+            add_frame(3 * per_second, per_second, "gap_before_this");
+            add_frame(4 * per_second, per_second, "ok_after_gap");
+            fx.lines.push_back(FixtureLine{"not-a-timecode", per_second, true,
                                            "parse_error_line"});
-            add_frame(2 * per_second, 1, "out_of_order");
-            add_frame(5 * per_second, 1, "resumes");
+            add_frame(2 * per_second, per_second, "out_of_order");
+            add_frame(5 * per_second, per_second, "resumes");
             break;
         }
     }
