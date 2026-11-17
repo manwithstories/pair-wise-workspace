@@ -78,3 +78,4 @@ out/
 *.o
 *.a
 compile_commands.json
+build_clean/
