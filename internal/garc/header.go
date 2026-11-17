@@ -7,14 +7,14 @@ import (
 
 // 文件头与轨道表的固定布局常量（见 docs/garc-format.md）。
 const (
-	MagicGARC          = "GARC"
-	HeaderSize         = 64
-	TrackEntrySize     = 32
-	SupportedVersion   = 1
-	EndianLittle       = 1
-	EndianBig          = 2
-	FlagHDRContainer   = 0x0001
-	TrackTypeVideo     = 1
+	MagicGARC        = "GARC"
+	HeaderSize       = 64
+	TrackEntrySize   = 32
+	SupportedVersion = 1
+	EndianLittle     = 1
+	EndianBig        = 2
+	FlagHDRContainer = 0x0001
+	TrackTypeVideo   = 1
 )
 
 // Header 是 GARC 文件头解析结果。
@@ -125,7 +125,7 @@ func Parse(data []byte) (*File, error) {
 		return nil, newError("RESERVED_NONZERO", 36,
 			"reserved header fields must be zero", "re-export the container")
 	}
-	if h.Flags &^ FlagHDRContainer != 0 {
+	if h.Flags&^FlagHDRContainer != 0 {
 		return nil, newError("RESERVED_NONZERO", 6,
 			"unknown header flag bits are set", "re-export the container")
 	}

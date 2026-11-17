@@ -33,6 +33,11 @@ func newError(code string, off int64, msg, hint string) *Error {
 	return &Error{Code: code, Offset: off, Message: msg, Hint: hint}
 }
 
+// NewError 供其它包构造与容器层同构的结构化错误。
+func NewError(code string, off int64, msg string) *Error {
+	return newError(code, off, msg, "")
+}
+
 // ErrUnexpectedEOF 供调用方做 errors.Is 判断（结构化细节仍在 Error 中）。
 var ErrUnexpectedEOF = errors.New("garc: unexpected end of file")
 
