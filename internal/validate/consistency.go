@@ -99,7 +99,8 @@ func Build(f *garc.File, container *hdr.ContainerMetadata, sei *hdr.SEIResult, s
 	}
 	rep.Fatal = container.Fatal || sei.Fatal
 
-	// 解析期问题先按 track_id 分流。
+	// 解析期问题先按 track_id 分流。初始化为空切片，保证 JSON 序列化为 [] 而非 null。
+	rep.GlobalIssues = []hdr.Issue{}
 	trackIssues := map[uint32][]hdr.Issue{}
 	for _, is := range append(append([]hdr.Issue{}, container.Issues...), sei.Issues...) {
 		if is.TrackID != 0 {
@@ -110,7 +111,7 @@ func Build(f *garc.File, container *hdr.ContainerMetadata, sei *hdr.SEIResult, s
 	}
 
 	for _, t := range f.VideoTracks() {
-		tr := TrackReport{TrackID: t.ID, HDRFlag: t.HDRFlag == 1}
+		tr := TrackReport{TrackID: t.ID, HDRFlag: t.HDRFlag == 1, Issues: []hdr.Issue{}}
 		recs := sei.RecordsOf(t.ID)
 		if !tr.HDRFlag {
 			tr.Issues = append(tr.Issues, hdr.Issue{
