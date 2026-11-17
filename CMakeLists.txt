@@ -26,6 +26,7 @@ add_library(popfix_core STATIC
   src/repair_pipeline.cpp
   src/report_writer.cpp
   src/fixture.cpp
+  src/commands.cpp
 )
 target_include_directories(popfix_core PUBLIC src)
 find_package(Threads REQUIRED)

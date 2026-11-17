@@ -121,17 +121,17 @@ class MiniJson {
 }  // namespace
 
 void write_report(const std::string& path, const RepairResult& result,
-                  const AudioBuffer& source, const DetectorConfig& dcfg,
-                  const RepairConfig& rcfg, bool dry_run) {
+                  const DetectorConfig& dcfg, const RepairConfig& rcfg,
+                  bool dry_run) {
   validate_output_path(path);
   std::ostringstream os;
   const RepairStats& st = result.stats;
   os << "{\n";
   os << "  \"schema\": \"popfix-report/1\",\n";
   os << "  \"dry_run\": " << (dry_run ? "true" : "false") << ",\n";
-  os << "  \"sample_rate\": " << source.sample_rate << ",\n";
-  os << "  \"channels\": " << source.channels << ",\n";
-  os << "  \"frames\": " << source.frames() << ",\n";
+  os << "  \"sample_rate\": " << result.source_rate << ",\n";
+  os << "  \"channels\": " << result.source_channels << ",\n";
+  os << "  \"frames\": " << result.source_frames << ",\n";
   os << "  \"threshold\": " << fmt_double(dcfg.threshold) << ",\n";
   os << "  \"context\": " << rcfg.context << ",\n";
   os << "  \"success\": " << (result.success ? "true" : "false") << ",\n";
@@ -183,6 +183,7 @@ void write_report(const std::string& path, const RepairResult& result,
   os << "  ]\n}\n";
 
   const std::string tmp = path + ".tmp";
+  ensure_parent_dir(path);
   std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
   if (!f) throw WavIOError("无法创建报告临时文件: " + tmp, true);
   f << os.str();

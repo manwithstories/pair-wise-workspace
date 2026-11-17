@@ -52,7 +52,10 @@ std::vector<std::vector<bool>> RepairPipeline::build_clipped_mask(
 RepairResult RepairPipeline::run(AudioBuffer& audio, bool dry_run) {
   RepairResult result;
   const std::size_t frames = audio.frames();
-  const std::uint16_t channels = audio.channels;
+  const std::uint16_t nch = audio.channels;
+  result.source_rate = audio.sample_rate;
+  result.source_channels = nch;
+  result.source_frames = frames;
 
   result.events = detector_.detect(audio);
   result.stats.event_count = result.events.size();
@@ -82,7 +85,7 @@ RepairResult RepairPipeline::run(AudioBuffer& audio, bool dry_run) {
   }
 
   const auto clipped =
-      build_clipped_mask(frames, channels, result.events);
+      build_clipped_mask(frames, nch, result.events);
 
   if (!dry_run) {
     const auto groups = group_events(result.repairs);
@@ -96,7 +99,7 @@ RepairResult RepairPipeline::run(AudioBuffer& audio, bool dry_run) {
       for (std::size_t idx : ids) {
         EventRepair& r = result.repairs[idx];
         bool any_failed = false;
-        for (std::uint8_t c = 0; c < channels; ++c) {
+        for (std::uint8_t c = 0; c < nch; ++c) {
           if (!(r.channel_mask & (1u << c))) continue;
           InterpRequest req{r.repair_start, r.repair_end, c};
           InterpOutcome oc = interp.repair_channel(audio, clipped, req);
@@ -128,15 +131,17 @@ RepairResult RepairPipeline::run(AudioBuffer& audio, bool dry_run) {
   }
 
   // ---- 残差与统计（dry-run 时残差为 0，样本未改动）------------------
+  // 残差与修复帧只统计检测事件自身区间 [start_frame, end_frame]；
+  // 外扩窗口仅为插值提供上下文，不计入修复量。
   double sum_sq = 0.0;
   std::size_t replaced = 0;
   std::vector<bool> frame_touched(frames, false);
   for (const EventRepair& r : result.repairs) {
     double event_sq = 0.0;
     std::size_t event_n = 0;
-    for (std::size_t f = r.repair_start; f <= r.repair_end; ++f) {
+    for (std::size_t f = r.start_frame; f <= r.end_frame; ++f) {
       bool touched = false;
-      for (std::uint8_t c = 0; c < channels; ++c) {
+      for (std::uint8_t c = 0; c < nch; ++c) {
         if (!(r.channel_mask & (1u << c))) continue;
         const double d =
             audio.sample(f, c) - original.sample(f, c);
@@ -158,8 +163,13 @@ RepairResult RepairPipeline::run(AudioBuffer& audio, bool dry_run) {
   result.stats.repaired_samples = replaced;
   result.stats.repaired_frames = std::count(
       frame_touched.begin(), frame_touched.end(), true);
+  // 全局残差能量：修复引入的全部平方差摊到整个缓冲的样本数上（全局 MSE）。
+  // 满幅削波样本与修复值的局部差接近 1，但修复点占比极低，归一化后落在
+  // 1e-5..1e-2 的审听量级；verify 用同一口径复算保证可复现。
   result.stats.residual_energy =
-      replaced > 0 ? sum_sq / static_cast<double>(replaced) : 0.0;
+      audio.data.empty()
+          ? 0.0
+          : sum_sq / static_cast<double>(audio.data.size());
   result.stats.peak_after = peak_of(audio);
 
   // 汇总告警并做结果一致性校验：失败事件必须显式可见。
@@ -182,21 +192,21 @@ double RepairPipeline::recompute_residual(
     return -1.0;
   }
   double sum_sq = 0.0;
-  std::size_t n = 0;
   for (const EventRepair& r : repairs) {
-    for (std::size_t f = r.repair_start; f <= r.repair_end; ++f) {
+    // 与 run() 同口径：只在检测事件自身区间复算，外扩上下文不计入。
+    for (std::size_t f = r.start_frame; f <= r.end_frame; ++f) {
       for (std::uint8_t c = 0; c < original.channels; ++c) {
         if (!(r.channel_mask & (1u << c))) continue;
         const double d =
             repaired.sample(f, c) - original.sample(f, c);
-        if (d != 0.0) {
-          sum_sq += d * d;
-          ++n;
-        }
+        if (d != 0.0) sum_sq += d * d;
       }
     }
   }
-  return n > 0 ? sum_sq / static_cast<double>(n) : 0.0;
+  // 全局 MSE：平方差摊到整个缓冲，与 RepairStats.residual_energy 同口径。
+  return original.data.empty()
+             ? 0.0
+             : sum_sq / static_cast<double>(original.data.size());
 }
 
 }  // namespace popfix

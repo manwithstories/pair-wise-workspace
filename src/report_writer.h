@@ -25,8 +25,8 @@ struct StoredReport {
 
 // 原子写出 JSON 报告（临时文件 + rename）。失败抛 WavIOError(写失败)。
 void write_report(const std::string& path, const RepairResult& result,
-                  const AudioBuffer& source, const DetectorConfig& dcfg,
-                  const RepairConfig& rcfg, bool dry_run);
+                  const DetectorConfig& dcfg, const RepairConfig& rcfg,
+                  bool dry_run);
 
 // 终端稳定排序摘要行：events=... repaired_frames=... 等，键序固定。
 std::vector<std::string> build_summary_lines(const RepairResult& result,

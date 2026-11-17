@@ -89,6 +89,10 @@ struct RepairResult {
   std::vector<ClipEvent> events;
   std::vector<EventRepair> repairs;
   std::vector<RepairWarning> warnings;
+  // 源音频元信息（样本数据不复制；仅记录报告所需头字段）。
+  std::uint32_t source_rate = 0;
+  std::uint16_t source_channels = 0;
+  std::size_t source_frames = 0;
   bool success = false;
 };
 

@@ -42,6 +42,9 @@ void write_wav_atomic(const std::string& path, const AudioBuffer& audio);
 // 非法时抛 WavIOError(write_failure=true)。
 void validate_output_path(const std::string& path);
 
+// 确保输出文件的父目录存在（幂等）；失败抛 WavIOError(写失败)。
+void ensure_parent_dir(const std::string& path);
+
 // 帧数硬上限：防止畸形头部声称超大帧数导致内存失控。
 // 48kHz 双声道 10 分钟约 2.88e7 帧，上限取 1e8 足够宽松。
 constexpr std::size_t kMaxFrames = 100'000'000;

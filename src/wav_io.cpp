@@ -14,6 +14,7 @@
 #else
 #include <cerrno>
 #endif
+#include <filesystem>
 
 namespace popfix {
 
@@ -56,6 +57,19 @@ std::string fourcc(const unsigned char* p) {
 }
 
 }  // namespace
+
+void ensure_parent_dir(const std::string& path) {
+  const std::filesystem::path p(path);
+  const std::filesystem::path parent = p.parent_path();
+  if (parent.empty()) return;
+  std::error_code ec;
+  std::filesystem::create_directories(parent, ec);
+  if (ec) {
+    throw WavIOError("无法创建输出目录 " + parent.string() + ": " +
+                         ec.message(),
+                     true);
+  }
+}
 
 void validate_output_path(const std::string& path) {
   if (path.empty()) {
@@ -229,6 +243,7 @@ void write_wav_atomic(const std::string& path, const AudioBuffer& audio) {
   }
 
   const std::string tmp = path + ".tmp";
+  ensure_parent_dir(path);
   std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
   if (!f) {
     throw WavIOError("无法创建临时文件: " + tmp, true);
