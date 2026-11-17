@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aoa"
+version = "0.1.0"
+description = "First-order ambisonics encode/decode verification toolkit (local, offline)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.26"]
+
+[project.scripts]
+aoa = "aoa_cli:main"
+
+[tool.setuptools]
+packages = ["aoa"]
+py-modules = ["aoa_cli"]

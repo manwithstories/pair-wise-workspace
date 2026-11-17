@@ -71,3 +71,11 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Python build artifacts (never commit) ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
