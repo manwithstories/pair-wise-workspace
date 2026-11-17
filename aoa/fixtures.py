@@ -87,9 +87,13 @@ def make_layout(name: str) -> ChannelLayout:
 
 
 def to_pcm16(samples: np.ndarray) -> np.ndarray:
-    """Float [-1, 1] -> int16 PCM (caller must validate range first)."""
-    clipped = np.clip(np.asarray(samples, dtype=np.float64), -1.0, 1.0)
-    return np.round(clipped * 32767.0).astype("<i2")
+    """Float [-1, 1] -> int16 PCM (caller must validate range first).
+
+    Symmetric scaling: write and read both use 2**15, so the roundtrip
+    error is bounded by half a quantization step (0.5 / 32768).
+    """
+    clipped = np.clip(np.asarray(samples, dtype=np.float64), -1.0, 32767.0 / 32768.0)
+    return np.round(clipped * 32768.0).astype("<i2")
 
 
 def from_pcm16(pcm: np.ndarray) -> np.ndarray:
