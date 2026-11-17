@@ -76,9 +76,12 @@ AGENTS.md.local
 # popfix 构建产物与本地演示输出 —— 不提交
 # ============================================================
 build/
+build_*/
 samples/
 *.wav
 *.json.tmp
 dbg_test
 dbg2
 dbg3
+err.txt
+err2.txt
