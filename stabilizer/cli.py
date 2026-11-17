@@ -83,6 +83,11 @@ def run_pipeline(frames: np.ndarray, min_points: int = MIN_ACTIVE_POINTS,
                 return vel_of[j]
         return np.zeros(2)
 
+    def rs_correct(pts, frame_k):
+        return correct_points(pts, model_row_offsets(
+            jello_velocity(frame_k), rs["row_delay"], rs["direction"],
+            n_rows))
+
     # pass 2: final fits on RS-corrected points, aligned to pairs.
     # The camera path uses the euclidean (rotation+translation) model —
     # physically exact for a drone between adjacent frames; a full
@@ -96,12 +101,7 @@ def run_pipeline(frames: np.ndarray, min_points: int = MIN_ACTIVE_POINTS,
         if k in cache:
             src, dst = cache[k]
             if apply_rs:
-                src = correct_points(src, model_row_offsets(
-                    jello_velocity(k - 1), rs["row_delay"], rs["direction"],
-                    n_rows))
-                dst = correct_points(dst, model_row_offsets(
-                    jello_velocity(k), rs["row_delay"], rs["direction"],
-                    n_rows))
+                src, dst = rs_correct(src, k - 1), rs_correct(dst, k)
             try:
                 m, inl, _, rms = robust_euclidean(src, dst)
                 # affine residual for the track-quality metric
@@ -119,15 +119,10 @@ def run_pipeline(frames: np.ndarray, min_points: int = MIN_ACTIVE_POINTS,
     if not inlier_masks:
         raise NumericalError("all motion fits failed",
                              {"frames": n_frames})
-    # fit_rms only has entries for successful fits; rebuild aligned list
-    rms_aligned = []
-    fi = 0
-    for k in range(1, n_frames):
-        if k in inlier_masks:
-            rms_aligned.append(fit_rms[fi])
-            fi += 1
-        else:
-            rms_aligned.append(1e9)
+    # fit_rms only covers successful fits; rebuild a pair-aligned list
+    rms_iter = iter(fit_rms)
+    rms_aligned = [next(rms_iter) if k in inlier_masks else 1e9
+                   for k in range(1, n_frames)]
     transforms, sanitize_failures = sanitize_transforms(transforms,
                                                         rms_aligned)
     pair_failures.extend(sanitize_failures)
@@ -153,19 +148,18 @@ def run_pipeline(frames: np.ndarray, min_points: int = MIN_ACTIVE_POINTS,
 
 def trajectory_json(pipe: dict, frame_shape) -> dict:
     tr = pipe["track_result"]
+    feats = [{"frame": k, "ids": tr.ids[k].tolist(),
+              "xy": np.round(tr.xy[k], 3).tolist()}
+             for k in range(tr.n_frames)]
     return {
         "schema": "stabilizer-trajectory/1",
         "frame_shape": list(frame_shape),
         "n_frames": tr.n_frames,
-        "features": [{"frame": k, "ids": tr.ids[k].tolist(),
-                      "xy": np.round(tr.xy[k], 3).tolist()}
-                     for k in range(tr.n_frames)],
+        "features": feats,
         "tracks": {str(t): v for t, v in tr.tracks.items()},
         "camera_path": [list(pose_params(p)) for p in pipe["raw_poses"]],
-        "smoothed_path": [list(pose_params(p))
-                          for p in pipe["smoothed_poses"]],
-        "jello_velocity": [np.round(v, 4).tolist()
-                           for v in pipe["jello_vel"]],
+        "smoothed_path": [list(pose_params(p)) for p in pipe["smoothed_poses"]],
+        "jello_velocity": [np.round(v, 4).tolist() for v in pipe["jello_vel"]],
         "rolling_shutter": pipe["rs_info"],
         "smooth_info": pipe["smooth_info"],
     }
@@ -177,17 +171,14 @@ def _metrics_and_print(pipe, n_frames):
         pipe["smooth_info"], pipe["rs_info"], pipe["fit_residuals"],
         pipe["rejected"], pipe["pair_failures"], n_frames,
         MIN_ACTIVE_POINTS)
-    print(" ".join([
-        f"frames={m['frames']}",
-        f"tracked_points={m['tracked_points']}",
-        f"track_residual_px={m['track_residual_px']:.2f}",
-        f"jitter_before_px={m['jitter_before_px']:.2f}",
-        f"jitter_after_px={m['jitter_after_px']:.2f}",
-        f"rejected_tracks={m['rejected_tracks']}",
-        f"crop_ratio={m['crop_ratio']:.3f}",
-        f"rolling_shutter_corrected="
-        f"{'true' if m['rolling_shutter_corrected'] else 'false'}",
-    ]))
+    keys = ["frames", "tracked_points", "track_residual_px",
+            "jitter_before_px", "jitter_after_px", "rejected_tracks"]
+    line = " ".join(f"{k}={m[k]:.2f}" if isinstance(m[k], float)
+                    else f"{k}={m[k]}" for k in keys)
+    line += (f" crop_ratio={m['crop_ratio']:.3f}"
+             f" rolling_shutter_corrected="
+             f"{'true' if m['rolling_shutter_corrected'] else 'false'}")
+    print(line)
     return m
 
 
@@ -248,10 +239,10 @@ def cmd_stabilize(args) -> int:
     rs = traj["rolling_shutter"]
     n_rows = frames.shape[1]
     vel = traj["jello_velocity"]
-    row_offsets = [
-        model_row_offsets(vel[min(k, len(vel) - 1)], rs["row_delay"],
-                          rs["direction"], n_rows)
-        if rs.get("applied") else None for k in range(len(frames))]
+    row_offsets = [model_row_offsets(vel[min(k, len(vel) - 1)],
+                                     rs["row_delay"], rs["direction"], n_rows)
+                   if rs.get("applied") else None
+                   for k in range(len(frames))]
     stab, valid_all, info = stabilize_frames(frames, raw_poses, smoothed,
                                              row_offsets)
     out = Path(args.output)
