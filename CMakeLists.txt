@@ -21,6 +21,7 @@ endif()
 # ---- 共享静态库（主程序与测试复用同一份实现）---------------------------
 add_library(popfix_core STATIC
   src/wav_io.cpp
+  src/clip_detector.cpp
 )
 target_include_directories(popfix_core PUBLIC src)
 find_package(Threads REQUIRED)
