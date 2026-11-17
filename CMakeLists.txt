@@ -20,6 +20,7 @@ add_library(timecode_core STATIC
   src/parser.cpp
   src/dropframe.cpp
   src/converter.cpp
+  src/audit.cpp
 )
 target_include_directories(timecode_core PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include

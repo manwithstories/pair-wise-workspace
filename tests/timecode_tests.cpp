@@ -2,12 +2,22 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 
+#include "timecode/audit.hpp"
 #include "timecode/converter.hpp"
 #include "timecode/dropframe.hpp"
 #include "timecode/parser.hpp"
 #include "timecode/rate_table.hpp"
 
 using namespace tc;
+
+namespace {
+std::vector<AuditInput> in(std::initializer_list<const char*> tcs,
+                           std::int64_t step = 1) {
+    std::vector<AuditInput> v;
+    for (const char* t : tcs) v.push_back(AuditInput{std::string(t), step});
+    return v;
+}
+}  // namespace
 
 TEST_CASE("rational arithmetic stays exact", "[rate]") {
     Rational r(30000, 1001);
@@ -184,4 +194,70 @@ TEST_CASE("drop compensation totals and NDF drift are rational", "[dropframe]") 
     // DF removes the 108-frame bulk; only a sub-frame residual can remain.
     REQUIRE(df_drift >= Rational(0, 1));
     REQUIRE(df_drift < Rational(1, 30));
+}
+
+TEST_CASE("audit flags parse failures but keeps processing", "[audit]") {
+    auto out = audit_sequence(
+        in({"00:00:00:00", "garbage", "00:00:00:02", "", "00:00:00:03"}),
+        Rate::F2997_NDF);
+    REQUIRE(out.summary.records == 5);
+    REQUIRE(out.summary.valid == 3);
+    REQUIRE(out.summary.invalid == 2);
+    REQUIRE(!out.summary.clean());
+}
+
+TEST_CASE("audit detects duplicates and distinguishes gap kinds", "[audit]") {
+    auto dup = audit_sequence(
+        in({"00:00:00:00", "00:00:00:01", "00:00:00:01", "00:00:00:02"}),
+        Rate::F2997_NDF);
+    REQUIRE(dup.summary.duplicates == 1);
+
+    auto single = audit_sequence(
+        in({"00:00:00:00", "00:00:00:02"}), Rate::F2997_NDF);  // missing frame 1
+    REQUIRE(single.summary.missing == 1);
+    REQUIRE(single.summary.single_gaps == 1);
+    REQUIRE(single.summary.run_gaps == 0);
+
+    auto run = audit_sequence(
+        in({"00:00:00:00", "00:00:00:05"}), Rate::F2997_NDF);  // 4-frame run
+    REQUIRE(run.summary.missing == 4);
+    REQUIRE(run.summary.single_gaps == 0);
+    REQUIRE(run.summary.run_gaps == 1);
+}
+
+TEST_CASE("audit wrap policies behave differently at midnight", "[audit]") {
+    // 23:59:59:29 then 00:00:00:00 on NDF 30-label timeline: one day wrap.
+    const auto seq = in({"23:59:59:29", "00:00:00:00", "00:00:00:01"});
+
+    auto strict = audit_sequence(seq, Rate::F2997_NDF, WrapPolicy::Strict);
+    REQUIRE(strict.summary.wraps == 0);
+    REQUIRE(strict.summary.out_of_order >= 1);
+
+    auto wrap = audit_sequence(seq, Rate::F2997_NDF, WrapPolicy::Wrap);
+    REQUIRE(wrap.summary.wraps == 1);
+    REQUIRE(wrap.summary.out_of_order == 0);
+
+    auto repair = audit_sequence(seq, Rate::F2997_NDF, WrapPolicy::Repair);
+    REQUIRE(repair.summary.wraps == 1);
+    REQUIRE(repair.summary.out_of_order == 0);
+}
+
+TEST_CASE("repair never silently fixes genuine disorder", "[audit]") {
+    // A small backward jump that cannot be a day wrap stays an error.
+    auto out = audit_sequence(
+        in({"00:01:00:00", "00:00:30:00"}), Rate::F2997_NDF, WrapPolicy::Repair);
+    REQUIRE(out.summary.wraps == 0);
+    REQUIRE(out.summary.out_of_order == 1);
+}
+
+TEST_CASE("clean frame-dense sequence has zero drift and is sorted",
+          "[audit]") {
+    auto out = audit_sequence(
+        in({"00:00:00:00", "00:00:00:01", "00:00:00:02", "00:00:00:03"}),
+        Rate::F2997_NDF);
+    REQUIRE(out.summary.clean());
+    REQUIRE(out.summary.max_abs_drift == 0);
+    // Stable output keeps ascending frame order.
+    for (std::size_t i = 1; i < out.records.size(); ++i)
+        REQUIRE(out.records[i - 1].source_frame <= out.records[i].source_frame);
 }
