@@ -204,7 +204,8 @@ def track_points(prev_img, curr_img, points, levels: int = 3,
     templ = points / scale  # template positions always in prev image
     centers = points / scale
     new, conf, resid, valid = _match_level(
-        prev_pyr[-1], curr_pyr[-1], templ, centers, search_r + 2, patch_r)
+        prev_pyr[-1], curr_pyr[-1], templ, centers,
+        2 * search_r + 2, patch_r)
     for lvl in range(levels - 2, -1, -1):
         templ = points / (2.0 ** lvl)
         centers = new * 2.0
