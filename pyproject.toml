@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stabilizer"
+version = "0.1.0"
+description = "Pure-local rolling-shutter video stabilization for frame-wise grayscale sequences"
+requires-python = ">=3.11"
+dependencies = ["numpy>=2.1"]
+
+[project.scripts]
+stabilizer = "stabilizer.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["stabilizer*"]

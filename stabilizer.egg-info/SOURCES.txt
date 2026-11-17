@@ -1,0 +1,8 @@
+pyproject.toml
+stabilizer/__init__.py
+stabilizer.egg-info/PKG-INFO
+stabilizer.egg-info/SOURCES.txt
+stabilizer.egg-info/dependency_links.txt
+stabilizer.egg-info/entry_points.txt
+stabilizer.egg-info/requires.txt
+stabilizer.egg-info/top_level.txt

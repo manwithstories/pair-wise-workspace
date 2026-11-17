@@ -1,0 +1,2 @@
+[console_scripts]
+stabilizer = stabilizer.cli:main
