@@ -18,6 +18,7 @@ add_library(motion_core STATIC
   src/segments.cpp
   src/allocator.cpp
   src/report.cpp
+  src/fixture.cpp
 )
 target_include_directories(motion_core PUBLIC src)
 
