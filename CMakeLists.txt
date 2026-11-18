@@ -26,3 +26,6 @@ add_executable(motion src/main.cpp)
 target_link_libraries(motion PRIVATE motion_core)
 
 enable_testing()
+add_executable(motion_tests src/tests.cpp)
+target_link_libraries(motion_tests PRIVATE motion_core)
+add_test(NAME unit COMMAND motion_tests)
