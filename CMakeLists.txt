@@ -29,3 +29,5 @@ enable_testing()
 add_executable(motion_tests src/tests.cpp)
 target_link_libraries(motion_tests PRIVATE motion_core)
 add_test(NAME unit COMMAND motion_tests)
+add_test(NAME e2e
+  COMMAND /bin/sh ${CMAKE_CURRENT_SOURCE_DIR}/tests/e2e.sh $<TARGET_FILE:motion>)
