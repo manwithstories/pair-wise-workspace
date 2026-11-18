@@ -99,4 +99,16 @@ func TestExitCodes(t *testing.T) {
 			t.Fatalf("exit=%d want 2", code)
 		}
 	})
+
+	t.Run("no_anchor=3", func(t *testing.T) {
+		noAnchor := filepath.Join(dir, "noanchor.jsonl")
+		lines := jsonlLine(t, RawRecord{Track: "video", Epoch: 0, Seq: 0, PTS: 0, Num: 1, Den: 1e6, Bits: 32}) +
+			jsonlLine(t, RawRecord{Track: "audio", Epoch: 0, Seq: 0, PTS: 0, Num: 1, Den: 1e6, Bits: 32})
+		if err := os.WriteFile(noAnchor, []byte(lines), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if code := run([]string{"analyze", "--in", noAnchor}); code != exitUnreliable {
+			t.Fatalf("exit=%d want 3", code)
+		}
+	})
 }
