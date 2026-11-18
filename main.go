@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"flag"
 	"fmt"
 	"os"
 )
@@ -59,6 +61,59 @@ func cmdGenerate(args []string) int {
 }
 
 func cmdAnalyze(args []string) int {
-	fmt.Fprintln(os.Stderr, "analyze: not implemented yet")
-	return exitInput
+	fs := flag.NewFlagSet("analyze", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	in := fs.String("in", "", "输入 JSONL 路径（- 表示标准输入）")
+	jsonOut := fs.String("json", "", "校正序列 JSON 导出路径（可选）")
+	csvOut := fs.String("csv", "", "校正序列 CSV 导出路径（可选）")
+	tbNum := fs.Int64("tb-num", 1, "目标时间基分子（秒/tick），默认 1")
+	tbDen := fs.Int64("tb-den", 1_000_000_000, "目标时间基分母（秒/tick），默认 1e9 即纳秒")
+	if err := fs.Parse(args); err != nil {
+		return exitInput
+	}
+	if *in == "" {
+		fmt.Fprintln(os.Stderr, "analyze: --in is required")
+		return exitInput
+	}
+	tb := Timebase{Num: *tbNum, Den: *tbDen}
+	if !tb.Valid() {
+		fmt.Fprintf(os.Stderr, "analyze: illegal target timebase %d/%d\n", *tbNum, *tbDen)
+		return exitInput
+	}
+	summary, err := Analyze(AnalyzeOptions{
+		InPath: *in, JSONOut: *jsonOut, CSVOut: *csvOut, Target: tb,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "analyze: %v\n", err)
+		switch {
+		case errors.Is(err, ErrUnreliable):
+			return exitUnreliable
+		case errors.Is(err, ErrInput):
+			return exitInput
+		default:
+			return exitIO
+		}
+	}
+	printSummary(summary)
+	return exitOK
+}
+
+// printSummary 输出验收所需四项指标；多段（重启）时逐段给出偏移/漂移/残差。
+func printSummary(s *Summary) {
+	if len(s.Epochs) == 1 {
+		f := s.Fits[s.Epochs[0]]
+		betaNS, _ := ratToInt64Even(f.Beta)
+		fmt.Printf("start_offset_ns=%d\n", betaNS)
+		fmt.Printf("drift_ppm=%.3f\n", f.PPM)
+		fmt.Printf("residual_p95_ns=%d\n", f.ResP95NS)
+		fmt.Printf("corrected_count=%d\n", s.CorrectedCount)
+		return
+	}
+	for i, ep := range s.Epochs {
+		f := s.Fits[ep]
+		betaNS, _ := ratToInt64Even(f.Beta)
+		fmt.Printf("segment=%d epoch=%d start_offset_ns=%d drift_ppm=%.3f residual_p95_ns=%d inliers=%d/%d\n",
+			i, ep, betaNS, f.PPM, f.ResP95NS, f.Inliers, f.Pairs)
+	}
+	fmt.Printf("corrected_count=%d\n", s.CorrectedCount)
 }

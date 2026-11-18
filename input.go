@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -43,6 +44,13 @@ type LineError struct {
 func (e *LineError) Error() string {
 	return fmt.Sprintf("line %d: %s", e.Line, e.Msg)
 }
+
+// Unwrap 使所有行级错误同时被 errors.Is(err, ErrInput) 命中，
+// 主命令据此统一映射到退出码 2。
+func (e *LineError) Unwrap() error { return ErrInput }
+
+// ErrInput 表示文件级输入错误（缺轨、epoch 集合不一致等无具体行号者）。
+var ErrInput = errors.New("input error")
 
 func lineError(line int, format string, args ...any) error {
 	return &LineError{Line: line, Msg: fmt.Sprintf(format, args...)}
