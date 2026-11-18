@@ -36,8 +36,18 @@ type pass1 struct {
 	hasA    bool
 	epochsV map[int64]bool
 	epochsA map[int64]bool
-	lastSeq map[string]int64 // (track/epoch,seq 行) 去重
-	seqLine map[string]int
+	lastSeq map[string]seqCheck // 仅记每 (track,epoch) 末位编号，O(段数) 内存
+}
+
+type seqCheck struct {
+	seq  int64
+	line int
+}
+
+// anchorKey 给同步编号加上 epoch 作用域：编号可在不同重启段内重复，
+// 仅在同一 epoch 内要求全局唯一。
+func anchorKey(epoch int64, id string) string {
+	return fmt.Sprintf("%d\x00%s", epoch, id)
 }
 
 // Analyze 执行两遍流式分析。第一遍解析、解绕并按同步编号配对锚点；
@@ -60,21 +70,21 @@ func Analyze(opts AnalyzeOptions) (*Summary, error) {
 	}
 	// 按 epoch 分组配对；同步编号在两条轨上必须同时存在，否则配对失败。
 	byEpoch := make(map[int64][]Pair)
-	for _, id := range p1.idOrder {
-		v, vok := p1.video[id]
-		a, aok := p1.audio[id]
+	for _, key := range p1.idOrder {
+		v, vok := p1.video[key]
+		a, aok := p1.audio[key]
 		if !vok || !aok {
 			line := v.line
 			if aok {
 				line = a.line
 			}
-			return nil, lineError(line, "sync_id %q present on only one track", id)
+			return nil, lineError(line, "anchor present on only one track")
 		}
 		if v.epoch != a.epoch {
-			return nil, lineError(v.line, "sync_id %q crosses epochs (video e%d / audio e%d)", id, v.epoch, a.epoch)
+			return nil, lineError(v.line, "anchor crosses epochs (video e%d / audio e%d)", v.epoch, a.epoch)
 		}
 		byEpoch[v.epoch] = append(byEpoch[v.epoch], Pair{
-			SyncID: id, LineV: int64(v.line), LineA: int64(a.line),
+			SyncID: key, LineV: int64(v.line), LineA: int64(a.line),
 			Video: v.ns, Audio: a.ns,
 		})
 	}
@@ -144,17 +154,16 @@ func firstPassScan(path string) (*pass1, error) {
 		audio:   make(map[string]anchorPoint),
 		epochsV: make(map[int64]bool),
 		epochsA: make(map[int64]bool),
-		lastSeq: make(map[string]int64),
-		seqLine: make(map[string]int),
+		lastSeq: make(map[string]seqCheck),
 	}
 	err = ScanRecords(f, func(r *Record) error {
-		// 同一 (track, epoch) 内 seq 不得重复。
+		// 同一 (track, epoch) 内 seq 必须严格递增；重复或倒退报行号。
 		sk := uwKey(r.Track, r.Epoch)
-		if ln, ok := p.seqLine[sk+fmt.Sprint(r.Seq)]; ok {
-			return lineError(r.Line, "duplicate seq=%d on track=%s epoch=%d (first at line %d)",
-				r.Seq, r.Track, r.Epoch, ln)
+		if prev, ok := p.lastSeq[sk]; ok && r.Seq <= prev.seq {
+			return lineError(r.Line, "duplicate or regressing seq=%d on track=%s epoch=%d (previous seq=%d at line %d)",
+				r.Seq, r.Track, r.Epoch, prev.seq, prev.line)
 		}
-		p.seqLine[sk+fmt.Sprint(r.Seq)] = r.Line
+		p.lastSeq[sk] = seqCheck{seq: r.Seq, line: r.Line}
 
 		unw, err := p.uw.Unwrap(r)
 		if err != nil {
@@ -173,18 +182,19 @@ func firstPassScan(path string) (*pass1, error) {
 		}
 		if r.HasSync {
 			ap := anchorPoint{line: r.Line, ns: ns, epoch: r.Epoch}
+			key := anchorKey(r.Epoch, r.SyncID)
 			if r.Track == "video" {
-				if old, dup := p.video[r.SyncID]; dup {
+				if old, dup := p.video[key]; dup {
 					return lineError(r.Line, "duplicate sync_id %q on video (first at line %d)", r.SyncID, old.line)
 				}
-				p.video[r.SyncID] = ap
+				p.video[key] = ap
 			} else {
-				if old, dup := p.audio[r.SyncID]; dup {
+				if old, dup := p.audio[key]; dup {
 					return lineError(r.Line, "duplicate sync_id %q on audio (first at line %d)", r.SyncID, old.line)
 				}
-				p.audio[r.SyncID] = ap
+				p.audio[key] = ap
 			}
-			p.idOrder = append(p.idOrder, r.SyncID)
+			p.idOrder = append(p.idOrder, key)
 		}
 		return nil
 	})

@@ -22,12 +22,11 @@ func (tb Timebase) Valid() bool {
 }
 
 var (
-	bigZero    = big.NewInt(0)
-	bigOne     = big.NewInt(1)
-	bigTwo     = big.NewInt(2)
-	bigI64Max  = big.NewInt(math.MaxInt64)
-	bigI64Min  = big.NewInt(math.MinInt64)
-	bigMillion = big.NewInt(1_000_000_000)
+	bigOne    = big.NewInt(1)
+	bigTwo    = big.NewInt(2)
+	bigI64Max = big.NewInt(math.MaxInt64)
+	bigI64Min = big.NewInt(math.MinInt64)
+	bigGiga   = big.NewInt(1_000_000_000)
 )
 
 // ticksToRat 精确计算 ticks * num / den（秒），永不丢失精度。
@@ -36,9 +35,12 @@ func ticksToRat(ticks, num, den int64) *big.Rat {
 	return r.Mul(r, big.NewRat(num, den))
 }
 
-// ticksToNs 把某时间基下的 ticks 精确换算为纳秒并按最近偶数舍入。
+// ticksToNs 把某时间基下的 ticks 精确换算为纳秒
+// （ticks * num/den * 1e9）并按最近偶数舍入。
 func ticksToNs(ticks, num, den int64) (int64, error) {
-	return ratToInt64Even(ticksToRat(ticks, num, den))
+	sec := ticksToRat(ticks, num, den)
+	ns := new(big.Rat).Mul(sec, new(big.Rat).SetInt(bigGiga))
+	return ratToInt64Even(ns)
 }
 
 // secondsToTargetTicks 把秒值 r 换算到目标时间基 (tnum/tden 秒每 tick)：
@@ -52,7 +54,7 @@ func secondsToTargetTicks(r *big.Rat, tnum, tden int64) (int64, error) {
 // ratToInt64Even 把有理数舍入为最近整数，等距情形向偶数靠拢（banker's
 // rounding / round half to even），正确覆盖负值；结果越界返回 ErrOverflow。
 func ratToInt64Even(r *big.Rat) (int64, error) {
-	num, den := r.Num(), r.Denom() // den 恒正，符号由 num 携带
+	num, den := r.Num(), r.Denom()                        // den 恒正，符号由 num 携带
 	q, rem := new(big.Int).QuoRem(num, den, new(big.Int)) // 截断商 + 同号余数
 	absRem := new(big.Int).Abs(rem)
 	cmp := new(big.Int).Mul(bigTwo, absRem).Cmp(den) // 2*|rem| 与 den 比较
@@ -68,9 +70,4 @@ func ratToInt64Even(r *big.Rat) (int64, error) {
 		return 0, ErrOverflow
 	}
 	return q.Int64(), nil
-}
-
-// nsToRat 把纳秒整数精确转为秒有理数。
-func nsToRat(ns int64) *big.Rat {
-	return new(big.Rat).Quo(new(big.Rat).SetInt64(ns), new(big.Rat).SetInt(bigMillion))
 }

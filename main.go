@@ -56,8 +56,33 @@ func usage() {
 // ---- 子命令占位，后续批次替换为真实实现 ----
 
 func cmdGenerate(args []string) int {
-	fmt.Fprintln(os.Stderr, "generate: not implemented yet")
-	return exitInput
+	fs := flag.NewFlagSet("generate", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	seed := fs.Int64("seed", 0, "随机种子（确定性 LCG）")
+	seconds := fs.Int("seconds", 0, "样例时长（秒）")
+	out := fs.String("out", "", "输出 JSONL 路径")
+	if err := fs.Parse(args); err != nil {
+		return exitInput
+	}
+	if *seconds <= 0 || *out == "" {
+		fmt.Fprintln(os.Stderr, "generate: --seconds > 0 and --out are required")
+		return exitInput
+	}
+	truth, err := Generate(GenConfig{Seed: *seed, Seconds: *seconds, OutPath: *out})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "generate: %v\n", err)
+		if _, ok := err.(genArgError); ok {
+			return exitInput
+		}
+		return exitIO
+	}
+	fmt.Printf("out=%s\n", *out)
+	fmt.Printf("truth_start_offset_ns=%d\n", truth.BetaNS)
+	fmt.Printf("truth_drift_ppm=%.3f\n", truth.DriftPPM)
+	fmt.Printf("records video=%d audio=%d anchors=%d bad_anchors=%d wraps video=%d audio=%d\n",
+		truth.VideoCount, truth.AudioCount, truth.Anchors, truth.BadAnchors,
+		truth.VideoWraps, truth.AudioWraps)
+	return exitOK
 }
 
 func cmdAnalyze(args []string) int {

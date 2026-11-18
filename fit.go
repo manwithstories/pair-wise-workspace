@@ -33,7 +33,7 @@ type Fit struct {
 
 // 锚点段门槛与异常点剔除阈值（规格硬性要求）。
 const (
-	minPairCount  = 6
+	minPairCount   = 6
 	minSpanSeconds = 60.0
 	rejectNS       = 2_000_000.0 // 残差超过 2ms 的锚点剔除
 )
