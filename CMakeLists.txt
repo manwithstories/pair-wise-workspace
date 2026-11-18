@@ -11,6 +11,12 @@ endif()
 
 add_compile_options(-Wall -Wextra)
 
+add_library(motion_core STATIC
+  src/ppm.cpp
+)
+target_include_directories(motion_core PUBLIC src)
+
 add_executable(motion src/main.cpp)
+target_link_libraries(motion PRIVATE motion_core)
 
 enable_testing()
