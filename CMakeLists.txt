@@ -14,6 +14,7 @@ add_compile_options(-Wall -Wextra)
 add_library(motion_core STATIC
   src/ppm.cpp
   src/diff.cpp
+  src/sequence.cpp
 )
 target_include_directories(motion_core PUBLIC src)
 
