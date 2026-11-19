@@ -19,6 +19,7 @@ pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
 find_package(Catch2 3 REQUIRED)
 
 add_library(ma_core STATIC
+  src/error_model.cpp
   src/probe.cpp
   src/gop_analyzer.cpp
   src/damage_locator.cpp
