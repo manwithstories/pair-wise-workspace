@@ -30,7 +30,7 @@ type Metadata struct {
 // timestamp, the payload carries a human-readable summary, and a one-byte
 // header extension carries the full 64-bit timestamp so timestamps beyond the
 // 32-bit RTP field survive the trip.
-func EncodeMetadata(seq, ts uint64, tb model.Timebase) []byte {
+func EncodeMetadata(seq, ts uint64, tb model.Timebase) (encoded []byte) {
 	payload := fmt.Sprintf("seq=%d;ts=%d;tb=%d/%d", seq, ts, tb.Num, tb.Den)
 	pkt := &rtp.Packet{
 		Header: rtp.Header{
@@ -49,12 +49,20 @@ func EncodeMetadata(seq, ts uint64, tb model.Timebase) []byte {
 	// RFC 8285 one-byte header extension profile. The constant is unexported
 	// in pion/rtp, so it is spelled out here.
 	pkt.Header.ExtensionProfile = 0xBEDE
+	// The carrier is built from fixed-size, aligned fields, so these calls
+	// cannot fail for a valid timebase. Returning nil rather than panicking
+	// keeps a pathological input from taking down the process.
+	defer func() {
+		if recover() != nil {
+			encoded = nil
+		}
+	}()
 	if err := pkt.Header.SetExtension(CaptureTimestampExtID, ext); err != nil {
-		panic(err)
+		return nil
 	}
 	buf, err := pkt.Marshal()
 	if err != nil {
-		panic(err)
+		return nil
 	}
 	return buf
 }
