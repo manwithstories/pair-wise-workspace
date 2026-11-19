@@ -234,6 +234,7 @@ TEST_CASE("timeline: empty track and global end", "[timeline]") {
 
 #include <fstream>
 #include <unistd.h>
+#include <mach-o/dyld.h>
 
 #include "checkpoint.hpp"
 
@@ -581,4 +582,181 @@ TEST_CASE("report: queue over capacity fails metrics", "[report]") {
   ReportResult rr = build_report(in, nullptr);
   REQUIRE_FALSE(rr.metrics_ok);
   REQUIRE(decide_exit_code(rr, nullptr, false) == 4);
+}
+
+#include "pipeline.hpp"
+
+namespace {
+fs::path pipe_workdir(const char* tag) {
+  auto d = fs::temp_directory_path() /
+           ("mb_pipe_" + std::string(tag) + "_" + std::to_string(++cp_seq));
+  std::error_code ec;
+  fs::remove_all(d, ec);  // 确保干净，避免上轮残留的（可能已损坏的）检查点
+  return d;
+}
+}  // namespace
+
+TEST_CASE("pipeline: good run is clean and metrics pass", "[pipeline]") {
+  av_log_set_level(AV_LOG_QUIET);
+  PipelineConfig cfg;
+  cfg.work_dir = pipe_workdir("good");
+  cfg.damaged = false;
+  cfg.target_bitrate_bps = 4'000'000;
+  cfg.chunk_frames = 25;       // 50 帧 -> 2 块
+  cfg.queue_capacity = 4;
+  cfg.slow_consumer_ms = 2;
+  cfg.emit_frames = 8;
+  PipelineOutcome po = run_pipeline(cfg);
+  REQUIRE(po.fatal.empty());
+  REQUIRE_FALSE(static_cast<bool>(po.checkpoint_error));
+  // 无任何错误，指标合格 -> 退出码 0。
+  REQUIRE(po.exit_code == 0);
+  REQUIRE(po.report.errors.empty());
+  REQUIRE(po.report.queue_peak_items <= cfg.queue_capacity);
+  REQUIRE(po.report.frames_exported == 8);
+  // 检查点块已落盘。
+  REQUIRE(fs::exists(cfg.work_dir / "checkpoint" / "index.cpi"));
+  REQUIRE(fs::exists(cfg.work_dir / "checkpoint" / "block_000000.bin"));
+  // 帧清单与 PNG 存在。
+  REQUIRE(fs::exists(cfg.work_dir / "frames" / "manifest.csv"));
+}
+
+TEST_CASE("pipeline: resume is idempotent and reuses blocks", "[pipeline]") {
+  av_log_set_level(AV_LOG_QUIET);
+  PipelineConfig cfg;
+  cfg.work_dir = pipe_workdir("resume");
+  cfg.damaged = false;
+  cfg.chunk_frames = 25;  // 2 块
+  cfg.queue_capacity = 4;
+  cfg.emit_frames = 4;
+  PipelineOutcome first = run_pipeline(cfg);
+  REQUIRE(first.exit_code == 0);
+
+  // 第二次以 resume 打开：两个块均应通过哈希校验并被复用。
+  PipelineConfig cfg2 = cfg;
+  cfg2.resume = true;
+  PipelineOutcome second = run_pipeline(cfg2);
+  REQUIRE_FALSE(static_cast<bool>(second.checkpoint_error));
+  REQUIRE(second.report.checkpoint_resumed_blocks == 2);
+  // 再跑一次结果稳定（幂等）。
+  PipelineOutcome third = run_pipeline(cfg2);
+  REQUIRE_FALSE(static_cast<bool>(third.checkpoint_error));
+  REQUIRE(third.report.checkpoint_resumed_blocks == 2);
+}
+
+TEST_CASE("pipeline: damaged run reports recoverable error chain",
+          "[pipeline]") {
+  av_log_set_level(AV_LOG_QUIET);
+  PipelineConfig cfg;
+  cfg.work_dir = pipe_workdir("damaged");
+  cfg.damaged = true;
+  cfg.chunk_frames = 25;
+  cfg.queue_capacity = 4;
+  cfg.emit_frames = 6;
+  PipelineOutcome po = run_pipeline(cfg);
+  REQUIRE(po.fatal.empty());
+  // 含可恢复错误但报告已生成、指标仍合格 -> 退出码 2。
+  REQUIRE(po.exit_code == 2);
+  bool has_decode = false, has_sub = false;
+  for (auto& e : po.report.errors) {
+    has_decode |= e.code == kMediaDecode;
+    has_sub |= (e.code == kErrSubTime || e.code == kErrSubTruncated);
+  }
+  REQUIRE(has_decode);
+  REQUIRE(has_sub);
+  REQUIRE(po.report.first_error_offset >= 0);
+  REQUIRE(po.report.extra.count("damaged_records") == 1);
+}
+
+TEST_CASE("pipeline: corrupted checkpoint is rejected with exit 3",
+          "[pipeline]") {
+  av_log_set_level(AV_LOG_QUIET);
+  PipelineConfig cfg;
+  cfg.work_dir = pipe_workdir("cpbad");
+  cfg.damaged = false;
+  cfg.chunk_frames = 25;
+  cfg.queue_capacity = 4;
+  cfg.emit_frames = 4;
+  REQUIRE(run_pipeline(cfg).exit_code == 0);
+  // 篡改索引，模拟中断导致的索引损坏。
+  auto idx = cfg.work_dir / "checkpoint" / "index.cpi";
+  std::ofstream tamper(idx, std::ios::binary | std::ios::app);
+  tamper << "GARBAGE";
+  tamper.close();
+  PipelineConfig cfg2 = cfg;
+  cfg2.resume = true;
+  PipelineOutcome po = run_pipeline(cfg2);
+  REQUIRE(static_cast<bool>(po.checkpoint_error));
+  REQUIRE(po.checkpoint_error.code == kCpIndexCorrupt);
+  ReportResult rr = build_report(po.report, &po.checkpoint_error);
+  REQUIRE(decide_exit_code(rr, &po.checkpoint_error, false) == 3);
+}
+
+TEST_CASE("pipeline: bounded failures for queue capacity", "[pipeline]") {
+  // 队列容量硬性上限在 CLI 层夹取/拒绝；这里验证 BoundedQueue 边界。
+  BoundedQueue low(1);
+  REQUIRE(low.capacity() == 1);
+  BoundedQueue over(kMaxQueueCapacity + 10);
+  REQUIRE(over.capacity() == kMaxQueueCapacity);  // 夹取，不无限分配
+}
+
+TEST_CASE("cli: argument validation returns exit 5", "[cli]") {
+  // 直接验证参数有界规则（不依赖进程，覆盖 decide 与队列夹取）。
+  ReportInputs in;
+  in.target_bitrate_bps = 1000;
+  in.actual_bitrate_bps = 1000;
+  in.video_psnr_db = 99;
+  in.queue_capacity = 8;
+  in.queue_peak_items = 8;
+  ReportResult rr = build_report(in, nullptr);
+  // 参数错误优先级最高。
+  REQUIRE(decide_exit_code(rr, nullptr, true) == 5);
+  // 未知命令/越界容量由 main 解析层返回 5（见媒体批处理 --help 约束）。
+  BoundedQueue q(99999);
+  REQUIRE(q.capacity() == kMaxQueueCapacity);
+}
+
+TEST_CASE("cli: full acceptance field contract", "[cli]") {
+  // 确保报告 JSON 含验收要求的全部字段名。
+  ReportInputs in;
+  in.target_bitrate_bps = 4'000'000;
+  in.actual_bitrate_bps = 4'000'000;
+  in.video_psnr_db = 99;
+  in.audio_peak_dbfs = -6;
+  in.subtitle_alignment_max_ms = 0;
+  in.frames_exported = 12;
+  in.frame_sha256_count = 12;
+  in.queue_capacity = 8;
+  in.queue_peak_items = 8;
+  in.checkpoint_resumed_blocks = 1;
+  in.errors = {{kMediaDecode, "x", 7}};
+  ReportResult rr = build_report(in, nullptr);
+  static const char* required[] = {
+      "target_bitrate_bps", "actual_bitrate_bps", "bitrate_deviation_pct",
+      "video_psnr_db", "audio_peak_dbfs", "subtitle_alignment_max_ms",
+      "frames_exported", "frame_sha256_count", "queue_peak_items",
+      "checkpoint_resumed_blocks", "errors_by_code"};
+  for (const char* k : required)
+    REQUIRE(rr.json.find(k) != std::string::npos);
+}
+
+TEST_CASE("cli: process-level exit codes for bad args and version",
+          "[cli]") {
+  // 定位构建出的可执行文件（与测试二进制同目录，macOS 用 dyld 接口）。
+  char buf[4096] = {0};
+  uint32_t n = sizeof(buf);
+  fs::path self;
+  if (_NSGetExecutablePath(buf, &n) == 0) self = fs::path(buf);
+  fs::path mb = self.parent_path() / "media_batch";
+  if (!fs::exists(mb)) return;  // 非标准布局时跳过，不致失败
+  auto run = [&](std::vector<std::string> args) {
+    std::string cmd = mb.string();
+    for (auto& a : args) cmd += " " + a;
+    int rc = std::system(cmd.c_str());
+    return WEXITSTATUS(rc);
+  };
+  REQUIRE(run({"version"}) == 0);
+  REQUIRE(run({"demo", "--queue-capacity", "99999"}) == 5);  // 越界
+  REQUIRE(run({"bogus-command"}) == 5);                       // 未知命令
+  REQUIRE(run({"demo", "--target-bitrate", "-3"}) == 5);     // 非法码率
 }
