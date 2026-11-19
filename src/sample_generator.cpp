@@ -19,14 +19,22 @@ void emit_u32(std::vector<std::uint8_t>& out, std::uint32_t v) {
     out.push_back(static_cast<std::uint8_t>((v >> (8 * i)) & 0xff));
 }
 
-// Annex B parameter-set NAL: a deterministic payload the parser will treat
-// as a configuration unit; frame NALs follow in their own access units.
+// Annex B parameter-set NAL: syntactically valid header bytes so real parsers
+// can identify the stream; frame NALs follow in their own access units.
 void append_nal(std::vector<std::uint8_t>& out, std::uint8_t nal_type,
-                std::uint8_t nal_ref, const std::vector<std::uint8_t>& rbsp) {
+                std::uint8_t nal_ref, bool hevc,
+                const std::vector<std::uint8_t>& rbsp) {
   out.insert(out.end(), kStartCode, kStartCode + 4);
-  std::uint8_t header = static_cast<std::uint8_t>((nal_type & 0x1f) << 3 |
-                                                   (nal_ref & 0x03) << 5 | 1);
-  out.push_back(header);
+  if (hevc) {
+    // H.265: byte0 forbidden(1) type(6) layer_id_hi(1);
+    //        byte1 layer_id_lo(5) tid(3). Temporal id 1 is mandatory.
+    out.push_back(static_cast<std::uint8_t>((nal_type & 0x3f) << 1));
+    out.push_back(0x01);
+  } else {
+    // H.264: forbidden(1) ref(2) type(5)
+    out.push_back(static_cast<std::uint8_t>((nal_ref & 0x03) << 5 |
+                                            (nal_type & 0x1f)));
+  }
   out.insert(out.end(), rbsp.begin(), rbsp.end());
 }
 
@@ -53,14 +61,13 @@ std::vector<std::uint8_t> make_obu(std::uint8_t type, bool key,
 void append_h26x_unit(std::vector<std::uint8_t>& out, CodecType codec,
                       bool key, std::uint32_t frame_index,
                       std::uint32_t body_len) {
-  const std::uint8_t nal = key
-      ? (codec == CodecType::H264 ? kH264IdrNal : kH265IdrNal)
-      : (codec == CodecType::H264 ? 1 : 1); // non-IDR slice
+  const bool hevc = codec == CodecType::H265;
+  const std::uint8_t nal = key ? (hevc ? kH265IdrNal : kH264IdrNal) : 1;
   std::vector<std::uint8_t> rbsp;
   emit_u32(rbsp, frame_index);
   for (std::uint32_t i = 0; i < body_len; ++i)
     rbsp.push_back(static_cast<std::uint8_t>((frame_index * 17 + i * 13) & 0xff));
-  append_nal(out, nal, key ? 3 : 2, rbsp);
+  append_nal(out, nal, key ? 3 : 2, hevc, rbsp);
 }
 
 } // namespace
@@ -75,10 +82,12 @@ SampleBundle generate_sample(const SampleConfig& cfg) {
   if (cfg.codec == CodecType::AV1) {
     append_obu_unit(b.video, make_obu(1, true, 0, 24)); // sequence header
   } else {
-    std::vector<std::uint8_t> sps = {0x42, 0x00, 0x1e, static_cast<std::uint8_t>(cfg.seed & 0xff)};
+    const bool hevc = cfg.codec == CodecType::H265;
+    std::vector<std::uint8_t> sps = {0x42, 0x00, 0x1e,
+                                     static_cast<std::uint8_t>(cfg.seed & 0xff)};
     std::vector<std::uint8_t> pps = {0x44, 0x01};
-    append_nal(b.video, codec_from_string("h264") == cfg.codec ? 7 : 33, 3, sps);
-    append_nal(b.video, codec_from_string("h264") == cfg.codec ? 8 : 34, 3, pps);
+    append_nal(b.video, hevc ? 33 : 7, 3, hevc, sps);
+    append_nal(b.video, hevc ? 34 : 8, 3, hevc, pps);
   }
 
   b.frames.reserve(cfg.frame_count);

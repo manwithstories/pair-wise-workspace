@@ -55,7 +55,9 @@ add_library(media_core STATIC
   src/checksum.cpp
   src/sample_generator.cpp
   src/sample_fixtures.cpp
+  src/stream_codec.cpp
   src/cli.cpp)
+# Modules are appended to media_core in later, independently compilable batches.
 # Modules are appended to media_core in later, independently compilable batches.
 target_include_directories(media_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(media_core PUBLIC ${_ff_targets})
