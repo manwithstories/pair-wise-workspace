@@ -303,3 +303,38 @@ TEST_CASE("JSONL 诊断与报告字段", "[quality]") {
     CHECK(json.find(key) != std::string::npos);
   std::filesystem::remove_all(dir);
 }
+
+#include "media/gen_patterns.hpp"
+
+TEST_CASE("合成视频时序：漂移/VFR/33 位回绕", "[generator]") {
+  GenConfig cfg;
+  cfg.seconds = 12;
+  cfg.wrapPts = true;
+  cfg.vfr = true;
+  auto plan = media::gen::videoPlan(cfg, 41, 180.0, 30'000, 97);
+  REQUIRE(plan.size() == 360);
+  size_t wraps = 0;
+  for (const auto& f : plan)
+    if (f.wrapped) ++wraps;
+  CHECK(wraps == 1);
+  CHECK(plan.front().pts > int64_t(PTS33_MASK) - 90000 * 13);
+  // VFR：相邻帧时长存在差异。
+  bool varied = false;
+  for (size_t i = 2; i < plan.size(); ++i)
+    if (plan[i].duration != plan[i - 1].duration) varied = true;
+  CHECK(varied);
+  // 坏包注入确定性。
+  size_t corrupt = 0;
+  for (const auto& f : plan) if (f.corrupt) ++corrupt;
+  CHECK(corrupt >= 2);
+
+  GenConfig flat = cfg;
+  flat.vfr = false;
+  auto cfr = media::gen::videoPlan(flat, 41, 0.0, 0, 0);
+  for (size_t i = 1; i < cfr.size(); ++i)
+    CHECK(cfr[i].duration == cfr[1].duration);
+
+  auto audio = media::gen::audioPlan(cfg, 97);
+  CHECK(audio.size() == size_t(12 * 24000 / 1024) + 1);
+  CHECK(audio.front().samples == 1024);
+}

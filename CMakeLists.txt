@@ -26,6 +26,7 @@ add_library(md_core STATIC
   src/quality_report.cpp
   src/demuxer.cpp
   src/generator.cpp
+  src/gen_patterns.cpp
   src/ffmpeg_util.cpp)
 target_include_directories(md_core PUBLIC include)
 target_link_libraries(md_core PUBLIC PkgConfig::FFMPEG)

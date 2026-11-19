@@ -130,6 +130,15 @@ build CMakeFiles/md_core.dir/src/generator.cpp.o: CXX_COMPILER__md_core_unscanne
   OBJECT_FILE_DIR = CMakeFiles/md_core.dir/src
   TARGET_SUPPORT_DIR = CMakeFiles/md_core.dir
 
+build CMakeFiles/md_core.dir/src/gen_patterns.cpp.o: CXX_COMPILER__md_core_unscanned_Release /Users/clearliu/WorkSpace/pair-wise-workspace/12777/src/gen_patterns.cpp || cmake_object_order_depends_target_md_core
+  CONFIG = Release
+  DEP_FILE = CMakeFiles/md_core.dir/src/gen_patterns.cpp.o.d
+  FLAGS = -O3 -DNDEBUG -std=c++20 -arch arm64 -Wall -Wextra -Wno-deprecated-declarations
+  INCLUDES = -I/Users/clearliu/WorkSpace/pair-wise-workspace/12777/include -isystem /opt/homebrew/Cellar/ffmpeg/8.0.1_2/include
+  OBJECT_DIR = CMakeFiles/md_core.dir
+  OBJECT_FILE_DIR = CMakeFiles/md_core.dir/src
+  TARGET_SUPPORT_DIR = CMakeFiles/md_core.dir
+
 build CMakeFiles/md_core.dir/src/ffmpeg_util.cpp.o: CXX_COMPILER__md_core_unscanned_Release /Users/clearliu/WorkSpace/pair-wise-workspace/12777/src/ffmpeg_util.cpp || cmake_object_order_depends_target_md_core
   CONFIG = Release
   DEP_FILE = CMakeFiles/md_core.dir/src/ffmpeg_util.cpp.o.d
@@ -147,7 +156,7 @@ build CMakeFiles/md_core.dir/src/ffmpeg_util.cpp.o: CXX_COMPILER__md_core_unscan
 #############################################
 # Link the static library libmd_core.a
 
-build libmd_core.a: CXX_STATIC_LIBRARY_LINKER__md_core_Release CMakeFiles/md_core.dir/src/time_model.cpp.o CMakeFiles/md_core.dir/src/packet.cpp.o CMakeFiles/md_core.dir/src/manifest.cpp.o CMakeFiles/md_core.dir/src/clock_repair.cpp.o CMakeFiles/md_core.dir/src/stream_pipeline.cpp.o CMakeFiles/md_core.dir/src/index_builder.cpp.o CMakeFiles/md_core.dir/src/quality_report.cpp.o CMakeFiles/md_core.dir/src/demuxer.cpp.o CMakeFiles/md_core.dir/src/generator.cpp.o CMakeFiles/md_core.dir/src/ffmpeg_util.cpp.o
+build libmd_core.a: CXX_STATIC_LIBRARY_LINKER__md_core_Release CMakeFiles/md_core.dir/src/time_model.cpp.o CMakeFiles/md_core.dir/src/packet.cpp.o CMakeFiles/md_core.dir/src/manifest.cpp.o CMakeFiles/md_core.dir/src/clock_repair.cpp.o CMakeFiles/md_core.dir/src/stream_pipeline.cpp.o CMakeFiles/md_core.dir/src/index_builder.cpp.o CMakeFiles/md_core.dir/src/quality_report.cpp.o CMakeFiles/md_core.dir/src/demuxer.cpp.o CMakeFiles/md_core.dir/src/generator.cpp.o CMakeFiles/md_core.dir/src/gen_patterns.cpp.o CMakeFiles/md_core.dir/src/ffmpeg_util.cpp.o
   ARCH_FLAGS = -arch arm64
   CONFIG = Release
   LANGUAGE_COMPILE_FLAGS = -O3 -DNDEBUG

@@ -14,6 +14,8 @@ add_test( [==[关键帧索引定位与落点误差]==] /Users/clearliu/WorkSpace
 set_tests_properties( [==[关键帧索引定位与落点误差]==] PROPERTIES WORKING_DIRECTORY /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build SKIP_RETURN_CODE 4)
 add_test( [==[剪辑点对齐最近有效帧]==] /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests [==[剪辑点对齐最近有效帧]==]   [==[--order decl]==] )
 set_tests_properties( [==[剪辑点对齐最近有效帧]==] PROPERTIES WORKING_DIRECTORY /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build SKIP_RETURN_CODE 4)
+add_test( [==[合成视频时序：漂移/VFR/33 位回绕]==] /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests [==[合成视频时序：漂移/VFR/33 位回绕]==]   [==[--order decl]==] )
+set_tests_properties( [==[合成视频时序：漂移/VFR/33 位回绕]==] PROPERTIES WORKING_DIRECTORY /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build SKIP_RETURN_CODE 4)
 add_test( [==[小幅倒退判定歧义且不可交付]==] /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests [==[小幅倒退判定歧义且不可交付]==]   [==[--order decl]==] )
 set_tests_properties( [==[小幅倒退判定歧义且不可交付]==] PROPERTIES WORKING_DIRECTORY /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build SKIP_RETURN_CODE 4)
 add_test( [==[有界队列背压与取消]==] /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests [==[有界队列背压与取消]==]   [==[--order decl]==] )
