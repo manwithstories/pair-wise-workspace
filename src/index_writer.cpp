@@ -413,6 +413,16 @@ bool mux_output(const std::filesystem::path& input,
 
     ret = av_interleaved_write_frame(out, pkt);
     av_packet_unref(pkt);
+    if (options.fail_after_bytes > 0 && out->pb &&
+        avio_tell(out->pb) >= options.fail_after_bytes) {
+      // Simulated write failure (disk full): abort and remove the partial.
+      err.code = Code::OutputWriteFailed;
+      err.detail = "simulated disk-full after " + std::to_string(out->pb->pos) +
+                   " output bytes";
+      err.action = "abort output; the previous file is untouched";
+      report.ok = false;
+      break;
+    }
     if (ret == AVERROR(EINVAL) && static_cast<size_t>(e.stream_index) < in_base.size()) {
       // A single packet with an out-of-range timestamp is skipped rather than
       // discarding the whole asset: the journal keeps the rest of the media,

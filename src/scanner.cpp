@@ -219,6 +219,7 @@ bool Scanner::open(const std::string& path, const Limits& limits, ScanOutcome& o
     return false;
   }
 
+  limits_ = limits;
   collect_tracks(out);
 
   // A stream whose codec parameters are incomplete (no dimensions for video,
@@ -465,6 +466,25 @@ bool Scanner::stream(const PacketCallback& cb, ScanOutcome& out) {
     }
     const int64_t pos = pkt->pos >= 0 ? pkt->pos : -1;
     const int64_t size = pkt->size;
+    if (size > limits_.max_packet_bytes) {
+      Error e;
+      e.file = path_;
+      e.stage = Stage::Scan;
+      e.severity = Severity::Fatal;
+      e.code = Code::PacketTooLarge;
+      e.track = static_cast<int>(spec->track_id);
+      e.stream_index = si;
+      e.set_range(pos >= 0 ? pos : 0, pos >= 0 ? pos + size : 0);
+      e.detail = "packet of " + std::to_string(size) + " bytes exceeds the " +
+                 std::to_string(limits_.max_packet_bytes) + " byte limit";
+      e.action = "reject the asset; the declared length is out of bounds";
+      record(out, e);
+      out.fatal = true;
+      out.fatal_error = e;
+      av_packet_unref(pkt);
+      ok = false;
+      break;
+    }
     if (pkt->flags & AV_PKT_FLAG_CORRUPT) {
       // The demuxer had to shorten this packet to fit the file (or found it
       // inconsistent).  It is not complete media; report the first missing

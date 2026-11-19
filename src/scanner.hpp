@@ -112,6 +112,7 @@ class Scanner {
 
   AVFormatContext* ctx_ = nullptr;
   std::string path_;
+  Limits limits_;
   std::vector<TrackSpec> tracks_;
 };
 

@@ -68,6 +68,8 @@ struct BatchOptions {
   bool verbose = false;
   // Testing aid: stop each asset after N packets, leaving a checkpoint.
   int64_t stop_after_packets = 0;
+  // Testing aid: make the muxer fail after this many output bytes.
+  int64_t fail_after_output_bytes = 0;
   int64_t checkpoint_interval_packets = 256;
 };
 

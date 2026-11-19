@@ -507,6 +507,7 @@ AssetRun process_asset(const BatchOptions& options, const std::filesystem::path&
   partial_path += ".partial";
   MuxOptions mux;
   mux.config = options.config;
+  mux.fail_after_bytes = options.fail_after_output_bytes;
   MuxReport mux_report;
   Error mux_err;
   if (!mux_output(input, writer.payload_path(), writer.journal_path(), partial_path, mux,
@@ -528,11 +529,28 @@ AssetRun process_asset(const BatchOptions& options, const std::filesystem::path&
   res.decode_errors = vrep.decode_errors;
   res.index_entries = vrep.index_entries;
   res.keyframes = vrep.keyframes;
-  res.unindexable = vrep.unindexable;
+  res.unindexable = mux_report.unindexable;
+  res.unindexable.insert(res.unindexable.end(), vrep.unindexable.begin(),
+                         vrep.unindexable.end());
   res.packets = writer.packets();
   res.dropped_packets = scan.dropped_packets;
   res.output_sha256 = vrep.output_sha256;
   res.output_bytes = vrep.output_bytes;
+  if (mux_report.skipped_packets > 0) {
+    // Packets the muxer refused are media that will not be in the output; the
+    // asset is still usable, but the loss is never silent.
+    res.dropped_packets += mux_report.skipped_packets;
+    Error e;
+    e.file = input.string();
+    e.stage = Stage::Write;
+    e.severity = Severity::Recovered;
+    e.code = Code::PacketOutOfBounds;
+    e.offset_known = false;
+    e.detail = std::to_string(mux_report.skipped_packets) +
+               " packets were rejected by the muxer and left out of the output";
+    e.action = "report the loss; the remaining media is verified";
+    res.errors.push_back(e);
+  }
   if (vrep.first_error_offset >= 0 &&
       (res.first_error_offset < 0 || vrep.first_error_offset < res.first_error_offset)) {
     res.first_error_offset = vrep.first_error_offset;
@@ -742,6 +760,7 @@ bool load_sidecar(const std::filesystem::path& output, FileResult& r) {
   r.input_sha256 = value_of("input_sha256", 0);
   r.input_bytes = num("input_bytes");
   r.output_sha256 = value_of("output_sha256", 0);
+  r.journal_path = value_of("journal", 0);
   r.first_error_offset = num("first_error_offset_bytes");
   r.offset_error_bytes = num("offset_error_bytes");
   r.decode_errors = num("decode_errors");
@@ -797,14 +816,20 @@ BatchResult run_verify(const VerifyOptions& options) {
         if (end != std::string::npos) input = text.substr(at, end - at);
       }
     }
-    if (!input.empty()) {
-      std::filesystem::path work = output.parent_path() / ".mediaqc" /
-                                   ("parts_" + std::filesystem::path(r.input_path).stem().string());
+    // The sidecar records where the byte-offset map was kept; fall back to
+    // the default location used by batch when it is absent.
+    if (!r.journal_path.empty() && std::filesystem::exists(r.journal_path)) {
+      journal = r.journal_path;
+    } else if (!input.empty()) {
+      std::filesystem::path work =
+          output.parent_path() / ".mediaqc" /
+          ("parts_" + std::filesystem::path(r.input_path).stem().string());
       journal = work / (std::filesystem::path(r.input_path).stem().string() + ".journal");
       if (!std::filesystem::exists(journal)) journal.clear();
     } else {
       journal.clear();
     }
+    r.journal_path = journal;
     VerificationReport vrep;
     Error fatal;
     const bool ok = verify_output(output, journal, input, options.config, vrep, fatal);
@@ -967,6 +992,16 @@ std::string render_json(const BatchResult& result, bool verify_mode) {
     w.key("resume_seconds").value(f.resume_seconds);
     w.key("input_evidence_offset_bytes").value(f.input_evidence_offset);
     w.key("resumed").value(f.resumed);
+    w.key("unindexable").begin_array();
+    for (const auto& u : f.unindexable) {
+      w.begin_object();
+      w.key("stream_index").value(u.stream_index);
+      w.key("start_ticks").value(u.start_ticks);
+      w.key("end_ticks").value(u.end_ticks);
+      w.key("reason").value(u.reason);
+      w.end_object();
+    }
+    w.end_array();
     w.key("checkpoint_refused").value(f.checkpoint_refused);
     if (!f.refusal_reason.empty()) w.key("refusal_reason").value(f.refusal_reason);
     if (!f.failure_reason.empty()) w.key("failure_reason").value(f.failure_reason);

@@ -55,19 +55,33 @@ void add_error(VerificationReport& r, const Error& e) {
   }
 }
 
-// Maps an output stream ordinal (0-based among verified streams) and an
-// output packet index to the journal record that produced it.
+// Maps an output stream index and its packet ordinal to the journal record
+// that produced it.  Journal stream indices and output stream indices match
+// because mux_output creates one output stream per accepted input stream in
+// the same order; packets the muxer rejected never reach the output, so the
+// ordinal always counts journal records of that stream in order.
 const JournalEntry* journal_for(const std::vector<JournalEntry>& entries,
                                 const std::vector<int>& out_stream_of_demux,
                                 int out_stream_index, int64_t packet_ordinal) {
   int64_t seen = 0;
   for (const auto& e : entries) {
-    if (e.stream_index >= out_stream_of_demux.size()) continue;
+    if (static_cast<size_t>(e.stream_index) >= out_stream_of_demux.size()) continue;
     if (out_stream_of_demux[e.stream_index] != out_stream_index) continue;
     if (seen == packet_ordinal) return &e;
     seen++;
   }
   return nullptr;
+}
+
+bool has_keyframe_in(const std::vector<JournalEntry>& entries, int stream_index,
+                     int64_t end_canonical) {
+  for (const auto& e : entries) {
+    if (static_cast<int>(e.stream_index) != stream_index) continue;
+    if (!(e.flags & AV_PKT_FLAG_KEY)) continue;
+    return true;
+  }
+  (void)end_canonical;
+  return false;
 }
 
 }  // namespace
@@ -439,6 +453,20 @@ bool verify_output(const std::filesystem::path& output,
 
   report.decode_errors = decode_errors;
   report.monotonic_errors = monotonic_errors;
+
+  // A stream whose kept packets contain no keyframe cannot be seeked at all;
+  // record that span so it is visible in the report rather than implied.
+  for (unsigned i = 0; i < out_stream_of_demux.size(); ++i) {
+    if (out_stream_of_demux[i] < 0) continue;
+    if (!has_keyframe_in(entries, static_cast<int>(i), 0)) {
+      UnindexableRange u;
+      u.stream_index = static_cast<int>(i);
+      u.start_ticks = 0;
+      u.end_ticks = 0;
+      u.reason = "stream has no keyframe after repair";
+      report.unindexable.push_back(u);
+    }
+  }
 
   // Every packet written should be indexable; a large shortfall means the
   // muxer dropped data.

@@ -380,6 +380,30 @@ TEST_CASE("interrupted run resumes to the same output hash") {
   REQUIRE(done.files[0].output_sha256 == full.files[0].output_sha256);
 }
 
+TEST_CASE("simulated disk full leaves the previous output untouched") {
+  const FixtureSet& set = shared_fixtures();
+  const std::string in = fresh_dir("disk_in");
+  const std::string out = fresh_dir("disk_out");
+  one_fixture(set, "01_clean.mp4", in);
+  // First install a good output.
+  BatchResult good = run_batch(batch_options(in, out));
+  REQUIRE(good.files[0].status == FileStatus::Ok);
+  const auto path = std::filesystem::path(out) / "01_clean.mp4";
+  const std::string before = sha_of_file(path);
+  // Then force the writer to fail part-way through a rebuild.
+  std::filesystem::remove(std::filesystem::path(out) / "01_clean.mp4.qc.json");
+  BatchOptions o = batch_options(in, out);
+  o.fail_after_output_bytes = 4096;
+  BatchResult failed = run_batch(o);
+  REQUIRE(failed.files[0].status == FileStatus::Failed);
+  REQUIRE(failed.exit_code == 1);
+  // The original output is byte-identical and no partial file remains.
+  REQUIRE(sha_of_file(path) == before);
+  for (const auto& entry : std::filesystem::directory_iterator(out)) {
+    REQUIRE(entry.path().extension() != ".partial");
+  }
+}
+
 TEST_CASE("verify subcommand accepts the produced outputs") {
   const FixtureSet& set = shared_fixtures();
   const std::string in = fresh_dir("verify_in");

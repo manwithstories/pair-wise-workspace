@@ -12,7 +12,13 @@
 namespace mediaqc {
 namespace {
 
-constexpr int64_t kMaxIndexEntries = 20'000'000;  // bounds memory on absurd stsz
+// Bounds the per-sample tables: 4M samples is roughly 110 MB across stsz,
+// stco expansion and stts, and is far beyond any realistic delivery asset.
+// Containers that exceed it are streamed through the packet path instead.
+constexpr int64_t kMaxIndexEntries = 4'000'000;
+// A moov larger than this is not parsed field by field; the top-level boxes
+// are still walked and the packet path carries the rest.
+constexpr int64_t kMaxMoovBytes = 64 * 1024 * 1024;
 constexpr int kMaxDepth = 8;
 
 uint32_t rd32(const uint8_t* p) {
@@ -154,7 +160,14 @@ void parse_stsz(const uint8_t* p, int64_t len, TrackStructure& t) {
   if (len < 12) return;
   const uint32_t sample_size = rd32(p + 4);
   const uint32_t count = rd32(p + 8);
-  if (count > kMaxIndexEntries) return;
+  if (count > kMaxIndexEntries) {
+    // Record the declared count but do not expand the table; the packet path
+    // is authoritative for assets this large.
+    t.nb_samples = count;
+    t.index_entries_out_of_range = 0;
+    t.sample_sizes.clear();
+    return;
+  }
   t.nb_samples = count;
   t.sample_sizes.resize(count);
   if (sample_size != 0) {
@@ -301,7 +314,12 @@ bool read_mp4_structure(const std::string& path, FileStructure& out, Error& err)
       }
       const int64_t payload_len = std::min<int64_t>(b.size - header_len,
                                                     out.file_size - (off + header_len));
-      if (payload_len > 0) {
+      if (payload_len > kMaxMoovBytes) {
+        out.parse_error = true;
+        out.parse_detail = "moov is " + std::to_string(payload_len) +
+                           " bytes, above the " + std::to_string(kMaxMoovBytes) +
+                           " byte parse limit";
+      } else if (payload_len > 0) {
         std::vector<uint8_t> payload(static_cast<size_t>(payload_len));
         read_at(fd, off + header_len, payload.data(), payload.size());
         std::vector<Box> inner;

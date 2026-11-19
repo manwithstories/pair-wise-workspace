@@ -107,6 +107,10 @@ class IndexWriter {
 // it into place after verification.
 struct MuxOptions {
   Config config;
+  // Test hook: stop after this many payload bytes have been written to the
+  // partial file, simulating a full disk.  The partial file must be removed
+  // and the previous output left untouched.
+  int64_t fail_after_bytes = 0;
   // Time span (canonical ticks) after which a missing keyframe makes the
   // following span unindexable; 0 -> 2 s.
   int64_t keyframe_gap_ticks = 0;

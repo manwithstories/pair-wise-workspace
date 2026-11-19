@@ -32,7 +32,8 @@ void print_usage() {
       "  selftest --generate-fixtures --work DIR [--json] [--generate-only]\n"
       "           Generate boundary fixtures (via ffmpeg) and run the batch\n"
       "           over them.  Exit 0 means every fixture behaved as designed.\n"
-      "  batch --input DIR --output DIR [--resume] [--json] [--stop-after-packets N]\n"
+      "  batch --input DIR --output DIR [--resume] [--json]\n"
+      "        [--stop-after-packets N] [--fail-after-bytes N]\n"
       "           Repair every media file in DIR into DIR.  --resume continues\n"
       "           from validated checkpoints and refuses stale ones.\n"
       "  verify --input DIR [--json]\n"
@@ -58,7 +59,7 @@ bool parse_args(int argc, char** argv, Args& args, std::string& err) {
   static const std::map<std::string, bool> kTakesValue = {
       {"--input", true}, {"--output", true}, {"--work", true},
       {"--checkpoints", true}, {"--stop-after-packets", true},
-      {"--ffmpeg", true}, {"--max-input-mb", true},
+      {"--ffmpeg", true}, {"--max-input-mb", true}, {"--fail-after-bytes", true},
   };
   static const std::map<std::string, bool> kFlags = {
       {"--resume", true}, {"--json", true}, {"--generate-fixtures", true},
@@ -182,6 +183,12 @@ int run(int argc, char** argv) {
       return 2;
     }
     opt.stop_after_packets = stop;
+    int64_t fail_after = 0;
+    if (!int_value(args, "--fail-after-bytes", fail_after, err)) {
+      std::fprintf(stderr, "mediaqc: %s\n", err.c_str());
+      return 2;
+    }
+    opt.fail_after_output_bytes = fail_after;
     mediaqc::BatchResult result = mediaqc::run_batch(opt);
     if (json) {
       std::printf("%s\n", mediaqc::render_json(result, false).c_str());
