@@ -7,14 +7,14 @@ import (
 	"aircheck/internal/scan"
 )
 
-// buildMoov builds the moov box for the retained packets. All tracks use
-// the unified 90 kHz timescale so the output shares one integer timeline.
+// buildMoov builds the moov box for the retained packets. Track durations
+// are rescaled to the movie timescale (unified base).
 func buildMoov(tracks []*trackOut) []byte {
 	var traks [][]byte
 	var movieDur uint32
 	for _, tr := range tracks {
 		traks = append(traks, box("trak", buildTrak(tr)))
-		if d := trackDuration(tr.pkts); d > movieDur {
+		if d := tr.movieDuration(); d > movieDur {
 			movieDur = d
 		}
 	}
@@ -30,6 +30,22 @@ func buildMoov(tracks []*trackOut) []byte {
 
 	parts := append([][]byte{mvhd}, traks...)
 	return box("moov", concat(parts))
+}
+
+func (tr *trackOut) scale() uint32 {
+	if tr.timescale == 0 {
+		return clock.Base
+	}
+	return tr.timescale
+}
+
+// movieDuration is the track duration rescaled to the movie timescale.
+func (tr *trackOut) movieDuration() uint32 {
+	d, err := clock.Rescale(int64(trackDuration(tr.pkts)), tr.scale(), clock.Base)
+	if err != nil || d < 0 {
+		return 0
+	}
+	return uint32(d)
 }
 
 func trackDuration(pkts []scan.Packet) uint32 {
@@ -50,13 +66,13 @@ func trackDuration(pkts []scan.Packet) uint32 {
 
 func buildTrak(tr *trackOut) []byte {
 	tkhdPayload := make([]byte, 84)
-	be32(tkhdPayload[8:12], tr.id)               // track id
-	be32(tkhdPayload[20:24], trackDuration(tr.pkts)) // duration
+	be32(tkhdPayload[8:12], tr.id)           // track id
+	be32(tkhdPayload[20:24], tr.movieDuration()) // duration (movie scale)
 	writeMatrix(tkhdPayload[40:76])
 	tkhd := fullbox("tkhd", 0, 0x3, tkhdPayload)
 
 	mdhdPayload := make([]byte, 24)
-	be32(mdhdPayload[12:16], clock.Base)
+	be32(mdhdPayload[12:16], tr.scale())
 	be32(mdhdPayload[16:20], trackDuration(tr.pkts))
 	mdhd := fullbox("mdhd", 0, 0, mdhdPayload)
 

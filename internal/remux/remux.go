@@ -21,6 +21,31 @@ import (
 // queue capacity times this limit, never with total file size.
 const MaxPacketSize = 16 << 20
 
+// TrackData is one track's worth of located packets for WriteContainer.
+// Timescale is the track's native timescale; zero means the unified base.
+type TrackData struct {
+	ID        uint32
+	MediaType string
+	Timescale uint32
+	Packets   []scan.Packet
+}
+
+// WriteContainer writes tracks as a self-contained MP4 to w, reading
+// sample payloads from src. It is shared by the remux stage and the
+// sample generator.
+func WriteContainer(w io.Writer, src io.ReaderAt, tds []TrackData) error {
+	var tracks []*trackOut
+	for _, td := range tds {
+		tracks = append(tracks, &trackOut{
+			id:        td.ID,
+			mediaType: td.MediaType,
+			timescale: td.Timescale,
+			pkts:      td.Packets,
+		})
+	}
+	return writeMP4(w, src, tracks)
+}
+
 // Policy controls recovery behaviour.
 type Policy struct {
 	DropTruncatedTail bool // retain the intact prefix of a truncated track
@@ -128,6 +153,7 @@ func (r *Result) Abandon() {
 type trackOut struct {
 	id        uint32
 	mediaType string
+	timescale uint32 // 0 = unified base
 	pkts      []scan.Packet
 	dataOff   uint64 // offset of this track's data inside mdat payload
 	dataLen   uint64
