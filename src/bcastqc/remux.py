@@ -63,6 +63,7 @@ class RemuxResult:
     packets_written: int
     per_track: list[OutputTrackStats]
     origin: Fraction
+    origin_spread: Fraction = Fraction(0)
     shifts: dict[int, int] = field(default_factory=dict)
     stream_map: dict[int, int] = field(default_factory=dict)
 
@@ -72,6 +73,7 @@ class RemuxResult:
             "bytes_written": self.bytes_written,
             "packets_written": self.packets_written,
             "origin": round(float(self.origin), 9),
+            "origin_spread_ms": round(float(self.origin_spread) * 1000.0, 6),
             "stream_map": {str(k): v for k, v in sorted(self.stream_map.items())},
             "shifts_ticks": {str(k): v for k, v in sorted(self.shifts.items())},
             "per_track": [t.to_dict() for t in self.per_track],
@@ -91,34 +93,56 @@ def _packet_times(packet: RawPacket, shift: int, time_base: Fraction) -> tuple[i
 
 
 def _origin_ticks(
-    graph: TrackGraph, packets_by_stream: dict[int, list[RawPacket]]
-) -> tuple[Fraction, dict[int, int]]:
+    graph: TrackGraph,
+    packets_by_stream: dict[int, list[RawPacket]],
+    declared: dict[int, Fraction] | None = None,
+) -> tuple[Fraction, dict[int, int], Fraction]:
     """Pick a shared origin (in ticks) and the per-stream integer shift.
 
-    Streams are shifted by the *same presentation instant*; the tick value
-    differs per stream because each stream has its own time base.
+    The origin is the *declared* presentation start of the earliest stream
+    (the container's own idea of where the programme begins), not the minimum
+    raw packet timestamp.  Audio tracks routinely carry a priming packet with
+    a negative timestamp (AAC encoder delay, 21 ms here); using it as the
+    origin would push the whole programme later on the timeline without any
+    visible sync error, because both streams move together.  Falling back to
+    raw timestamps only happens when the container declares no start time.
+
+    Every stream is shifted by the *same presentation instant*; the tick value
+    differs per stream because each has its own time base.
     """
-    candidates: list[tuple[Fraction, int]] = []
+    declared = declared or {}
+    origins: list[tuple[Fraction, int]] = []
     for node in graph.ordered():
-        stream_packets = packets_by_stream.get(node.source.index, [])
-        first = next(
-            (p for p in stream_packets if p.pts is not None),
-            None,
-        )
-        if first is not None:
-            candidates.append((Fraction(first.pts) * first.time_base, node.source.index))
-    if not candidates:
-        return Fraction(0), {node.source.index: 0 for node in graph.nodes}
-    origin_seconds = min(c[0] for c in candidates)
+        index = node.source.index
+        start = declared.get(index)
+        if start is None:
+            stream_packets = packets_by_stream.get(index, [])
+            first = next((p for p in stream_packets if p.pts is not None), None)
+            start = None if first is None else Fraction(first.pts) * first.time_base
+        if start is not None:
+            origins.append((start, index))
+    if not origins:
+        return Fraction(0), {node.source.index: 0 for node in graph.nodes}, Fraction(0)
+    origin_seconds = min(start for start, _ in origins)
+
     shifts: dict[int, int] = {}
+    snapped: dict[int, Fraction] = {}
     for node in graph.nodes:
         stream_packets = packets_by_stream.get(node.source.index)
         if not stream_packets:
             shifts[node.source.index] = 0
+            snapped[node.source.index] = Fraction(0)
             continue
         tb = stream_packets[0].time_base
-        shifts[node.source.index] = round(origin_seconds / tb)
-    return origin_seconds, shifts
+        # The shift must be an integer tick count, so the applied instant is
+        # quantised to this stream's time base. Quantisation error is at most
+        # half a tick (~10 µs for 48 kHz audio), far below the sync budget, but
+        # it means "the same instant" is enforced only to within one tick.
+        ticks = round(origin_seconds / tb)
+        shifts[node.source.index] = ticks
+        snapped[node.source.index] = ticks * tb
+    spread = max(snapped.values()) - min(snapped.values())
+    return origin_seconds, shifts, spread
 
 
 def remux_asset(
@@ -138,7 +162,12 @@ def remux_asset(
     for packet in packets:
         by_stream.setdefault(packet.stream, []).append(packet)
 
-    origin, shifts = _origin_ticks(graph, by_stream)
+    declared = {
+        node.source.index: node.source.start_time
+        for node in graph.nodes
+        if node.source.start_time is not None
+    }
+    origin, shifts, origin_spread = _origin_ticks(graph, by_stream, declared)
     fmt = format_guess(destination)
     stats: dict[int, OutputTrackStats] = {
         node.output: OutputTrackStats(output=node.output, source=node.source.index)
@@ -227,6 +256,7 @@ def remux_asset(
         packets_written=sum(s.packets for s in stats.values()),
         per_track=[stats[node.output] for node in graph.ordered()],
         origin=origin,
+        origin_spread=origin_spread,
         shifts=shifts,
         stream_map=stream_map,
     )

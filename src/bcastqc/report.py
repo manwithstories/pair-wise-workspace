@@ -116,6 +116,16 @@ class BatchReport:
     def refused_samples(self) -> list[AssetResult]:
         return [r for r in self.results if r.status == STATUS_REFUSED]
 
+    def measured_sync_error_ms(self) -> float | None:
+        """Worst measured sync error over the whole batch, refused included.
+
+        A refused asset is still measured (it was decoded for markers before
+        the copy decision); leaving it out would let a bad refusal hide a real
+        synchronization fault.
+        """
+        values = [r.sync_error_ms for r in self.results if r.sync_error_ms is not None]
+        return max(values) if values else None
+
     @property
     def failed_samples(self) -> list[AssetResult]:
         return [r for r in self.results if r.status == STATUS_FAILED]
@@ -157,7 +167,10 @@ class BatchReport:
         sync = self.sync_error_ms()
         return {
             "sync_error_ms": _check(
-                sync, THRESHOLDS["sync_error_ms"], "max", applicable=self.sync_measured()
+                self.measured_sync_error_ms(),
+                THRESHOLDS["sync_error_ms"],
+                "max",
+                applicable=self.sync_measured(),
             ),
             "recovery_rate": _check(self.recovery_rate(), THRESHOLDS["recovery_rate"], "min"),
             "p95_latency_ms": _check(
@@ -209,7 +222,7 @@ class BatchReport:
                 "partial": len(self.partial_samples),
                 "fatal": self.fatal_assets,
                 "damaged_samples": len(self.damaged_samples),
-                "sync_error_ms": _round(self.sync_error_ms()),
+                "sync_error_ms": _round(self.measured_sync_error_ms()),
                 "recovery_rate": _round(self.recovery_rate()),
                 "p95_latency_ms": _round(self.p95_latency_ms()),
                 "remux_packet_match_rate": _round(self.remux_packet_match_rate()),

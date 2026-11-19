@@ -345,6 +345,28 @@ def test_sync_is_preserved_end_to_end(fixtures, tmp_path):
     assert measurement.sync_error_ms <= 5.0
 
 
+def test_output_keeps_the_programme_origin(fixtures, tmp_path):
+    """The copy must not displace the whole programme on the timeline.
+
+    Both streams moving together hides a global shift from a relative sync
+    check, so the marker positions themselves are asserted: a remux that
+    treated the AAC priming packet (negative pts) as the origin would land the
+    programme 21 ms late with a perfect-looking sync number.
+    """
+    probe = probe_asset(fixtures.normal)
+    graph = build_track_graph(probe, stable_automatic_rules(probe))
+    outcome = recover_asset(probe)
+    target = tmp_path / "origin.mp4"
+    remux_asset(probe, graph, outcome.packets, target)
+    measurement = measure_sync(target, MARKERS)
+    assert measurement.measured
+    for video, audio, marker in zip(
+        measurement.video_events, measurement.audio_events, MARKERS
+    ):
+        assert abs(video - marker) < 0.005, f"picture displaced to {video}"
+        assert abs(audio - marker) < 0.005, f"sound displaced to {audio}"
+
+
 def test_refusal_names_the_offending_codec(fixtures, tmp_path):
     probe = probe_asset(fixtures.refused)
     graph = build_track_graph(probe, stable_automatic_rules(probe))

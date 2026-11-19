@@ -141,6 +141,10 @@ def measure_sync(
         result.markers.append(
             MarkerMatch(marker, video_hit, audio_hit, offset)
         )
+    if result.error is None and not result.audio_events:
+        result.error = "no audio marker energy in the analysis band"
+    if result.error is None and not result.video_events:
+        result.error = "no flash frames found"
     return result
 
 

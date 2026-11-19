@@ -321,6 +321,22 @@ def process_asset(
                 )
             )
 
+        if options.sync_markers:
+            # Measure the source even if we will refuse to copy it: a delivery
+            # whose A/V is already out of sync is worth reporting either way.
+            source_sync = measure_sync(path, options.sync_markers, fps=options.fps)
+            result.extra["source_sync"] = source_sync.to_dict()
+            result.sync_error_ms = source_sync.sync_error_ms
+            if not source_sync.measured:
+                result.warnings.append(
+                    RecoverableError(
+                        "source sync could not be measured: "
+                        f"{source_sync.error or 'no markers found'}",
+                        location=MediaLocation(asset=str(path)),
+                        code="sync_unmeasured",
+                    )
+                )
+
         try:
             check_lossless_support([node.source for node in graph.nodes])
         except LosslessCopyRefusedError as exc:
