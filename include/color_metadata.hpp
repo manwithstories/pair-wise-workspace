@@ -60,4 +60,11 @@ bool resolve_color_metadata(const Manifest& manifest, ColorStrategy strategy,
                             const ArchiveColor& archive, ColorReport* report,
                             std::vector<Diagnostic>* diagnostics);
 
+// Resolves one segment.  Restore uses this so diagnostics attach to the
+// segment being processed rather than to the whole archive.
+bool resolve_segment_color(const Track& track, const Segment& segment,
+                           ColorStrategy strategy, const ArchiveColor& archive,
+                           SegmentColor* out,
+                           std::vector<Diagnostic>* diagnostics);
+
 }  // namespace media_restore

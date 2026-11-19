@@ -303,6 +303,12 @@ void dump_value(const Json& value, int indent, std::string* out) {
     case Json::Type::boolean: out->append(value.as_bool() ? "true" : "false"); return;
     case Json::Type::integer: out->append(std::to_string(value.as_integer())); return;
     case Json::Type::number: {
+      if (!std::isfinite(value.as_number())) {
+        // Non-finite values would produce invalid JSON; use the null literal
+        // and let callers treat null as "not measurable".
+        out->append("null");
+        return;
+      }
       char buffer[64];
       const auto result = std::to_chars(buffer, buffer + sizeof(buffer),
                                         value.as_number());

@@ -39,6 +39,8 @@ struct AnnexBState {
 
   int64_t last_start = -1;  // absolute offset of the last start code processed
   int64_t unit_start = -1;
+  int64_t au_start = -1;         // start of the current access unit
+  int64_t pending_au_start = -1; // first non-VCL unit since the last AU
   int unit_type = -1;
   bool failed = false;
 
@@ -46,17 +48,35 @@ struct AnnexBState {
     if (unit_start < 0) return;
     StreamUnit unit;
     unit.offset = unit_start;
+    unit.au_offset = au_start;
+    unit.starts_au = unit_start == au_start;
     unit.length = end_offset - unit_start;
     unit.nal_type = unit_type;
     unit.keyframe = codec == Codec::h264 ? h264_keyframe(unit_type)
                                          : h265_keyframe(unit_type);
     out->units.push_back(unit);
-    if (unit.keyframe) out->keyframes.push_back(unit);
+    if (unit.keyframe) {
+      // For Annex B, an index records the start of the access unit (the
+      // parameter sets preceding the IDR/IRAP slice), not the slice itself.
+      StreamUnit keyframe = unit;
+      keyframe.offset = unit.au_offset;
+      out->keyframes.push_back(keyframe);
+    }
     unit_start = -1;
   }
 
   int classify(unsigned char first) const {
     return codec == Codec::h264 ? (first & 0x1F) : ((first >> 1) & 0x3F);
+  }
+
+  // VCL slice types begin a new access unit when they are the first slice
+  // of the picture.  Without parsing slice headers we use the encoder
+  // convention (one slice per picture) and treat every VCL unit as an AU
+  // start; non-VCL parameter sets are grouped into the AU they precede.
+  bool starts_access_unit(int type) const {
+    if (codec == Codec::h264) return type >= 1 && type <= 5;
+    // HEVC VCL types 0..9 and IRAP types 16..21 both carry a picture.
+    return type <= 9 || (type >= 16 && type <= 21);
   }
 
   // Processes one buffer that starts at absolute offset `buffer_abs`.
@@ -90,6 +110,17 @@ struct AnnexBState {
       if (unit_start >= 0) emit(start_abs);
       unit_start = start_abs;
       unit_type = classify(static_cast<unsigned char>(buffer[header]));
+      if (starts_access_unit(unit_type)) {
+        // Parameter sets that precede a picture belong to that picture's
+        // access unit, which is the offset an encoder writes to its index.
+        au_start = pending_au_start >= 0 ? pending_au_start : start_abs;
+        pending_au_start = -1;
+      } else {
+        // Leading non-VCL units before the first picture also belong to the
+        // first access unit, so remember them but keep the current AU start.
+        if (au_start < 0) au_start = start_abs;
+        if (pending_au_start < 0) pending_au_start = start_abs;
+      }
       last_start = abs;
       if (out->units.size() + 1 > limits.max_index_entries) {
         diagnostics->push_back(make(ErrorCode::index_too_large,
@@ -184,6 +215,7 @@ bool scan_av1(const std::string& buffer, const Limits& limits, StreamScan* out,
   size_t pos = 0;
   bool fresh_temporal_unit = true;
   bool saw_frame = false;
+  int64_t temporal_unit_start = 0;
   while (pos < buffer.size()) {
     const size_t header = pos;
     const uint8_t byte = static_cast<uint8_t>(buffer[pos]);
@@ -225,6 +257,7 @@ bool scan_av1(const std::string& buffer, const Limits& limits, StreamScan* out,
 
     if (type == 2) {  // OBU_TEMPORAL_DELIMITER
       fresh_temporal_unit = true;
+      temporal_unit_start = static_cast<int64_t>(header);
     } else if (av1_obu_is_frame(type) && fresh_temporal_unit) {
       // A frame with a shown frame header carries frame_type in the first
       // bits after the uncompressed header; without a full parse we rely on
@@ -242,7 +275,11 @@ bool scan_av1(const std::string& buffer, const Limits& limits, StreamScan* out,
       }
       if (key) {
         StreamUnit unit;
-        unit.offset = static_cast<int64_t>(header);
+        // The index records the start of the temporal unit (its temporal
+        // delimiter / sequence header OBU), matching encoder packet offsets.
+        unit.offset = temporal_unit_start;
+        unit.au_offset = temporal_unit_start;
+        unit.starts_au = true;
         unit.length = static_cast<int64_t>(unit_length);
         unit.nal_type = type;
         unit.keyframe = true;

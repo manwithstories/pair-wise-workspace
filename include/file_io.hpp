@@ -39,9 +39,13 @@ bool write_text_file(const std::filesystem::path& path, std::string_view data,
 // Directory creation for output trees.
 bool ensure_directory(const std::filesystem::path& path, Diagnostic* error);
 
-// Stable content hash of a file, streamed in bounded chunks.
+// Stable content hash of a file, streamed in bounded chunks.  `hash_file`
+// returns the 16-hex FNV digest used for cheap identity checks;
+// `sha256_file` returns the 64-hex digest used for segment payload hashes.
 bool hash_file(const std::filesystem::path& path, std::string* hex,
                Diagnostic* error);
+bool sha256_file(const std::filesystem::path& path, std::string* hex,
+                 Diagnostic* error);
 
 bool file_size(const std::filesystem::path& path, int64_t* size,
                Diagnostic* error);

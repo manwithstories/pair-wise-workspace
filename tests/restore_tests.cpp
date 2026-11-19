@@ -325,9 +325,11 @@ TEST_CASE("annexb scan finds every keyframe at exact offsets", "[bitstream]") {
   CHECK(scan.stream_size == static_cast<int64_t>(bytes.size()));
   CHECK(scan.unit_count == 2 + 3 * 4);
   REQUIRE(scan.keyframes.size() == 3);
-  const std::string first = annexb_unit(7, 9) + annexb_unit(8, 3);
-  CHECK(scan.keyframes[0].offset == static_cast<int64_t>(first.size()));
+  // The index records the start of the keyframe's access unit, which begins
+  // with the SPS/PPS that precede the IDR slice.
+  CHECK(scan.keyframes[0].offset == 0);
   CHECK(scan.keyframes[0].nal_type == 5);
+  CHECK(scan.keyframes[1].offset > scan.keyframes[0].offset);
 }
 
 TEST_CASE("annexb scan survives a start code split across the chunk boundary", "[bitstream]") {
@@ -342,8 +344,8 @@ TEST_CASE("annexb scan survives a start code split across the chunk boundary", "
                                                media_restore::Limits{}, &scan,
                                                &diagnostics));
   REQUIRE(scan.keyframes.size() == 1);
-  CHECK(scan.keyframes[0].offset ==
-        static_cast<int64_t>(kChunk - 3) + static_cast<int64_t>(annexb_unit(7, 5).size()));
+  // The access unit starts at the SPS that opens the chunk-crossing unit.
+  CHECK(scan.keyframes[0].offset == static_cast<int64_t>(kChunk - 3));
 }
 
 TEST_CASE("av1 scan identifies keyframes and skips inter frames", "[bitstream]") {

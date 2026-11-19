@@ -17,7 +17,9 @@ namespace media_restore {
 // H.264/H.265 or an OBU for AV1.  `offset` is the byte position of the unit
 // prefix (start code / OBU header), which is what keyframe indexes record.
 struct StreamUnit {
-  int64_t offset = 0;
+  int64_t offset = 0;        // offset of the unit's own prefix/first byte
+  int64_t au_offset = 0;     // offset of the access unit this unit starts
+  bool starts_au = false;    // first unit of an access unit
   int64_t length = 0;
   int nal_type = -1;
   bool keyframe = false;
@@ -28,7 +30,10 @@ struct StreamScan {
   int64_t stream_size = 0;
   size_t unit_count = 0;
   std::vector<StreamUnit> units;      // every unit, in file order
-  std::vector<StreamUnit> keyframes;  // subset with keyframe == true
+  // Subset with keyframe == true.  For Annex B the offset is the start of the
+  // access unit (its first NAL, usually SPS), matching what encoders record;
+  // for AV1 it is the OBU header.
+  std::vector<StreamUnit> keyframes;
 };
 
 // Content-based codec sniffing.  Used to reject a file whose bytes do not

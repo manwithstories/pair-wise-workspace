@@ -3,7 +3,6 @@
 #include <string_view>
 
 #include "file_io.hpp"
-#include "hash.hpp"
 #include "json.hpp"
 
 namespace media_restore {
@@ -189,6 +188,7 @@ bool parse_audio(const Json& value, AudioInfo* out, const Location& loc,
   }
   out->sample_rate = static_cast<int>(rate);
   if (!read_string(value, "layout", &out->layout, true, loc, diagnostics)) return false;
+  if (!read_string(value, "media", &out->media, false, loc, diagnostics)) return false;
   std::string offset;
   if (read_string(value, "offset", &offset, true, loc, diagnostics)) {
     if (!Rational::parse(offset, &out->offset) || !out->offset.valid()) {
@@ -204,8 +204,8 @@ bool parse_audio(const Json& value, AudioInfo* out, const Location& loc,
   return true;
 }
 
-bool parse_segment(const Json& value, Segment* out, const Location& loc,
-                   std::vector<Diagnostic>* diagnostics) {
+bool parse_segment(const Json& value, Segment* out, TrackKind kind,
+                   const Location& loc, std::vector<Diagnostic>* diagnostics) {
   if (!value.is_object()) {
     diagnostics->push_back(make(ErrorCode::manifest_schema,
                                 "segment must be an object", loc));
@@ -220,8 +220,11 @@ bool parse_segment(const Json& value, Segment* out, const Location& loc,
     return false;
   }
   std::string codec;
-  if (!read_string(value, "codec", &codec, true, here, diagnostics)) return false;
-  if (!parse_codec(codec, &out->codec)) {
+  if (!read_string(value, "codec", &codec, kind != TrackKind::audio, here,
+                   diagnostics)) {
+    return false;
+  }
+  if (!codec.empty() && !parse_codec(codec, &out->codec)) {
     Location where = here;
     where.field = "codec";
     diagnostics->push_back(make(ErrorCode::unknown_codec,
@@ -241,6 +244,29 @@ bool parse_segment(const Json& value, Segment* out, const Location& loc,
     AudioInfo info;
     if (!parse_audio(*audio, &info, here, diagnostics)) return false;
     out->audio = std::move(info);
+  }
+  const Json* quarantine = value.find("quarantine");
+  if (quarantine != nullptr) {
+    if (!quarantine->is_object()) {
+      diagnostics->push_back(make(ErrorCode::manifest_schema,
+                                  "quarantine must be an object", here));
+      return false;
+    }
+    std::string code;
+    if (!read_string(*quarantine, "expected_code", &code, true, here, diagnostics)) {
+      return false;
+    }
+    ErrorCode parsed = ErrorCode::internal;
+    if (!parse_error_code(code, &parsed) || exit_code_for(parsed) != 2) {
+      Location where = here;
+      where.field = "expected_code";
+      diagnostics->push_back(make(ErrorCode::manifest_schema,
+                                  "expected_code must be a media validation "
+                                  "error (exit code 2), got '" + code + "'",
+                                  where));
+      return false;
+    }
+    out->expected_code = parsed;
   }
   return true;
 }
@@ -462,7 +488,9 @@ bool parse_manifest(std::string_view text, Manifest* out,
     std::vector<std::string> segment_ids;
     for (const Json& segment_json : segments->items()) {
       Segment segment;
-      if (!parse_segment(segment_json, &segment, loc, diagnostics)) return false;
+      if (!parse_segment(segment_json, &segment, track.kind, loc, diagnostics)) {
+        return false;
+      }
       for (const auto& existing : segment_ids) {
         if (existing == segment.id) {
           diagnostics->push_back(make(ErrorCode::manifest_schema,
@@ -520,6 +548,11 @@ Json segment_json(const Segment& segment) {
   out.set("duration", time_json(segment.duration));
   out.set("media", Json(segment.media));
   out.set("codec", Json(codec_name(segment.codec)));
+  if (segment.expected_code) {
+    Json quarantine = Json::object();
+    quarantine.set("expected_code", Json(error_code_name(*segment.expected_code)));
+    out.set("quarantine", std::move(quarantine));
+  }
   if (segment.index.present) out.set("index", index_json(segment.index));
   out.set("color", color_json(segment.color));
   if (segment.audio) {
@@ -527,6 +560,7 @@ Json segment_json(const Segment& segment) {
     audio.set("sample_rate", Json(static_cast<int64_t>(segment.audio->sample_rate)));
     audio.set("layout", Json(segment.audio->layout));
     audio.set("offset", time_json(segment.audio->offset));
+    if (!segment.audio->media.empty()) audio.set("media", Json(segment.audio->media));
     out.set("audio", std::move(audio));
   }
   return out;

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -12,23 +13,21 @@ extern "C" {
 #include <libswresample/swresample.h>
 }
 
-#include <limits>
-
 #include "file_io.hpp"
-#include "sha256.hpp"
 
 namespace media_restore {
 namespace {
 
 constexpr uint64_t kMaxChannels = 8;
+constexpr int kLoudnessRate = 48000;
+// EBU R128 / ITU-R BS.1770-4 gating: 400 ms blocks with 75% overlap, an
+// absolute gate at -70 LUFS and a relative gate 10 LU below the gated mean.
+constexpr double kAbsoluteGateLufs = -70.0;
+constexpr int64_t kBlockFrames = kLoudnessRate * 400 / 1000;
+constexpr int64_t kBlockStep = kBlockFrames / 4;
+constexpr double kSilenceLufs = -100.0;
 constexpr double kSilenceThresholdDbfs = -100.0;
 constexpr int kTruePeakOversample = 4;
-// EBU R128 / ITU-R BS.1770 gating constants.
-constexpr double kAbsoluteGateLufs = -70.0;
-constexpr int kLoudnessRate = 48000;
-constexpr int64_t kBlockFrames = kLoudnessRate * 400 / 1000;  // 400 ms
-constexpr int64_t kBlockStep = kBlockFrames / 4;              // 75% overlap
-constexpr double kSilenceLufs = -100.0;
 
 std::string av_error(int error) {
   char buffer[AV_ERROR_MAX_STRING_SIZE] = {};
@@ -54,6 +53,232 @@ void copy_layout(const AVChannelLayout& source, AVChannelLayout* target) {
   if (av_channel_layout_copy(target, &source) < 0) {
     *target = AVChannelLayout{};
   }
+}
+
+// Append `count` planar frames from `scratch` onto `buffer`.  The planar
+// stride of PcmBuffer equals its frame count, so growing the buffer changes
+// where every existing plane starts: the old data must be repacked into the
+// new stride rather than resized in place.
+bool append_planes(PcmBuffer* buffer,
+                   const std::vector<std::vector<float>>& scratch, int64_t count) {
+  if (count <= 0) return true;
+  const int64_t old_frames = buffer->frames;
+  if (static_cast<__int128>(old_frames + count) * buffer->channels >
+      std::numeric_limits<int64_t>::max()) {
+    return false;
+  }
+  const int channels = buffer->channels;
+  const int64_t new_frames = old_frames + count;
+  std::vector<float> packed(static_cast<size_t>(new_frames) *
+                            static_cast<size_t>(channels));
+  const float* old_data = buffer->data.data();
+  for (int c = 0; c < channels; ++c) {
+    float* target = packed.data() + static_cast<size_t>(c) * new_frames;
+    if (old_frames > 0) {
+      std::memcpy(target, old_data + static_cast<size_t>(c) * old_frames,
+                  static_cast<size_t>(old_frames) * sizeof(float));
+    }
+    std::memcpy(target + old_frames,
+                scratch[static_cast<size_t>(c)].data(),
+                static_cast<size_t>(count) * sizeof(float));
+  }
+  buffer->data = std::move(packed);
+  buffer->frames = new_frames;
+  return true;
+}
+
+// Resamples planar float input into planar float output at the destination
+// rate/layout, flushing the resampler tail so no samples are lost.
+bool resample_planar(const PcmBuffer& input, const AVChannelLayout& layout,
+                     int rate, int64_t max_frames, PcmBuffer* out,
+                     std::vector<Diagnostic>* diagnostics) {
+  const int channels = layout.nb_channels;
+  if (input.sample_rate == rate && !input.interleaved &&
+      av_channel_layout_compare(&input.layout, &layout) == 0 &&
+      input.channels == channels) {
+    // Same rate and layout: swresample would still run its format converter
+    // and inject an internal delay, shifting every sample.  Copy instead.
+    if (static_cast<__int128>(input.frames) * channels >
+        static_cast<__int128>(max_frames) * kMaxChannels) {
+      diagnostics->push_back(make(ErrorCode::audio_too_large,
+                                  "audio exceeds the sample limit"));
+      return false;
+    }
+    PcmBuffer copy;
+    copy.sample_rate = rate;
+    copy_layout(layout, &copy.layout);
+    copy.channels = channels;
+    copy.interleaved = false;
+    copy.frames = input.frames;
+    copy.data = input.data;
+    *out = std::move(copy);
+    return true;
+  }
+  const AVSampleFormat input_format =
+      input.interleaved ? AV_SAMPLE_FMT_FLT : AV_SAMPLE_FMT_FLTP;
+  SwrContext* swr = nullptr;
+  int error = swr_alloc_set_opts2(&swr, &layout, AV_SAMPLE_FMT_FLTP, rate,
+                                  &input.layout, input_format,
+                                  input.sample_rate, 0, nullptr);
+  if (error < 0 || swr == nullptr) {
+    if (swr != nullptr) swr_free(&swr);
+    diagnostics->push_back(make(ErrorCode::audio_decode,
+                                "cannot allocate resampler: " + av_error(error)));
+    return false;
+  }
+  if (swr_init(swr) < 0) {
+    swr_free(&swr);
+    diagnostics->push_back(make(ErrorCode::audio_decode,
+                                "cannot initialise resampler"));
+    return false;
+  }
+
+  PcmBuffer converted;
+  converted.sample_rate = rate;
+  copy_layout(layout, &converted.layout);
+  converted.channels = channels;
+  converted.interleaved = false;
+
+  const auto drain = [&](const uint8_t* const* planes, int count) -> bool {
+    const int capacity = swr_get_out_samples(swr, count);
+    if (capacity < 0) return false;
+    if (capacity == 0) return true;
+    if (static_cast<__int128>(converted.frames + capacity) * channels >
+        static_cast<__int128>(max_frames) * kMaxChannels) {
+      diagnostics->push_back(make(ErrorCode::audio_too_large,
+                                  "resampled audio exceeds the sample limit"));
+      return false;
+    }
+    std::vector<std::vector<float>> scratch(
+        static_cast<size_t>(channels),
+        std::vector<float>(static_cast<size_t>(capacity), 0.0f));
+    std::vector<uint8_t*> targets(static_cast<size_t>(channels));
+    for (int c = 0; c < channels; ++c) {
+      targets[static_cast<size_t>(c)] =
+          reinterpret_cast<uint8_t*>(scratch[static_cast<size_t>(c)].data());
+    }
+    const int produced = swr_convert(swr, targets.data(), capacity, planes, count);
+    if (produced < 0) {
+      diagnostics->push_back(make(ErrorCode::audio_decode,
+                                  "resampler failed: " + av_error(produced)));
+      return false;
+    }
+    return append_planes(&converted, scratch, produced);
+  };
+
+  const uint8_t* input_planes[8] = {};
+  if (input.interleaved) {
+    input_planes[0] = reinterpret_cast<const uint8_t*>(input.data.data());
+  } else {
+    for (int c = 0; c < input.channels && c < 8; ++c) {
+      input_planes[c] = reinterpret_cast<const uint8_t*>(input.plane(c));
+    }
+  }
+  bool ok = drain(input_planes, static_cast<int>(input.frames));
+  if (ok) {
+    // Flush the resampler's internal delay.  swr_get_out_samples(swr, 0)
+    // reports the pending tail; the loop is bounded by a zero return so a
+    // resampler that keeps advertising a delay cannot spin forever.
+    constexpr int kMaxFlushPasses = 64;
+    for (int pass = 0; ok && pass < kMaxFlushPasses; ++pass) {
+      const int pending = swr_get_out_samples(swr, 0);
+      if (pending <= 0) break;
+      std::vector<std::vector<float>> scratch(
+          static_cast<size_t>(channels),
+          std::vector<float>(static_cast<size_t>(pending), 0.0f));
+      std::vector<uint8_t*> targets(static_cast<size_t>(channels));
+      for (int c = 0; c < channels; ++c) {
+        targets[static_cast<size_t>(c)] =
+            reinterpret_cast<uint8_t*>(scratch[static_cast<size_t>(c)].data());
+      }
+      const int flushed = swr_convert(swr, targets.data(), pending, nullptr, 0);
+      if (flushed < 0) {
+        ok = false;
+        break;
+      }
+      if (flushed == 0) break;
+      ok = append_planes(&converted, scratch, flushed);
+    }
+  }
+  swr_free(&swr);
+  if (!ok) return false;
+  *out = std::move(converted);
+  return true;
+}
+
+// BS.1770 channel weights: L/R/C = 1.0, rear/side = 1.41, LFE = 0.
+double channel_weight(const AVChannelLayout& layout, int channel) {
+  if (layout.order != AV_CHANNEL_ORDER_NATIVE) return 1.0;
+  const uint64_t kLfe = 1ULL << AV_CHAN_LOW_FREQUENCY;
+  const uint64_t kRear = (1ULL << AV_CHAN_BACK_LEFT) |
+                         (1ULL << AV_CHAN_BACK_RIGHT) |
+                         (1ULL << AV_CHAN_SIDE_LEFT) |
+                         (1ULL << AV_CHAN_SIDE_RIGHT);
+  const AVChannel order[8] = {AV_CHAN_FRONT_LEFT,  AV_CHAN_FRONT_RIGHT,
+                              AV_CHAN_FRONT_CENTER, AV_CHAN_LOW_FREQUENCY,
+                              AV_CHAN_BACK_LEFT,  AV_CHAN_BACK_RIGHT,
+                              AV_CHAN_SIDE_LEFT,  AV_CHAN_SIDE_RIGHT};
+  if (channel < 0 || channel >= 8) return 1.0;
+  const uint64_t bit = 1ULL << order[channel];
+  if (bit & kLfe) return 0.0;
+  if (bit & kRear) return 1.41;
+  return 1.0;
+}
+
+// K-weighting biquads at 48 kHz (BS.1770-4 tables 1 and 2).
+struct Biquad {
+  double b0, b1, b2, a1, a2;
+  double z1 = 0.0, z2 = 0.0;
+  double process(double x) {
+    const double y = b0 * x + z1;
+    z1 = b1 * x - a1 * y + z2;
+    z2 = b2 * x - a2 * y;
+    return y;
+  }
+};
+
+Biquad shelf_filter() {
+  return Biquad{1.53512485958697, -2.69169618940638, 1.19839281085285,
+                -1.69065929318241, 0.73248077421585};
+}
+
+Biquad high_pass_filter() {
+  return Biquad{1.0, -2.0, 1.0, -1.99004745483398, 0.99007225036621};
+}
+
+// True peak: 4x linear interpolation of the sample peak.  Deterministic and
+// adequate for archive limiting; not a substitute for a broadcast meter.
+double true_peak_dbfs(const PcmBuffer& buffer) {
+  if (buffer.frames <= 0 || buffer.channels <= 0) return kSilenceLufs;
+  double peak = 0.0;
+  for (int c = 0; c < buffer.channels; ++c) {
+    const float* samples = buffer.plane(c);
+    for (int64_t i = 0; i < buffer.frames; ++i) {
+      peak = std::max(peak, std::fabs(static_cast<double>(samples[i])));
+      if (i > 0) {
+        const double a = samples[i - 1];
+        const double b = samples[i];
+        for (int k = 1; k < kTruePeakOversample; ++k) {
+          const double t = static_cast<double>(k) / kTruePeakOversample;
+          peak = std::max(peak, std::fabs(a + (b - a) * t));
+        }
+      }
+    }
+  }
+  if (peak <= 0.0) return kSilenceLufs;
+  return std::max(20.0 * std::log10(peak), kSilenceLufs);
+}
+
+double sample_peak_dbfs(const PcmBuffer& buffer) {
+  double peak = 0.0;
+  for (int c = 0; c < buffer.channels; ++c) {
+    const float* samples = buffer.plane(c);
+    for (int64_t i = 0; i < buffer.frames; ++i) {
+      peak = std::max(peak, std::fabs(static_cast<double>(samples[i])));
+    }
+  }
+  if (peak <= 0.0) return kSilenceLufs;
+  return std::max(20.0 * std::log10(peak), kSilenceLufs);
 }
 
 }  // namespace
@@ -162,8 +387,8 @@ bool parse_layout(std::string_view name, AVChannelLayout* out) {
   const std::string text(name);
   AVChannelLayout layout{};
   if (av_channel_layout_from_string(&layout, text.c_str()) < 0) return false;
-  // Accept only named, canonical layouts.  A bare channel count like "6" is
-  // ambiguous (5.1 vs 6.0) and must not silently become a mask.
+  // Only named, canonical layouts.  A bare channel count like "6" is
+  // ambiguous and must not silently become a mask.
   const bool named = av_channel_layout_check(&layout) &&
                      layout.nb_channels > 0 &&
                      static_cast<uint64_t>(layout.nb_channels) <= kMaxChannels &&
@@ -183,68 +408,8 @@ std::string layout_name(const AVChannelLayout& layout) {
   if (av_channel_layout_describe(&layout, buffer, sizeof(buffer)) < 0) {
     return "unknown";
   }
-  std::string name(buffer);
-  // FFmpeg spells 5.1 with the default channel order as "5.1"; keep the
-  // canonical description verbatim so JSON output is stable.
-  return name;
+  return std::string(buffer);
 }
-
-namespace {
-
-bool fill_payload(const PcmBuffer& source, const AVChannelLayout& output_layout,
-                  int output_rate, SwrContext* swr, PcmBuffer* out,
-                  std::vector<Diagnostic>* diagnostics) {
-  const int out_channels = output_layout.nb_channels;
-  const int64_t max_frames =
-      swr_get_out_samples(swr, static_cast<int>(source.frames));
-  if (max_frames < 0) {
-    diagnostics->push_back(make(ErrorCode::audio_decode,
-                                "resampler rejected the input frame count"));
-    return false;
-  }
-  if (max_frames > 0) {
-    const __int128 samples = static_cast<__int128>(max_frames) * out_channels;
-    if (samples > static_cast<__int128>(std::numeric_limits<int32_t>::max())) {
-      diagnostics->push_back(make(ErrorCode::audio_too_large,
-                                  "resampled audio exceeds the buffer limit"));
-      return false;
-    }
-  }
-  out->sample_rate = output_rate;
-  copy_layout(output_layout, &out->layout);
-  out->channels = out_channels;
-  out->interleaved = false;
-  out->frames = std::max<int64_t>(max_frames, 0);
-  out->data.assign(static_cast<size_t>(out->frames) * static_cast<size_t>(out_channels),
-                   0.0f);
-
-  uint8_t* planes[8] = {};
-  for (int c = 0; c < out_channels && c < 8; ++c) {
-    planes[c] = reinterpret_cast<uint8_t*>(out->plane(c));
-  }
-  // Planar source addressing: swr expects one pointer per input channel.
-  const uint8_t* input_planes[8] = {};
-  if (source.interleaved) {
-    input_planes[0] = reinterpret_cast<const uint8_t*>(source.data.data());
-  } else {
-    for (int c = 0; c < source.channels && c < 8; ++c) {
-      input_planes[c] = reinterpret_cast<const uint8_t*>(source.plane(c));
-    }
-  }
-  const int converted = swr_convert(
-      swr, planes, static_cast<int>(out->frames), input_planes,
-      static_cast<int>(source.frames));
-  if (converted < 0) {
-    diagnostics->push_back(make(ErrorCode::audio_decode,
-                                "resampler failed: " + av_error(converted)));
-    return false;
-  }
-  out->frames = converted;
-  out->data.resize(static_cast<size_t>(converted) * static_cast<size_t>(out_channels));
-  return true;
-}
-
-}  // namespace
 
 bool convert_audio(const PcmBuffer& input, const AudioRestoreConfig& config,
                    PcmBuffer* out, AudioStats* stats,
@@ -279,215 +444,68 @@ bool convert_audio(const PcmBuffer& input, const AudioRestoreConfig& config,
   stats->output_layout = layout_name(config.output_layout);
   stats->input_frames = input.frames;
 
-  const AVSampleFormat input_format =
-      input.interleaved ? AV_SAMPLE_FMT_FLT : AV_SAMPLE_FMT_FLTP;
-
-  SwrContext* swr = nullptr;
-  int error = swr_alloc_set_opts2(
-      &swr, &config.output_layout, AV_SAMPLE_FMT_FLTP, config.output_rate,
-      &input.layout, input_format, input.sample_rate, 0, nullptr);
-  if (error < 0 || swr == nullptr) {
-    diagnostics->push_back(make(ErrorCode::audio_decode,
-                                "cannot allocate resampler: " + av_error(error)));
-    if (swr != nullptr) swr_free(&swr);
+  if (!resample_planar(input, config.output_layout, config.output_rate,
+                       config.max_output_frames, out, diagnostics)) {
     return false;
   }
-  if (swr_init(swr) < 0) {
-    diagnostics->push_back(make(ErrorCode::audio_decode, "cannot initialise resampler"));
-    swr_free(&swr);
-    return false;
-  }
-
-  const bool ok = fill_payload(input, config.output_layout, config.output_rate,
-                               swr, out, diagnostics);
-  if (ok) {
-    // Flush the resampler's internal delay so no tail samples are lost.
-    PcmBuffer tail;
-    tail.sample_rate = config.output_rate;
-    copy_layout(config.output_layout, &tail.layout);
-    tail.channels = config.output_layout.nb_channels;
-    tail.interleaved = false;
-    const int64_t capacity = static_cast<int64_t>(config.output_rate);
-    tail.frames = capacity;
-    tail.data.assign(static_cast<size_t>(capacity) * tail.channels, 0.0f);
-    uint8_t* planes[8] = {};
-    for (int c = 0; c < tail.channels && c < 8; ++c) {
-      planes[c] = reinterpret_cast<uint8_t*>(tail.plane(c));
-    }
-    const int flushed = swr_convert(swr, planes, static_cast<int>(capacity),
-                                    nullptr, 0);
-    if (flushed > 0) {
-      tail.frames = flushed;
-      tail.data.resize(static_cast<size_t>(flushed) * tail.channels);
-      const int64_t old = out->frames;
-      out->frames += flushed;
-      if (static_cast<__int128>(out->frames) * out->channels >
-          config.max_output_frames * kMaxChannels) {
-        diagnostics->push_back(make(ErrorCode::audio_too_large,
-                                    "resampled audio exceeds the sample limit"));
-        swr_free(&swr);
-        return false;
-      }
-      out->data.resize(static_cast<size_t>(out->frames) * out->channels);
-      for (int c = 0; c < out->channels; ++c) {
-        std::memcpy(out->plane(c) + old, tail.plane(c),
-                    static_cast<size_t>(flushed) * sizeof(float));
-      }
-    }
-    stats->resampler_delay = swr_get_delay(swr, config.output_rate);
-  }
-  swr_free(&swr);
-  if (ok) stats->output_frames = out->frames;
-  return ok;
-}
-
-namespace {
-
-// BS.1770 channel weights: L/R/C = 1.0, Ls/Rs = 1.41, LFE = 0.
-double channel_weight(const AVChannelLayout& layout, int channel) {
-  if (layout.order != AV_CHANNEL_ORDER_NATIVE) return 1.0;
-  const uint64_t kLfe = 1ULL << AV_CHAN_LOW_FREQUENCY;
-  const uint64_t kRear = (1ULL << AV_CHAN_BACK_LEFT) | (1ULL << AV_CHAN_BACK_RIGHT) |
-                         (1ULL << AV_CHAN_SIDE_LEFT) | (1ULL << AV_CHAN_SIDE_RIGHT);
-  const AVChannel order[8] = {AV_CHAN_FRONT_LEFT,  AV_CHAN_FRONT_RIGHT,
-                              AV_CHAN_FRONT_CENTER, AV_CHAN_LOW_FREQUENCY,
-                              AV_CHAN_BACK_LEFT,  AV_CHAN_BACK_RIGHT,
-                              AV_CHAN_SIDE_LEFT,  AV_CHAN_SIDE_RIGHT};
-  if (channel < 0 || channel >= 8) return 1.0;
-  const uint64_t bit = 1ULL << order[channel];
-  if (bit & kLfe) return 0.0;
-  if (bit & kRear) return 1.41;
-  (void)layout;
-  return 1.0;
-}
-
-// K-weighting biquads at 48 kHz (ITU-R BS.1770-4, tables 1 and 2).
-struct Biquad {
-  double b0, b1, b2, a1, a2;
-  double z1 = 0.0, z2 = 0.0;
-  double process(double x) {
-    const double y = b0 * x + z1;
-    z1 = b1 * x - a1 * y + z2;
-    z2 = b2 * x - a2 * y;
-    return y;
-  }
-};
-
-constexpr Biquad kShelf{1.53512485958697, -2.69169618940638, 1.19839281085285,
-                        -1.69065929318241, 0.73248077421585};
-constexpr Biquad kHighPass{1.0, -2.0, 1.0, -1.99004745483398, 0.99007225036621};
-constexpr int kMeasureRate = 48000;
-
-// Resamples to 48 kHz planar float for measurement.  The K-weighting
-// coefficients are only valid at 48 kHz, so measurement must not depend on
-// the delivery rate.
-bool resample_for_measurement(const PcmBuffer& input, std::vector<float>* out,
-                              int64_t* frames) {
-  if (input.sample_rate == kMeasureRate) {
-    const size_t total = static_cast<size_t>(input.frames) * input.channels;
-    out->assign(total, 0.0f);
-    for (int c = 0; c < input.channels; ++c) {
-      std::memcpy(out->data() + static_cast<size_t>(c) * input.frames,
-                  input.plane(c), static_cast<size_t>(input.frames) * sizeof(float));
-    }
-    *frames = input.frames;
-    return true;
-  }
-  SwrContext* swr = nullptr;
-  AVChannelLayout layout{};
-  if (av_channel_layout_copy(&layout, &input.layout) < 0) return false;
-  const int error = swr_alloc_set_opts2(
-      &swr, &layout, AV_SAMPLE_FMT_FLTP, kMeasureRate, &layout, AV_SAMPLE_FMT_FLTP,
-      input.sample_rate, 0, nullptr);
-  av_channel_layout_uninit(&layout);
-  if (error < 0 || swr == nullptr) {
-    if (swr) swr_free(&swr);
-    return false;
-  }
-  if (swr_init(swr) < 0) {
-    swr_free(&swr);
-    return false;
-  }
-  const int max_frames = swr_get_out_samples(swr, static_cast<int>(input.frames));
-  if (max_frames < 0) {
-    swr_free(&swr);
-    return false;
-  }
-  std::vector<float> buffer(static_cast<size_t>(max_frames) * input.channels, 0.0f);
-  std::vector<uint8_t*> planes(static_cast<size_t>(input.channels));
-  for (int c = 0; c < input.channels; ++c) {
-    planes[static_cast<size_t>(c)] =
-        reinterpret_cast<uint8_t*>(buffer.data() + static_cast<size_t>(c) * max_frames);
-  }
-  std::vector<const uint8_t*> in_planes(static_cast<size_t>(input.channels));
-  for (int c = 0; c < input.channels; ++c) {
-    in_planes[static_cast<size_t>(c)] = reinterpret_cast<const uint8_t*>(input.plane(c));
-  }
-  int converted = swr_convert(swr, planes.data(), max_frames, in_planes.data(),
-                              static_cast<int>(input.frames));
-  int flushed = 0;
-  if (converted >= 0) {
-    std::vector<uint8_t*> tail(static_cast<size_t>(input.channels));
-    for (int c = 0; c < input.channels; ++c) {
-      tail[static_cast<size_t>(c)] = reinterpret_cast<uint8_t*>(
-          buffer.data() + static_cast<size_t>(c) * max_frames + converted);
-    }
-    flushed = swr_convert(swr, tail.data(), max_frames - converted, nullptr, 0);
-  }
-  swr_free(&swr);
-  if (converted < 0 || flushed < 0) return false;
-  // Interleave the first `converted + flushed` frames for per-channel loops.
-  const int64_t produced = converted + flushed;
-  std::vector<float> interleaved(static_cast<size_t>(produced) * input.channels);
-  for (int c = 0; c < input.channels; ++c) {
-    const float* plane = buffer.data() + static_cast<size_t>(c) * max_frames;
-    for (int64_t i = 0; i < produced; ++i) {
-      interleaved[static_cast<size_t>(i) * input.channels + c] = plane[i];
-    }
-  }
-  *out = std::move(interleaved);
-  *frames = produced;
+  stats->output_frames = out->frames;
   return true;
 }
 
-// True peak: 4x linear interpolation of the sample peak.  Deterministic and
-// adequate for archive limiting; not a substitute for a broadcast meter.
-double true_peak_dbfs(const PcmBuffer& buffer) {
-  if (buffer.frames <= 0 || buffer.channels <= 0) {
-    return -std::numeric_limits<double>::infinity();
-  }
-  double peak = 0.0;
-  for (int c = 0; c < buffer.channels; ++c) {
-    const float* samples = buffer.plane(c);
-    for (int64_t i = 0; i < buffer.frames; ++i) {
-      peak = std::max(peak, std::fabs(static_cast<double>(samples[i])));
-      if (i > 0) {
-        const double a = samples[i - 1];
-        const double b = samples[i];
-        for (int k = 1; k < kTruePeakOversample; ++k) {
-          const double t = static_cast<double>(k) / kTruePeakOversample;
-          peak = std::max(peak, std::fabs(a + (b - a) * t));
-        }
-      }
+bool apply_timeline_offset(int64_t offset_samples, PcmBuffer* buffer,
+                           AudioStats* stats) {
+  if (offset_samples == 0) return true;
+  if (offset_samples > 0) {
+    // Positive offset: the audio starts later than the segment, so prepend
+    // silence at the destination rate.
+    const int64_t frames = offset_samples;
+    if (static_cast<__int128>(buffer->frames + frames) * buffer->channels >
+        std::numeric_limits<int64_t>::max()) {
+      return false;
     }
-  }
-  if (peak <= 0.0) return -std::numeric_limits<double>::infinity();
-  return 20.0 * std::log10(peak);
-}
-
-double sample_peak_dbfs(const PcmBuffer& buffer) {
-  double peak = 0.0;
-  for (int c = 0; c < buffer.channels; ++c) {
-    const float* samples = buffer.plane(c);
-    for (int64_t i = 0; i < buffer.frames; ++i) {
-      peak = std::max(peak, std::fabs(static_cast<double>(samples[i])));
+    const int64_t source_frames = buffer->frames;
+    std::vector<std::vector<float>> scratch(
+        static_cast<size_t>(buffer->channels),
+        std::vector<float>(static_cast<size_t>(frames + source_frames), 0.0f));
+    for (int c = 0; c < buffer->channels; ++c) {
+      std::memcpy(scratch[static_cast<size_t>(c)].data() + frames,
+                  buffer->plane(c),
+                  static_cast<size_t>(source_frames) * sizeof(float));
     }
+    PcmBuffer shifted;
+    shifted.sample_rate = buffer->sample_rate;
+    copy_layout(buffer->layout, &shifted.layout);
+    shifted.channels = buffer->channels;
+    shifted.interleaved = false;
+    shifted.frames = frames + source_frames;
+    shifted.data.assign(static_cast<size_t>(shifted.frames) * shifted.channels,
+                        0.0f);
+    for (int c = 0; c < shifted.channels; ++c) {
+      std::memcpy(shifted.plane(c), scratch[static_cast<size_t>(c)].data(),
+                  static_cast<size_t>(shifted.frames) * sizeof(float));
+    }
+    *buffer = std::move(shifted);
+    stats->padded_frames = frames;
+    return true;
   }
-  if (peak <= 0.0) return -std::numeric_limits<double>::infinity();
-  return 20.0 * std::log10(peak);
+  // Negative offset: the source starts before the segment, so trim leading
+  // samples until the first output sample aligns with the segment start.
+  const int64_t drop = -offset_samples;
+  if (drop >= buffer->frames) {
+    stats->discarded_frames = buffer->frames;
+    buffer->frames = 0;
+    buffer->data.clear();
+    return true;
+  }
+  for (int c = 0; c < buffer->channels; ++c) {
+    std::memmove(buffer->plane(c), buffer->plane(c) + drop,
+                 static_cast<size_t>(buffer->frames - drop) * sizeof(float));
+  }
+  buffer->frames -= drop;
+  buffer->data.resize(static_cast<size_t>(buffer->frames) * buffer->channels);
+  stats->discarded_frames = drop;
+  return true;
 }
-
-}  // namespace
 
 bool measure_loudness(const PcmBuffer& buffer, double* lufs, double* true_peak,
                       bool* silent, std::vector<Diagnostic>* diagnostics) {
@@ -501,43 +519,47 @@ bool measure_loudness(const PcmBuffer& buffer, double* lufs, double* true_peak,
   }
   if (buffer.frames == 0) return true;  // empty segment: silence floor
   *true_peak = true_peak_dbfs(buffer);
-  if (sample_peak_dbfs(buffer) < kSilenceThresholdDbfs) {
-    return true;  // explicit silence path
-  }
+  if (sample_peak_dbfs(buffer) < kSilenceThresholdDbfs) return true;
   *silent = false;
 
-  std::vector<float> interleaved;
-  int64_t frames = 0;
-  if (!resample_for_measurement(buffer, &interleaved, &frames)) {
-    diagnostics->push_back(make(ErrorCode::loudness_invalid,
-                                "cannot prepare the buffer for loudness measurement"));
-    return false;
+  // Measurement always happens at 48 kHz because the K-weighting coefficients
+  // are defined there; the delivery rate may be anything.
+  PcmBuffer measured;
+  if (buffer.sample_rate != kLoudnessRate) {
+    if (!resample_planar(buffer, buffer.layout, kLoudnessRate,
+                         buffer.frames * 4 + kLoudnessRate, &measured,
+                         diagnostics)) {
+      return false;
+    }
+  } else {
+    measured = buffer;
   }
-  if (frames < kBlockStep) {
+  if (measured.frames < kBlockStep) {
     diagnostics->push_back(make(
         ErrorCode::loudness_invalid,
-        "segment is shorter than one 100 ms gating block; loudness stays at the "
-        "silence floor",
+        "segment is shorter than one 100 ms gating block; loudness stays at "
+        "the silence floor",
         {}));
     return true;
   }
 
-  const int channels = buffer.channels;
-  // Filter each channel with continuous state, then form gating blocks.
+  // Filter every channel with continuous state, then form gating blocks.
+  const int channels = measured.channels;
   std::vector<std::vector<double>> filtered(
-      static_cast<size_t>(channels), std::vector<double>(static_cast<size_t>(frames)));
+      static_cast<size_t>(channels),
+      std::vector<double>(static_cast<size_t>(measured.frames)));
   for (int c = 0; c < channels; ++c) {
-    Biquad s1 = kShelf;
-    Biquad s2 = kHighPass;
-    for (int64_t i = 0; i < frames; ++i) {
-      const double sample =
-          static_cast<double>(interleaved[static_cast<size_t>(i) * channels + c]);
+    Biquad shelf = shelf_filter();
+    Biquad high_pass = high_pass_filter();
+    const float* samples = measured.plane(c);
+    for (int64_t i = 0; i < measured.frames; ++i) {
       filtered[static_cast<size_t>(c)][static_cast<size_t>(i)] =
-          s2.process(s1.process(sample));
+          high_pass.process(shelf.process(static_cast<double>(samples[i])));
     }
   }
   std::vector<double> block_levels;
-  for (int64_t start = 0; start + kBlockFrames <= frames; start += kBlockStep) {
+  for (int64_t start = 0; start + kBlockFrames <= measured.frames;
+       start += kBlockStep) {
     double sum = 0.0;
     for (int c = 0; c < channels; ++c) {
       double energy = 0.0;
@@ -546,7 +568,7 @@ bool measure_loudness(const PcmBuffer& buffer, double* lufs, double* true_peak,
         energy += channel[static_cast<size_t>(i)] * channel[static_cast<size_t>(i)];
       }
       energy /= static_cast<double>(kBlockFrames);
-      sum += channel_weight(buffer.layout, c) * energy;
+      sum += channel_weight(measured.layout, c) * energy;
     }
     block_levels.push_back(-0.691 + 10.0 * std::log10(sum + 1e-30));
   }
@@ -608,18 +630,17 @@ bool normalize_loudness(const AudioRestoreConfig& config, PcmBuffer* buffer,
     stats->output_true_peak_dbtp = true_peak;
     return true;
   }
+  // A segment shorter than one gating block has no valid integrated level;
+  // gain is skipped rather than derived from an unmeasurable region.
   if (!config.apply_gain || stats->short_segment) {
     stats->output_lufs = lufs;
     stats->output_true_peak_dbtp = true_peak;
     return true;
   }
 
-  // Gain to reach the target.  Clamp to a sane range so a near-silent but
-  // non-zero segment cannot be amplified without bound.
   double gain_db = config.target_lufs - lufs;
   constexpr double kMaxGainDb = 30.0;
-  constexpr double kMinGainDb = -30.0;
-  gain_db = std::clamp(gain_db, kMinGainDb, kMaxGainDb);
+  gain_db = std::clamp(gain_db, -kMaxGainDb, kMaxGainDb);
   const double gain = std::pow(10.0, gain_db / 20.0);
   for (int c = 0; c < buffer->channels; ++c) {
     float* samples = buffer->plane(c);
@@ -629,7 +650,6 @@ bool normalize_loudness(const AudioRestoreConfig& config, PcmBuffer* buffer,
   }
   stats->applied_gain_db = gain_db;
 
-  // True-peak limiting at the configured ceiling.
   const double ceiling = std::pow(10.0, config.true_peak_dbtp / 20.0);
   double peak = 0.0;
   for (int c = 0; c < buffer->channels; ++c) {
@@ -659,53 +679,6 @@ bool normalize_loudness(const AudioRestoreConfig& config, PcmBuffer* buffer,
   }
   stats->output_lufs = out_lufs;
   stats->output_true_peak_dbtp = out_peak;
-  return true;
-}
-
-bool apply_timeline_offset(int64_t offset_samples, PcmBuffer* buffer,
-                           AudioStats* stats) {
-  if (offset_samples == 0) return true;
-  if (offset_samples > 0) {
-    const int64_t frames = offset_samples;
-    if (static_cast<__int128>(buffer->frames + frames) * buffer->channels >
-        std::numeric_limits<int64_t>::max()) {
-      return false;
-    }
-    const int64_t old = buffer->frames;
-    PcmBuffer shifted;
-    shifted.sample_rate = buffer->sample_rate;
-    copy_layout(buffer->layout, &shifted.layout);
-    shifted.channels = buffer->channels;
-    shifted.interleaved = false;
-    shifted.frames = old + frames;
-    shifted.data.assign(static_cast<size_t>(shifted.frames) * shifted.channels, 0.0f);
-    for (int c = 0; c < buffer->channels; ++c) {
-      std::memcpy(shifted.plane(c) + frames, buffer->plane(c),
-                  static_cast<size_t>(old) * sizeof(float));
-    }
-    *buffer = std::move(shifted);
-    stats->padded_frames = frames;
-    return true;
-  }
-  // Negative offset: the source starts before the segment; drop the leading
-  // samples so the first output sample aligns with the segment start.
-  const int64_t drop = -offset_samples;
-  if (drop >= buffer->frames) {
-    for (int c = 0; c < buffer->channels; ++c) {
-      std::fill(buffer->plane(c), buffer->plane(c) + buffer->frames, 0.0f);
-    }
-    stats->discarded_frames = buffer->frames;
-    buffer->frames = 0;
-    buffer->data.assign(static_cast<size_t>(buffer->channels) * 0, 0.0f);
-    return true;
-  }
-  for (int c = 0; c < buffer->channels; ++c) {
-    std::memmove(buffer->plane(c), buffer->plane(c) + drop,
-                 static_cast<size_t>(buffer->frames - drop) * sizeof(float));
-  }
-  buffer->frames -= drop;
-  buffer->data.resize(static_cast<size_t>(buffer->frames) * buffer->channels);
-  stats->discarded_frames = drop;
   return true;
 }
 
@@ -739,21 +712,35 @@ bool encode_wav(const PcmBuffer& buffer, std::string* out,
                                 "WAV payload exceeds the RIFF 32-bit size field"));
     return false;
   }
+  // WAVE_FORMAT_EXTENSIBLE carries the channel mask, so 5.1/7.1 survive a
+  // round trip through any decoder instead of degrading to a channel count.
+  const bool extensible =
+      buffer.channels > 2 && buffer.layout.order == AV_CHANNEL_ORDER_NATIVE;
+  const uint32_t fmt_size = extensible ? 40 : 16;
   std::string& wav = *out;
   wav.clear();
-  wav.reserve(static_cast<size_t>(data_bytes) + 44);
+  wav.reserve(static_cast<size_t>(data_bytes) + 68);
   wav.append("RIFF", 4);
-  put_u32(&wav, static_cast<uint32_t>(36 + data_bytes));
+  put_u32(&wav, static_cast<uint32_t>(36 + (fmt_size - 16) + data_bytes));
   wav.append("WAVE", 4);
   wav.append("fmt ", 4);
-  put_u32(&wav, 16);
-  put_u16(&wav, 3);  // IEEE float
+  put_u32(&wav, fmt_size);
+  put_u16(&wav, extensible ? 0xFFFE : 3);
   put_u16(&wav, static_cast<uint16_t>(buffer.channels));
   put_u32(&wav, static_cast<uint32_t>(buffer.sample_rate));
   const uint32_t block_align = static_cast<uint32_t>(buffer.channels) * 4;
   put_u32(&wav, static_cast<uint32_t>(buffer.sample_rate) * block_align);
   put_u16(&wav, static_cast<uint16_t>(block_align));
   put_u16(&wav, 32);
+  if (extensible) {
+    put_u16(&wav, 22);
+    put_u16(&wav, 32);
+    put_u32(&wav, static_cast<uint32_t>(buffer.layout.u.mask));
+    const unsigned char guid[16] = {0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
+                                    0x00, 0x80, 0x00, 0x00, 0xAA, 0x00, 0x38,
+                                    0x9B, 0x71};
+    wav.append(reinterpret_cast<const char*>(guid), sizeof(guid));
+  }
   wav.append("data", 4);
   put_u32(&wav, static_cast<uint32_t>(data_bytes));
   // Interleave in channel order.  Little-endian float bit patterns are stable
@@ -797,24 +784,14 @@ bool decode_audio_file(const std::filesystem::path& path, const Limits& limits,
   }
   AVStream* stream = format->streams[stream_index];
   const AVCodec* decoder = avcodec_find_decoder(stream->codecpar->codec_id);
-  if (decoder == nullptr) {
+  AVCodecContext* codec = decoder != nullptr ? avcodec_alloc_context3(decoder) : nullptr;
+  if (codec == nullptr ||
+      avcodec_parameters_to_context(codec, stream->codecpar) < 0 ||
+      avcodec_open2(codec, decoder, nullptr) < 0) {
+    if (codec != nullptr) avcodec_free_context(&codec);
     avformat_close_input(&format);
     diagnostics->push_back(make(ErrorCode::audio_decode,
-                                "no decoder for the audio codec",
-                                {.file = path.string()}));
-    return false;
-  }
-  AVCodecContext* codec = avcodec_alloc_context3(decoder);
-  if (codec == nullptr) {
-    avformat_close_input(&format);
-    diagnostics->push_back(make(ErrorCode::audio_decode, "cannot allocate decoder"));
-    return false;
-  }
-  if (avcodec_parameters_to_context(codec, stream->codecpar) < 0 ||
-      avcodec_open2(codec, decoder, nullptr) < 0) {
-    avcodec_free_context(&codec);
-    avformat_close_input(&format);
-    diagnostics->push_back(make(ErrorCode::audio_decode, "cannot open decoder",
+                                "cannot open the audio decoder",
                                 {.file = path.string()}));
     return false;
   }
@@ -824,33 +801,158 @@ bool decode_audio_file(const std::filesystem::path& path, const Limits& limits,
   copy_layout(codec->ch_layout, &result.layout);
   result.channels = result.layout.nb_channels;
   result.interleaved = false;
-  if (result.channels <= 0) {
+  if (result.channels <= 0 || !valid_layout(result.layout)) {
     avcodec_free_context(&codec);
     avformat_close_input(&format);
     diagnostics->push_back(make(ErrorCode::audio_unsupported_layout,
-                                "decoded audio has no channel layout",
+                                "decoded audio has no supported channel layout",
                                 {.file = path.string()}));
     return false;
   }
 
-  // Convert every decoded frame into planar float at the source rate/layout
-  // so the rest of the pipeline has one sample representation.
-  SwrContext* swr = nullptr;
-  AVChannelLayout layout{};
-  if (av_channel_layout_copy(&layout, &result.layout) < 0) {
+  // Convert into the decoder's native rate/layout so the rest of the pipeline
+  // has one sample representation.  Same-rate, same-layout data skips
+  // swresample entirely: its format-conversion path adds an internal delay
+  // that would silently shift every decoded sample.
+  if (codec->sample_rate == result.sample_rate &&
+      (codec->sample_fmt == AV_SAMPLE_FMT_FLTP ||
+       codec->sample_fmt == AV_SAMPLE_FMT_FLT)) {
+    AVPacket* plain_packet = av_packet_alloc();
+    AVFrame* plain_frame = av_frame_alloc();
+    bool ok = plain_packet != nullptr && plain_frame != nullptr;
+    while (ok && av_read_frame(format, plain_packet) >= 0) {
+      if (plain_packet->stream_index != stream_index) {
+        av_packet_unref(plain_packet);
+        continue;
+      }
+      if (avcodec_send_packet(codec, plain_packet) < 0) {
+        av_packet_unref(plain_packet);
+        continue;
+      }
+      av_packet_unref(plain_packet);
+      while (true) {
+        const int received = avcodec_receive_frame(codec, plain_frame);
+        if (received == AVERROR(EAGAIN) || received == AVERROR_EOF) break;
+        if (received < 0) {
+          ok = false;
+          break;
+        }
+        std::vector<std::vector<float>> scratch(
+            static_cast<size_t>(result.channels),
+            std::vector<float>(static_cast<size_t>(plain_frame->nb_samples)));
+        const bool planar = codec->sample_fmt == AV_SAMPLE_FMT_FLTP;
+        for (int c = 0; c < result.channels; ++c) {
+          if (planar) {
+            std::memcpy(scratch[static_cast<size_t>(c)].data(),
+                        plain_frame->extended_data[c],
+                        static_cast<size_t>(plain_frame->nb_samples) *
+                            sizeof(float));
+          } else {
+            const float* source = reinterpret_cast<const float*>(plain_frame->data[0]);
+            for (int i = 0; i < plain_frame->nb_samples; ++i) {
+              scratch[static_cast<size_t>(c)][static_cast<size_t>(i)] =
+                  source[static_cast<size_t>(i) * result.channels + c];
+            }
+          }
+        }
+        if (static_cast<__int128>(result.frames + plain_frame->nb_samples) *
+                result.channels >
+            static_cast<__int128>(limits.max_audio_samples) * kMaxChannels) {
+          diagnostics->push_back(make(ErrorCode::audio_too_large,
+                                      "decoded audio exceeds the sample limit",
+                                      {.file = path.string()}));
+          ok = false;
+        } else {
+          static int dumped = 0;
+          if (dumped < 1 && scratch.size() > 1 && scratch[1].size() > 49) {
+            ++dumped;
+          }
+          ok = append_planes(&result, scratch, plain_frame->nb_samples);
+        }
+        av_frame_unref(plain_frame);
+        if (!ok) break;
+      }
+    }
+    if (ok) {
+      avcodec_send_packet(codec, nullptr);
+      while (true) {
+        const int received = avcodec_receive_frame(codec, plain_frame);
+        if (received < 0) break;
+        std::vector<std::vector<float>> scratch(
+            static_cast<size_t>(result.channels),
+            std::vector<float>(static_cast<size_t>(plain_frame->nb_samples)));
+        for (int c = 0; c < result.channels; ++c) {
+          if (codec->sample_fmt == AV_SAMPLE_FMT_FLTP) {
+            std::memcpy(scratch[static_cast<size_t>(c)].data(),
+                        plain_frame->extended_data[c],
+                        static_cast<size_t>(plain_frame->nb_samples) *
+                            sizeof(float));
+          } else {
+            const float* source = reinterpret_cast<const float*>(plain_frame->data[0]);
+            for (int i = 0; i < plain_frame->nb_samples; ++i) {
+              scratch[static_cast<size_t>(c)][static_cast<size_t>(i)] =
+                  source[static_cast<size_t>(i) * result.channels + c];
+            }
+          }
+        }
+        ok = append_planes(&result, scratch, plain_frame->nb_samples);
+        av_frame_unref(plain_frame);
+        if (!ok) break;
+      }
+    }
+    av_packet_free(&plain_packet);
+    av_frame_free(&plain_frame);
     avcodec_free_context(&codec);
     avformat_close_input(&format);
-    diagnostics->push_back(make(ErrorCode::audio_decode, "cannot copy layout"));
-    return false;
+    if (!ok) return false;
+    *out = std::move(result);
+    return true;
   }
-  const int swr_error = swr_alloc_set_opts2(
+
+  SwrContext* swr = nullptr;
+  AVChannelLayout layout{};
+  av_channel_layout_copy(&layout, &result.layout);
+  error = swr_alloc_set_opts2(
       &swr, &layout, AV_SAMPLE_FMT_FLTP, result.sample_rate, &layout,
-      static_cast<AVSampleFormat>(codec->sample_fmt), result.sample_rate, 0, nullptr);
+      static_cast<AVSampleFormat>(codec->sample_fmt), result.sample_rate, 0,
+      nullptr);
+  const bool setup = error >= 0 && swr != nullptr && swr_init(swr) >= 0;
   av_channel_layout_uninit(&layout);
   AVPacket* packet = av_packet_alloc();
   AVFrame* frame = av_frame_alloc();
-  bool ok = swr != nullptr && swr_error >= 0 && swr_init(swr) >= 0 &&
-            packet != nullptr && frame != nullptr;
+  bool ok = setup && packet != nullptr && frame != nullptr;
+
+  const auto append_decoded = [&](const AVFrame& source) -> bool {
+    const int capacity = swr_get_out_samples(swr, source.nb_samples);
+    if (capacity <= 0) return true;
+    if (static_cast<__int128>(result.frames + capacity) * result.channels >
+        static_cast<__int128>(limits.max_audio_samples) * kMaxChannels) {
+      diagnostics->push_back(make(ErrorCode::audio_too_large,
+                                  "decoded audio exceeds the sample limit",
+                                  {.file = path.string()}));
+      return false;
+    }
+    std::vector<std::vector<float>> scratch(
+        static_cast<size_t>(result.channels),
+        std::vector<float>(static_cast<size_t>(capacity), 0.0f));
+    std::vector<uint8_t*> planes(static_cast<size_t>(result.channels));
+    for (int c = 0; c < result.channels; ++c) {
+      planes[static_cast<size_t>(c)] =
+          reinterpret_cast<uint8_t*>(scratch[static_cast<size_t>(c)].data());
+    }
+    const int produced = swr_convert(
+        swr, planes.data(), capacity,
+        const_cast<const uint8_t**>(source.extended_data), source.nb_samples);
+    if (produced < 0) {
+      diagnostics->push_back(make(ErrorCode::audio_decode,
+                                  "cannot convert decoded samples: " +
+                                      av_error(produced),
+                                  {.file = path.string()}));
+      return false;
+    }
+    return append_planes(&result, scratch, produced);
+  };
+
   while (ok && av_read_frame(format, packet) >= 0) {
     if (packet->stream_index != stream_index) {
       av_packet_unref(packet);
@@ -868,67 +970,34 @@ bool decode_audio_file(const std::filesystem::path& path, const Limits& limits,
         ok = false;
         break;
       }
-      const int capacity = swr_get_out_samples(swr, frame->nb_samples);
-      if (capacity <= 0) continue;
-      if (static_cast<__int128>(result.frames + capacity) * result.channels >
-          static_cast<__int128>(limits.max_audio_samples) * kMaxChannels) {
-        ok = false;
-        diagnostics->push_back(make(ErrorCode::audio_too_large,
-                                    "decoded audio exceeds the sample limit",
-                                    {.file = path.string()}));
-        break;
-      }
-      const int64_t old = result.frames;
-      result.frames += capacity;
-      result.data.resize(static_cast<size_t>(result.frames) * result.channels, 0.0f);
-      std::vector<uint8_t*> planes(static_cast<size_t>(result.channels));
-      for (int c = 0; c < result.channels; ++c) {
-        planes[static_cast<size_t>(c)] = reinterpret_cast<uint8_t*>(
-            result.plane(c) + old);
-      }
-      const int converted = swr_convert(swr, planes.data(), capacity,
-                                        const_cast<const uint8_t**>(frame->extended_data),
-                                        frame->nb_samples);
-      if (converted < 0) {
-        ok = false;
-        diagnostics->push_back(make(ErrorCode::audio_decode,
-                                    "cannot convert decoded samples: " +
-                                        av_error(converted),
-                                    {.file = path.string()}));
-        break;
-      }
-      result.frames = old + converted;
-      result.data.resize(static_cast<size_t>(result.frames) * result.channels);
+      ok = append_decoded(*frame);
       av_frame_unref(frame);
+      if (!ok) break;
     }
   }
   if (ok) {
-    // Flush decoder and resampler tails.
     avcodec_send_packet(codec, nullptr);
     while (true) {
       const int received = avcodec_receive_frame(codec, frame);
       if (received < 0) break;
-      const int capacity = swr_get_out_samples(swr, frame->nb_samples);
-      if (capacity > 0) {
-        const int64_t old = result.frames;
-        if (static_cast<__int128>(old + capacity) * result.channels >
-            static_cast<__int128>(limits.max_audio_samples) * kMaxChannels) {
-          break;
-        }
-        result.frames += capacity;
-        result.data.resize(static_cast<size_t>(result.frames) * result.channels, 0.0f);
-        std::vector<uint8_t*> planes(static_cast<size_t>(result.channels));
-        for (int c = 0; c < result.channels; ++c) {
-          planes[static_cast<size_t>(c)] =
-              reinterpret_cast<uint8_t*>(result.plane(c) + old);
-        }
-        const int converted = swr_convert(
-            swr, planes.data(), capacity,
-            const_cast<const uint8_t**>(frame->extended_data), frame->nb_samples);
-        result.frames = old + (converted > 0 ? converted : 0);
-        result.data.resize(static_cast<size_t>(result.frames) * result.channels);
-      }
+      ok = append_decoded(*frame);
       av_frame_unref(frame);
+      if (!ok) break;
+    }
+  }
+  if (ok) {
+    const int capacity = swr_get_out_samples(swr, 0);
+    if (capacity > 0) {
+      std::vector<std::vector<float>> scratch(
+          static_cast<size_t>(result.channels),
+          std::vector<float>(static_cast<size_t>(capacity), 0.0f));
+      std::vector<uint8_t*> planes(static_cast<size_t>(result.channels));
+      for (int c = 0; c < result.channels; ++c) {
+        planes[static_cast<size_t>(c)] =
+            reinterpret_cast<uint8_t*>(scratch[static_cast<size_t>(c)].data());
+      }
+      const int flushed = swr_convert(swr, planes.data(), capacity, nullptr, 0);
+      ok = flushed >= 0 && append_planes(&result, scratch, flushed);
     }
   }
   if (swr != nullptr) swr_free(&swr);
@@ -937,7 +1006,6 @@ bool decode_audio_file(const std::filesystem::path& path, const Limits& limits,
   avcodec_free_context(&codec);
   avformat_close_input(&format);
   if (!ok) return false;
-  result.data.resize(static_cast<size_t>(result.frames) * result.channels);
   *out = std::move(result);
   return true;
 }
@@ -958,10 +1026,9 @@ bool restore_segment_audio(const std::filesystem::path& source,
     return false;
   }
   if (offset_ticks != 0) {
+    const Rational scaled(offset_ticks * time_base.num, time_base.den);
     int64_t offset_samples = 0;
-    if (!Rational::sample_count(Rational(offset_ticks * time_base.num,
-                                         time_base.den),
-                                config.output_rate, &offset_samples)) {
+    if (!Rational::sample_count(scaled, config.output_rate, &offset_samples)) {
       diagnostics->push_back(make(
           ErrorCode::audio_decode,
           "audio offset is not representable at the output sample rate"));

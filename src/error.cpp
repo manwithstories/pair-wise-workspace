@@ -58,6 +58,16 @@ const char* error_code_name(ErrorCode code) {
   return info ? info->name : "E_UNKNOWN";
 }
 
+bool parse_error_code(std::string_view name, ErrorCode* out) {
+  for (const auto& entry : kCodes) {
+    if (name == entry.name) {
+      *out = entry.code;
+      return true;
+    }
+  }
+  return false;
+}
+
 const char* severity_name(Severity severity) {
   return severity == Severity::error ? "error" : "warning";
 }

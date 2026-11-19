@@ -51,7 +51,8 @@ struct ColorMetadata {
 struct AudioInfo {
   int sample_rate = 0;
   std::string layout;
-  Rational offset;  // relative to the segment start; may be negative
+  Rational offset;   // relative to the segment start; may be negative
+  std::string media; // archive-relative audio file; empty means segment.media
 };
 
 struct Segment {
@@ -63,6 +64,9 @@ struct Segment {
   KeyframeIndex index;
   ColorMetadata color;
   std::optional<AudioInfo> audio;
+  // Damaged material is declared in the manifest so its rejection is an
+  // expected, reproducible outcome rather than an unhandled failure.
+  std::optional<ErrorCode> expected_code;
 };
 
 struct Track {

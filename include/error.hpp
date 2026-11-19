@@ -66,6 +66,8 @@ struct Diagnostic {
 int exit_code_for(const std::vector<Diagnostic>& diagnostics);
 
 const char* error_code_name(ErrorCode code);
+// Parses the "E_..." spelling used in manifests and JSON output.
+bool parse_error_code(std::string_view name, ErrorCode* out);
 int exit_code_for(ErrorCode code);
 const char* severity_name(Severity severity);
 

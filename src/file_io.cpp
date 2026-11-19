@@ -6,6 +6,7 @@
 #include <system_error>
 
 #include "hash.hpp"
+#include "sha256.hpp"
 
 namespace media_restore {
 namespace {
@@ -116,6 +117,28 @@ bool hash_file(const std::filesystem::path& path, std::string* hex,
     return false;
   }
   StableHash hash;
+  std::vector<char> buffer(kChunk);
+  while (stream) {
+    stream.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+    const auto read = stream.gcount();
+    if (read > 0) hash.update(buffer.data(), static_cast<size_t>(read));
+  }
+  if (!stream.eof()) {
+    if (error) *error = io_error(path, "read failed while hashing");
+    return false;
+  }
+  *hex = hash.hex();
+  return true;
+}
+
+bool sha256_file(const std::filesystem::path& path, std::string* hex,
+                 Diagnostic* error) {
+  std::ifstream stream(path, std::ios::binary);
+  if (!stream) {
+    if (error) *error = io_error(path, "cannot open file for hashing");
+    return false;
+  }
+  Sha256 hash;
   std::vector<char> buffer(kChunk);
   while (stream) {
     stream.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
