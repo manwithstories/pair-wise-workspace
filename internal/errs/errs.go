@@ -193,6 +193,16 @@ func (l List) HasFatal() bool {
 	return false
 }
 
+// Has reports whether an issue with code was recorded.
+func (l List) Has(code string) bool {
+	for _, i := range l {
+		if i.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
 // FatalTracks returns the set of track IDs with fatal issues, sorted.
 func (l List) FatalTracks() []uint32 {
 	seen := map[uint32]bool{}
