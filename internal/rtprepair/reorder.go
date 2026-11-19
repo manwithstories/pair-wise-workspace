@@ -133,6 +133,9 @@ func (r *Repairer) Push(p *Packet) []*Packet {
 	}
 	r.stats.Received++
 	ext := r.extend(p.Header.SequenceNumber)
+	// Expose the unwrapped sequence number so downstream stages can measure
+	// gaps across a 16-bit wrap without redoing the arithmetic.
+	p.Seq = ext
 	if !r.started {
 		r.started = true
 		r.next, r.highest = ext, ext
