@@ -82,7 +82,10 @@ func (r Report) RecoveryRate() model.Rational {
 // Expected is the number of sequence numbers between first and last inclusive.
 func (r Report) Expected() int { return int(r.LastSeq) - int(r.FirstSeq) + 1 }
 
-// Reorder consumes packets in capture order and returns them in sequence order.
+// Reorder consumes packets in capture order and returns them in sequence
+// order. Sequence numbers are unwrapped incrementally into a 64-bit extended
+// space, so a capture spanning many 16-bit cycles is handled without overflow
+// and with a deterministic result.
 func Reorder(packets []Packet, opts Options) Report {
 	if opts.Window <= 0 {
 		opts.Window = 64
@@ -92,66 +95,75 @@ func Reorder(packets []Packet, opts Options) Report {
 		rep.Faults.Add(model.NewFault(model.CodePacketLoss, model.SevWarn, "capture contains no packets"))
 		return rep
 	}
-	seen := make(map[uint16]Packet, len(packets))
-	late := make(map[uint16]bool)
-	var high uint16
-	first := true
-	for _, p := range packets {
-		if first {
-			high = p.Seq
-			first = false
+
+	var base uint16
+	var high int64 // highest extended sequence accepted so far
+	seen := make(map[int64]Packet, len(packets))
+	lateSeen := make(map[int64]bool)
+
+	for i, p := range packets {
+		if i == 0 {
+			base = p.Seq
+			high = 0
 			rep.FirstSeq = p.Seq
-			rep.LastSeq = p.Seq
+			seen[0] = p
+			continue
 		}
-		if _, ok := seen[p.Seq]; ok {
+		// The signed 16-bit delta to the current high-water mark places this
+		// packet in the extended space; accumulated, it survives any number of
+		// 16-bit cycles.
+		ext := high + int64(int16(p.Seq-seqAt(base, high)))
+		if _, ok := seen[ext]; ok {
 			rep.Duplicates++
 			continue
 		}
-		dist := seqDiff(high, p.Seq)
+		if lateSeen[ext] {
+			// A retransmission of a packet already written off as late.
+			rep.Duplicates++
+			continue
+		}
 		switch {
-		case dist > 0 && dist <= opts.Window:
+		case ext > high:
+			seen[ext] = p
+			high = ext
+		case ext >= high-int64(opts.Window):
+			// Behind the mark but still inside the reorder window.
 			rep.OutOfOrder++
 			rep.OutOfOrderSeq = append(rep.OutOfOrderSeq, uint32(p.Seq))
-			seen[p.Seq] = p
-		case dist > opts.Window:
+			seen[ext] = p
+		default:
+			// Further behind than the window can hold: unrecoverable.
 			rep.Late++
 			rep.LateSeqs = append(rep.LateSeqs, uint32(p.Seq))
-			late[p.Seq] = true
-		default:
-			seen[p.Seq] = p
-			high = p.Seq
-			if seqDiff(p.Seq, rep.LastSeq) > 0 {
-				rep.LastSeq = p.Seq
-			}
+			lateSeen[ext] = true
 		}
 	}
 
-	// LastSeq is the highest sequence number seen anywhere.
-	for seq := range seen {
-		if seqAfter(seq, rep.LastSeq) {
-			rep.LastSeq = seq
+	// The extended space runs from the lowest accepted packet to the
+	// high-water mark; anything in between that was never accepted is a gap.
+	exts := make([]int64, 0, len(seen))
+	for ext := range seen {
+		exts = append(exts, ext)
+	}
+	sort.Slice(exts, func(i, j int) bool { return exts[i] < exts[j] })
+	stream := make([]Packet, 0, len(exts))
+	missing := make([]uint32, 0, 8)
+	for _, ext := range exts {
+		stream = append(stream, seen[ext])
+	}
+	minExt := exts[0]
+	for ext := minExt; ext <= high; ext++ {
+		if _, ok := seen[ext]; ok {
+			continue
 		}
+		missing = append(missing, uint32(seqAt(base, ext)))
 	}
-
-	stream := make([]Packet, 0, len(seen))
-	for _, p := range seen {
-		stream = append(stream, p)
-	}
-	sort.Slice(stream, func(i, j int) bool { return seqBefore(stream[i].Seq, stream[j].Seq) })
 	rep.Stream = stream
 	rep.Accepted = len(stream)
-
-	span := seqDiff(rep.LastSeq, rep.FirstSeq)
-	if span >= 0 {
-		for d := 0; d <= span; d++ {
-			seq := seqAdd(rep.FirstSeq, d)
-			if _, ok := seen[seq]; ok {
-				continue
-			}
-			rep.Missing++
-			rep.MissingSeqs = append(rep.MissingSeqs, uint32(seq))
-		}
-	}
+	rep.MissingSeqs = missing
+	rep.Missing = len(missing)
+	rep.FirstSeq = seqAt(base, minExt)
+	rep.LastSeq = seqAt(base, high)
 
 	if rep.Duplicates > 0 {
 		rep.Faults.Add(model.Fault{
@@ -201,14 +213,5 @@ func Reorder(packets []Packet, opts Options) Report {
 	return rep
 }
 
-// seqDiff returns a-b in 16-bit sequence space, signed.
-func seqDiff(a, b uint16) int {
-	d := int(int16(a - b))
-	return d
-}
-
-func seqAdd(a uint16, d int) uint16 { return a + uint16(d) }
-
-func seqBefore(a, b uint16) bool { return int16(a-b) < 0 }
-
-func seqAfter(a, b uint16) bool { return int16(a-b) > 0 }
+// seqAt maps an extended sequence number back to a 16-bit value.
+func seqAt(base uint16, ext int64) uint16 { return base + uint16(ext) }

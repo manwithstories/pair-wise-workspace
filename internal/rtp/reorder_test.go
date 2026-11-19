@@ -111,3 +111,42 @@ func TestEmptyCapture(t *testing.T) {
 		t.Fatalf("expected packet_loss fault")
 	}
 }
+
+// TestLongSpanLossIsCounted guards against 16-bit arithmetic wrapping the
+// observed span: a real hole 40000 packets in must still be reported.
+func TestLongSpanLossIsCounted(t *testing.T) {
+	const n = 50000
+	pkts := make([]Packet, 0, n)
+	for i := 0; i < n; i++ {
+		if i == 20000 {
+			continue // the hole
+		}
+		pkts = append(pkts, Packet{Seq: uint16(1000 + i)})
+	}
+	first := Reorder(pkts, Options{Window: 64})
+	if first.Missing != 1 {
+		t.Fatalf("missing = %d (%v), want 1", first.Missing, first.MissingSeqs)
+	}
+	if first.Accepted != n-1 {
+		t.Fatalf("accepted = %d, want %d", first.Accepted, n-1)
+	}
+	// Determinism: the same input must give the same report every time.
+	for i := 0; i < 5; i++ {
+		again := Reorder(pkts, Options{Window: 64})
+		if again.Missing != first.Missing || again.LastSeq != first.LastSeq || again.Accepted != first.Accepted {
+			t.Fatalf("run %d diverged: %+v vs first missing=%d last=%d", i, again, first.Missing, first.LastSeq)
+		}
+	}
+}
+
+// TestLateRetransmitIsNotDoubleCounted checks that a late packet arriving
+// twice counts as one duplicate, not two late losses.
+func TestLateRetransmitIsNotDoubleCounted(t *testing.T) {
+	rep := Reorder(pkts(1, 2, 3, 4, 5, 10, 7, 7), Options{Window: 2})
+	if rep.Late != 1 {
+		t.Fatalf("late = %d, want 1", rep.Late)
+	}
+	if rep.Duplicates != 1 {
+		t.Fatalf("duplicates = %d, want 1", rep.Duplicates)
+	}
+}
