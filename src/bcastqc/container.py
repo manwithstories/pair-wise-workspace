@@ -489,6 +489,161 @@ def read_index(path: Path) -> tuple[bytes, IndexReport]:
     return data, inspect_index(data)
 
 
+def _read_exact(stream, offset: int, size: int) -> bytes:
+    stream.seek(offset)
+    block = stream.read(size)
+    if len(block) != size:
+        raise OSError(f"short read at {offset}: wanted {size}, got {len(block)}")
+    return block
+
+
+def scan_file_header(path: Path) -> tuple[int, IndexReport | None]:
+    """Read only the box headers and the ``moov`` payload of a file.
+
+    Memory use is bounded by the index size, not by the media size: a 2 GiB
+    asset with a 50 MB ``moov`` costs 50 MB here, and a camera-recorded file
+    whose ``moov`` sits at the end only costs the ``moov`` itself.  Returns the
+    byte index where ``moov`` ends (useful as a scan floor) and the report.
+    """
+    file_size = path.stat().st_size
+    top: list[Box] = []
+    with path.open("rb") as stream:
+        pos = 0
+        while pos + 8 <= file_size:
+            header = _read_exact(stream, pos, 16 if pos + 16 <= file_size else 8)
+            size = int.from_bytes(header[0:4], "big")
+            kind = header[4:8].decode("latin1")
+            head = 8
+            if size == 1:
+                size = int.from_bytes(header[8:16], "big")
+                head = 16
+            elif size == 0:
+                size = file_size - pos
+            if size < head:
+                top.append(Box(kind, pos, 0, head, True))
+                break
+            top.append(Box(kind, pos, size, head, pos + size > file_size))
+            if pos + size > file_size:
+                break
+            pos += size
+
+    moov = next((b for b in top if b.type == "moov"), None)
+    moov_data = b""
+    if moov is not None and moov.size >= moov.header:
+        with path.open("rb") as stream:
+            moov_data = _read_exact(stream, moov.pos, min(moov.size, file_size - moov.pos))
+    report = inspect_index_from_boxes(top, moov_data, moov, file_size)
+    return (moov.body_end if moov is not None else 0), report
+
+
+def inspect_index_from_boxes(
+    top: list[Box], moov_data: bytes, moov: Box | None, file_size: int
+) -> IndexReport:
+    """Finish :func:`inspect_index` using only the ``moov`` bytes."""
+    mdat = next((b for b in top if b.type == "mdat"), None)
+    mdat_start = mdat.body_start if mdat is not None else None
+    declared_end = mdat.body_end if mdat is not None else None
+    mdat_end = min(declared_end, file_size) if declared_end is not None else None
+
+    tracks: list[TrackIndex] = []
+    issues: list[str] = []
+    warnings: list[str] = []
+    if moov is None:
+        issues.append("missing moov box")
+    elif moov.truncated or len(moov_data) < moov.size:
+        issues.append("moov box is truncated")
+    elif mdat is None:
+        issues.append("missing mdat box")
+    else:
+        tracks = _tracks_from_moov(moov_data, moov)
+        if not tracks:
+            issues.append("moov contains no readable track index")
+        _collect_issues(tracks, issues, warnings, mdat_start, mdat_end)
+
+    report = IndexReport(
+        tracks=tracks,
+        mdat_start=mdat_start,
+        mdat_end=mdat_end,
+        mdat_declared_end=declared_end,
+        file_size=file_size,
+        moov_pos=moov.pos if moov is not None else None,
+        issues=issues,
+        warnings=warnings,
+    )
+    if mdat_start is not None and mdat_end is not None and not report.truncated_tail:
+        tail = report.unindexed_bytes()
+        if tail > 0:
+            issues.append(f"index leaves {tail} bytes of mdat unreferenced")
+    return report
+
+
+def _tracks_from_moov(moov_data: bytes, moov: Box) -> list[TrackIndex]:
+    """Read track tables from a standalone ``moov`` slice (offsets are local)."""
+    shifted = Box("moov", 0, len(moov_data), moov.header, moov.truncated)
+    movie_ts = 0
+    mvhd = find_child(moov_data, shifted, "mvhd")
+    if mvhd is not None:
+        body = payload(moov_data, mvhd)
+        version = body[0] if body else 0
+        if version == 0 and len(body) >= 16:
+            movie_ts = _u32(body, 12)
+        elif len(body) >= 24:
+            movie_ts = _u32(body, 20)
+    tracks: list[TrackIndex] = []
+    for trak in parse_boxes(moov_data, shifted.body_start, shifted.body_end):
+        if trak.type != "trak":
+            continue
+        index = _read_trak(moov_data, trak, movie_ts)
+        if index is not None:
+            tracks.append(index)
+    return tracks
+
+
+def _collect_issues(
+    tracks: list[TrackIndex],
+    issues: list[str],
+    warnings: list[str],
+    mdat_start: int | None,
+    mdat_end: int | None,
+) -> None:
+    for track in tracks:
+        label = f"track {track.track_id} ({track.handler or 'unknown'})"
+        if not track.sample_count:
+            issues.append(f"{label} has no indexed samples")
+            continue
+        if track.stts_samples and track.stts_samples != track.sample_count:
+            issues.append(
+                f"{label} stts covers {track.stts_samples} samples, "
+                f"stsz declares {track.sample_count}"
+            )
+        missing_chunks = sum(track.chunk_sample_counts) - track.sample_count
+        if track.chunk_count and missing_chunks < 0:
+            issues.append(
+                f"{label} stsc describes {-missing_chunks} samples more than stco chunks hold"
+            )
+        if track.has_stss and not track.sync_samples:
+            warnings.append(f"{label} has an empty sync sample table")
+        if track.declared_seconds and track.timescale:
+            indexed_seconds = Fraction(track.stts_duration, track.timescale)
+            if indexed_seconds and indexed_seconds + Fraction(1, 100) < track.declared_seconds:
+                issues.append(
+                    f"{label} index covers {float(indexed_seconds):.3f}s of "
+                    f"{float(track.declared_seconds):.3f}s declared"
+                )
+        if mdat_start is None or mdat_end is None:
+            continue
+        ranges = track.sample_ranges()
+        if not ranges:
+            continue
+        if ranges[0][0] < mdat_start:
+            issues.append(f"{label} first sample starts before mdat")
+        last_end = ranges[-1][0] + ranges[-1][1]
+        if last_end > mdat_end:
+            issues.append(
+                f"{label} last sample ends at {last_end}, beyond available mdat end {mdat_end}"
+            )
+
+
 def has_valid_boxes(data: bytes) -> bool:
     """Cheap sanity check used by the resume cache."""
     if len(data) < 16:

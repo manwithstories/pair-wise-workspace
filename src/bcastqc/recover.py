@@ -33,6 +33,7 @@ in graph dependency order (video before audio) with the index last.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from fractions import Fraction
 from pathlib import Path
@@ -41,7 +42,7 @@ import av
 
 from . import container
 from .demux import AssetProbe, RawPacket, StreamInfo, iter_packets
-from .errors import MediaLocation, QCError, RecoverableError, SkipError
+from .errors import AssetTimeoutError, MediaLocation, QCError, RecoverableError, SkipError
 from .timeline import PacketSpan, build_stream_timeline, seconds
 
 
@@ -233,6 +234,7 @@ def classify_packets(
     scan: BoundaryScan,
     *,
     packet_budget: int | None = None,
+    deadline: float | None = None,
 ) -> tuple[list[RawPacket], list[PacketDecision], int]:
     """Demux, validate, and decide keep/skip for every packet."""
     by_index = {info.index: info for info in probe.streams}
@@ -246,6 +248,15 @@ def classify_packets(
         info = by_index.get(packet.stream)
         if info is None:
             continue
+        if deadline is not None and total % 256 == 0 and time.monotonic() > deadline:
+            # The timeout is enforced inside the packet walk, not only between
+            # stages: a pathological asset with a huge packet count stops here.
+            raise AssetTimeoutError(
+                "asset exceeded the processing timeout while demuxing",
+                location=MediaLocation(
+                    asset=str(probe.path), stream=packet.stream, packet_pos=packet.pos
+                ),
+            )
         stamp = seconds(packet.pts, packet.time_base)
         location = MediaLocation(
             asset=str(probe.path),
@@ -466,13 +477,13 @@ def recover_asset(
     probe: AssetProbe,
     *,
     packet_budget: int | None = None,
+    deadline: float | None = None,
 ) -> RecoveryOutcome:
     """Run the full recovery pipeline for one asset (read-only)."""
-    data = probe.path.read_bytes()
-    index = container.inspect_index(data)
+    _, index = container.scan_file_header(probe.path)
     scan = boundary_scan(index)
     kept, skipped, total = classify_packets(
-        probe, index, scan, packet_budget=packet_budget
+        probe, index, scan, packet_budget=packet_budget, deadline=deadline
     )
     expected = max(expected_packet_count(probe, index, kept + [d.packet for d in skipped]), len(kept), total)
     plan = plan_recovery(index, skipped, scan, expected)
