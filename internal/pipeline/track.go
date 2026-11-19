@@ -45,10 +45,15 @@ func runTrack(fx *fixture.Fixture, node *timeline.Node, engine *transport.Recove
 		return res
 	}
 
-	// Feed arrivals in time order: the arrival clock is the receiver's. When a
-	// hole blocks delivery, retransmission is attempted immediately; if it
-	// cannot be repaired the hole is skipped and the track continues alone.
+	// Feed arrivals in time order: the arrival clock is the receiver's. Each
+	// sender packet is serialized as a real RTP datagram and decoded again, so
+	// ingest exercises the same byte path the deployment uses; the reorder
+	// buffer then sees the sequence number from that wire header.
+	//
+	// When a hole blocks delivery, retransmission is attempted immediately; if
+	// it cannot be repaired the hole is skipped and the track continues alone.
 	sort.SliceStable(deliveries, func(i, j int) bool { return deliveries[i].ArrivalUs < deliveries[j].ArrivalUs })
+	wire := transport.NewWire()
 	var delivered []transport.Packet
 	var lostGaps []transport.Gap
 
@@ -56,7 +61,17 @@ func runTrack(fx *fixture.Fixture, node *timeline.Node, engine *transport.Recove
 		if d.Dropped {
 			continue
 		}
-		p := toPacket(node.Track, d.Packet, d.ArrivalUs)
+		datagram, werr := wire.Encode(toPacket(node.Track, d.Packet, d.ArrivalUs))
+		if werr != nil {
+			res.fail(core.StampTrack(werr, node.Track))
+			return res
+		}
+		p, werr := wire.Decode(node.Track, datagram, d.ArrivalUs)
+		if werr != nil {
+			res.fail(core.StampTrack(werr, node.Track))
+			return res
+		}
+		p.Keyframe = d.Packet.Keyframe
 		pkts, perr := buf.Push(p, d.ArrivalUs)
 		if perr != nil && core.CodeOf(perr) != core.CodeOverLimit {
 			res.fail(core.StampTrack(perr, node.Track))

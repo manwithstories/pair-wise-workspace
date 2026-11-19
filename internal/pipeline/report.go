@@ -94,8 +94,12 @@ func (r *Report) finish() {
 	r.finalizeCollections()
 	switch {
 	case len(r.ValidationErrors) > 0:
+		// Input validation failed before delivery could be trusted.
 		r.ExitCode = 3
 	case len(r.FailedTracks) > 0:
+		r.ExitCode = 4
+	case len(r.Unrecoverable) > 0:
+		// Processing completed but some media can never be delivered.
 		r.ExitCode = 4
 	default:
 		r.ExitCode = 0

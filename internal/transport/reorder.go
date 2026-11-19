@@ -93,6 +93,7 @@ type ReorderBuffer struct {
 	buf      map[uint64]Packet
 	digests  map[uint64]uint64
 	maxSeen  uint64
+	seenAny  bool
 	gapSince timeline.Micros
 	haveGap  bool
 	stats    Stats
@@ -204,9 +205,11 @@ func (r *ReorderBuffer) Push(p Packet, now timeline.Micros) ([]Packet, error) {
 		r.digests[ext] = p.digest()
 		return []Packet{p}, nil
 	}
-	if ext > r.maxSeen {
+	if !r.seenAny || ext > r.maxSeen {
 		r.maxSeen = ext
+		r.seenAny = true
 	} else {
+		// Arrived after a higher sequence: the stream was out of order.
 		r.stats.Reordered++
 	}
 	r.buf[ext] = p

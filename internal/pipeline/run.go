@@ -9,6 +9,7 @@ import (
 	"mediamix/internal/codec"
 	"mediamix/internal/core"
 	"mediamix/internal/fixture"
+	"mediamix/internal/mp4"
 	"mediamix/internal/timeline"
 	"mediamix/internal/transport"
 )
@@ -31,7 +32,6 @@ type TrackResult struct {
 	Status         string              `json:"status"` // ok | degraded | failed
 	Error          *core.Error         `json:"error,omitempty"`
 	Adjustments    []*core.Error       `json:"adjustments,omitempty"`
-	Learnings      []*core.Error       `json:"-"`
 	Received       int                 `json:"received"`
 	Delivered      int                 `json:"delivered"`
 	Duplicates     int                 `json:"duplicate_packets"`
@@ -59,8 +59,9 @@ type Report struct {
 	DegradedTracks   []string          `json:"degraded_tracks,omitempty"`
 	Unrecoverable    []string          `json:"unrecoverable_tracks,omitempty"`
 	ValidationErrors []*core.Error     `json:"validation_errors,omitempty"`
-	BufferBound      int               `json:"buffer_bound"`
-	BandwidthMBps    float64           `json:"bandwidth_mbps"`
+	BufferBound      int                `json:"buffer_bound"`
+	BandwidthMBps    float64            `json:"bandwidth_mbps"`
+	Container        *mp4.ContainerInfo `json:"container,omitempty"`
 	Tracks           []TrackResult     `json:"tracks"`
 	// ExitCode is the process status implied by this report.
 	ExitCode         int               `json:"exit_code"`
@@ -127,9 +128,57 @@ func Run(opts Options) (*Report, error) {
 		rep.Tracks = append(rep.Tracks, *res)
 	}
 	rep.accumulate(results, engine)
+	rep.Container = muxDeliverable(fx, rep.Tracks)
 	rep.finish()
 	return rep, nil
 }
+
+// muxDeliverable writes the healthy tracks into an ISO-BMFF container and
+// re-reads it. Failed tracks are excluded: a container must never present
+// media the pipeline already rejected, and one bad track must not poison the
+// deliverable of the others. A nil result means every track failed or the
+// container could not be verified; the caller treats that as "no deliverable"
+// rather than a silently broken file.
+func muxDeliverable(fx *fixture.Fixture, tracks []TrackResult) *mp4.ContainerInfo {
+	var specs []mp4.TrackSamples
+	for _, tr := range tracks {
+		if tr.Status == StatusFailed {
+			continue
+		}
+		spec := findSpec(fx, tr.Track)
+		if spec == nil || spec.Timescale == 0 {
+			continue
+		}
+		ts := mp4.TrackSamples{
+			Track: spec.ID, Kind: tr.Kind, Timescale: spec.Timescale,
+			TotalSamples: spec.PacketCount, Span: timeline.Span{Start: spec.Origin, End: spec.Origin + spec.DurationUs},
+		}
+		if tr.Index != nil {
+			for _, s := range tr.Index.Sync {
+				ts.Keyframes = append(ts.Keyframes, mp4.Sample{PTS: s.PTS, Size: s.Size, Key: s.Key})
+			}
+		}
+		if ts.Span.Empty() && spec.DurationUs == 0 {
+			// Zero-length audio (the deliberate empty track) still needs one
+			// sample so the container stays well-formed.
+			ts.TotalSamples = 1
+		}
+		specs = append(specs, ts)
+	}
+	if len(specs) == 0 {
+		return nil
+	}
+	data, err := mp4.Build(specs)
+	if err != nil {
+		return nil
+	}
+	info, err := mp4.Inspect(data)
+	if err != nil {
+		return nil
+	}
+	return info
+}
+
 
 // newSource builds the retransmit source. It only hands back packets the
 // sender actually transmitted, so recovery can never invent media.
