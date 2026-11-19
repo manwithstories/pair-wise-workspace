@@ -1,7 +1,9 @@
 #include "restore_engine.hpp"
 
 #include <algorithm>
+#include <cstdio>
 #include <filesystem>
+#include <map>
 #include <set>
 #include <sstream>
 
