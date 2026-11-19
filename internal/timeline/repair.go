@@ -90,9 +90,6 @@ func New(opts Options) *Repairer {
 // Wraps reports how many timestamp wraps were repaired.
 func (r *Repairer) Wraps() uint64 { return r.wraps }
 
-// LastMedia returns the most recently emitted media time.
-func (r *Repairer) LastMedia() int64 { return r.lastMedia }
-
 // Skip tells the repairer that seq will never arrive (it failed validation and
 // was dropped). The reorder window can move past the gap immediately instead
 // of stalling until the window fills, and later arrivals are reported as
@@ -334,7 +331,7 @@ func (r *Repairer) emit(fr *model.Frame) Event {
 					fmt.Sprintf("timestamp moved backwards by %d ticks (tolerance %d)", -d, r.opts.DriftTolerance), nil)
 			}
 		case d == 0:
-			d = minInt64(step, 1)
+			d = 1
 			ev.Adjusted = true
 			ev.Reason = "duplicate timestamp advanced by one tick"
 		case r.lastDelta > 0 && d > 100*r.lastDelta && d > int64(float64(step)*50):

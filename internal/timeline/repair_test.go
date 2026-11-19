@@ -32,6 +32,29 @@ func indexed(evs []Event) []*model.Frame {
 	return out
 }
 
+func TestReorderWindowOverflowEmitsOldest(t *testing.T) {
+	r := New(Options{ReorderWindow: 2})
+	r.Push(frame(1, 0))
+	r.Push(frame(2, 3000))
+	// Frame 3 is missing. Frames 4 and 5 fill the window; the arrival of 6
+	// overflows it and forces the oldest buffered frame out.
+	r.Push(frame(4, 9000))
+	r.Push(frame(5, 12000))
+	evs := r.Push(frame(6, 15000))
+	var got []uint64
+	for _, ev := range evs {
+		if ev.Status == StatusIndexed {
+			got = append(got, ev.Frame.Seq)
+		}
+	}
+	if len(got) == 0 || got[0] != 4 {
+		t.Fatalf("expected frame 4 to be forced out, got %+v", evs)
+	}
+	if r.PendingCount() > 2 {
+		t.Fatalf("pending %d exceeds window", r.PendingCount())
+	}
+}
+
 func TestFirstFrameMayStartAtAnySequence(t *testing.T) {
 	r := New(Options{})
 	// Capture begins mid-stream: the first frame seen is 3 of a larger run.
