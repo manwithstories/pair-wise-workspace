@@ -75,9 +75,9 @@ func New(stage string, kind ErrorKind, deviceID string, offset int64, seq uint64
 }
 
 // Wrap 在保留原错误的同时包装为阶段错误。
-func Wrap(stage string, kind ErrorKind, deviceID string, offset int64, seq uint64, recovery string, cause error) *StageError {
+func Wrap(stage string, kind ErrorKind, deviceID string, offset int64, seq uint64, msg, recovery string, cause error) *StageError {
 	return &StageError{Stage: stage, Kind: kind, DeviceID: deviceID, Offset: offset,
-		Seq: seq, Message: cause.Error(), Recovery: recovery, Cause: cause}
+		Seq: seq, Message: msg, Recovery: recovery, Cause: cause}
 }
 
 // AsStageError 从错误链中取出 *StageError。
