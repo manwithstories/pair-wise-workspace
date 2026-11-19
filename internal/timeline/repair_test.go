@@ -32,6 +32,24 @@ func indexed(evs []Event) []*model.Frame {
 	return out
 }
 
+func TestFirstFrameMayStartAtAnySequence(t *testing.T) {
+	r := New(Options{})
+	// Capture begins mid-stream: the first frame seen is 3 of a larger run.
+	evs := pushAll(r, frame(3, 0), frame(4, 3000), frame(5, 6000))
+	got := indexed(evs)
+	if len(got) != 3 || got[0].Seq != 3 {
+		t.Fatalf("got %+v", got)
+	}
+	if got[1].MediaTime-got[0].MediaTime != 3000 {
+		t.Fatalf("media step %d", got[1].MediaTime-got[0].MediaTime)
+	}
+	// A late arrival of a pre-start sequence is a duplicate, not a reopening.
+	evs = r.Push(frame(1, 0))
+	if len(evs) != 1 || evs[0].Fault.Code == "" {
+		t.Fatalf("late pre-start frame: %+v", evs)
+	}
+}
+
 func TestSequentialMediaTimes(t *testing.T) {
 	r := New(Options{})
 	var frames []*model.Frame

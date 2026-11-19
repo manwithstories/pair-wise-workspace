@@ -60,11 +60,12 @@ func (o Options) withDefaults() Options {
 type Repairer struct {
 	opts Options
 
-	started bool
-	nextSeq uint64
-	pending map[uint64]*model.Frame
-	gaps    map[uint64]struct{} // sequence numbers known to be lost
-	recent  map[uint64]uint64   // seq -> generation, pruned with nextSeq
+	started  bool
+	nextSeq  uint64
+	floorSeq uint64 // sequence number of the first observed frame
+	pending  map[uint64]*model.Frame
+	gaps     map[uint64]struct{} // sequence numbers known to be lost
+	recent   map[uint64]uint64   // seq -> generation, pruned with nextSeq
 
 	haveTick bool
 	lastRaw  uint64
@@ -126,6 +127,7 @@ func (r *Repairer) Skip(seq uint64) {
 type Snapshot struct {
 	Started   bool           `json:"started"`
 	NextSeq   uint64         `json:"next_seq"`
+	FloorSeq  uint64         `json:"floor_seq"`
 	HaveTick  bool           `json:"have_tick"`
 	LastRaw   uint64         `json:"last_raw"`
 	LastTB    model.Timebase `json:"last_timebase"`
@@ -140,7 +142,7 @@ type Snapshot struct {
 // frames are pending (the runner flushes before every checkpoint).
 func (r *Repairer) Snapshot() Snapshot {
 	return Snapshot{
-		Started: r.started, NextSeq: r.nextSeq,
+		Started: r.started, NextSeq: r.nextSeq, FloorSeq: r.floorSeq,
 		HaveTick: r.haveTick, LastRaw: r.lastRaw, LastTB: r.lastTB, Ticks: r.ticks,
 		HaveMedia: r.haveMedia, LastMedia: r.lastMedia, LastDelta: r.lastDelta,
 		Wraps: r.wraps,
@@ -151,6 +153,7 @@ func (r *Repairer) Snapshot() Snapshot {
 func (r *Repairer) Restore(s Snapshot) {
 	r.started = s.Started
 	r.nextSeq = s.NextSeq
+	r.floorSeq = s.FloorSeq
 	r.haveTick = s.HaveTick
 	r.lastRaw = s.LastRaw
 	r.lastTB = s.LastTB
@@ -175,12 +178,21 @@ func (r *Repairer) Push(fr *model.Frame) []Event {
 	}
 	r.recent[fr.Seq] = uint64(fr.Seq)
 	if !r.started {
+		// The first frame defines where the sequence numbering starts. Every
+		// lower number is permanently absent, so a late arrival below
+		// floorSeq is never reopened; nothing needs to be stored per gap.
 		r.started = true
 		r.nextSeq = fr.Seq
+		r.floorSeq = fr.Seq
 	}
 	if fr.Seq < r.nextSeq {
 		return []Event{quarantine(fr, model.CodeOutOfOrder,
 			fmt.Sprintf("sequence %d arrived after %d; too late for the reorder window", fr.Seq, r.nextSeq-1), nil)}
+	}
+	// A sequence number below the stream's first frame can never be exported.
+	if fr.Seq < r.floorSeq {
+		return []Event{quarantine(fr, model.CodeOutOfOrder,
+			fmt.Sprintf("sequence %d precedes the stream start %d", fr.Seq, r.floorSeq), nil)}
 	}
 	// A sequence number previously reported lost can no longer join the
 	// timeline: it would land behind already emitted samples.
