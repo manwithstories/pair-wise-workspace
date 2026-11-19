@@ -1011,7 +1011,8 @@ bool decode_audio_file(const std::filesystem::path& path, const Limits& limits,
 }
 
 bool restore_segment_audio(const std::filesystem::path& source,
-                           int64_t offset_ticks, const Rational& time_base,
+                           const Rational& offset,
+                           const Rational& /*time_base*/,
                            const AudioRestoreConfig& config,
                            RestoredAudio* out,
                            std::vector<Diagnostic>* diagnostics) {
@@ -1025,15 +1026,22 @@ bool restore_segment_audio(const std::filesystem::path& source,
   if (!convert_audio(decoded, config, &converted, &stats, diagnostics)) {
     return false;
   }
-  if (offset_ticks != 0) {
-    const Rational scaled(offset_ticks * time_base.num, time_base.den);
+  if (!offset.is_zero()) {
+    // The offset comes from the manifest, so it need not land on the output
+    // sample grid (1 ms at 44.1 kHz is 44.1 samples).  Round to the nearest
+    // sample and report how much time was lost to rounding instead of failing
+    // the segment; the remainder stays exact in the stats below.
+    const Rational sample_tick(1, config.output_rate);
     int64_t offset_samples = 0;
-    if (!Rational::sample_count(scaled, config.output_rate, &offset_samples)) {
+    Rational remainder;
+    if (!Rational::nearest_ticks(offset, sample_tick, &offset_samples,
+                                 &remainder)) {
       diagnostics->push_back(make(
           ErrorCode::audio_decode,
           "audio offset is not representable at the output sample rate"));
       return false;
     }
+    stats.offset_rounding_seconds = remainder.to_double();
     if (!apply_timeline_offset(offset_samples, &converted, &stats)) {
       diagnostics->push_back(make(ErrorCode::audio_too_large,
                                   "offset would overflow the audio buffer"));

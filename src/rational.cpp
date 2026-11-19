@@ -99,6 +99,34 @@ bool Rational::sample_count(const Rational& time, int64_t sample_rate,
   return exact_ticks(time, Rational(1, sample_rate), out);
 }
 
+bool Rational::nearest_ticks(const Rational& time, const Rational& tick,
+                             int64_t* ticks, Rational* remainder) {
+  if (!time.valid() || !tick.valid() || tick.num <= 0) return false;
+  const int128 numerator = static_cast<int128>(time.num) * tick.den;
+  const int128 denominator = static_cast<int128>(time.den) * tick.num;
+  if (denominator == 0) return false;
+  int128 quotient = numerator / denominator;
+  const int128 r = numerator % denominator;
+  if (r != 0) {
+    // Round to nearest, ties away from zero, using integer magnitudes.
+    const int128 abs_r = r < 0 ? -r : r;
+    if (abs_r * 2 >= denominator) quotient += numerator < 0 ? -1 : 1;
+  }
+  if (!fits(quotient)) return false;
+  *ticks = static_cast<int64_t>(quotient);
+  // The exact leftover in the original time units: (time - ticks * tick).
+  const int128 leftover_num = numerator - quotient * denominator;
+  const int128 leftover_den = denominator;
+  if (!fits(leftover_num) || !fits(leftover_den)) return false;
+  // numerator/denominator is in tick units, so convert back by multiplying
+  // both sides out: leftover = (num * tick.num) / (den * tick.den).
+  const int128 num = leftover_num * tick.num;
+  const int128 den = leftover_den * tick.den;
+  if (!fits(num) || !fits(den)) return false;
+  *remainder = Rational(static_cast<int64_t>(num), static_cast<int64_t>(den));
+  return true;
+}
+
 bool Rational::add(const Rational& a, const Rational& b, Rational* out) {
   if (!a.valid() || !b.valid()) return false;
   const int128 num = static_cast<int128>(a.num) * b.den +

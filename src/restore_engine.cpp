@@ -212,6 +212,7 @@ Json audio_json(const AudioStats& stats) {
   json.set("output_true_peak_dbtp", Json(stats.output_true_peak_dbtp));
   json.set("limited_samples", Json(static_cast<int64_t>(stats.limited_samples)));
   json.set("applied_gain_db", Json(stats.applied_gain_db));
+  json.set("offset_rounding_seconds", Json(stats.offset_rounding_seconds));
   json.set("silent", Json(stats.silent));
   json.set("short_segment", Json(stats.short_segment));
   json.set("loudness_measured", Json(stats.loudness_measured));
@@ -415,24 +416,26 @@ bool restore_archive(const Manifest& manifest, const RestoreOptions& options,
             const std::filesystem::path out_dir =
                 options.output_dir / track.id;
             std::filesystem::path output_path = out_dir / output_name(track.id, segment);
-            int64_t offset_ticks = 0;
-            Rational::exact_ticks(segment.audio->offset, manifest.time_base,
-                                  &offset_ticks);
             RestoredAudio restored;
-            if (!restore_segment_audio(media_path, offset_ticks,
+            if (!restore_segment_audio(media_path, segment.audio->offset,
                                        manifest.time_base, config, &restored,
                                        &segment_diagnostics)) {
               outcome.failure = segment_diagnostics.back().code;
               outcome.failure_message = segment_diagnostics.back().message;
               ++summary->failures;
             } else {
-              // A failing segment must never clobber a previously valid file.
+              // A failing segment must never clobber a previously valid file,
+              // and a changed configuration must not silently keep the old
+              // payload: reuse only when the computed hash equals the recorded
+              // one and the file on disk still matches it.
               Diagnostic write_error;
-              const std::filesystem::path hash_path = output_path.string() + ".sha256";
+              const std::filesystem::path hash_path =
+                  output_path.string() + ".sha256";
+              const std::string computed = Sha256::digest(restored.wav);
               std::string existing;
               bool reused = false;
               if (load_existing_hash(hash_path, &existing, &write_error) &&
-                  std::filesystem::exists(output_path)) {
+                  existing == computed && std::filesystem::exists(output_path)) {
                 std::string actual;
                 if (sha256_file(output_path, &actual, &write_error) &&
                     actual == existing) {
@@ -442,7 +445,7 @@ bool restore_archive(const Manifest& manifest, const RestoreOptions& options,
                 }
               }
               if (!reused) {
-                outcome.segment_hash = Sha256::digest(restored.wav);
+                outcome.segment_hash = computed;
                 if (!write_file_atomic(output_path, restored.wav, &write_error) ||
                     !write_file_atomic(hash_path, outcome.segment_hash, &write_error)) {
                   outcome.failure = write_error.code;

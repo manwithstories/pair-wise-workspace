@@ -31,6 +31,12 @@ struct Rational {
   // Exact duration in a sample rate's units.
   static bool sample_count(const Rational& time, int64_t sample_rate,
                            int64_t* out);
+  // Nearest integer tick count (ties away from zero) plus the exact leftover
+  // fraction time - ticks*tick, returned as `remainder_num / remainder_den`.
+  // Used where a position must land on a sample grid; the remainder keeps the
+  // rounding auditable without floating point.
+  static bool nearest_ticks(const Rational& time, const Rational& tick,
+                            int64_t* ticks, Rational* remainder);
 
   // Checked arithmetic; returns false on overflow or a zero denominator.
   static bool add(const Rational& a, const Rational& b, Rational* out);

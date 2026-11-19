@@ -7,6 +7,8 @@
 
 #include <cmath>
 
+#include <cmath>
+
 #include "audio_restore.hpp"
 #include "bitstream.hpp"
 #include "color_metadata.hpp"
@@ -883,4 +885,28 @@ TEST_CASE("index version disagreements surface as diagnostics", "[bitstream]") {
   std::error_code ec;
   std::filesystem::remove(path, ec);
 
+}
+
+TEST_CASE("nearest tick conversion bounds its rounding error", "[rational]") {
+  using media_restore::Rational;
+  int64_t ticks = 0;
+  Rational remainder;
+  // 1 ms at 44.1 kHz is 44.1 samples: rounds to 44 with a +0.1 sample error.
+  REQUIRE(Rational::nearest_ticks(Rational(1, 1000), Rational(1, 44100),
+                                  &ticks, &remainder));
+  CHECK(ticks == 44);
+  CHECK(std::fabs(remainder.to_double()) < 1.0 / 44100.0);
+  CHECK(std::fabs(remainder.to_double() - 0.1 / 44100.0) < 1e-12);
+
+  // Exact grids round with no error at all.
+  REQUIRE(Rational::nearest_ticks(Rational(1, 1000), Rational(1, 48000),
+                                  &ticks, &remainder));
+  CHECK(ticks == 48);
+  CHECK(remainder.is_zero());
+
+  // Negative values round away from zero and keep an exact remainder.
+  REQUIRE(Rational::nearest_ticks(Rational(-1, 1000), Rational(1, 44100),
+                                  &ticks, &remainder));
+  CHECK(ticks == -44);
+  CHECK(remainder.to_double() < 0.0);
 }

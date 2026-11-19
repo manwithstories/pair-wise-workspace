@@ -82,6 +82,9 @@ struct AudioStats {
   double output_true_peak_dbtp = 0.0;
   int64_t limited_samples = 0;
   double applied_gain_db = 0.0;
+  // Exact media-time error introduced when the timeline offset was rounded to
+  // the output sample grid (display only; the rounding itself is integer).
+  double offset_rounding_seconds = 0.0;
   bool silent = false;
   bool short_segment = false;
   bool loudness_measured = false;
@@ -121,7 +124,7 @@ struct RestoredAudio {
 };
 
 bool restore_segment_audio(const std::filesystem::path& source,
-                           int64_t offset_ticks, const Rational& time_base,
+                           const Rational& offset, const Rational& time_base,
                            const AudioRestoreConfig& config,
                            RestoredAudio* out,
                            std::vector<Diagnostic>* diagnostics);
