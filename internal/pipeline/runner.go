@@ -68,16 +68,21 @@ type Stats struct {
 	FirstCorruptFrame  uint64
 	FirstCorruptOffset int64
 	HasCorrupt         bool
-	RecoveredChunks    uint64
-	ResumeMs           int64
-	PeakQueueDepth     int
-	ResumeUsable       bool
-	OutputSHA256       string
-	IndexValid         bool
-	Resumed            bool
-	ResumeOffset       int64
-	InputSize          int64
-	QuarantineReasons  map[string]int
+	// RecoveredChunks counts chunks restored from a checkpoint; on a fresh
+	// run it is zero.
+	RecoveredChunks uint64
+	// CommittedChunks counts chunks committed by this run, including any that
+	// were recovered before new work began.
+	CommittedChunks   uint64
+	ResumeMs          int64
+	PeakQueueDepth    int
+	ResumeUsable      bool
+	OutputSHA256      string
+	IndexValid        bool
+	Resumed           bool
+	ResumeOffset      int64
+	InputSize         int64
+	QuarantineReasons map[string]int
 }
 
 // Runner executes one job.
@@ -225,6 +230,7 @@ func (r *Runner) Run(ctx context.Context) (*Stats, error) {
 	teardown = nil // Finish/Publish released the part file and tables
 	idx = nil
 	stats.ResumeMs = time.Since(started).Milliseconds()
+	stats.CommittedChunks = job.chunkCount
 	return stats, nil
 }
 

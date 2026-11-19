@@ -40,6 +40,7 @@ type job struct {
 	// is the digest of the whole scanned prefix, computed without rereading.
 	scanned    int64
 	scannedCRC uint32
+	chunkCount uint64
 	// structuralFault is set when record framing itself was lost, which makes
 	// publishing a partial index misrepresent the input.
 	structuralFault *model.Fault
@@ -263,7 +264,8 @@ func (j *job) flushChunk(chunk *[]*model.Frame, final bool) error {
 		}
 		j.chunkDigest = digest
 		j.chunkHead = rec
-		j.stats.RecoveredChunks = uint64(rec.Index) + 1
+		j.chunkCount++
+		j.stats.CommittedChunks = j.chunkCount
 	}
 	if final {
 		j.sourceDone = true

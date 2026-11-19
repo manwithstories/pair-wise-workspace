@@ -128,7 +128,11 @@ type tableSource struct {
 
 	time     int64
 	produced uint64
+	chunks   uint64
 }
+
+// Chunks returns how many chunks the sample tables describe so far.
+func (s *tableSource) Chunks() uint64 { return s.chunks }
 
 func openTableSource(f *os.File) (*tableSource, error) {
 	sttsSpan, ok, err := findBoxes(f, mp4.BoxTypeMoov(), mp4.BoxTypeTrak(), mp4.BoxTypeMdia(), mp4.BoxTypeMinf(), mp4.BoxTypeStbl(), mp4.BoxTypeStts())
@@ -261,13 +265,14 @@ func (s *tableSource) loadNextChunk() error {
 	if !ok {
 		return fmt.Errorf("stco table is shorter than stsc requires")
 	}
-	if s.co64 {
-		s.curOff = binary.BigEndian.Uint64(v)
-	} else {
+	if !s.co64 {
 		s.curOff = uint64(binary.BigEndian.Uint32(v))
+	} else {
+		s.curOff = binary.BigEndian.Uint64(v)
 	}
 	s.curLeft = s.stscSPC
 	s.chunkIndex++
+	s.chunks++
 	// Never let the stsc run exceed the remaining sample budget.
 	if remaining := s.sampleCount - s.produced; uint64(s.curLeft) > remaining {
 		s.curLeft = uint32(remaining)

@@ -202,6 +202,7 @@ func printStats(w io.Writer, s *pipeline.Stats) {
 		fmt.Fprintf(w, "first_corrupt_frame=%d\n", s.FirstCorruptFrame)
 		fmt.Fprintf(w, "first_corrupt_offset=%d\n", s.FirstCorruptOffset)
 	}
+	fmt.Fprintf(w, "committed_chunks=%d\n", s.CommittedChunks)
 	fmt.Fprintf(w, "recovered_chunks=%d\n", s.RecoveredChunks)
 	fmt.Fprintf(w, "resumed=%t\n", s.Resumed)
 	if s.Resumed {

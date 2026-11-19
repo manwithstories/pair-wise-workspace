@@ -223,7 +223,6 @@ func VerifyFile(path string, opts VerifyOptions) (*VerifyReport, error) {
 		firstOff  uint64
 		lastEnd   uint64
 		haveFirst bool
-		chunks    uint64
 		sample    uint64
 	)
 	for {
@@ -252,15 +251,6 @@ func VerifyFile(path string, opts VerifyOptions) (*VerifyReport, error) {
 				rep.Problems = append(rep.Problems,
 					fmt.Sprintf("timestamp not increasing at sample %d: %d <= %d", sample, mt, prevTime))
 			}
-			if off != prevEnd {
-				chunks++
-			}
-			if chunks == 0 {
-				chunks = 1
-			}
-		}
-		if sample == 0 {
-			chunks = 1
 		}
 		prevEnd, prevTime = off+uint64(size), mt
 		lastEnd = prevEnd
@@ -270,7 +260,7 @@ func VerifyFile(path string, opts VerifyOptions) (*VerifyReport, error) {
 		}
 	}
 	rep.Samples = sample
-	rep.Chunks = chunks
+	rep.Chunks = ts.Chunks()
 	if haveFirst {
 		if firstOff != uint64(mdatStart) {
 			rep.Problems = append(rep.Problems,
