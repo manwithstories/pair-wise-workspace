@@ -1,4 +1,6 @@
-// 损坏定位模块骨架（第 5 批实现）。
+// 损坏定位器为头文件实现；本翻译单元保留模块编译锚点。
+#include "damage_locator.hpp"
+
 namespace ma {
-int damage_locator_placeholder() { return 0; }
+// intentionally empty
 } // namespace ma
