@@ -25,6 +25,7 @@ add_library(media_core STATIC
   src/packet_reader.cpp
   src/packet_writer.cpp
   src/reorder_buffer.cpp
+  src/sample_generator.cpp
   src/sha256.cpp
   src/timestamp_repair.cpp
 )
