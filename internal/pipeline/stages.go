@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"time"
 
@@ -365,5 +364,3 @@ func (j *job) finishOnDisk(idx *index.Writer) error {
 	}
 	return nil
 }
-
-var _ = io.Discard

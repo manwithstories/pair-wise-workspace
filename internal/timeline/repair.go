@@ -6,7 +6,6 @@ package timeline
 
 import (
 	"fmt"
-	"math"
 	"sort"
 
 	"mediq/internal/model"
@@ -422,5 +421,3 @@ func minInt64(a, b int64) int64 {
 	}
 	return b
 }
-
-var _ = math.MaxInt64

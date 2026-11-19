@@ -286,5 +286,3 @@ func (r *Runner) validatePaths() error {
 	}
 	return nil
 }
-
-var _ = model.ErrCanceled

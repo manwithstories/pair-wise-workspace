@@ -7,8 +7,6 @@ import (
 	"testing"
 
 	"github.com/abema/go-mp4"
-
-	"mediq/internal/model"
 )
 
 // writeFrames builds n samples with strict 3000-tick spacing and a stable
@@ -236,5 +234,3 @@ func TestIndexFileHashesFrameBytesUnchanged(t *testing.T) {
 		}
 	}
 }
-
-var _ = model.ErrVerifyFailed
