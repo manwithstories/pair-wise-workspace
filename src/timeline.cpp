@@ -104,7 +104,7 @@ bool build_timeline(const Manifest& manifest,
           diagnostics->push_back(make(
               ErrorCode::segment_negative,
               "negative audio offset of " + std::to_string(offset) +
-                  " ticks will be compensated with silence",
+                  " ticks will trim the start of the source",
               loc, Severity::warning));
         }
         resolved.audio_offset_tick = offset;

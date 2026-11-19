@@ -270,23 +270,38 @@ bool scan_av1(const std::string& buffer, const Limits& limits, StreamScan* out,
 }  // namespace
 
 bool sniff_codec(std::string_view prefix, Codec* codec) {
-  if (prefix.size() >= 4 && static_cast<uint8_t>(prefix[0]) == 0 &&
-      static_cast<uint8_t>(prefix[1]) == 0 && static_cast<uint8_t>(prefix[2]) == 1) {
-    const int h264_type = static_cast<uint8_t>(prefix[3]) & 0x1F;
-    const int h265_type = (static_cast<uint8_t>(prefix[3]) >> 1) & 0x3F;
-    // H.265 VPS/SPS/PPS and IRAP share type ranges that never overlap with
-    // the H.264 slice/SPS/PPS types we see in practice.
-    if (h264_type == 7 || h264_type == 8 || h264_type == 5 || h264_type == 1) {
-      *codec = Codec::h264;
-      return true;
+  // Locate the first Annex B start code; encoders may emit 3 or 4 bytes.
+  for (size_t i = 0; i + 3 < prefix.size(); ++i) {
+    if (static_cast<uint8_t>(prefix[i]) != 0 ||
+        static_cast<uint8_t>(prefix[i + 1]) != 0 ||
+        static_cast<uint8_t>(prefix[i + 2]) != 1) {
+      continue;
     }
+    const uint8_t header = static_cast<uint8_t>(prefix[i + 3]);
+    const int h264_type = header & 0x1F;
+    const int h265_type = (header >> 1) & 0x3F;
+    // VPS/SPS/PPS/prefix SEI are unambiguous HEVC markers; their bytes read
+    // as invalid or reserved H.264 types.  H.265 VCL types 0..9 overlap with
+    // H.264 slice types, so the parameter-set check comes first.
     if (h265_type == 32 || h265_type == 33 || h265_type == 34 ||
-        (h265_type >= 16 && h265_type <= 21) || h265_type <= 9) {
+        h265_type == 39 || h265_type == 40) {
       *codec = Codec::h265;
       return true;
     }
+    if (h264_type == 1 || h264_type == 5 || h264_type == 6 ||
+        h264_type == 7 || h264_type == 8 || h264_type == 9) {
+      *codec = Codec::h264;
+      return true;
+    }
+    if ((h265_type >= 16 && h265_type <= 21) ||
+        (h265_type >= 0 && h265_type <= 9)) {
+      *codec = Codec::h265;
+      return true;
+    }
+    return false;
   }
-  // OBU_TEMPORAL_DELIMITER is 0x12; sequence header is 0x0A.
+  // AV1 low-overhead OBU: temporal delimiter (0x12) or sequence header
+  // (0x0A) as the first byte; the forbidden bit must be clear.
   if (!prefix.empty()) {
     const uint8_t byte = static_cast<uint8_t>(prefix[0]);
     const int type = (byte >> 3) & 0x0F;

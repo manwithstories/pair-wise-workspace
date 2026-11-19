@@ -4,10 +4,16 @@
 #include <string>
 #include <vector>
 
+#include <cmath>
+
+#include "audio_restore.hpp"
+#include "bitstream.hpp"
 #include "error.hpp"
 #include "hash.hpp"
 #include "json.hpp"
 #include "manifest.hpp"
+#include "sha256.hpp"
+#include "timeline.hpp"
 #include "rational.hpp"
 
 TEST_CASE("error codes map to the documented exit codes", "[error]") {
@@ -162,4 +168,490 @@ TEST_CASE("manifest reports a JSON error offset", "[manifest]") {
   REQUIRE_FALSE(diagnostics.empty());
   CHECK(diagnostics.back().code == media_restore::ErrorCode::json_parse);
   CHECK(diagnostics.back().location.byte_offset >= 0);
+}
+
+namespace {
+std::string manifest_with_tracks(const std::string& tracks) {
+  return R"({"format":"media-archive-manifest","version":1,
+            "time_base":{"num":"1","den":"90000"},"tracks":[)" + tracks + "]}";
+}
+std::string simple_track(const std::string& id, const std::string& deps,
+                         const std::string& start, const std::string& duration) {
+  return R"({"id":")" + id + R"(","kind":"video","depends_on":[)" + deps +
+         R"(],"segments":[{"id":"s1","start":")" + start + R"(","duration":")" +
+         duration + R"(","media":"m.h264","codec":"h264","color":{"source":"x"}}]})";
+}}  // namespace
+
+TEST_CASE("timeline converts to exact ticks", "[timeline]") {
+  media_restore::Manifest manifest;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  const auto text = manifest_with_tracks(
+      simple_track("a", "", "0/1", "3/1") + "," +
+      simple_track("b", "\"a\"", "3/2", "1001/30000"));
+  REQUIRE(media_restore::parse_manifest(text, &manifest, &diagnostics));
+  media_restore::Timeline timeline;
+  REQUIRE(media_restore::build_timeline(manifest, &diagnostics, &timeline));
+  CHECK(diagnostics.empty());
+  REQUIRE(timeline.tracks.size() == 2);
+  CHECK(timeline.tracks[0].segments[0].start_tick == 0);
+  CHECK(timeline.tracks[0].segments[0].end_tick == 270000);
+  CHECK(timeline.tracks[1].segments[0].start_tick == 135000);
+  CHECK(timeline.tracks[1].segments[0].duration_tick == 3003);
+  CHECK(timeline.order.order.size() == 2);
+  CHECK(timeline.order.order[0] == "a");
+}
+
+TEST_CASE("timeline reports overlap, empty and unrepresentable spans", "[timeline]") {
+  media_restore::Manifest manifest;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  const auto text = manifest_with_tracks(
+      R"({"id":"mixed","kind":"video","depends_on":[],"segments":[
+          {"id":"s1","start":"0/1","duration":"3/1","media":"m","codec":"h264"},
+          {"id":"s2","start":"2/1","duration":"3/1","media":"m","codec":"h264"},
+          {"id":"s3","start":"6/1","duration":"0/1","media":"m","codec":"h264"},
+          {"id":"s4","start":"1/7","duration":"1/1","media":"m","codec":"h264"}]})");
+  REQUIRE(media_restore::parse_manifest(text, &manifest, &diagnostics));
+  media_restore::Timeline timeline;
+  CHECK_FALSE(media_restore::build_timeline(manifest, &diagnostics, &timeline));
+  bool overlap = false, empty = false, unconvertible = false;
+  for (const auto& d : diagnostics) {
+    overlap |= d.code == media_restore::ErrorCode::segment_overlap;
+    empty |= d.code == media_restore::ErrorCode::segment_empty;
+    unconvertible |= d.code == media_restore::ErrorCode::manifest_schema;
+  }
+  CHECK(overlap);
+  CHECK(empty);
+  CHECK(unconvertible);
+}
+
+TEST_CASE("out-of-order segments still detect overlap exactly", "[timeline]") {
+  media_restore::Manifest manifest;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  const auto text = manifest_with_tracks(
+      R"({"id":"a","kind":"video","depends_on":[],"segments":[
+          {"id":"late","start":"4/1","duration":"2/1","media":"m","codec":"h264"},
+          {"id":"early","start":"0/1","duration":"5/1","media":"m","codec":"h264"}]})");
+  REQUIRE(media_restore::parse_manifest(text, &manifest, &diagnostics));
+  media_restore::Timeline timeline;
+  CHECK_FALSE(media_restore::build_timeline(manifest, &diagnostics, &timeline));
+  REQUIRE_FALSE(diagnostics.empty());
+  CHECK(diagnostics.back().code == media_restore::ErrorCode::segment_overlap);
+  CHECK(diagnostics.back().location.segment == "late");
+}
+
+TEST_CASE("dependency cycles are reported without stopping acyclic tracks", "[timeline]") {
+  media_restore::Manifest manifest;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  const auto text = manifest_with_tracks(
+      simple_track("solo", "", "0/1", "1/1") + "," +
+      simple_track("x", "\"y\"", "0/1", "1/1") + "," +
+      simple_track("y", "\"x\"", "0/1", "1/1"));
+  REQUIRE(media_restore::parse_manifest(text, &manifest, &diagnostics));
+  media_restore::TrackOrder order;
+  CHECK_FALSE(media_restore::resolve_track_order(manifest, &diagnostics, &order));
+  REQUIRE_FALSE(order.order.empty());
+  CHECK(order.order.front() == "solo");
+  CHECK(order.cyclic.size() == 2);
+  bool saw_cycle = false;
+  for (const auto& d : diagnostics) {
+    saw_cycle |= d.code == media_restore::ErrorCode::dependency_cycle;
+  }
+  CHECK(saw_cycle);
+}
+
+TEST_CASE("missing dependency blocks only the dependent track", "[timeline]") {
+  media_restore::Manifest manifest;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  const auto text = manifest_with_tracks(simple_track("a", "\"ghost\"", "0/1", "1/1"));
+  REQUIRE(media_restore::parse_manifest(text, &manifest, &diagnostics));
+  media_restore::TrackOrder order;
+  CHECK_FALSE(media_restore::resolve_track_order(manifest, &diagnostics, &order));
+  CHECK(order.blocked.size() == 1);
+  CHECK(order.blocked.front() == "a");
+}
+
+namespace {
+// Builds a synthetic H.264-shaped Annex B stream: SPS, PPS, then IDR and
+// non-IDR slices whose payload lengths are controlled by the caller.
+std::string annexb_unit(int nal_type, size_t payload) {
+  std::string unit;
+  unit.append("\x00\x00\x00\x01", 4);
+  unit.push_back(static_cast<char>(0x60 | nal_type));
+  unit.push_back(static_cast<char>(0x40));
+  for (size_t i = 0; i < payload; ++i) {
+    const char byte = static_cast<char>((i * 37 + 11) & 0x7F);
+    unit.push_back(byte == 0 ? '\x01' : byte);
+  }
+  return unit;
+}
+
+std::string synthetic_h264(size_t gop = 4, size_t gops = 3) {
+  std::string bytes = annexb_unit(7, 9) + annexb_unit(8, 3);
+  for (size_t g = 0; g < gops; ++g) {
+    bytes += annexb_unit(5, 40 + g);
+    for (size_t i = 1; i < gop; ++i) bytes += annexb_unit(1, 30 + i);
+  }
+  return bytes;
+}
+
+std::string synthetic_av1() {
+  std::string bytes;
+  const auto obu = [](int type, const std::string& payload) {
+    std::string unit;
+    unit.push_back(static_cast<char>((type << 3) | 0x02));
+    unit.push_back(static_cast<char>(payload.size()));
+    return unit + payload;
+  };
+  bytes += obu(2, "");
+  bytes += obu(1, std::string(6, '\x11'));
+  bytes += obu(6, std::string("\x08\x22\x33", 3));
+  bytes += obu(2, "");
+  bytes += obu(6, std::string("\x28\x22\x33", 3));
+  bytes += obu(2, "");
+  bytes += obu(6, std::string("\x08\x22\x33", 3));
+  return bytes;
+}
+}  // namespace
+
+TEST_CASE("annexb scan finds every keyframe at exact offsets", "[bitstream]") {
+  const std::string bytes = synthetic_h264();
+  media_restore::StreamScan scan;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  REQUIRE(media_restore::scan_raw_stream_bytes(bytes, media_restore::Codec::h264,
+                                               media_restore::Limits{}, &scan,
+                                               &diagnostics));
+  CHECK(diagnostics.empty());
+  CHECK(scan.stream_size == static_cast<int64_t>(bytes.size()));
+  CHECK(scan.unit_count == 2 + 3 * 4);
+  REQUIRE(scan.keyframes.size() == 3);
+  const std::string first = annexb_unit(7, 9) + annexb_unit(8, 3);
+  CHECK(scan.keyframes[0].offset == static_cast<int64_t>(first.size()));
+  CHECK(scan.keyframes[0].nal_type == 5);
+}
+
+TEST_CASE("annexb scan survives a start code split across the chunk boundary", "[bitstream]") {
+  // 4 MiB chunks: place a start code exactly across 4 MiB - 2.
+  constexpr size_t kChunk = 4 * 1024 * 1024;
+  std::string bytes(kChunk - 3, '\x11');
+  bytes += annexb_unit(7, 5);
+  bytes += annexb_unit(5, 7);
+  media_restore::StreamScan scan;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  REQUIRE(media_restore::scan_raw_stream_bytes(bytes, media_restore::Codec::h264,
+                                               media_restore::Limits{}, &scan,
+                                               &diagnostics));
+  REQUIRE(scan.keyframes.size() == 1);
+  CHECK(scan.keyframes[0].offset ==
+        static_cast<int64_t>(kChunk - 3) + static_cast<int64_t>(annexb_unit(7, 5).size()));
+}
+
+TEST_CASE("av1 scan identifies keyframes and skips inter frames", "[bitstream]") {
+  media_restore::StreamScan scan;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  REQUIRE(media_restore::scan_raw_stream_bytes(synthetic_av1(),
+                                               media_restore::Codec::av1,
+                                               media_restore::Limits{}, &scan,
+                                               &diagnostics));
+  CHECK(scan.keyframes.size() == 2);
+  CHECK(scan.keyframes[0].offset < scan.keyframes[1].offset);
+}
+
+TEST_CASE("codec sniffing distinguishes h264, h265 and av1", "[bitstream]") {
+  media_restore::Codec codec = media_restore::Codec::av1;
+  CHECK(media_restore::sniff_codec(synthetic_h264(), &codec));
+  CHECK(codec == media_restore::Codec::h264);
+  std::string hevc;
+  hevc.append("\x00\x00\x00\x01", 4);
+  hevc.push_back(static_cast<char>(32 << 1));  // VPS
+  hevc.push_back('\x01');
+  CHECK(media_restore::sniff_codec(hevc, &codec));
+  CHECK(codec == media_restore::Codec::h265);
+  CHECK(media_restore::sniff_codec(synthetic_av1(), &codec));
+  CHECK(codec == media_restore::Codec::av1);
+  CHECK_FALSE(media_restore::sniff_codec("plain text", &codec));
+}
+
+TEST_CASE("keyframe index validation reports each defect kind", "[bitstream]") {
+  const std::string bytes = synthetic_h264();
+  media_restore::StreamScan scan;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  REQUIRE(media_restore::scan_raw_stream_bytes(bytes, media_restore::Codec::h264,
+                                               media_restore::Limits{}, &scan,
+                                               &diagnostics));
+  REQUIRE(scan.keyframes.size() == 3);
+  const int64_t k0 = scan.keyframes[0].offset;
+  const int64_t k1 = scan.keyframes[1].offset;
+
+  const auto validate = [&](std::vector<media_restore::IndexEntry> entries,
+                            media_restore::ErrorCode expected) {
+    media_restore::KeyframeIndex index;
+    index.present = true;
+    index.version = 1;
+    index.entries = std::move(entries);
+    media_restore::IndexReport report;
+    diagnostics.clear();
+    CHECK_FALSE(media_restore::validate_keyframe_index(index, scan,
+                                                       media_restore::Limits{},
+                                                       &report, &diagnostics));
+    bool found = false;
+    for (const auto& d : diagnostics) found |= d.code == expected;
+    CHECK(found);
+  };
+
+  validate({{100, -1, true}}, media_restore::ErrorCode::index_negative_offset);
+  validate({{100, static_cast<int64_t>(bytes.size()) + 10, true}},
+           media_restore::ErrorCode::index_out_of_range);
+  validate({{100, k1, true}, {200, k1, true}},
+           media_restore::ErrorCode::index_duplicate);
+  validate({{200, k1, true}, {100, k0, true}},
+           media_restore::ErrorCode::index_order);
+  validate({{100, k1, false}}, media_restore::ErrorCode::index_not_keyframe);
+}
+
+TEST_CASE("keyframe index fills missing entries from the scan", "[bitstream]") {
+  const std::string bytes = synthetic_h264();
+  media_restore::StreamScan scan;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  REQUIRE(media_restore::scan_raw_stream_bytes(bytes, media_restore::Codec::h264,
+                                               media_restore::Limits{}, &scan,
+                                               &diagnostics));
+  media_restore::KeyframeIndex index;
+  index.present = true;
+  index.version = 2;
+  index.entries.push_back({0, scan.keyframes[0].offset, true});
+  media_restore::IndexReport report;
+  REQUIRE(media_restore::validate_keyframe_index(index, scan,
+                                                 media_restore::Limits{}, &report,
+                                                 &diagnostics));
+  CHECK(report.index_entries == 1);
+  CHECK(report.hits == 1);
+  CHECK(report.generated == 2);
+  CHECK(report.candidates.size() == 3);
+  CHECK(report.candidates[0].origin == media_restore::EntryOrigin::index);
+  CHECK(report.candidates[1].origin == media_restore::EntryOrigin::scan);
+  CHECK_FALSE(report.candidates[1].tick.has_value());
+}
+
+namespace {
+media_restore::PcmBuffer make_tone(int rate, const std::string& layout_name,
+                                   int64_t frames, double hz, double amp) {
+  media_restore::PcmBuffer buffer;
+  buffer.sample_rate = rate;
+  REQUIRE(media_restore::parse_layout(layout_name, &buffer.layout));
+  buffer.channels = buffer.layout.nb_channels;
+  buffer.interleaved = false;
+  buffer.frames = frames;
+  buffer.data.assign(static_cast<size_t>(frames) * buffer.channels, 0.0f);
+  for (int c = 0; c < buffer.channels; ++c) {
+    for (int64_t i = 0; i < frames; ++i) {
+      const double t = static_cast<double>(i) / rate;
+      buffer.plane(c)[i] = static_cast<float>(amp * std::sin(2 * M_PI * hz * t));
+    }
+  }
+  return buffer;
+}
+}  // namespace
+
+TEST_CASE("layout names parse canonically and reject unknowns", "[audio]") {
+  using media_restore::parse_layout;
+  AVChannelLayout layout{};
+  REQUIRE(parse_layout("5.1", &layout));
+  CHECK(media_restore::layout_name(layout) == "5.1");
+  CHECK(layout.nb_channels == 6);
+  AVChannelLayout mono{};
+  REQUIRE(parse_layout("mono", &mono));
+  CHECK(mono.nb_channels == 1);
+  AVChannelLayout seven_one{};
+  REQUIRE(parse_layout("7.1", &seven_one));
+  CHECK(seven_one.nb_channels == 8);
+  CHECK_FALSE(parse_layout("atmos-9.1.6", &layout));
+  CHECK_FALSE(parse_layout("", &layout));
+}
+
+TEST_CASE("mono is upmixed to 5.1 without clipping the centre", "[audio]") {
+  auto input = make_tone(44100, "mono", 44100, 440.0, 0.5);
+  media_restore::AudioRestoreConfig config;
+  config.output_rate = 48000;
+  REQUIRE(media_restore::parse_layout("5.1", &config.output_layout));
+  media_restore::PcmBuffer output;
+  media_restore::AudioStats stats;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  REQUIRE(media_restore::convert_audio(input, config, &output, &stats, &diagnostics));
+  CHECK(diagnostics.empty());
+  CHECK(output.sample_rate == 48000);
+  CHECK(output.channels == 6);
+  CHECK(stats.input_layout == "mono");
+  CHECK(stats.output_layout == "5.1");
+  // One second at 44.1 kHz resampled to 48 kHz lands within a frame.
+  CHECK(std::llabs(output.frames - 48000) <= 1);
+  CHECK(stats.input_frames == 44100);
+}
+
+TEST_CASE("planar and interleaved inputs produce identical output", "[audio]") {
+  auto planar = make_tone(32000, "stereo", 9600, 300.0, 0.4);
+  media_restore::PcmBuffer interleaved;
+  interleaved.sample_rate = planar.sample_rate;
+  REQUIRE(media_restore::parse_layout("stereo", &interleaved.layout));
+  interleaved.channels = 2;
+  interleaved.interleaved = true;
+  interleaved.frames = planar.frames;
+  interleaved.data.resize(static_cast<size_t>(planar.frames) * 2);
+  for (int64_t i = 0; i < planar.frames; ++i) {
+    interleaved.frame(i)[0] = planar.plane(0)[i];
+    interleaved.frame(i)[1] = planar.plane(1)[i];
+  }
+  media_restore::AudioRestoreConfig config;
+  config.output_rate = 48000;
+  REQUIRE(media_restore::parse_layout("stereo", &config.output_layout));
+  media_restore::PcmBuffer a;
+  media_restore::PcmBuffer b;
+  media_restore::AudioStats stats_a;
+  media_restore::AudioStats stats_b;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  REQUIRE(media_restore::convert_audio(planar, config, &a, &stats_a, &diagnostics));
+  REQUIRE(media_restore::convert_audio(interleaved, config, &b, &stats_b, &diagnostics));
+  REQUIRE(a.frames == b.frames);
+  for (int c = 0; c < a.channels; ++c) {
+    for (int64_t i = 0; i < a.frames; ++i) {
+      REQUIRE(std::fabs(a.plane(c)[i] - b.plane(c)[i]) < 1e-6f);
+    }
+  }
+}
+
+TEST_CASE("non-frame-aligned tail is preserved, not dropped", "[audio]") {
+  // 1001 frames at 44.1 kHz is not a multiple of any typical resampler block.
+  auto input = make_tone(44100, "stereo", 1001, 220.0, 0.3);
+  media_restore::AudioRestoreConfig config;
+  config.output_rate = 48000;
+  REQUIRE(media_restore::parse_layout("stereo", &config.output_layout));
+  media_restore::PcmBuffer output;
+  media_restore::AudioStats stats;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  REQUIRE(media_restore::convert_audio(input, config, &output, &stats, &diagnostics));
+  CHECK(output.frames >= 1089);
+  CHECK(output.frames <= 1091);
+  CHECK(stats.output_frames == output.frames);
+}
+
+TEST_CASE("unsupported widths fail with a located error", "[audio]") {
+  auto input = make_tone(48000, "7.1", 480, 440.0, 0.1);
+  media_restore::AudioRestoreConfig config;
+  config.output_rate = 0;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  media_restore::PcmBuffer output;
+  media_restore::AudioStats stats;
+  CHECK_FALSE(media_restore::convert_audio(input, config, &output, &stats, &diagnostics));
+  CHECK(diagnostics.back().code == media_restore::ErrorCode::audio_unsupported_rate);
+
+  diagnostics.clear();
+  config.output_rate = 48000;
+  AVChannelLayout bad{};
+  bad.nb_channels = 9;
+  bad.order = AV_CHANNEL_ORDER_NATIVE;
+  av_channel_layout_uninit(&config.output_layout);
+  config.output_layout = bad;
+  CHECK_FALSE(media_restore::convert_audio(input, config, &output, &stats, &diagnostics));
+  CHECK(diagnostics.back().code == media_restore::ErrorCode::audio_unsupported_layout);
+}
+
+TEST_CASE("silence stays silent and is flagged", "[audio]") {
+  media_restore::PcmBuffer silent;
+  silent.sample_rate = 48000;
+  REQUIRE(media_restore::parse_layout("stereo", &silent.layout));
+  silent.channels = 2;
+  silent.frames = 48000;
+  silent.data.assign(static_cast<size_t>(silent.frames) * 2, 0.0f);
+  media_restore::AudioRestoreConfig config;
+  config.output_rate = 48000;
+  REQUIRE(media_restore::parse_layout("stereo", &config.output_layout));
+  media_restore::AudioStats stats;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  REQUIRE(media_restore::normalize_loudness(config, &silent, &stats, &diagnostics));
+  CHECK(stats.silent);
+  CHECK(stats.output_lufs <= -99.0);
+  CHECK(stats.applied_gain_db == 0.0);
+  for (const float sample : silent.data) CHECK(sample == 0.0f);
+}
+
+TEST_CASE("very short segments take the explicit short path", "[audio]") {
+  auto input = make_tone(48000, "mono", 480, 440.0, 0.5);  // 10 ms
+  media_restore::AudioRestoreConfig config;
+  config.output_rate = 48000;
+  REQUIRE(media_restore::parse_layout("mono", &config.output_layout));
+  media_restore::AudioStats stats;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  REQUIRE(media_restore::normalize_loudness(config, &input, &stats, &diagnostics));
+  CHECK(stats.short_segment);
+  CHECK(stats.applied_gain_db == 0.0);
+  bool flagged = false;
+  for (const auto& d : diagnostics) {
+    flagged |= d.code == media_restore::ErrorCode::loudness_invalid;
+  }
+  CHECK(flagged);
+}
+
+TEST_CASE("loudness normalisation reaches the target and limits peaks", "[audio]") {
+  auto input = make_tone(48000, "stereo", 48000 * 3, 1000.0, 0.05);
+  media_restore::AudioRestoreConfig config;
+  config.output_rate = 48000;
+  config.target_lufs = -23.0;
+  config.true_peak_dbtp = -1.0;
+  REQUIRE(media_restore::parse_layout("stereo", &config.output_layout));
+  media_restore::AudioStats stats;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  REQUIRE(media_restore::normalize_loudness(config, &input, &stats, &diagnostics));
+  REQUIRE(stats.loudness_measured);
+  CHECK(stats.input_lufs < -20.0);
+  CHECK(std::fabs(stats.output_lufs - (-23.0)) < 1.0);
+  CHECK(stats.output_true_peak_dbtp <= -0.9);
+  CHECK(stats.applied_gain_db > 0.0);
+}
+
+TEST_CASE("sha256 matches known vectors", "[hash]") {
+  using media_restore::Sha256;
+  CHECK(Sha256::digest("") ==
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+  CHECK(Sha256::digest("abc") ==
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+  CHECK(Sha256::digest("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq") ==
+        "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1");
+  // Incremental updates must agree with a single digest.
+  Sha256 hash;
+  hash.update("ab");
+  hash.update("c");
+  CHECK(hash.hex() == Sha256::digest("abc"));
+}
+
+TEST_CASE("timeline offset pads or trims deterministically", "[audio]") {
+  auto input = make_tone(48000, "stereo", 4800, 440.0, 0.2);
+  media_restore::AudioStats stats;
+  REQUIRE(media_restore::apply_timeline_offset(960, &input, &stats));
+  CHECK(stats.padded_frames == 960);
+  CHECK(input.frames == 5760);
+  for (int c = 0; c < input.channels; ++c) {
+    for (int i = 0; i < 960; ++i) CHECK(input.plane(c)[i] == 0.0f);
+  }
+
+  auto trimmed = make_tone(48000, "stereo", 4800, 440.0, 0.2);
+  const float first_original = trimmed.plane(0)[480];
+  media_restore::AudioStats trim_stats;
+  REQUIRE(media_restore::apply_timeline_offset(-480, &trimmed, &trim_stats));
+  CHECK(trim_stats.discarded_frames == 480);
+  CHECK(trimmed.frames == 4320);
+  CHECK(trimmed.plane(0)[0] == first_original);
+}
+
+TEST_CASE("wav encoder writes a stable RIFF header", "[audio]") {
+  auto buffer = make_tone(48000, "mono", 100, 440.0, 0.25);
+  std::string wav;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  REQUIRE(media_restore::encode_wav(buffer, &wav, &diagnostics));
+  REQUIRE(wav.size() == 44 + 400);
+  CHECK(wav.compare(0, 4, "RIFF") == 0);
+  CHECK(wav.compare(8, 4, "WAVE") == 0);
+  CHECK(wav.compare(20, 2, std::string("\x03\x00", 2)) == 0);  // IEEE float
+  std::string again;
+  REQUIRE(media_restore::encode_wav(buffer, &again, &diagnostics));
+  CHECK(wav == again);
+  CHECK(media_restore::Sha256::digest(wav) == media_restore::Sha256::digest(again));
 }
