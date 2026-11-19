@@ -19,6 +19,14 @@ from .recovery import RecoveryOutcome
 
 AV_SYNC_LIMIT_US = 40_000
 DEFAULT_QUEUE_BUDGET = 512 * 1024 * 1024
+_VIDEO_EXTS = {".ts", ".m4s", ".mp4", ".mkv", ".mov"}
+_AUDIO_EXTS = {".wav", ".m4a", ".aac", ".flac", ".ogg", ".mp3"}
+
+
+def _media_files(directory: Path, exts: set[str]) -> list[Path]:
+    if not directory.exists():
+        return []
+    return sorted(p for p in directory.iterdir() if p.is_file() and p.suffix.lower() in exts)
 
 
 @dataclass
@@ -42,42 +50,49 @@ def media_timeline_spans(video_dir: Path, audio_dir: Path,
 
 
 def _video_span(directory: Path, errors: ErrorCollector, asset_id: str) -> TrackSpan:
-    files = sorted(directory.glob("*")) if directory.exists() else []
-    files = [f for f in files if f.is_file()]
+    files = _media_files(directory, _VIDEO_EXTS)
     if not files:
         return TrackSpan("video", None, None, present=False, note="no video track")
-    first = last = None
     import av
+    first = last = None
+    global_offset_us = 0
     for path in files:
         try:
             container = av.open(str(path))
-            stamps = []
+            local: list[int] = []
+            frame_dur_us = 0
             for stream in container.streams.video:
+                base_us = int((stream.start_time or 0) * 1_000_000 * stream.time_base)
+                if stream.average_rate:
+                    frame_dur_us = round(1_000_000 / float(stream.average_rate))
                 for frame in container.decode(stream):
                     if frame.pts is None:
                         continue
-                    stamps.append(int(frame.pts * 1_000_000 * frame.time_base))
+                    local.append(int(frame.pts * 1_000_000 * frame.time_base) - base_us)
             container.close()
         except (av.AVError, OSError) as exc:
             errors.add(skippable(ErrorStage.METRICS, asset_id, f"unreadable video {path.name}: {exc}",
                                  path=str(path)))
             continue
-        if stamps:
-            lo, hi = min(stamps), max(stamps)
-            first = lo if first is None else min(first, lo)
-            last = hi if last is None else max(last, hi)
+        if not local:
+            continue
+        seg_first = global_offset_us + min(local)
+        # Endpoint is coverage (last frame + one frame duration), not last PTS.
+        seg_last = global_offset_us + max(local) + frame_dur_us
+        first = seg_first if first is None else min(first, seg_first)
+        last = seg_last if last is None else max(last, seg_last)
+        global_offset_us = seg_last
     if first is None:
         return TrackSpan("video", None, None, present=False, note="no decodable video frames")
     return TrackSpan("video", first, last)
 
 
 def _audio_span(directory: Path, errors: ErrorCollector, asset_id: str) -> TrackSpan:
-    files = sorted(directory.glob("*")) if directory.exists() else []
-    files = [f for f in files if f.is_file()]
+    files = _media_files(directory, _AUDIO_EXTS)
     if not files:
         return TrackSpan("audio", None, None, present=False, note="no audio track")
     first = last = None
-    elapsed = 0
+    elapsed_us = 0
     for path in files:
         try:
             info = sf.info(str(path))
@@ -88,11 +103,11 @@ def _audio_span(directory: Path, errors: ErrorCollector, asset_id: str) -> Track
             continue
         if rate <= 0 or frames <= 0:
             continue
-        start_us = int(elapsed * 1_000_000)
-        end_us = int((elapsed + frames / rate) * 1_000_000)
-        first = start_us if first is None else min(first, start_us)
-        last = end_us if last is None else max(last, end_us)
-        elapsed += frames / rate
+        duration_us = round(frames / rate * 1_000_000)
+        seg_first, seg_last = elapsed_us, elapsed_us + duration_us
+        first = seg_first if first is None else min(first, seg_first)
+        last = seg_last if last is None else max(last, seg_last)
+        elapsed_us = seg_last
     if first is None:
         return TrackSpan("audio", None, None, present=False, note="no decodable audio samples")
     return TrackSpan("audio", first, last)
