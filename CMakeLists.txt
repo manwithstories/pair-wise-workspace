@@ -24,6 +24,7 @@ add_library(media_core STATIC
   src/metadata_codec.cpp
   src/packet_reader.cpp
   src/packet_writer.cpp
+  src/pipeline.cpp
   src/reorder_buffer.cpp
   src/sample_generator.cpp
   src/sha256.cpp
