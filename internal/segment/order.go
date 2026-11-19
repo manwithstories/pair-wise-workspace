@@ -34,10 +34,10 @@ func New(index int, uri string, data []byte) Segment {
 // Conflict records two different contents claiming the same sequence
 // number. The first-seen content is kept; the later one is rejected.
 type Conflict struct {
-	Index     int
-	KeptURI   string
-	KeptHash  [sha256.Size]byte
-	DroppedURI string
+	Index       int
+	KeptURI     string
+	KeptHash    [sha256.Size]byte
+	DroppedURI  string
 	DroppedHash [sha256.Size]byte
 }
 

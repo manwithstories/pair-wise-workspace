@@ -27,11 +27,11 @@ type rep struct {
 	SegmentList     *segList     `xml:"SegmentList"`
 }
 type segTemplate struct {
-	Media           string   `xml:"media,attr"`
-	Timescale       uint32   `xml:"timescale,attr"`
-	Duration        uint32   `xml:"duration,attr"`
-	StartNumber     int      `xml:"startNumber,attr"`
-	Timeline        *timeline `xml:"SegmentTimeline"`
+	Media       string    `xml:"media,attr"`
+	Timescale   uint32    `xml:"timescale,attr"`
+	Duration    uint32    `xml:"duration,attr"`
+	StartNumber int       `xml:"startNumber,attr"`
+	Timeline    *timeline `xml:"SegmentTimeline"`
 }
 type timeline struct {
 	S []sElem `xml:"S"`
@@ -42,11 +42,11 @@ type sElem struct {
 	R int    `xml:"r,attr"`
 }
 type segList struct {
-	Timescale   uint32   `xml:"timescale,attr"`
-	Duration    uint32   `xml:"duration,attr"`
-	StartNumber int      `xml:"startNumber,attr"`
+	Timescale   uint32    `xml:"timescale,attr"`
+	Duration    uint32    `xml:"duration,attr"`
+	StartNumber int       `xml:"startNumber,attr"`
 	Timeline    *timeline `xml:"SegmentTimeline"`
-	URLs        []segURL `xml:"SegmentURL"`
+	URLs        []segURL  `xml:"SegmentURL"`
 }
 type segURL struct {
 	Media string `xml:"media,attr"`

@@ -8,11 +8,11 @@ import (
 
 func TestMapOrdersByTypeLanguageAndID(t *testing.T) {
 	tracks := []mp4.Track{
-		{ID: 9, Type: "audio"},                    // untagged: falls back to ID order
+		{ID: 9, Type: "audio"}, // untagged: falls back to ID order
 		{ID: 3, Type: "audio", Language: "jpn"},
 		{ID: 1, Type: "video", Language: "eng"},
 		{ID: 2, Type: "audio", Language: "eng"},
-		{ID: 7, Type: "audio"},                    // untagged, lower ID than 9
+		{ID: 7, Type: "audio"}, // untagged, lower ID than 9
 		{ID: 4, Type: "subtitle", Language: "chi"},
 	}
 	got := Map(tracks)

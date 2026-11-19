@@ -23,11 +23,11 @@ const (
 
 // SegmentRef locates one media segment.
 type SegmentRef struct {
-	Index      int     // sequence number (HLS media-sequence aware)
-	URI        string  // relative URI as written in the manifest
-	Duration   float64 // seconds, always > 0
-	Timescale  uint32  // DASH timescale, 0 for HLS
-	ByteRange  string  // optional "n[@o]" from EXT-X-BYTERANGE
+	Index     int     // sequence number (HLS media-sequence aware)
+	URI       string  // relative URI as written in the manifest
+	Duration  float64 // seconds, always > 0
+	Timescale uint32  // DASH timescale, 0 for HLS
+	ByteRange string  // optional "n[@o]" from EXT-X-BYTERANGE
 }
 
 // Variant is one rendition listed by a master playlist.

@@ -44,11 +44,11 @@ v/prog.m3u8
 
 func TestHLSRejectsBadInput(t *testing.T) {
 	cases := []string{
-		"#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:0,\ns.m4s\n",      // zero duration
-		"#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:1,\n../evil.m4s\n", // traversal
-		"#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:1,\n/abs.m4s\n",    // absolute
+		"#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:0,\ns.m4s\n",          // zero duration
+		"#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:1,\n../evil.m4s\n",    // traversal
+		"#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:1,\n/abs.m4s\n",       // absolute
 		"#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:1,\nhttp://x/s.m4s\n", // remote
-		"#EXTM3U\n#EXT-X-TARGETDURATION:6\n",                          // no segments
+		"#EXTM3U\n#EXT-X-TARGETDURATION:6\n",                             // no segments
 	}
 	for i, c := range cases {
 		if _, err := Parse("a", []byte(c)); err == nil {
