@@ -100,6 +100,10 @@ type Thresholds struct {
 	MinVFR         int
 }
 
+// maxErrorsPerCode bounds how many records of one error code are echoed
+// into the JSON summary per damaged fixture.
+const maxErrorsPerCode = 4
+
 // DefaultThresholds matches the acceptance criteria.
 func DefaultThresholds() Thresholds {
 	return Thresholds{
@@ -256,14 +260,24 @@ func Run(cfg Config) (*Summary, error) {
 	// fixtures that parse without a usable sample table also surface
 	// here, with their table offsets.
 	sum.Errors = append(sum.Errors, videoIdx.Errors...)
+	seenDamage := make(map[string]bool)
 	for _, d := range damage {
-		sum.Errors = append(sum.Errors, d.Errors...)
-	}
-	// The gap between parsed records and declared samples is itself a
-	// defect report.
-	for _, d := range damage {
-		for i := range d.Tracks {
-			sum.Errors = append(sum.Errors, d.Tracks[i].Errors...)
+		// Index.Errors already aggregates each track's errors. Cap the
+		// per-code output so a deliberately damaged file with hundreds
+		// of bad samples cannot flood the report; the full count stays
+		// available through errors_with_offset and the index itself.
+		perCode := make(map[string]int)
+		for _, e := range d.Errors {
+			key := e.Code + ":" + fmt.Sprint(e.Offset) + ":" + e.Message
+			if seenDamage[key] {
+				continue
+			}
+			if perCode[e.Code] >= maxErrorsPerCode {
+				continue
+			}
+			seenDamage[key] = true
+			perCode[e.Code]++
+			sum.Errors = append(sum.Errors, e)
 		}
 	}
 

@@ -151,10 +151,9 @@ func Generate(opts Options) (*Set, error) {
 	}
 	set.TruncatedMP4 = truncated.Bytes
 
+	// A zero decode delta makes two consecutive samples share a PTS.
 	dupDeltas := append([]uint32(nil), deltas...)
-	if len(dupDeltas) > 4 {
-		dupDeltas[2] = 0
-		dupDeltas[3] = dupDeltas[1]
+	if len(dupDeltas) > 2 {
 		dupDeltas[2] = 0
 	}
 	var db mp4.Builder

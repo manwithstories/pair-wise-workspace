@@ -203,7 +203,11 @@ func (b *Builder) buildTrak(t *Track, l TrackLayout) ([]byte, error) {
 			return nil, err
 		}
 	}
-	if err := writeRaw(&minf, "stbl", b.buildStbl(t, l)); err != nil {
+	stbl, err := b.buildStbl(t, l)
+	if err != nil {
+		return nil, err
+	}
+	if err := writeRaw(&minf, "stbl", stbl); err != nil {
 		return nil, err
 	}
 	if err := writeRaw(&mdia, "minf", minf.Bytes()); err != nil {
@@ -215,9 +219,11 @@ func (b *Builder) buildTrak(t *Track, l TrackLayout) ([]byte, error) {
 	return trak.Bytes(), nil
 }
 
-func (b *Builder) buildStbl(t *Track, l TrackLayout) []byte {
+func (b *Builder) buildStbl(t *Track, l TrackLayout) ([]byte, error) {
 	var stbl bytes.Buffer
-	_ = writeBox(&stbl, &mp4.Stsd{EntryCount: 0})
+	if err := writeBox(&stbl, &mp4.Stsd{EntryCount: 0}); err != nil {
+		return nil, err
+	}
 	stts := &mp4.Stts{}
 	if uniformDeltas(l.Deltas) {
 		stts.Entries = []mp4.SttsEntry{{SampleCount: uint32(len(l.Deltas)), SampleDelta: l.Deltas[0]}}
@@ -227,16 +233,20 @@ func (b *Builder) buildStbl(t *Track, l TrackLayout) []byte {
 		}
 	}
 	stts.EntryCount = uint32(len(stts.Entries))
-	_ = writeBox(&stbl, stts)
-	_ = writeBox(&stbl, &mp4.Stsc{EntryCount: 1, Entries: []mp4.StscEntry{{
-		FirstChunk: 1, SamplesPerChunk: uint32(l.SampleCount), SampleDescriptionIndex: 1,
-	}}})
-	if b.OmitSizes {
-		_ = writeBox(&stbl, &mp4.Stsz{SampleSize: 0, SampleCount: uint32(l.SampleCount)})
-	} else {
-		_ = writeBox(&stbl, &mp4.Stsz{SampleSize: l.SampleSize, SampleCount: uint32(l.SampleCount)})
+	if err := writeBox(&stbl, stts); err != nil {
+		return nil, err
 	}
-	_ = writeBox(&stbl, &mp4.Stco{EntryCount: 1, ChunkOffset: l.ChunkOffset})
+	if err := writeBox(&stbl, &mp4.Stsc{EntryCount: 1, Entries: []mp4.StscEntry{{
+		FirstChunk: 1, SamplesPerChunk: uint32(l.SampleCount), SampleDescriptionIndex: 1,
+	}}}); err != nil {
+		return nil, err
+	}
+	if err := b.writeStsz(&stbl, l); err != nil {
+		return nil, err
+	}
+	if err := writeBox(&stbl, &mp4.Stco{EntryCount: 1, ChunkOffset: l.ChunkOffset}); err != nil {
+		return nil, err
+	}
 	if t.Keys != nil && !b.OmitSyncID {
 		stss := &mp4.Stss{}
 		for i, k := range l.Sync {
@@ -245,9 +255,36 @@ func (b *Builder) buildStbl(t *Track, l TrackLayout) []byte {
 			}
 		}
 		stss.EntryCount = uint32(len(stss.SampleNumber))
-		_ = writeBox(&stbl, stss)
+		if err := writeBox(&stbl, stss); err != nil {
+			return nil, err
+		}
 	}
-	return stbl.Bytes()
+	return stbl.Bytes(), nil
+}
+
+// writeStsz emits the sample size table. In truncated mode the entry
+// count keeps the declared sample count but only half the required
+// entry bytes are present, which is what a recording cut mid-write
+// looks like. The parser must report the shortfall rather than invent
+// sizes.
+func (b *Builder) writeStsz(w *bytes.Buffer, l TrackLayout) error {
+	if !b.OmitSizes {
+		return writeBox(w, &mp4.Stsz{SampleSize: l.SampleSize, SampleCount: uint32(l.SampleCount)})
+	}
+	// Hand-build the payload: go-mp4 cannot marshal a size table whose
+	// dynamic entry count does not match its sample count.
+	var body bytes.Buffer
+	putU32 := func(v uint32) {
+		body.Write([]byte{byte(v >> 24), byte(v >> 16), byte(v >> 8), byte(v)})
+	}
+	putU32(0) // version + flags
+	putU32(0) // sample_size = 0 means entries follow
+	putU32(uint32(l.SampleCount))
+	for i := 0; i < l.SampleCount/2; i++ {
+		putU32(l.SampleSize)
+	}
+	_, err := w.Write(frame("stsz", body.Bytes()))
+	return err
 }
 
 func uniformDeltas(d []uint32) bool {

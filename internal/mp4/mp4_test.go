@@ -132,6 +132,77 @@ func TestKeyframeLookupRate(t *testing.T) {
 	}
 }
 
+func TestMissingStssTreatsAllSamplesAsSync(t *testing.T) {
+	var b Builder
+	b.OmitSyncID = true
+	keys := make([]bool, 24)
+	keys[0], keys[12] = true, true
+	b.Add(Track{ID: 1, Handler: "vide", Timescale: 30000, SampleSize: 8,
+		Deltas: repeat(24, 1001), Keys: keys})
+	f, err := b.Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx, err := ParseBytes("no-stss.mp4", f.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(idx.Tracks[0].Keyframes); got != 24 {
+		t.Fatalf("keyframes without stss = %d, want 24", got)
+	}
+}
+
+func TestTruncatedSizeTableReportsEveryMissingSample(t *testing.T) {
+	var b Builder
+	b.OmitSizes = true
+	b.Add(Track{ID: 1, Handler: "vide", Timescale: 30000, SampleSize: 8,
+		Deltas: repeat(10, 1001)})
+	f, err := b.Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A half-written table makes go-mp4 fail to decode the sample size
+	// box. The parser must surface that as an offset-bearing error and
+	// leave sizes unreconstructed rather than dropping the fixture.
+	idx, _ := ParseBytes("trunc.mp4", f.Bytes)
+	codes := map[string]int{}
+	for _, e := range idx.Tracks[0].Errors {
+		codes[e.Code]++
+	}
+	if codes["box_parse"] == 0 && codes["truncated_stsz"] == 0 {
+		t.Fatalf("truncated table not reported: %+v", idx.Tracks[0].Errors)
+	}
+	for _, e := range idx.Tracks[0].Errors {
+		if e.Offset <= 0 {
+			t.Fatalf("truncated table error has no byte offset: %+v", e)
+		}
+	}
+}
+
+func TestDuplicatePTSIsReportedNotRepaired(t *testing.T) {
+	var b Builder
+	deltas := repeat(8, 1001)
+	// A zero delta for sample index 2 makes sample 3 repeat sample 2's
+	// decode time, and therefore its PTS.
+	deltas[2] = 0
+	b.Add(Track{ID: 1, Handler: "vide", Timescale: 30000, SampleSize: 8, Deltas: deltas})
+	f, err := b.Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx, _ := ParseBytes("dup.mp4", f.Bytes)
+	// dts[3] = dts[2] + deltas[2] = dts[2], so sample 4 repeats
+	// sample 3's decode and presentation time.
+	s := idx.Tracks[0].Samples
+	if !s[3].Duplicate || s[3].PTS != s[2].PTS {
+		t.Fatalf("duplicate not flagged: %+v vs %+v", s[2], s[3])
+	}
+	// The repeated decode time is preserved, not rewritten.
+	if s[3].DTS != s[2].DTS {
+		t.Fatal("DTS were silently repaired")
+	}
+}
+
 func TestNearestKeyframeSkipsFutureSync(t *testing.T) {
 	tr := TrackIndex{Samples: []Sample{
 		{Number: 1, DTS: clock.Zero(), Sync: true},

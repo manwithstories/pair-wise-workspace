@@ -222,6 +222,12 @@ func buildTrack(rt *rawTrack, fileSize int64) TrackIndex {
 		ti.Missing = count
 		ti.Errors = append(ti.Errors, clock.NewSourceError("mp4", "missing_stsz", int64(rt.offset),
 			"no sample size table"))
+	} else if rt.stsz.SampleSize == 0 && len(rt.stsz.EntrySize) == 0 {
+		// go-mp4 reports a size table with no entries as absent, which
+		// would otherwise look like a valid empty table.
+		ti.Missing = count
+		ti.Errors = append(ti.Errors, clock.Errorf("mp4", "truncated_stsz", int64(rt.offset),
+			"size table declares %d samples but carries no entries", rt.stsz.SampleCount))
 	} else {
 		for i := 0; i < count; i++ {
 			switch {
