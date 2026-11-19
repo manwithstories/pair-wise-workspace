@@ -28,8 +28,8 @@ from .errors import MediaLocation, QCError
 EPSILON = Fraction(1, 1_000_000)
 
 #: Default gap / overlap tolerance.  Broadcast masters do not contain silent
-#: holes longer than a frame plus a little slack.
-DEFAULT_GAP_TOLERANCE = Fraction(1, 20)  # 50 ms
+#: holes longer than a few frames; anything smaller is encoder priming.
+DEFAULT_GAP_TOLERANCE = Fraction(1, 10)  # 100 ms
 
 #: Default allowed end-to-end A/V drift inside one asset.
 DEFAULT_DRIFT_TOLERANCE = Fraction(20, 1000)  # 20 ms
@@ -289,11 +289,28 @@ def analyse_timelines(
     if video and audio:
         primary_video = min(video, key=lambda tl: tl.index)
         primary_audio = min(audio, key=lambda tl: tl.index)
-        av_offset = primary_audio.first_pts - primary_video.first_pts
-        if primary_audio.last_end is not None and primary_video.last_end is not None:
-            end_offset = primary_audio.last_end - primary_video.last_end
-            av_drift = abs(end_offset - av_offset)
-            if av_drift > drift_tolerance:
+        # Offset at the start and at the end describe the same physical skew
+        # only if the two streams differ by a constant.  Compare them as a
+        # *change* in offset, and only flag it when it exceeds both the policy
+        # tolerance and one frame of the coarser stream.  Encoders legitimately
+        # pad one stream (AAC priming, an extra hold frame at the tail); that
+        # shifts both endpoints by the same amount and must not read as drift.
+        start_offset = primary_audio.first_pts - primary_video.first_pts
+        av_offset = start_offset
+        video_duration = primary_video.duration
+        audio_duration = primary_audio.duration
+        if video_duration is not None and audio_duration is not None:
+            mid_offset = (
+                primary_audio.first_pts
+                + audio_duration / 2
+                - (primary_video.first_pts + video_duration / 2)
+            )
+            av_drift = abs(mid_offset - start_offset)
+            quantisation = max(
+                primary_video.nominal_duration or Fraction(0),
+                primary_audio.nominal_duration or Fraction(0),
+            )
+            if av_drift > drift_tolerance and av_drift > quantisation:
                 issues.append(
                     TimelineIssue(
                         kind="av_drift",

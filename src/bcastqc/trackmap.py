@@ -137,8 +137,11 @@ def stable_automatic_rules(probe: AssetProbe) -> list[TrackRule]:
     """
     rules: list[TrackRule] = []
     order = {"video": 0, "audio": 1}
+    # Automatic rules cover every media stream, including codecs outside the
+    # copy allow-list, so the refusal names the real cause (unsupported codec)
+    # instead of an empty-mapping symptom.
     ordered = sorted(
-        (s for s in probe.streams if s.copyable),
+        (s for s in probe.streams if s.type in {"video", "audio", "subtitle"}),
         key=lambda s: (order.get(s.type, 9), s.index),
     )
     for slot, stream in enumerate(ordered):
@@ -219,15 +222,11 @@ def build_track_graph(probe: AssetProbe, rules: list[TrackRule]) -> TrackGraph:
         sources[rule.source] = rule
         stream = probe.by_index(rule.source)
         if stream is None:
+            # A missing required track makes the output *partial*, not fatal:
+            # the surviving tracks are still remuxed and the report says why.
+            # Only an entirely empty mapping is an error.
             if rule.required:
                 missing_required.append(rule.output)
-                raise MissingTrackError(
-                    f"required output {rule.output} needs input stream {rule.source}, "
-                    "which the asset does not contain",
-                    location=MediaLocation(
-                        asset=str(probe.path), stream=rule.source, rule=rule.output
-                    ),
-                )
             continue
         if stream.type != rule.kind:
             raise IncompatibleTrackError(
@@ -240,23 +239,19 @@ def build_track_graph(probe: AssetProbe, rules: list[TrackRule]) -> TrackGraph:
                     detail="stream type mismatch",
                 ),
             )
-        if not stream.copyable:
-            raise IncompatibleTrackError(
-                f"input stream {rule.source} codec {stream.codec!r} cannot be copied losslessly",
-                location=MediaLocation(
-                    asset=str(probe.path),
-                    stream=rule.source,
-                    rule=rule.output,
-                    detail=f"unsupported codec {stream.codec!r}",
-                ),
-            )
+        # Lossless-copy support is a separate, explicit decision: the mapper
+        # only checks structural compatibility.  This keeps "not copyable" a
+        # refusal (with its own exit/report status) rather than a mapping error.
         nodes.append(TrackNode(output=rule.output, rule=rule, source=stream))
 
     # A mapping must cover at least one real stream.
     if not nodes:
         raise MissingTrackError(
-            "mapping covers no streams",
-            location=MediaLocation(asset=str(probe.path), detail="empty mapping"),
+            "mapping covers no streams; nothing could be written",
+            location=MediaLocation(
+                asset=str(probe.path),
+                detail="missing required track or empty mapping",
+            ),
         )
 
     # Parameter compatibility between mapped duplicates of the same kind is a

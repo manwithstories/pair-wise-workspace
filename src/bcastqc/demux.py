@@ -29,7 +29,7 @@ from .errors import (
     QCError,
     UnrecoverableMediaError,
 )
-from .timeline import PacketSpan, seconds, build_stream_timeline, StreamTimeline
+from .timeline import PacketSpan, seconds
 
 #: Video codecs that every MP4/MOV delivery in this pipeline may carry.  These
 #: are the codecs a broadcast supplier realistically delivers and that the
@@ -285,7 +285,7 @@ def probe_asset(path: Path, *, max_tracks: int = MAX_TRACKS) -> AssetProbe:
                 frame_rate=rate,
                 sample_rate=getattr(cc, "sample_rate", None),
                 channels=getattr(cc, "channels", None),
-                sample_format=getattr(cc, "format", None),
+                sample_format=_fmt_name(getattr(cc, "format", None)),
                 bit_rate=getattr(cc, "bit_rate", None),
                 language=stream.metadata.get("language") if stream.metadata else None,
             )
@@ -303,6 +303,13 @@ def probe_asset(path: Path, *, max_tracks: int = MAX_TRACKS) -> AssetProbe:
         )
     finally:
         container.close()
+
+
+def _fmt_name(value: object) -> str | None:
+    if value is None:
+        return None
+    name = getattr(value, "name", None)
+    return str(name) if name is not None else str(value)
 
 
 def _tag(cc: object) -> str | None:
@@ -374,38 +381,6 @@ def iter_packets(
         ) from exc
     finally:
         container.close()
-
-
-def scan_packets(
-    probe: AssetProbe,
-    *,
-    gap_tolerance: Fraction | None = None,
-) -> dict[int, StreamTimeline]:
-    """Walk packets once and attach timelines + first/last stamps to streams."""
-    kwargs = {}
-    if gap_tolerance is not None:
-        kwargs["gap_tolerance"] = gap_tolerance
-    per_stream: dict[int, list[PacketSpan]] = {info.index: [] for info in probe.streams}
-    for packet in iter_packets(probe.path):
-        bucket = per_stream.get(packet.stream)
-        if bucket is not None:
-            bucket.append(packet.to_span())
-    timelines: dict[int, StreamTimeline] = {}
-    for info in probe.streams:
-        timeline = build_stream_timeline(
-            info.index,
-            info.type,
-            info.time_base_raw,
-            per_stream.get(info.index, ()),
-            asset=str(probe.path),
-            **kwargs,
-        )
-        info.packet_count = timeline.packet_count
-        info.first_pts = timeline.first_pts
-        info.last_end = timeline.last_end
-        info.timeline = timeline
-        timelines[info.index] = timeline
-    return timelines
 
 
 def check_lossless_support(streams: list[StreamInfo]) -> None:

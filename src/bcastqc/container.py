@@ -229,6 +229,10 @@ def _u64(buf: bytes, offset: int) -> int:
     return int.from_bytes(buf[offset : offset + 8], "big")
 
 
+def _pack(kind: str, body: bytes) -> bytes:
+    return (8 + len(body)).to_bytes(4, "big") + kind.encode("latin1") + body
+
+
 # --------------------------------------------------------------------------
 # index reading
 # --------------------------------------------------------------------------
