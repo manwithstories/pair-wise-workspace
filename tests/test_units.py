@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import threading
-
 import pytest
 
 from relaydiag.checkpoint import (CheckpointState, StateMismatch,

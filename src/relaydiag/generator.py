@@ -279,7 +279,6 @@ def build_anchors(cfg: GenerationConfig) -> list[dict]:
     change instead of all anchors falling inside one regime.
     """
     anchors = []
-    fps = cfg.fps_num / cfg.fps_den
     seconds = cfg.frame_count / cfg.fps_num
     # 0.5 s spacing gives >=3 anchors on either side of the 1.0 s break.
     steps = [round(i * 0.5, 3) for i in range(int(seconds / 0.5) + 1)]

@@ -64,7 +64,6 @@ class DamageLocator:
 
     def observe(self, parsed: ParsedPacket) -> list[DamageRecord]:
         rec = parsed.record
-        base = self.base_for(rec.track)
         emitted: list[DamageRecord] = []
         if rec.pts_wrapped:
             emitted.append(self._record(
@@ -148,7 +147,6 @@ def locate_truncated_stream(path: str, locator: DamageLocator) -> int:
             locator.observe(parsed)
     except EOFError as exc:
         offset = _stream_size(path)
-        base = TimeBase(1, 90000)
         locator.note_truncation(
             offset, "video", TimeRange(Fraction(0), Fraction(1, 10)), str(exc))
         count += 1

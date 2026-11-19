@@ -14,8 +14,7 @@ import os
 
 import pytest
 
-from relaydiag.checkpoint import (CheckpointState, StateMismatch,
-                                  load_checkpoint, validate_for_resume)
+from relaydiag.checkpoint import StateMismatch, load_checkpoint, validate_for_resume
 from relaydiag.cli import main
 from relaydiag.container import iter_packets
 from relaydiag.damage import DamageLocator

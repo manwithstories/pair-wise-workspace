@@ -9,12 +9,12 @@ parameters are reported alongside relay-level observations.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import av
 import soundfile as sf
 
-from .container import ParsedPacket, iter_packets
+from .container import iter_packets
 from .timeline import TimeBase
 
 
