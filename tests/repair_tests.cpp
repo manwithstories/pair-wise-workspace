@@ -218,3 +218,45 @@ TEST_CASE("流水线背压峰值受限且下游致命错误取消生产者", "[p
   CHECK(ok.consumed == 200);
   CHECK(ok.peak <= 4);
 }
+
+#include "media/index_builder.hpp"
+
+TEST_CASE("关键帧索引定位与落点误差", "[index]") {
+  std::vector<MediaPacket> pk;
+  for (int i = 0; i < 12; ++i) {
+    MediaPacket p = mkPkt(size_t(i), int64_t(i) * 100'000, 100'000,
+                          (i % 4 == 0));
+    p.repairedUs = p.rawPts;
+    pk.push_back(p);
+  }
+  KeyframeIndex idx;
+  idx.build(pk);
+  REQUIRE(idx.entries().size() == 3); // 0,4,8
+
+  auto r = idx.seek(550'000);
+  REQUIRE(r.has_value());
+  CHECK(r->entry.ptsUs == 400'000);
+  CHECK(r->errorUs == -150'000);
+
+  auto early = idx.seek(10);
+  REQUIRE(early.has_value());
+  CHECK(early->entry.ptsUs == 0);
+}
+
+TEST_CASE("索引原子写入：截断临时文件不得误报成功", "[index]") {
+  auto dir = std::filesystem::temp_directory_path() /
+             ("md_idx_" + std::to_string(::getpid()));
+  std::filesystem::create_directories(dir);
+  auto path = (dir / "kf.idx").string();
+
+  KeyframeIndex idx;
+  CHECK(idx.writeAtomic(path) == TimeError::None);
+  CHECK(KeyframeIndex::isComplete(path));
+
+  // 模拟写入中断：删除完成标记并截断数据文件。
+  std::filesystem::remove(path + ".done");
+  std::ofstream trunc(path, std::ios::trunc);
+  trunc.close();
+  CHECK_FALSE(KeyframeIndex::isComplete(path));
+  std::filesystem::remove_all(dir);
+}
