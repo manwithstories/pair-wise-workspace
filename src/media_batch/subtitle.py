@@ -83,9 +83,16 @@ def parse_srt(path: str | Path, log: ErrorLog) -> list[Cue]:
     for rec_idx, (blk_off, lines) in enumerate(_split_blocks(data)):
         texts = [_decode(l) for _, l in lines]
         if len(lines) < 2:
+            # The record was cut short. Point just past its last byte so the
+            # offset lands at the defect (end of file or the blank line that
+            # terminated the truncated block) rather than at its opening line.
+            if len(lines) == 1:
+                tail = lines[0][0] + len(lines[0][1].rstrip(b"\r")) + 1
+            else:
+                tail = blk_off
             log.add("truncated_record",
                     f"SRT block #{rec_idx} has {len(lines)} line(s); expected index + timing",
-                    src, blk_off, rec_idx)
+                    src, min(tail, len(data)), rec_idx)
             continue
         if not texts[0].strip().isdigit():
             log.add("truncated_record",

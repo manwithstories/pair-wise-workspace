@@ -34,11 +34,17 @@ class SubtitleTests(unittest.TestCase):
         codes = [e.code for e in log]
         self.assertEqual(codes, ["invalid_time", "truncated_record", "overlap"])
         data = p.read_bytes()
-        for e in log:  # offsets land exactly on the offending line/block
-            self.assertIn(data[e.source_offset:e.source_offset + 1],
-                          b"0123456789")
+        for e in log:  # every offset is exact, not merely near the right block
+            if e.code == "truncated_record":
+                # the byte just before the offset is the end of the cut record
+                self.assertEqual(data[e.source_offset - 1:e.source_offset], b"\n")
+            else:
+                self.assertIn(data[e.source_offset:e.source_offset + 1],
+                              b"0123456789")
         inv = log.by_code("invalid_time")[0]
         self.assertEqual(data[inv.source_offset:inv.source_offset + 2], b"00")
+        trunc = log.by_code("truncated_record")[0]
+        self.assertEqual(data[trunc.source_offset:trunc.source_offset + 1], b"\n")
 
     def test_vtt_errors(self):
         p = self.dir / "t.vtt"
