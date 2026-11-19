@@ -65,6 +65,23 @@ run_cli(0 verify --manifest "${manifest}" --result "${result}")
 expect_contains("${LAST_STDOUT}" "segment_hash_match=4/4")
 expect_contains("${LAST_STDOUT}" "quarantined_ok=6/6")
 
+# A segment whose declared index omits keyframes must still restore, with the
+# recovered entries counted separately from the declared hit ratio.
+file(READ "${manifest}" manifest_text)
+string(REPLACE
+  "\"index\": {\n            \"path\": \"media/reel_b.idx\",\n            \"version\": 1\n          },"
+  "\"index\": {\"path\": \"media/reel_b.idx\", \"version\": 1, \"entries\": [{\"tick\": 0, \"offset\": 0, \"keyframe\": true}]},"
+  trimmed_manifest "${manifest_text}")
+if(trimmed_manifest STREQUAL manifest_text)
+  message(FATAL_ERROR "could not rewrite the index for the backfill check")
+endif()
+file(WRITE "${WORK_DIR}/trimmed.json" "${trimmed_manifest}")
+run_cli(0 restore --manifest "${WORK_DIR}/trimmed.json" --rate 48000 --layout 5.1
+        --loudness -23 --json "${WORK_DIR}/trimmed-result.json"
+        --out "${WORK_DIR}/trimmed-out")
+expect_contains("${LAST_STDOUT}" "keyframe_generated=")
+expect_contains("${LAST_STDOUT}" "segment_hash_match=4/4")
+
 # A second restore over the same inputs must reproduce every hash.
 run_cli(0 restore --manifest "${manifest}" --rate 48000 --layout 5.1
         --loudness -23 --json "${result}.2" --out "${output}")

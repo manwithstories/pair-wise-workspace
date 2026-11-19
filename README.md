@@ -32,6 +32,7 @@ ctest --test-dir build --output-on-failure
 
 - `manifest_roundtrip=100%` — 清单解析后重新序列化与原文件逐字节一致
 - `keyframe_hits=N/M` — 索引条目命中扫描出的关键帧（仅健康片段计入比率）
+- `keyframe_generated=K` — 索引缺项时由码流扫描补齐的关键帧数（单独计数）
 - `segment_hash_match=N/M` — 恢复产物的 SHA-256 与结果文档一致
 - `audio_rate_out` / `layout_out` / `loudness_lufs` — 音频交付参数
 

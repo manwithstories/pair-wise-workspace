@@ -565,6 +565,7 @@ int command_restore(const Args& args) {
                 static_cast<double>(manifest.tracks.size());
   size_t hits = 0;
   size_t total = 0;
+  size_t generated = 0;
   size_t hashes = 0;
   size_t hash_total = 0;
   double lufs_sum = 0.0;
@@ -573,6 +574,7 @@ int command_restore(const Args& args) {
     if (!segment.quarantined) {
       hits += segment.index_hits;
       total += segment.index_entries;
+      generated += segment.index_generated;
     }
     if (!segment.quarantined && segment.restored) {
       ++hash_total;
@@ -587,6 +589,11 @@ int command_restore(const Args& args) {
   const double lufs = lufs_count == 0 ? options.loudness : lufs_sum / lufs_count;
   std::printf("manifest_roundtrip=%.0f%%\n", percent);
   std::printf("keyframe_hits=%zu/%zu\n", hits, total);
+  if (generated > 0) {
+    // Recovered entries are reported separately so the hit ratio above stays
+    // a statement about the declared index, not about scan backfill.
+    std::printf("keyframe_generated=%zu\n", generated);
+  }
   std::printf("segment_hash_match=%zu/%zu\n", hashes, hash_total);
   std::printf("audio_rate_out=%d\n", options.rate);
   std::printf("layout_out=%s\n", options.layout.c_str());
