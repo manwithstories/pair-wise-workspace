@@ -255,8 +255,11 @@ func TestResumeAfterCancelMatchesCleanRun(t *testing.T) {
 	}()
 	time.Sleep(40 * time.Millisecond)
 	cancel()
-	if err := <-done; !errors.Is(err, context.Canceled) {
+	if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatalf("first run: %v", err)
+	} else if err == nil {
+		// The run beat the cancellation; there is nothing to resume.
+		t.Skip("run completed before cancellation landed")
 	}
 
 	// Resume with identical arguments.

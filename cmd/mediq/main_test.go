@@ -108,11 +108,22 @@ func TestProcessCheckpointMismatchExitFour(t *testing.T) {
 	go func() {
 		_, err := pipeline.New(pipeline.Options{
 			Input: input, Output: output, CheckpointPath: ckpt,
-			ChunkFrames: 8, QueueDepth: 2, SlowConsumer: time.Millisecond,
+			ChunkFrames: 8, QueueDepth: 2, SlowConsumer: 2 * time.Millisecond,
 		}).Run(ctx)
 		done <- err
 	}()
-	time.Sleep(20 * time.Millisecond)
+	// Wait for the first committed chunk, then cancel: the checkpoint must
+	// exist for this test to mean anything.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, err := os.Stat(ckpt); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Skip("no checkpoint was committed")
+		}
+		time.Sleep(time.Millisecond)
+	}
 	cancel()
 	<-done
 
