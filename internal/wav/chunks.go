@@ -23,7 +23,8 @@ func (f Format) FrameBytes() int { return int(f.Channels) * int(f.BitsPerSample)
 type Block struct {
 	DeviceID    string          `json:"device_id"`
 	SourceOffset int64          `json:"source_offset"` // 块在采集文件中的字节偏移
-	RTPSeq      uint64          `json:"rtp_seq"`
+	RTPSeq      uint64          `json:"rtp_seq"`       // 扩展后的 64bit 序号
+	RTPRawSeq   uint16          `json:"rtp_raw_seq"`   // 原始 16bit 序号
 	RTPTimestamp uint32         `json:"rtp_timestamp"`
 	ArrivalNano int64           `json:"arrival_nano"`
 	Format      *Format         `json:"format,omitempty"`
@@ -47,9 +48,9 @@ const (
 
 // ParseBlock 解析单个 WAV 字节块。任何可恢复错误都会写入 Block.Errors，
 // 调用方仍可从返回的 Block 取得已识别的格式与数据；严重损坏返回 Recoverable=false。
-func ParseBlock(deviceID string, sourceOffset int64, rtpSeq uint64, rtpTS uint32, arrival int64, raw []byte) *Block {
+func ParseBlock(deviceID string, sourceOffset int64, rtpSeq uint64, rtpRawSeq uint16, rtpTS uint32, arrival int64, raw []byte) *Block {
 	blk := &Block{DeviceID: deviceID, SourceOffset: sourceOffset, RTPSeq: rtpSeq,
-		RTPTimestamp: rtpTS, ArrivalNano: arrival, Recoverable: true}
+		RTPRawSeq: rtpRawSeq, RTPTimestamp: rtpTS, ArrivalNano: arrival, Recoverable: true}
 	if len(raw) < riffHeaderLen {
 		blk.Recoverable = false
 		blk.Errors = append(blk.Errors, clock.New("wav.parse", clock.KindTruncatedHeader,
