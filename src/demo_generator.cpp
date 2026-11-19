@@ -80,8 +80,10 @@ DemoTrace generate_demo_trace(const DemoConfig& cfg) {
         MediaPacket p;
         p.sequence = i;
         p.track = (i % 6 == 5) ? TrackKind::Audio : TrackKind::Video;
+        // 音频包与其前置视频包同帧，保证音画配对时间差为纯偏移+漂移。
+        uint64_t frame_idx = (p.track == TrackKind::Audio) ? i - 1 : i;
         int64_t frame =
-            *start_frame + static_cast<int64_t>(i) * total_frames / static_cast<int64_t>(total);
+            *start_frame + static_cast<int64_t>(frame_idx) * total_frames / static_cast<int64_t>(total);
         int64_t pts = frame_to_ticks(
             unwrapper.unwrap(frame % frames_per_day(kFps2997)), kFps2997);
         if (p.track == TrackKind::Audio)
@@ -96,13 +98,23 @@ DemoTrace generate_demo_trace(const DemoConfig& cfg) {
 
     // 信道损伤：突发丢失（每组至多 2 个，保证 FEC 可恢复）。
     std::vector<bool> dropped(total, false);
+    std::vector<uint32_t> drops_per_group(total / kFecDataPerGroup + 1, 0);
     std::uniform_int_distribution<uint64_t> group_pick(0, total / kFecDataPerGroup - 1);
-    for (int burst = 0; burst < 24; ++burst) {
+    int bursts_done = 0;
+    while (bursts_done < 24) {
         uint64_t g = group_pick(rng);
+        if (drops_per_group[g] >= kFecParityPerGroup) continue; // 不超出冗余能力
         uint64_t a = g * kFecDataPerGroup + rng() % kFecDataPerGroup;
         uint64_t b = g * kFecDataPerGroup + rng() % kFecDataPerGroup;
-        if (!dropped[a]) { dropped[a] = true; trace.lost_in_channel++; }
-        if (!dropped[b]) { dropped[b] = true; trace.lost_in_channel++; }
+        for (uint64_t s : {a, b}) {
+            if (s < total && !dropped[s] &&
+                drops_per_group[g] < kFecParityPerGroup) {
+                dropped[s] = true;
+                drops_per_group[g]++;
+                trace.lost_in_channel++;
+            }
+        }
+        bursts_done++;
     }
 
     // 到达序列：乱序（窗口内交换）+ 重复 + 带宽变化下的到达时刻。

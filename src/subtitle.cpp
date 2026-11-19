@@ -60,7 +60,10 @@ std::optional<Timing> parse_timing_line(const std::string& line) {
     if (arrow == std::string::npos) return std::nullopt;
     auto start = parse_timestamp(line.substr(0, arrow));
     std::string rest = line.substr(arrow + 3);
-    // WebVTT 行尾可能带位置设置，按空白截断。
+    // 跳过 "-->" 后的前导空白；WebVTT 行尾可能带位置设置，按空白截断。
+    auto lead = rest.find_first_not_of(" \t");
+    if (lead == std::string::npos) return std::nullopt;
+    rest = rest.substr(lead);
     auto sp = rest.find_first_of(" \t");
     if (sp != std::string::npos) rest = rest.substr(0, sp);
     auto end = parse_timestamp(rest);
