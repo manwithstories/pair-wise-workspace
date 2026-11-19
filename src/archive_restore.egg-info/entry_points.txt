@@ -1,0 +1,2 @@
+[console_scripts]
+archive-restore = archive_restore.cli:main

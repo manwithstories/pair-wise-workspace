@@ -157,7 +157,7 @@ def write_fixtures(out_dir: str, n_packets: int = 10_000,
 
     # Half-written index: valid JSON prefix with ~40% of entries, cut
     # mid-line, as if a previous indexer crashed.
-    from .index import index_document, write_index_atomic  # noqa: PLC0415
+    from .index import IndexEntry, index_document, write_index_atomic  # noqa: PLC0415
     from .rtp import parse_stream  # noqa: PLC0415
     from .repair import repair_packets  # noqa: PLC0415
 
@@ -166,13 +166,13 @@ def write_fixtures(out_dir: str, n_packets: int = 10_000,
     entries = []
     for idx in rep.order:
         pkt = parsed.packets[idx]
-        entries.append({
-            "ssrc": pkt.ssrc, "ext_seq": rep.ext_seq[idx],
-            "timestamp": rep.ext_ts[idx],
-            "time_seconds": (rep.ext_ts[idx] - rep.ext_ts[rep.order[0]])
+        entries.append(IndexEntry(
+            ssrc=pkt.ssrc, ext_seq=rep.ext_seq[idx],
+            timestamp=rep.ext_ts[idx],
+            time_seconds=(rep.ext_ts[idx] - rep.ext_ts[rep.order[0]])
             / MEDIA_CLOCK_RATE,
-            "offset": pkt.offset, "length": pkt.length,
-        })
+            offset=pkt.offset, length=pkt.length,
+        ))
     doc = index_document(entries[: max(1, len(entries) * 2 // 5)], "0" * 64)
     tmp_index = os.path.join(out_dir, ".index-full.tmp")
     write_index_atomic(tmp_index, doc)

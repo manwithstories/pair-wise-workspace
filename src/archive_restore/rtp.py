@@ -178,9 +178,11 @@ def parse_stream(data: bytes) -> ParseResult:
             break
         record = data[pkt_start : pkt_start + rec_len]
         result.records_seen += 1
-        ptype = record[1] & 0x7F if rec_len >= 2 else 0
+        # RTCP packet types occupy the whole second byte (200-204); RTP
+        # payload types 72-76 are reserved so the two never collide.
+        is_rtcp = rec_len >= 2 and record[1] in RTCP_TYPES
         try:
-            if ptype in RTCP_TYPES:
+            if is_rtcp:
                 result.sender_reports.extend(parse_rtcp_compound(record, pkt_start))
             else:
                 pkt = parse_rtp_packet(record, pkt_start, result.records_seen - 1)
@@ -194,12 +196,53 @@ def parse_stream(data: bytes) -> ParseResult:
     return result
 
 
+def _record_parses(data: bytes, pos: int) -> bool:
+    """True if the record at ``pos`` fully parses as RTP or RTCP."""
+    (rec_len,) = struct.unpack(">H", data[pos : pos + FRAME_HEADER_LEN])
+    pkt_start = pos + FRAME_HEADER_LEN
+    record = data[pkt_start : pkt_start + rec_len]
+    is_rtcp = rec_len >= 2 and record[1] in RTCP_TYPES
+    try:
+        if is_rtcp:
+            parse_rtcp_compound(record, pkt_start)
+        else:
+            parse_rtp_packet(record, pkt_start, 0)
+    except PacketParseError:
+        return False
+    return True
+
+
+def _record_ssrc(data: bytes, pos: int) -> int | None:
+    """SSRC of the record at ``pos`` (RTP: bytes 8-12, RTCP: 4-8)."""
+    pkt_start = pos + FRAME_HEADER_LEN
+    is_rtcp = data[pkt_start + 1] in RTCP_TYPES
+    base = pkt_start + (4 if is_rtcp else 8)
+    if base + 4 > len(data):
+        return None
+    (ssrc,) = struct.unpack(">I", data[base : base + 4])
+    return ssrc
+
+
 def _resync(data: bytes, start: int, result: ParseResult) -> int:
-    """Scan forward for the next plausible record boundary."""
+    """Scan forward for the next plausible record boundary.
+
+    A candidate must parse, be followed by another plausible record (or
+    end of input), and — when the stream's SSRC is already known — carry
+    that SSRC.  Random payload bytes cannot satisfy all three, so the
+    scan lands on the true boundary.
+    """
     n = len(data)
+    known_ssrc = {p.ssrc for p in result.packets[-50:]}
+    known_ssrc |= {s.ssrc for s in result.sender_reports[-10:]}
     pos = start
     while pos < n:
-        if _looks_like_record(data, pos):
-            return pos
+        if _looks_like_record(data, pos) and _record_parses(data, pos):
+            if known_ssrc and _record_ssrc(data, pos) not in known_ssrc:
+                pos += 1
+                continue
+            (rec_len,) = struct.unpack(">H", data[pos : pos + FRAME_HEADER_LEN])
+            nxt = pos + FRAME_HEADER_LEN + rec_len
+            if nxt >= n or _looks_like_record(data, nxt):
+                return pos
         pos += 1
     return n

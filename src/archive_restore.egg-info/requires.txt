@@ -1,0 +1,5 @@
+av==12.3.*
+numpy==2.1.*
+soundfile==0.12.1
+
+[test]
