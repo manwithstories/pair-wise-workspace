@@ -105,6 +105,7 @@ SequenceResult repair_sequence(std::vector<TransportPacket> observed,
 
   bool in_gap = false;
   GapInterval current{};
+  uint32_t pending_gap_len = 0;
   for (uint64_t ext : keys) {
     auto gap_it = gaps.find(ext);
     if (gap_it != gaps.end()) {
@@ -112,15 +113,19 @@ SequenceResult repair_sequence(std::vector<TransportPacket> observed,
       if (!in_gap) {
         in_gap = true;
         current = {ext, ext, p.size_bytes};
+        pending_gap_len = 1;
       } else {
         current.extended_seq_last = ext;
         current.missing_bytes += p.size_bytes;
+        ++pending_gap_len;
       }
     } else {
       if (in_gap) {
         result.gaps.push_back(current);
         in_gap = false;
       }
+      result.gap_before.push_back(pending_gap_len);
+      pending_gap_len = 0;
       result.ordered.push_back(present.find(ext)->second);
     }
   }

@@ -56,6 +56,8 @@ struct GapInterval {
 struct SequenceResult {
   std::vector<TransportPacket> ordered;       // recovered packets only
   std::vector<GapInterval> gaps;
+  // For each ordered packet: how many gap slots immediately precede it.
+  std::vector<uint32_t> gap_before;
   uint64_t duplicate_count = 0;
   uint64_t replay_count = 0;
   uint64_t unrecovered_bytes = 0;

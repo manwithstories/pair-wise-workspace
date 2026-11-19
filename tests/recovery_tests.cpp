@@ -721,3 +721,86 @@ TEST_CASE("report: rollback block and failure offset are surfaced",
   REQUIRE(json.find("\"rolled_back_block\": 2") != std::string::npos);
   REQUIRE(json.find("\"failure_offset\": 1280") != std::string::npos);
 }
+
+#include "media_archive/recovery_pipeline.h"
+
+namespace {
+SampleConfig make_pipe_sample(CodecType codec) {
+  SampleConfig cfg;
+  cfg.seed = 42;
+  cfg.codec = codec;
+  cfg.frame_count = 150;
+  cfg.gop = 30;
+  return cfg;
+}
+}  // namespace
+
+TEST_CASE("pipeline: full recovery meets acceptance thresholds",
+          "[pipeline]") {
+  namespace fs = std::filesystem;
+  const fs::path base = fs::temp_directory_path() / "ma_pipe";
+  fs::remove_all(base);
+  GeneratedSample sample;
+  REQUIRE(generate_sample(make_pipe_sample(CodecType::H264), &sample).ok());
+  REQUIRE(write_sample_bundle(base.string(), sample).ok());
+
+  RecoveryOptions opt;
+  opt.codec = CodecType::H264;
+  opt.input_path = (base / "stream.h264").string();
+  opt.packets_path = (base / "packets.csv").string();
+  opt.audio_path = (base / "audio.pcm").string();
+  opt.index_path = (base / "keyframes.idx").string();
+  opt.checkpoint_dir = (base / "checkpoint").string();
+  opt.checkpoint.records_per_block = 16;
+
+  PipelineResult result;
+  Diagnostic d = run_recovery_pipeline(opt, &result);
+  REQUIRE(d.ok());
+  const RecoveryReport& r = result.report;
+  REQUIRE(r.valid);
+  REQUIRE(r.recovered_packets > 0);
+  REQUIRE(r.loss_recovery_rate >= Catch::Approx(0.90));
+  REQUIRE(r.av_sync_error_ms <= Catch::Approx(20.0));
+  REQUIRE(r.p95_sample_count > 0);
+  REQUIRE(r.p95_latency_ms > 0.0);
+  REQUIRE(r.index_seek_error_ms >= 0.0);
+  REQUIRE(r.keyframe_count > 0);
+  REQUIRE(fs::exists(opt.index_path));
+  REQUIRE(fs::exists(opt.checkpoint_dir));
+}
+
+TEST_CASE("pipeline: truncated stream fails with a byte offset",
+          "[pipeline]") {
+  namespace fs = std::filesystem;
+  const fs::path base = fs::temp_directory_path() / "ma_pipe_bad";
+  fs::remove_all(base);
+  GeneratedSample sample;
+  REQUIRE(generate_sample(make_pipe_sample(CodecType::H264), &sample).ok());
+  REQUIRE(write_sample_bundle(base.string(), sample).ok());
+
+  // Truncate the stream to 55% of its size.
+  const fs::path stream = base / "stream.h264";
+  const auto full = fs::file_size(stream);
+  std::vector<char> bytes(static_cast<size_t>(full * 55 / 100));
+  {
+    std::ifstream in(stream.string(), std::ios::binary);
+    in.read(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+  }
+  {
+    std::ofstream out(stream.string(),
+                      std::ios::binary | std::ios::trunc);
+    out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+  }
+
+  RecoveryOptions opt;
+  opt.codec = CodecType::H264;
+  opt.input_path = stream.string();
+  opt.packets_path = (base / "packets.csv").string();
+  opt.audio_path = (base / "audio.pcm").string();
+  opt.index_path = (base / "keyframes.idx").string();
+  opt.checkpoint_dir = (base / "checkpoint").string();
+  PipelineResult result;
+  Diagnostic d = run_recovery_pipeline(opt, &result);
+  REQUIRE(!d.ok());
+  REQUIRE(d.status == Status::MediaCorrupt);
+}

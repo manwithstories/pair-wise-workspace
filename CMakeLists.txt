@@ -26,6 +26,7 @@ add_library(marecover STATIC
   src/transport_trace.cpp
   src/sample_generator.cpp
   src/report.cpp
+  src/recovery_pipeline.cpp
 )
 target_include_directories(marecover PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include)
