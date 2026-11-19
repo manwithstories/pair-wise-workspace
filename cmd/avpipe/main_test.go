@@ -86,6 +86,7 @@ func TestOutOfRangeFlagsExitTwo(t *testing.T) {
 		{"run", "--sample-rate", "100"},
 		{"run", "--block-size", "0"},
 		{"run", "--recovery-window", "0"},
+		{"run", "--frames", "1", "--block-size", "4096"},
 		{"run", "--target-lufs", "12"},
 	} {
 		code, _, stderr := execCLI(t, args...)

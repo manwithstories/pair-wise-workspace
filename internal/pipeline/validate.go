@@ -49,6 +49,10 @@ func ValidateOptions(o Options, layout, srcLayout string, queueMs float64) error
 	case o.RecoveryWindow <= 0:
 		return fault.New(fault.CodeInvalidArgument, "cli.recovery-window",
 			"--recovery-window %d must be positive", o.RecoveryWindow)
+	case o.Frames > 0 && o.Frames < 2*o.BlockSize:
+		// Two blocks are the minimum for a meaningful RTP/alignment run.
+		return fault.New(fault.CodeInvalidArgument, "cli.frames",
+			"--frames %d must cover at least two blocks of %d frames", o.Frames, o.BlockSize)
 	}
 	return audio.ValidateLoudnessConfig(audio.LoudnessConfig{
 		TargetLUFS: o.TargetLUFS, PeakCeiling: o.PeakCeiling})
