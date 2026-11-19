@@ -15,6 +15,7 @@ byte windows and time intervals.
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 from fractions import Fraction
 
@@ -83,6 +84,8 @@ class DiagnosisEngine:
         frame_events: list[FrameEvent] = []
         processed = 0
         limited = self.config.max_bytes is not None
+        resumed_packets = 0
+        resume_start = time.perf_counter() if resume_info["resumed"] else 0.0
 
         def emit(item: StreamItem) -> None:
             # Bounded enqueue models backpressure even in this ordered runner.
@@ -112,9 +115,16 @@ class DiagnosisEngine:
                     payload_ok=rec.kind != "corrupt"))
             state.next_offset = parsed.packet_range[1]
             processed += 1
+            if resume_info["resumed"]:
+                resumed_packets += 1
             if processed % 32 == 0:
                 state.damage = [r.to_dict() for r in locator.records]
                 save_checkpoint(self.config.checkpoint_path, state)
+
+        if resume_info["resumed"]:
+            resume_info["resume_seconds"] = round(
+                time.perf_counter() - resume_start, 6)
+            resume_info["resumed_packets"] = resumed_packets
 
         # Missing-frame detection from measured cadence.
         video_base = TimeBase(1, header["video_rate"])
