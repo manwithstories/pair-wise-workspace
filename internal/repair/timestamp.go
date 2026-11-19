@@ -50,9 +50,10 @@ func (r *TSRepair) clock(ssrc uint32) *timeline.Clock {
 	return c
 }
 
-// Map converts one packet's RTP timestamp to unified nanoseconds,
+// Map converts one packet's RTP timestamp to unified nanoseconds and
+// returns the corrected (monotonic) extended timestamp in RTP units,
 // emitting at most one error.
-func (r *TSRepair) Map(ssrc uint32, extSeq uint64, rtpTS uint32) (int64, uint64, *TSError) {
+func (r *TSRepair) Map(ssrc uint32, extSeq uint64, rtpTS uint32) (int64, int64, *TSError) {
 	c := r.clock(ssrc)
 	ns, ext, ev := c.Map(rtpTS)
 	r.lastExt[ssrc] = extSeq

@@ -51,14 +51,15 @@ func NewClock(rate uint32, driftThresholdPPM uint32) *Clock {
 }
 
 // Map converts an RTP timestamp to the unified nanosecond base.
-// It returns the mapped time, the extended timestamp, and any anomaly.
-func (c *Clock) Map(ts uint32) (int64, uint64, *Event) {
+// It returns the mapped time, the corrected extended timestamp
+// (monotonic even across backward jumps), and any anomaly.
+func (c *Clock) Map(ts uint32) (int64, int64, *Event) {
 	if !c.init {
 		c.init = true
 		c.lastExt = uint64(ts)
 		c.anchorRTP = int64(c.lastExt)
 		c.anchorNs = 0
-		return 0, c.lastExt, nil
+		return 0, int64(c.lastExt), nil
 	}
 	ext := (c.lastExt &^ 0xFFFFFFFF) | uint64(ts)
 	switch d := int64(ext) - int64(c.lastExt); {
@@ -69,13 +70,13 @@ func (c *Clock) Map(ts uint32) (int64, uint64, *Event) {
 		dev := c.ticksToNs(int64(c.lastExt - trueExt))
 		c.adjust += int64(c.lastExt) - int64(trueExt)
 		c.lastExt = trueExt
-		return c.toNs(trueExt), trueExt, &Event{Kind: EvBackward, DeviationNs: dev,
+		return c.toNs(trueExt), int64(trueExt) + c.adjust, &Event{Kind: EvBackward, DeviationNs: dev,
 			Detail: "timestamp moved backward across cycle boundary"}
 	case d < -0x80000000:
 		// 32-bit wraparound: continue in the next cycle.
 		ext += 1 << 32
 		c.lastExt = ext
-		return c.toNs(ext), ext, &Event{Kind: EvWrap, DeviationNs: 0,
+		return c.toNs(ext), int64(ext) + c.adjust, &Event{Kind: EvWrap, DeviationNs: 0,
 			Detail: "32-bit timestamp wraparound"}
 	case d < 0:
 		// Plain backward jump: report, then correct so the
@@ -83,11 +84,11 @@ func (c *Clock) Map(ts uint32) (int64, uint64, *Event) {
 		dev := c.ticksToNs(-d)
 		c.adjust += -d
 		c.lastExt = ext
-		return c.toNs(ext), ext, &Event{Kind: EvBackward, DeviationNs: dev,
+		return c.toNs(ext), int64(ext) + c.adjust, &Event{Kind: EvBackward, DeviationNs: dev,
 			Detail: "timestamp moved backward"}
 	default:
 		c.lastExt = ext
-		return c.toNs(ext), ext, nil
+		return c.toNs(ext), int64(ext) + c.adjust, nil
 	}
 }
 
