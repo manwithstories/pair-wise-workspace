@@ -19,6 +19,7 @@ add_library(media_core STATIC
   src/frame_pattern.cpp
   src/frame_transform.cpp
   src/gap_estimator.cpp
+  src/keyframe_index.cpp
   src/media_types.cpp
   src/metadata_codec.cpp
   src/packet_reader.cpp
