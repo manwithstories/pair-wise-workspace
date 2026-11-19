@@ -38,12 +38,13 @@ struct RecoveryStats {
 };
 
 // 恢复一个 FEC 组。data_present 为组内已收到的数据包（可乱序），
-// parity_present 为收到的校验包数。模型为 (8,2) 冗余：
+// parity_present 为收到的校验包数，group_size 为组内应有数据包数
+// （末组可能不足 kFecDataPerGroup）。模型为 (8,2) 冗余：
 // 组内丢失数 <= parity_present 时全部重建，否则整段记为缺口。
 GroupRecovery recover_group(uint32_t group_id,
                             const std::vector<MediaPacket>& data_present,
-                            uint32_t parity_present, RecoveryStats& stats,
-                            ErrorModel& errors,
+                            uint32_t parity_present, uint32_t group_size,
+                            RecoveryStats& stats, ErrorModel& errors,
                             const std::string& source_track = "");
 
 } // namespace media

@@ -20,6 +20,7 @@ add_library(media_core STATIC
   src/jitter_buffer.cpp
   src/manifest.cpp
   src/packet_reorder.cpp
+  src/pipeline.cpp
   src/av_sync.cpp
   src/recovery.cpp
   src/subtitle.cpp

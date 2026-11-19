@@ -7,8 +7,8 @@ namespace media {
 
 GroupRecovery recover_group(uint32_t group_id,
                             const std::vector<MediaPacket>& data_present,
-                            uint32_t parity_present, RecoveryStats& stats,
-                            ErrorModel& errors,
+                            uint32_t parity_present, uint32_t group_size,
+                            RecoveryStats& stats, ErrorModel& errors,
                             const std::string& source_track) {
     GroupRecovery result;
     const uint64_t group_start =
@@ -17,9 +17,7 @@ GroupRecovery recover_group(uint32_t group_id,
     std::map<uint64_t, MediaPacket> present;
     for (const auto& p : data_present) present.emplace(p.sequence, p);
 
-    // 组内实际应有的数据包数（末组可能不足 kFecDataPerGroup，由调用方
-    // 只传入存在过的包；这里以最大序号推断组内规模）。
-    uint64_t group_end = group_start + kFecDataPerGroup - 1;
+    uint64_t group_end = group_start + group_size - 1;
 
     std::vector<uint64_t> missing;
     for (uint64_t s = group_start; s <= group_end; ++s)
