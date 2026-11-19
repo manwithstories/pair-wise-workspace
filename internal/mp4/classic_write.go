@@ -11,14 +11,12 @@ import (
 // fixtures and for producing files that classic demuxers accept.
 func WriteClassic(w io.WriteSeeker, tracks []MuxTrack, samples [][]Sample) error {
 	// The chunk-offset values are fixed-width, so the moov size is known
-	// before the offsets are: write it once into scratch with zero
-	// offsets, then use that size to place mdat.
-	scratch := &MemWS{}
+	// before the offsets are: measure it with zero offsets, then use that
+	// size to place mdat.
 	moovSize, err := classicMoovSize(tracks, samples)
 	if err != nil {
 		return err
 	}
-	_ = scratch
 	ftypSize := int64(classicFtypSize())
 	payloadStart := ftypSize + moovSize + 8 // + mdat header
 	offsets := make([][]uint64, len(tracks))
