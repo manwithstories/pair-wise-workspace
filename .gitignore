@@ -71,3 +71,10 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- project local ----
+.venv/
+demo_out/
+__pycache__/
+*.egg-info/
+.pytest_cache/
