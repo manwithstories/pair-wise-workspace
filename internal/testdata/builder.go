@@ -194,6 +194,18 @@ func countClean(list []Datagram) int {
 	return n
 }
 
+// MediaDatagrams returns the number of non-RTCP datagrams the fixture offers,
+// i.e. the denominator for end-to-end parse/delivery consistency.
+func (f *Fixture) MediaDatagrams() int {
+	n := 0
+	for _, d := range f.Datagrams {
+		if !d.IsRTCP {
+			n++
+		}
+	}
+	return n
+}
+
 // BoundarySpecs returns the named edge-case fixtures required by the spec:
 // sequence wrap, empty stream, slow-consumer timeout and no-keyframe video.
 func BoundarySpecs(seed int64) map[string]Spec {
