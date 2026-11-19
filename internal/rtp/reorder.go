@@ -230,6 +230,8 @@ func (r *Reorderer) Flush() ([]Packet, []Gap) {
 }
 
 // advance 按有界等待窗口推进输出；flush=true 时清空全部缓存。
+// 释放边界 = 已观测最大序号 - 等待窗口：跨度超过窗口的旧序号必须交付，
+// 该口径在 16bit 回绕展开为 64bit 后依然单调正确。
 func (r *Reorderer) advance(flush bool) []Packet {
 	if len(r.buf) == 0 {
 		return nil
@@ -241,9 +243,14 @@ func (r *Reorderer) advance(flush bool) []Packet {
 	}
 	var horizon uint64
 	if flush {
-		horizon = keys[len(keys)-1]
+		horizon = r.maxSeq
 	} else {
-		horizon = r.maxSeq - uint64(r.waitBudget())
+		budget := uint64(r.waitBudget())
+		if r.maxSeq > budget {
+			horizon = r.maxSeq - budget
+		} else {
+			horizon = 0
+		}
 	}
 	var out []Packet
 	for _, k := range keys {

@@ -89,15 +89,16 @@ func AsStageError(err error) (*StageError, bool) {
 	return nil, false
 }
 
-// 序号扩展的门限，取值沿用 RFC 3550 A.1 的经验值。
+// RFC 3550 A.1 的序号回绕/乱序门限。
 const (
-	maxDropout   = 3000 // 正向跳变超过此值视为异常跳转
-	maxMisorder  = 100  // 逆向跳变超过此值视为异常乱序
+	maxDropout   = 3000 // 正常正向跳变上限
+	maxMisorder  = 100  // 有界乱序/重复的逆向跳变门限
 	seqModulo    = 1 << 16
 	tsModulo int64 = 1 << 32
 )
 
 // SeqExtender 按 RFC 3550 A.1 思路把 16bit RTP 序号展开为 64bit 单调序号。
+// maxSeq 只随“确认前进”的包推进，因此乱序/重复包不会污染周期计数。
 type SeqExtender struct {
 	started bool
 	maxSeq  uint16
@@ -105,27 +106,29 @@ type SeqExtender struct {
 }
 
 // Update 输入原始 16bit 序号，返回扩展后的 64bit 序号以及本次是否发生回绕。
+// 判定基于 16bit 回绕距离：前向距离 <32768 视为前进（含越过 65535），
+// 后向距离 <=maxMisorder 视为有界乱序/重复，其余为异常跳转且不污染基准态。
 func (s *SeqExtender) Update(seq uint16) (extended uint64, wrapped bool) {
 	if !s.started {
 		s.started = true
 		s.maxSeq = seq
 		return uint64(seq), false
 	}
-	delta := int32(seq) - int32(s.maxSeq)
+	fwd := (uint32(seq) - uint32(s.maxSeq)) & 0xffff // 16bit 回绕的前向距离
 	switch {
-	case delta > 0 && delta <= maxDropout:
-		// 正常前进；若数值变小说明越过 65535 边界。
+	case fwd == 0:
+		// 重复序号，基准态不变。
+	case fwd < 1<<15 && fwd <= maxDropout:
+		// 确认前进；跨越 0 边界即回绕。
 		if seq < s.maxSeq {
 			s.cycles++
 			wrapped = true
 		}
 		s.maxSeq = seq
-	case delta < 0 && delta >= -maxMisorder:
-		// 有界乱序/重复，状态不变，按当前周期解释。
-	case delta > maxDropout:
-		// 异常正向跳转：不提升周期，按乱序包解释，交由缺口逻辑处理。
-	case delta < -maxMisorder:
-		// 异常逆向跳转：同样不改变基准周期。
+	case (1<<16-fwd) <= maxMisorder:
+		// 有界乱序/迟到包：基准态不变，按当前周期解释。
+	default:
+		// 异常大跳转：不改变基准态，缺口交由重排层处理。
 	}
 	return s.cycles*seqModulo + uint64(seq), wrapped
 }
@@ -306,4 +309,11 @@ func (t *Timeline) TotalSamples() int64 {
 		return 0
 	}
 	return t.next - t.first
+}
+
+// SeedRange 在验证阶段从清单重建时间线游标，不经过 Place()。
+func (t *Timeline) SeedRange(first, next int64) {
+	t.started = true
+	t.first = first
+	t.next = next
 }

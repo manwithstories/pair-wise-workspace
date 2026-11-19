@@ -254,6 +254,17 @@ func sortCP(cp *Checkpoint) {
 	sort.Slice(cp.Watermarks, func(i, j int) bool { return cp.Watermarks[i].Name < cp.Watermarks[j].Name })
 }
 
+// ReordererStats 暴露重排统计，供 CLI 摘要使用。
+func (t *TrackState) ReordererStats() rtp.Stats { return t.reord.Stats() }
+
+// RepairedCount 返回时间线修复的时间戳数量。
+func (t *TrackState) RepairedCount() int {
+	if rr := t.rec.Result(); rr.Timeline != nil {
+		return rr.Timeline.Repaired
+	}
+	return 0
+}
+
 // appendSidecar 以 O_APPEND 方式把 PCM 追加到工作文件。
 func appendSidecar(sidecar string, pcm []byte) error {
 	f, err := os.OpenFile(sidecar, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)

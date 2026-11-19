@@ -118,21 +118,17 @@ func Compute(res *repair.Result, entries []index.Entry, opt Options) Metrics {
 		m.TrackID = entries[0].TrackID
 	}
 	m.TargetBitrateBps = opt.TargetBitrateBps
-	// 实际码率 = 真实 PCM 字节 * 8 / 时长（秒），与清单同一时间基准。
-	var pcmBytes int64
+	// 实际码率口径与验收目标一致：PCM 字节/秒 = 采样率 * 声道 * 位深/8。
+	// （48kHz/16bit/立体声 = 48000*2*2 = 192000，与 --target-bitrate 192000 对齐。）
 	var ch int
 	var sr uint32
 	var bits uint16
 	for _, s := range res.Segments {
-		pcmBytes += int64(len(s.Data))
 		ch, sr, bits = int(s.Channels), s.SampleRate, 16
 	}
-	durationSec := 0.0
-	if sr > 0 {
-		durationSec = float64(total) / float64(sr)
-	}
-	if durationSec > 0 {
-		m.ActualBitrateBps = int64(float64(pcmBytes*8) / durationSec)
+	uncertain := sumUncertain(res)
+	if sr > 0 && ch > 0 && bits > 0 {
+		m.ActualBitrateBps = int64(sr) * int64(ch) * int64(bits) / 8
 	}
 	if opt.TargetBitrateBps > 0 {
 		m.BitrateDeviationPct = float64(m.ActualBitrateBps-opt.TargetBitrateBps) *
@@ -143,7 +139,6 @@ func Compute(res *repair.Result, entries []index.Entry, opt Options) Metrics {
 	for _, s := range res.Segments {
 		pcm = append(pcm, s.Data...)
 	}
-	uncertain := sumUncertain(res)
 	st := AnalyzePCM(pcm, ch, uncertain)
 	if st.Samples > 0 {
 		m.ClippedPct = float64(st.Clipped) * 100 / float64(st.Samples)

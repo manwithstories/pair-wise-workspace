@@ -3,6 +3,7 @@ package pipeline
 import (
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"pairflow/internal/clock"
@@ -138,7 +139,8 @@ func verifyDeliverables(opt Options, idxPath string, mf *manifest.Manifest,
 	if err != nil {
 		return err
 	}
-	if string(fileDigest) != res.Digest {
+	storedDigest := strings.TrimRight(string(fileDigest), "\x00")
+	if storedDigest != res.Digest {
 		return clock.New("pipeline.verify", clock.KindCheckpointMismatch, "", 0,
 			clock.NoSeq, "index digest disagrees with input digest", "重建交付容器")
 	}
