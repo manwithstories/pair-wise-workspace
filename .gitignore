@@ -71,3 +71,14 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- C/C++ 构建产物与本地运行数据 ----
+build/
+cmake-build-*/
+*.o
+*.a
+*.dylib
+*.so
+tmp/
+*.tmp
+
