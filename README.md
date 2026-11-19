@@ -135,16 +135,22 @@ include/            公共接口
   packet_reader.hpp   记录框架与重同步
   packet_writer.hpp   记录写入（往返编码）
   reorder_buffer.hpp  有界重排
-  timestamp_repair.hpp时间戳修复与丢失区间估算
+  timestamp_repair.hpp时间戳修复
+  gap_estimator.hpp   丢失区间估算
+  frame_pattern.hpp   程序化帧内容（样例生成用）
   frame_transform.hpp FFmpeg 解码/PNG 编码
   keyframe_index.hpp  随机访问索引
   pipeline.hpp        端到端流水线
   damage_builder.hpp  损坏样例构造器
-  json_report.hpp     JSON 摘要
+  json_writer.hpp     通用 JSON 写出器
+  json_report.hpp     修复报告与指标解析
+  cli_options.hpp     命令行选项表
+  commands.hpp        子命令入口与退出码
   sample_generator.hpp/rng.hpp  确定性样例生成
-src/                对应实现，外加 main.cpp（CLI）
+src/                对应实现；main.cpp 仅做命令分发
 tests/              Catch2 测试（正常/损坏/边界路径）
-scripts/acceptance.sh  生成样例并汇总验收结果
+scripts/acceptance.sh          生成样例并汇总验收结果
+scripts/lib/acceptance_common.sh  验收脚本共用的断言与夹具函数
 ```
 
 ## 资源约束与确定性
@@ -153,4 +159,5 @@ scripts/acceptance.sh  生成样例并汇总验收结果
   均可用命令行参数进一步收紧。
 - 生成器使用 xorshift64*，同一种子在不同机器上产生相同字节
   （`seed reproducibility` 用例逐字节比对）。
-- 构建产物位于 `build/`，已被 `.gitignore` 排除。
+- 构建产物位于 `build/`，已被 `.gitignore` 排除；验收脚本的临时文件在
+  `build/acceptance/` 下，同样不入库。
