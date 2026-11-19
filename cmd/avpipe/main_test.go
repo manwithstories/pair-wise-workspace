@@ -170,6 +170,33 @@ func TestSampleRateFlagDrivesPipeline(t *testing.T) {
 	}
 }
 
+func TestRunLeavesNoScratchDataInWorktree(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadDir(wd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	known := map[string]bool{}
+	for _, e := range before {
+		known[e.Name()] = true
+	}
+	if code, _, stderr := execCLI(t, "run", "--seed", "1"); code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	after, err := os.ReadDir(wd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range after {
+		if !known[e.Name()] {
+			t.Fatalf("run left %q in the package directory", e.Name())
+		}
+	}
+}
+
 func TestHelpExitsZero(t *testing.T) {
 	code, stdout, _ := execCLI(t, "--help")
 	if code != 0 || !strings.Contains(stdout, "avpipe run") {

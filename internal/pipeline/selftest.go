@@ -2,12 +2,10 @@ package pipeline
 
 import (
 	"context"
-	"path/filepath"
 	"time"
 
-	"avpipe/internal/clock"
-
 	"avpipe/internal/audio"
+	"avpipe/internal/clock"
 	"avpipe/internal/fault"
 	"avpipe/internal/fixture"
 	"avpipe/internal/report"
@@ -176,12 +174,4 @@ func slowConsumerScenario(opts Options) report.Scenario {
 		itoa(int(slow.QueueBytes)) + " bytes, dropped " + itoa(int(rep.Dropped)) +
 		", delivered " + itoa(rep.Blocks)
 	return scenarioResult("slow_consumer", nil, ok, detail)
-}
-
-// WorkDirFor returns the per-run scratch directory used for the MP4 clip.
-func WorkDirFor(base string) string {
-	if base != "" {
-		return base
-	}
-	return filepath.Join(".", "avpipe-work")
 }
