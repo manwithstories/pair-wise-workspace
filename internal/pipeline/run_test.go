@@ -8,6 +8,7 @@ import (
 
 	"archivearchivist/internal/model"
 	"archivearchivist/internal/pipeline"
+	"archivearchivist/internal/rtp"
 	"archivearchivist/internal/testkit"
 )
 
@@ -175,5 +176,35 @@ func TestMalformedTimelineIsAnError(t *testing.T) {
 	}
 	if _, err := pipeline.Run(pipeline.Input{TimelinePath: path}, pipeline.Options{}); err == nil {
 		t.Fatalf("malformed timeline accepted")
+	}
+}
+
+// TestCaptureWithoutExtensionUnwraps32BitClock ensures a capture that carries
+// only the RFC 3550 32-bit timestamp still unwraps its modulus boundary rather
+// than reporting a regression.
+func TestCaptureWithoutExtensionUnwraps32BitClock(t *testing.T) {
+	dir := t.TempDir()
+	fx, err := testkit.Generate(testkit.Config{OutDir: dir, VideoFrames: 60})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Re-encode the capture without the 33-bit header extension.
+	pkts, err := rtp.ReadCapture(fx.Capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "plain.rtp")
+	if err := testkit.WriteCaptureWithoutExtension(path, pkts); err != nil {
+		t.Fatal(err)
+	}
+	a, err := pipeline.Run(pipeline.Input{TimelinePath: fx.Timeline, CapturePath: path}, pipeline.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Metrics.Wraps == 0 {
+		t.Fatalf("32-bit capture did not report a wrap: %+v", a.Clocks)
+	}
+	if a.Faults.Has(model.CodeTimestampRegress) {
+		t.Fatalf("32-bit wrap misreported as a regression")
 	}
 }

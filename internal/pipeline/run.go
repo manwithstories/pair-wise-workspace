@@ -136,8 +136,18 @@ func Run(in Input, opts Options) (*Analysis, error) {
 				Arrival: p.ArrivalUS, HasArr: p.ArrivalUS != 0,
 			})
 		}
-		res := clock.Unwrap(samples, clock.Options{ClockRate: rate})
+		// The modulus follows the track that owns the capture: a 32-bit RTP
+		// timestamp field wraps at 2^32 unless the sender supplied the full
+		// 33-bit clock in a header extension.
 		track := captureTrack(a.Timeline)
+		modulus := model.Modulus33
+		if tr := a.Timeline.TrackByID(track); tr != nil {
+			modulus = tr.Modulus()
+		}
+		if !captureHasExtension(a.Capture.Stream) {
+			modulus = 1 << 32
+		}
+		res := clock.Unwrap(samples, clock.Options{ClockRate: rate, Modulus: modulus})
 		a.Clocks[track] = ClockView{
 			Track: track, Wraps: res.Wraps, DriftPPM: res.DriftPPM,
 			DriftReview: res.DriftExceeded, MaxSkewUS: res.MaxSkewUS,

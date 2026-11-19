@@ -175,3 +175,50 @@ func writeCapture(path string, recs []captureRecord) error {
 	}
 	return f.Sync()
 }
+
+// WriteCaptureWithoutExtension rewrites decoded packets into a capture file
+// that carries only the RFC 3550 32-bit timestamp, dropping the extended
+// clock. It is used to exercise the 32-bit unwrapping path.
+func WriteCaptureWithoutExtension(path string, pkts []rtp.Packet) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if _, err := f.WriteString("ARCRTP01"); err != nil {
+		return err
+	}
+	if err := binary.Write(f, binary.BigEndian, uint32(len(pkts))); err != nil {
+		return err
+	}
+	for _, p := range pkts {
+		pkt := &pionrtp.Packet{
+			Header: pionrtp.Header{
+				Version:        2,
+				PayloadType:    96,
+				SequenceNumber: p.Seq,
+				Timestamp:      p.Timestamp,
+				SSRC:           p.SSRC,
+				Marker:         p.Marker,
+			},
+			Payload: p.Payload,
+		}
+		raw, err := pkt.Marshal()
+		if err != nil {
+			return err
+		}
+		if err := binary.Write(f, binary.BigEndian, p.ArrivalUS); err != nil {
+			return err
+		}
+		if err := binary.Write(f, binary.BigEndian, p.Seq); err != nil {
+			return err
+		}
+		if err := binary.Write(f, binary.BigEndian, uint32(len(raw))); err != nil {
+			return err
+		}
+		if _, err := f.Write(raw); err != nil {
+			return err
+		}
+	}
+	return f.Sync()
+}

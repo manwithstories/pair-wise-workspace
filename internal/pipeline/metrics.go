@@ -3,6 +3,7 @@ package pipeline
 import (
 	"archivearchivist/internal/model"
 	"archivearchivist/internal/report"
+	"archivearchivist/internal/rtp"
 )
 
 // summarize derives the acceptance metrics from the analysis.
@@ -97,4 +98,18 @@ func captureTrack(tl *model.Timeline) string {
 		return tl.Tracks[0].ID
 	}
 	return ""
+}
+
+// captureHasExtension reports whether every packet carries the full 33-bit
+// clock, which decides whether a 33-bit or 32-bit modulus applies.
+func captureHasExtension(stream []rtp.Packet) bool {
+	if len(stream) == 0 {
+		return false
+	}
+	for _, p := range stream {
+		if !p.HasExt {
+			return false
+		}
+	}
+	return true
 }
