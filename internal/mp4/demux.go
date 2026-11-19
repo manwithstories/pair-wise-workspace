@@ -41,7 +41,7 @@ func Demux(asset, name string, data []byte) ([]Track, error) {
 	if len(data) == 0 {
 		return nil, errs.New(errs.KindDemux, asset, name, "empty segment", nil)
 	}
-	d := &demuxer{asset: asset, name: name, data: data}
+	d := &demuxer{asset: asset, name: name, data: data, tables: map[uint32]*sampleTable{}}
 	r := bytes.NewReader(data)
 	_, err := mp4.ReadBoxStructure(r, d.handle)
 	if err != nil {
@@ -55,7 +55,11 @@ func Demux(asset, name string, data []byte) ([]Track, error) {
 	if !d.sawMoov {
 		return nil, errs.New(errs.KindDemux, asset, name, "no moov box found", nil)
 	}
-	if err := d.buildSamples(); err != nil {
+	if len(d.moofs) > 0 {
+		if err := d.buildSamples(); err != nil {
+			return nil, err
+		}
+	} else if err := d.buildClassicSamples(); err != nil {
 		return nil, err
 	}
 	tracks := make([]Track, 0, len(d.tracks))
@@ -66,16 +70,16 @@ func Demux(asset, name string, data []byte) ([]Track, error) {
 }
 
 type trafState struct {
-	trackID       uint32
-	baseDTS       uint64
-	clockBits     int
-	baseDataOff   uint64
-	hasBaseData   bool
-	defDur        uint32
-	defSize       uint32
-	defFlags      uint32
-	hasDefFlags   bool
-	truns         []trunState
+	trackID     uint32
+	baseDTS     uint64
+	clockBits   int
+	baseDataOff uint64
+	hasBaseData bool
+	defDur      uint32
+	defSize     uint32
+	defFlags    uint32
+	hasDefFlags bool
+	truns       []trunState
 }
 
 type trunState struct {
@@ -96,7 +100,9 @@ type demuxer struct {
 	data        []byte
 	tracks      []*Track
 	byID        map[uint32]*Track
+	tables      map[uint32]*sampleTable // per track, for non-fragmented files
 	cur         *Track
+	curTable    *sampleTable
 	curMoof     *moofState
 	curTraf     *trafState
 	moofs       []*moofState
@@ -140,16 +146,21 @@ func (d *demuxer) handle(h *mp4.ReadHandle) (interface{}, error) {
 		return h.Expand()
 	case mp4.BoxTypeTrak():
 		d.cur = &Track{Type: "other", ClockBits: 64}
+		d.curTable = &sampleTable{}
 		if _, err := h.Expand(); err != nil {
 			return nil, err
 		}
 		// merge moov metadata into the canonical per-ID track (samples
 		// may already have been attached from an earlier moof)
 		meta := d.cur
-		d.cur = nil
+		tbl := d.curTable
+		d.cur, d.curTable = nil, nil
 		t := d.trackByID(meta.ID)
 		t.Type, t.Codec = meta.Type, meta.Codec
 		t.Timescale, t.Language = meta.Timescale, meta.Language
+		if tbl != nil {
+			d.tables[meta.ID] = tbl
+		}
 		return nil, nil
 	case mp4.BoxTypeMoof():
 		d.curMoof = &moofState{offset: h.BoxInfo.Offset}
@@ -179,7 +190,9 @@ func (d *demuxer) handle(h *mp4.ReadHandle) (interface{}, error) {
 	}
 	switch typ {
 	case mp4.BoxTypeTkhd(), mp4.BoxTypeMdhd(), mp4.BoxTypeHdlr(),
-		mp4.BoxTypeTfhd(), mp4.BoxTypeTfdt(), mp4.BoxTypeTrun():
+		mp4.BoxTypeTfhd(), mp4.BoxTypeTfdt(), mp4.BoxTypeTrun(),
+		mp4.BoxTypeStts(), mp4.BoxTypeStsc(), mp4.BoxTypeStsz(),
+		mp4.BoxTypeStco(), mp4.BoxTypeCo64(), mp4.BoxTypeCtts(), mp4.BoxTypeStss():
 		// payload read below
 	default:
 		return nil, nil // unknown or unneeded box: skip payload
@@ -239,8 +252,30 @@ func (d *demuxer) handle(h *mp4.ReadHandle) (interface{}, error) {
 			}
 			d.curTraf.truns = append(d.curTraf.truns, tr)
 		}
+	case *mp4.Stts:
+		d.setTable(func(t *sampleTable) { t.stts = b })
+	case *mp4.Stsc:
+		d.setTable(func(t *sampleTable) { t.stsc = b })
+	case *mp4.Stsz:
+		d.setTable(func(t *sampleTable) { t.stsz = b })
+	case *mp4.Stco:
+		d.setTable(func(t *sampleTable) { t.stco = b })
+	case *mp4.Co64:
+		d.setTable(func(t *sampleTable) { t.co64 = b })
+	case *mp4.Ctts:
+		d.setTable(func(t *sampleTable) { t.ctts = b })
+	case *mp4.Stss:
+		d.setTable(func(t *sampleTable) { t.stss = b })
 	}
 	return nil, nil
+}
+
+// setTable applies a sample-table box to the track currently being read.
+// Boxes outside a trak (malformed input) are ignored.
+func (d *demuxer) setTable(fn func(*sampleTable)) {
+	if d.curTable != nil {
+		fn(d.curTable)
+	}
 }
 
 // flags32 packs a FullBox 24-bit flags field into a uint32.
