@@ -45,6 +45,20 @@ struct GeneratedSample {
 Diagnostic generate_sample(const SampleConfig& config,
                            GeneratedSample* sample);
 
+// Video-only encoding step (exposed for codec parser tests).
+Diagnostic encode_video(const SampleConfig& config,
+                        std::vector<EncodedFrame>* frames);
+
+// Wire bytes for one encoded frame. H.264/H.265 already use Annex B start
+// codes and pass through unchanged; AV1 low-overhead OBUs are prefixed with
+// the four-byte Annex B start code so a parser can locate frame boundaries.
+std::vector<uint8_t> frame_wire_bytes(CodecType codec,
+                                      const EncodedFrame& frame);
+
+// Concatenate every frame's wire bytes into one elementary stream.
+std::vector<uint8_t> build_elementary_stream(
+    CodecType codec, const std::vector<EncodedFrame>& frames);
+
 // Write stream.<codec>, packets.csv and audio.pcm into `dir`.
 Diagnostic write_sample_bundle(const std::string& dir,
                                const GeneratedSample& sample);

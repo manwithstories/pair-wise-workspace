@@ -167,6 +167,7 @@ TEST_CASE("reader: input over the size limit is rejected", "[reader]") {
 }
 
 TEST_CASE("reader: garbage stream reports failure with offset", "[reader]") {
+  // Unrecognizable bytes yield no frames and a corruption diagnostic.
   std::vector<uint8_t> junk(2048, 0x00);
   for (size_t i = 0; i < junk.size(); ++i) junk[i] = static_cast<uint8_t>(i * 7);
   std::vector<ParsedFrame> frames;
@@ -175,6 +176,13 @@ TEST_CASE("reader: garbage stream reports failure with offset", "[reader]") {
   REQUIRE(d.status == Status::MediaCorrupt);
   REQUIRE(d.offset >= 0);
   REQUIRE(frames.empty());
+
+  // A dangling start code with no following NAL unit is also corrupt.
+  std::vector<uint8_t> dangling = {0x00, 0x00, 0x00, 0x01, 0x67};
+  std::vector<ParsedFrame> f2;
+  Diagnostic d2 = parse_elementary_stream(dangling, CodecType::H264, {}, &f2);
+  REQUIRE(!d2.ok());
+  REQUIRE(d2.status == Status::MediaCorrupt);
 }
 
 #include "media_archive/timestamp_repair.h"
@@ -599,5 +607,31 @@ TEST_CASE("checkpoint: resume after crash completes deterministically",
     REQUIRE(ra.recovered[i].pts_ticks == rb.recovered[i].pts_ticks);
     REQUIRE(ra.recovered[i].source_offset == rb.recovered[i].source_offset);
     REQUIRE(ra.recovered[i].checksum == rb.recovered[i].checksum);
+  }
+}
+
+#include "media_archive/sample_generator.h"
+
+TEST_CASE("generator: all three codecs encode keyframes", "[generator]") {
+  for (CodecType codec : {CodecType::H264, CodecType::H265, CodecType::AV1}) {
+    SampleConfig cfg;
+    cfg.seed = 42;
+    cfg.codec = codec;
+    cfg.frame_count = 45;
+    cfg.gop = 15;
+    std::vector<EncodedFrame> frames;
+    Diagnostic d = encode_video(cfg, &frames);
+    REQUIRE(d.ok());
+    REQUIRE(frames.size() == 45);
+    const auto keyframes =
+        std::count_if(frames.begin(), frames.end(),
+                      [](const EncodedFrame& f) { return f.keyframe; });
+    REQUIRE(keyframes >= 3);  // GOP 15 over 45 frames
+    REQUIRE(frames.front().keyframe);
+    // The bytes must parse as the declared codec.
+    std::vector<uint8_t> stream = build_elementary_stream(codec, frames);
+    std::vector<ParsedFrame> parsed;
+    REQUIRE(parse_elementary_stream(stream, codec, {}, &parsed).ok());
+    REQUIRE(parsed.size() == 45);
   }
 }

@@ -84,10 +84,63 @@ Diagnostic parse_elementary_stream(const std::vector<uint8_t>& bytes,
   }
 
   frames->clear();
+  AVPacket* pkt = av_packet_alloc();
+
+  // AV1 length-delimited temporal units: the av1 parser does not split on
+  // Annex B start codes, so frame boundaries are read from the 4 byte
+  // big-endian length prefixes written by the generator.
+  if (codec == CodecType::AV1) {
+    size_t pos = 0;
+    while (pos < bytes.size()) {
+      if (pos + 4 > bytes.size())
+        return diag(Status::MediaCorrupt,
+                    "truncated AV1 frame length prefix",
+                    static_cast<int64_t>(pos));
+      const uint32_t len = (static_cast<uint32_t>(bytes[pos]) << 24) |
+                           (static_cast<uint32_t>(bytes[pos + 1]) << 16) |
+                           (static_cast<uint32_t>(bytes[pos + 2]) << 8) |
+                           static_cast<uint32_t>(bytes[pos + 3]);
+      if (len == 0 || len > limits.max_block_bytes ||
+          pos + 4ull + len > bytes.size())
+        return diag(Status::MediaCorrupt,
+                    "invalid AV1 frame length",
+                    static_cast<int64_t>(pos));
+      const uint8_t* unit = bytes.data() + pos + 4;
+      uint8_t* out_data = nullptr;
+      int out_size = 0;
+      const int used = av_parser_parse2(
+          parser, codec_ctx, &out_data, &out_size, unit,
+          static_cast<int>(len), AV_NOPTS_VALUE, AV_NOPTS_VALUE, 0);
+      if (used < 0)
+        return diag(Status::MediaCorrupt,
+                    "unrecognized AV1 temporal unit",
+                    static_cast<int64_t>(pos));
+      ParsedFrame frame;
+      frame.source_offset = pos;
+      frame.size_bytes = len + 4;  // include the length prefix in wire size
+      frame.frame_type = static_cast<uint32_t>(parser->pict_type);
+      // An OBU temporal unit whose first OBU is a key-frame header (OBU_FRAME
+      // with show_existing_frame 0 and key_frame) is flagged by the parser.
+      frame.keyframe = (parser->key_frame == 1);
+      if (frame.source_offset > limits.max_index_offset)
+        return diag(Status::UsageError,
+                    "index offset exceeds configured limit",
+                    static_cast<int64_t>(frame.source_offset));
+      frames->push_back(frame);
+      pos += 4ull + len;
+    }
+    if (frames->empty())
+      return diag(Status::MediaCorrupt,
+                  "no parseable AV1 temporal units", 0);
+    av_packet_free(&pkt);
+    av_parser_close(parser);
+    avcodec_free_context(&codec_ctx);
+    return {};
+  }
+
   const uint8_t* data = bytes.data();
   int remaining = static_cast<int>(bytes.size());
   int64_t consumed_offset = 0;
-  AVPacket* pkt = av_packet_alloc();
   Diagnostic failure;
 
   while (remaining > 0) {
@@ -126,6 +179,29 @@ Diagnostic parse_elementary_stream(const std::vector<uint8_t>& bytes,
     }
     data += used;
     remaining -= used;
+  }
+
+  // Flush the parser: the final frame stays buffered until the next start
+  // code, so drain it explicitly at end of stream. Only trust the flush when
+  // the parser already recognized at least one frame — otherwise a buffer of
+  // unparseable garbage would be misreported as a single valid frame.
+  if (failure.ok() && !frames->empty()) {
+    uint8_t* flush_data = nullptr;
+    int flush_size = 0;
+    const int used = av_parser_parse2(parser, codec_ctx, &flush_data,
+                                      &flush_size, nullptr, 0,
+                                      AV_NOPTS_VALUE, AV_NOPTS_VALUE, 0);
+    if (used < 0) {
+      failure = diag(Status::MediaCorrupt,
+                     "parser flush failed at byte offset", consumed_offset);
+    } else if (flush_size > 0) {
+      ParsedFrame frame;
+      frame.source_offset = static_cast<uint64_t>(consumed_offset);
+      frame.size_bytes = static_cast<uint32_t>(flush_size);
+      frame.frame_type = static_cast<uint32_t>(parser->pict_type);
+      frame.keyframe = (parser->key_frame == 1);
+      frames->push_back(frame);
+    }
   }
 
   av_packet_free(&pkt);
