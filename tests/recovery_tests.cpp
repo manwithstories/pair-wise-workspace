@@ -1,8 +1,11 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 
+#include <filesystem>
+#include <fstream>
 #include <vector>
 
+#include "media_archive/packet_reader.h"
 #include "media_archive/sequence_repair.h"
 #include "media_archive/transport_trace.h"
 
@@ -116,4 +119,60 @@ TEST_CASE("sequence: trace-level recovery rate stays above 90%", "[sequence]") {
       static_cast<double>(r.ordered.size() + trace.gap_packet_count);
   REQUIRE(rate >= Catch::Approx(0.90));
   REQUIRE(r.unrecovered_bytes > 0);
+}
+
+TEST_CASE("reader: manifest round-trips through CSV", "[reader]") {
+  namespace fs = std::filesystem;
+  const fs::path dir = fs::temp_directory_path() / "ma_reader_test";
+  fs::create_directories(dir);
+  const fs::path csv = dir / "packets.csv";
+
+  std::vector<TransportPacket> in;
+  for (uint32_t i = 0; i < 10; ++i) {
+    TransportPacket p;
+    p.seq = i;
+    p.pts_ticks = i * 3000;
+    p.source_offset = i == 4 ? -1 : static_cast<int64_t>(i * 128);
+    p.size_bytes = 128;
+    p.flag = i == 4 ? PacketFlag::Gap : PacketFlag::Ok;
+    p.send_ts_ms = i * 33.3;
+    p.recv_ts_ms = i * 33.3 + 1.5;
+    in.push_back(p);
+  }
+  REQUIRE(write_packet_manifest(csv.string(), in).ok());
+  std::vector<TransportPacket> out;
+  REQUIRE(parse_packet_manifest(csv.string(), &out).ok());
+  REQUIRE(out.size() == in.size());
+  REQUIRE(out[4].flag == PacketFlag::Gap);
+  REQUIRE(out[4].source_offset == -1);
+  REQUIRE(out[7].pts_ticks == 7 * 3000);
+}
+
+TEST_CASE("reader: input over the size limit is rejected", "[reader]") {
+  namespace fs = std::filesystem;
+  const fs::path dir = fs::temp_directory_path() / "ma_reader_limit";
+  fs::create_directories(dir);
+  const fs::path f = dir / "big.bin";
+  {
+    std::ofstream os(f.string(), std::ios::binary);
+    std::vector<char> buf(4096, 0xAB);
+    os.write(buf.data(), static_cast<std::streamsize>(buf.size()));
+  }
+  ReaderLimits limits;
+  limits.max_input_bytes = 1024;
+  std::vector<uint8_t> out;
+  Diagnostic d = read_file_bounded(f.string(), limits, &out);
+  REQUIRE(!d.ok());
+  REQUIRE(d.status == Status::UsageError);
+}
+
+TEST_CASE("reader: garbage stream reports failure with offset", "[reader]") {
+  std::vector<uint8_t> junk(2048, 0x00);
+  for (size_t i = 0; i < junk.size(); ++i) junk[i] = static_cast<uint8_t>(i * 7);
+  std::vector<ParsedFrame> frames;
+  Diagnostic d = parse_elementary_stream(junk, CodecType::H264, {}, &frames);
+  REQUIRE(!d.ok());
+  REQUIRE(d.status == Status::MediaCorrupt);
+  REQUIRE(d.offset >= 0);
+  REQUIRE(frames.empty());
 }

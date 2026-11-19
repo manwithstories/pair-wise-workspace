@@ -16,6 +16,7 @@ pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
 find_package(Catch2 3 REQUIRED)
 
 add_library(marecover STATIC
+  src/common.cpp
   src/packet_reader.cpp
   src/sequence_repair.cpp
   src/timestamp_repair.cpp
