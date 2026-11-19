@@ -150,7 +150,11 @@ bool build_timeline(const Manifest& manifest,
   resolve_track_order(manifest, diagnostics, &order);
   timeline.order = std::move(order);
   *out = std::move(timeline);
-  return diagnostics->size() == before;
+  // Negative audio offsets are warnings and must not fail a sound timeline.
+  for (size_t i = before; i < diagnostics->size(); ++i) {
+    if ((*diagnostics)[i].is_error()) return false;
+  }
+  return true;
 }
 
 bool resolve_track_order(const Manifest& manifest,
@@ -240,7 +244,10 @@ bool resolve_track_order(const Manifest& manifest,
         loc));
     out->cyclic.push_back(id);
   }
-  return diagnostics->size() == before;
+  for (size_t i = before; i < diagnostics->size(); ++i) {
+    if ((*diagnostics)[i].is_error()) return false;
+  }
+  return true;
 }
 
 bool build_timeline_with_order(const Manifest& manifest,

@@ -611,7 +611,10 @@ bool validate_keyframe_index(const KeyframeIndex& index, const StreamScan& scan,
             [](const KeyframeCandidate& a, const KeyframeCandidate& b) {
               return a.offset < b.offset;
             });
-  return diagnostics->size() == before;
+  for (size_t i = before; i < diagnostics->size(); ++i) {
+    if ((*diagnostics)[i].is_error()) return false;
+  }
+  return true;
 }
 
 }  // namespace media_restore

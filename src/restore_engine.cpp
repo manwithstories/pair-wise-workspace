@@ -165,7 +165,10 @@ bool validate_segment(const Manifest& manifest, const Segment& segment,
   }
   out->media_rel = segment.media;
   out->media_bytes = size;
-  return diagnostics->size() == before;
+  for (size_t i = before; i < diagnostics->size(); ++i) {
+    if ((*diagnostics)[i].is_error()) return false;
+  }
+  return true;
 }
 
 Json resolved_field_json(const ResolvedField& field) {
@@ -523,7 +526,17 @@ bool restore_archive(const Manifest& manifest, const RestoreOptions& options,
       if (outcome.restored && !outcome.failure) ++summary->healthy_hash_matches;
     }
   }
-  return summary->failures == 0 && diagnostics->size() == before;
+  // Quarantined segments legitimately emit the errors the manifest declares;
+  // only unaccounted-for errors are archive-level failures.
+  for (size_t i = before; i < diagnostics->size(); ++i) {
+    const Diagnostic& diagnostic = (*diagnostics)[i];
+    if (!diagnostic.is_error()) continue;
+    const Segment* owner = manifest.find_segment(diagnostic.location.track,
+                                                 diagnostic.location.segment);
+    if (owner != nullptr && owner->expected_code == diagnostic.code) continue;
+    ++summary->failures;
+  }
+  return summary->failures == 0;
 }
 
 Json restore_result_json(const Manifest& /*manifest*/, const RestoreSummary& summary,
@@ -860,7 +873,10 @@ bool verify_archive(const Manifest& manifest, const Json& result,
     summary->loudness_lufs = summary->loudness_sum /
                              static_cast<double>(summary->loudness_samples);
   }
-  return summary->failures == 0 && diagnostics->size() == before;
+  for (size_t i = before; i < diagnostics->size(); ++i) {
+    if ((*diagnostics)[i].is_error()) ++summary->failures;
+  }
+  return summary->failures == 0;
 }
 
 size_t manifest_roundtrip_score(const std::filesystem::path& path,
