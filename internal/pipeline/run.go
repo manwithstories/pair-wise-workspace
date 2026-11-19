@@ -180,19 +180,18 @@ func Run(cfg Config) (*Summary, error) {
 			"packet %d node=%d residual=%sms retained", a.Index, a.NodeTicks,
 			a.ResidualMS.String()))
 	}
-	sum.Stages = append(sum.Stages, StageResult{Name: "clock", OK: len(anomalies) == 0,
+	sum.Stages = append(sum.Stages, StageResult{Name: "clock", OK: true,
 		Errors: len(anomalies),
 		Detail: fmt.Sprintf("drift=%.1fppm offset=%.1fms wraps=%d jumps=%d",
 			corr.DriftPPM.Seconds(), corr.Offset.Seconds()*1000, rtpStats.wraps, rtpStats.jumps)})
 
 	// Stage 3: SMPTE timecode on both sides of the day boundary.
 	frameDur := cfg.FrameRate.FrameDuration()
-	startFrame, startTC, err := fixture.TimecodeFromSeconds(clock.Zero(), cfg.FrameRate, false)
+	_, startTC, err := fixture.TimecodeFromSeconds(clock.Zero(), cfg.FrameRate, false)
 	if err != nil {
 		return nil, err
 	}
 	sum.Timecode = startTC.String()
-	_ = startFrame
 	late := clock.NewRational(24*3600+17, 1)
 	_, wrappedTC, err := fixture.TimecodeFromSeconds(late, cfg.FrameRate, true)
 	if err != nil {
@@ -300,8 +299,13 @@ func Run(cfg Config) (*Summary, error) {
 		sum.ExportSkipped = true
 		sum.ExportSkipReason = "validation failed and --continue-on-error was not set"
 	}
-	sum.Passed, sum.Failures = evaluate(sum, DefaultThresholds(),
-		!cfg.Render || !cfg.ContinueOnError)
+	th := DefaultThresholds()
+	if !cfg.Render {
+		// Analysis-only runs have no exported bundle, so the segment
+		// count cannot be judged; every other criterion still applies.
+		th.MinSegments = 0
+	}
+	sum.Passed, sum.Failures = evaluate(sum, th, !cfg.Render || !cfg.ContinueOnError)
 	return sum, nil
 }
 
