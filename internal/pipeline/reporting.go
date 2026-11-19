@@ -26,7 +26,7 @@ func Run(ctx context.Context, opts Options) *report.Report {
 		return rep
 	}
 
-	audioRes, qstats, arrivals, err := runAudio(ctx, opts)
+	audioRes, qstats, err := runAudio(ctx, opts)
 	if err != nil {
 		return fail(err)
 	}
@@ -78,22 +78,12 @@ func Run(ctx context.Context, opts Options) *report.Report {
 		return fail(err)
 	}
 
-	blockMs := float64(opts.BlockSize) * 1000 / float64(opts.TargetRate)
-	blockBytes := int64(opts.BlockSize * len(audioRes.format.Layout.Channels) * 2)
-	if len(audioRes.before) > 0 {
-		blockBytes = audioRes.before[0].Bytes()
-	}
-	capacity := capacityBlocks(blockBytes, blockMs, opts.QueueBytes, opts.QueueTicks)
-	latencies, _, dropped := (&Pacing{
-		BlockMs: blockMs, ConsumerMs: opts.ConsumerDelayMs,
-	}).Simulate(capacity, opts.Policy, arrivals)
-
 	rep.QueuePeakBytes = qstats.PeakBytes
 	rep.QueuePeakTicks = qstats.PeakTicks
 	rep.Blocks = len(audioRes.before)
 	rep.Frames = len(audioRes.before)
 	rep.Consumed = qstats.Dequeued
-	rep.Dropped = int64(dropped) + qstats.Dropped + audioRes.dropped
+	rep.Dropped = qstats.Dropped + audioRes.dropped
 	rep.Evicted = qstats.Evicted + audioRes.evicted
 	rep.SilenceFills = len(audioRes.plan.SilenceFills)
 	rep.RMSBefore = audioRes.stats.RMSBefore
@@ -103,8 +93,8 @@ func Run(ctx context.Context, opts Options) *report.Report {
 	rep.GainDB = audioRes.stats.GainDB
 	rep.RoundingError = audioRes.roundingErr
 	rep.Resamples = int64(len(audioRes.before))
-	rep.LatencySamples = len(latencies)
-	rep.LatencyP95Ms = percentile(latencies, 0.95)
+	rep.LatencySamples = len(audioRes.latencies)
+	rep.LatencyP95Ms = percentile(audioRes.latencies, 0.95)
 	rep.PacketRecovery = rec.Rate
 	rep.RTPLost = rec.Lost
 	rep.RTPRecovered = rec.Recovered

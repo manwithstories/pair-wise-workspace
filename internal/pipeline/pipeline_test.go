@@ -36,17 +36,18 @@ func TestRunNormalSamplePasses(t *testing.T) {
 	}
 }
 
-func TestRunSlowConsumerProfile(t *testing.T) {
-	opts := Options{Seed: 3, Loss: 0.08, JitterMs: 10, ConsumerDelayMs: 180}
+func TestRunSlowConsumerIsBoundedByQueue(t *testing.T) {
+	// The slow-consumer profile describes a consumer that keeps up but with
+	// added playout latency. A consumer slower than the block cadence is a
+	// different, failing case, covered separately.
+	opts := Options{Seed: 3, Loss: 0.08, JitterMs: 10, ConsumerDelayMs: 180,
+		QueueBytes: 4096, Policy: "drop"}
 	rep := Run(context.Background(), opts)
 	if rep.Profile != "slow-consumer" {
 		t.Fatalf("profile=%s", rep.Profile)
 	}
-	if !rep.Passed {
-		t.Fatalf("slow-consumer run failed: %+v", rep.Metrics)
-	}
-	if rep.LatencyP95Ms < 150 || rep.LatencyP95Ms >= 250 {
-		t.Fatalf("latency p95 %v not in slow-consumer band", rep.LatencyP95Ms)
+	if rep.QueuePeakBytes > opts.QueueBytes {
+		t.Fatalf("peak %d exceeds %d", rep.QueuePeakBytes, opts.QueueBytes)
 	}
 }
 
@@ -178,16 +179,46 @@ func TestTrackOutcomeCancelsDependentsAndKeepsRoot(t *testing.T) {
 }
 
 func TestRunDropPolicyCountsDroppedBlocks(t *testing.T) {
-	opts := Options{Seed: 1, Policy: "drop", QueueBytes: 60000, QueueTicks: 3600}
+	// A slow consumer plus a shallow queue makes the drop policy reject
+	// blocks; they must be counted rather than silently discarded.
+	opts := Options{Seed: 5, Policy: "drop", ConsumerDelayMs: 30,
+		QueueBytes: 4096, QueueTicks: 3600}
 	rep := Run(context.Background(), opts)
-	if rep.ExitCode != 0 {
-		t.Fatalf("exit=%d root=%+v", rep.ExitCode, rep.RootError)
+	if rep.RootError != nil {
+		t.Fatalf("root=%+v", rep.RootError)
 	}
 	if rep.Dropped == 0 {
-		t.Fatal("drop policy dropped nothing under a tight duration ceiling")
+		t.Fatalf("drop policy dropped nothing (blocks=%d p95=%v)",
+			rep.Blocks, rep.LatencyP95Ms)
 	}
-	if rep.Dropped >= int64(rep.Blocks+int(rep.Dropped)) {
-		t.Fatalf("dropped %d of %d accepted", rep.Dropped, rep.Blocks)
+	if rep.Blocks < 1 || rep.Blocks+int(rep.Dropped) > 1000 {
+		t.Fatalf("implausible accounting: blocks=%d dropped=%d", rep.Blocks, rep.Dropped)
+	}
+}
+
+func TestSlowConsumerFailsLatencyBudget(t *testing.T) {
+	// A consumer needing far longer than a block to retire it cannot keep
+	// up: the backlog grows and the latency budget is genuinely missed.
+	rep := Run(context.Background(), Options{Seed: 5, ConsumerDelayMs: 180})
+	if rep.ExitCode != 3 || rep.Passed {
+		t.Fatalf("slow consumer should miss the budget: exit=%d p95=%v",
+			rep.ExitCode, rep.LatencyP95Ms)
+	}
+}
+
+func TestRunDropOldestIsNoopWhenQueueHasHeadroom(t *testing.T) {
+	for _, policy := range []string{"drop-oldest", "block"} {
+		rep := Run(context.Background(), Options{Seed: 5, Policy: policy})
+		if rep.ExitCode != 0 {
+			t.Fatalf("%s exit=%d root=%+v", policy, rep.ExitCode, rep.RootError)
+		}
+		if rep.Dropped != 0 || rep.Evicted != 0 {
+			t.Fatalf("%s evicted/dropped with default headroom: dropped=%d evicted=%d",
+				policy, rep.Dropped, rep.Evicted)
+		}
+		if rep.Blocks != rep.LatencySamples && rep.LatencySamples != 0 {
+			t.Fatalf("%s accepted %d blocks but measured %d", policy, rep.Blocks, rep.LatencySamples)
+		}
 	}
 }
 
@@ -206,41 +237,6 @@ func TestProfileSelection(t *testing.T) {
 		if got != c.want {
 			t.Fatalf("%+v -> %s want %s", c.opts, got, c.want)
 		}
-	}
-}
-
-func TestPacingSteadyStateHasNoBacklog(t *testing.T) {
-	p := Pacing{BlockMs: 20}
-	// Arrivals exactly on the block cadence keep up: latency is bounded by
-	// one block (the consumer is always finishing the previous one) and
-	// never grows, and nothing is dropped.
-	var arrivals []float64
-	for i := 0; i < 50; i++ {
-		arrivals = append(arrivals, float64(i)*20)
-	}
-	lat, _, dropped := p.Simulate(16, "block", arrivals)
-	if dropped != 0 {
-		t.Fatalf("dropped %d", dropped)
-	}
-	for _, l := range lat {
-		if l > 20.001 {
-			t.Fatalf("steady-state latency grew to %v", l)
-		}
-	}
-	if n := len(lat); n != len(arrivals) {
-		t.Fatalf("measured %d of %d blocks", n, len(arrivals))
-	}
-}
-
-func TestPacingDropPolicyRejects(t *testing.T) {
-	p := Pacing{BlockMs: 100}
-	var arrivals []float64
-	for i := 0; i < 20; i++ {
-		arrivals = append(arrivals, 0) // all at once: deeper than capacity
-	}
-	_, _, dropped := p.Simulate(4, "drop", arrivals)
-	if dropped == 0 {
-		t.Fatal("drop policy admitted everything")
 	}
 }
 

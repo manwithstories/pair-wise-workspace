@@ -178,6 +178,23 @@ func (q *Queue) enqueueLocked(item Item) {
 	q.notEmpty.Signal()
 }
 
+// TryPush enqueues item only if it fits without waiting. ok is false when
+// the item would exceed a limit; err is non-nil only when the queue is
+// closed. It lets a producer emulate blocking with an explicit, deterministic
+// consumer step instead of parking a goroutine.
+func (q *Queue) TryPush(item Item) (bool, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.closed {
+		return false, q.closedErrLocked("trypush")
+	}
+	if q.overLimits(item.Bytes, int64(item.Span.Len())) {
+		return false, nil
+	}
+	q.enqueueLocked(item)
+	return true, nil
+}
+
 // Pop removes the oldest item. ok is false when the queue is empty and
 // closed, so consumers can drain and then exit. Pop returns the zero Item and
 // false while closed with items still queued only after those are drained.

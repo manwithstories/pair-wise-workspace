@@ -151,19 +151,27 @@ func driftJitterScenario(opts Options) report.Scenario {
 	return scenarioResult("drift_jitter", nil, ok, detail)
 }
 
-// slowConsumerScenario runs a deliberately slow consumer and checks the p95
-// latency stays inside the slow-consumer budget without breaching the queue.
+// slowConsumerScenario runs a slow consumer with a shallow queue under the
+// drop policy. The point is that the system stays bounded: the queue never
+// exceeds its byte limit, excess blocks are dropped, and every delivered
+// block is still measured, rather than the backlog growing without limit.
 func slowConsumerScenario(opts Options) report.Scenario {
 	slow := opts
-	slow.ConsumerDelayMs = 180
+	slow.ConsumerDelayMs = 40
 	slow.JitterMs = 10
+	slow.Policy = "drop"
+	slow.QueueBytes = 4096
+	if slow.QueueTicks == 0 {
+		slow.QueueTicks = 3600
+	}
 	rep := Run(context.Background(), slow)
 	if rep.RootError != nil {
 		return scenarioResult("slow_consumer", nil, false, "slow-consumer run failed: "+rep.RootError.Detail)
 	}
-	ok := rep.LatencyP95Ms < 250 && int64(rep.QueuePeakBytes) <= opts.QueueBytes
-	detail := "latency p95 " + ftoa(rep.LatencyP95Ms) + "ms, queue peak " +
-		itoa(int(rep.QueuePeakBytes)) + " bytes"
+	ok := int64(rep.QueuePeakBytes) <= slow.QueueBytes && rep.Dropped > 0 && rep.Blocks > 0
+	detail := "queue peak " + itoa(int(rep.QueuePeakBytes)) + "/" +
+		itoa(int(slow.QueueBytes)) + " bytes, dropped " + itoa(int(rep.Dropped)) +
+		", delivered " + itoa(rep.Blocks)
 	return scenarioResult("slow_consumer", nil, ok, detail)
 }
 

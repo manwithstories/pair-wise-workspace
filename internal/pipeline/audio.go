@@ -18,6 +18,7 @@ import (
 type audioResult struct {
 	dropped     int64
 	evicted     int64
+	latencies   []float64
 	before      []audio.Block
 	after       []audio.Block
 	stats       audio.LoudnessStats
@@ -30,19 +31,19 @@ type audioResult struct {
 // loudness. The queue is a real bounded queue; the consumer pacing is modeled
 // deterministically so the byte/duration limits and the policy are exercised
 // without scheduler dependence.
-func runAudio(ctx context.Context, opts Options) (audioResult, stream.Stats, []float64, error) {
+func runAudio(ctx context.Context, opts Options) (audioResult, stream.Stats, error) {
 	var res audioResult
 	srcLayout, err := audio.ParseLayout(opts.SourceLayout)
 	if err != nil {
-		return res, stream.Stats{}, nil, err
+		return res, stream.Stats{}, err
 	}
 	dstLayout, err := audio.ParseLayout(opts.TargetLayout)
 	if err != nil {
-		return res, stream.Stats{}, nil, err
+		return res, stream.Stats{}, err
 	}
 	if err := audio.ValidateLoudnessConfig(audio.LoudnessConfig{
 		TargetLUFS: opts.TargetLUFS, PeakCeiling: opts.PeakCeiling}); err != nil {
-		return res, stream.Stats{}, nil, err
+		return res, stream.Stats{}, err
 	}
 	_, wav, format, err := fixture.Signal(fixture.SignalConfig{
 		SampleRate: opts.SourceRate, Layout: srcLayout, Frames: opts.Frames,
@@ -50,141 +51,84 @@ func runAudio(ctx context.Context, opts Options) (audioResult, stream.Stats, []f
 		Seed: opts.Seed, DropIndex: -1,
 	})
 	if err != nil {
-		return res, stream.Stats{}, nil, fault.Wrap(fault.CodeInternal, "pipeline.audio", err, "generate input")
+		return res, stream.Stats{}, fault.Wrap(fault.CodeInternal, "pipeline.audio", err, "generate input")
 	}
 	info, err := audio.Parse(wav, opts.SourceLayout)
 	if err != nil {
-		return res, stream.Stats{}, nil, err
+		return res, stream.Stats{}, err
 	}
 	decoded, err := audio.Decode(wav, info, opts.BlockSize)
 	if err != nil {
-		return res, stream.Stats{}, nil, err
+		return res, stream.Stats{}, err
 	}
 	r, err := audio.NewResampler(audio.ResamplerConfig{
 		SrcRate: format.SampleRate, DstRate: opts.TargetRate, Layout: dstLayout})
 	if err != nil {
-		return res, stream.Stats{}, nil, err
-	}
-	q, err := stream.New(stream.Config{
-		MaxBytes: opts.QueueBytes, MaxTicks: opts.QueueTicks, Policy: stream.Policy(opts.Policy)})
-	if err != nil {
-		return res, stream.Stats{}, nil, err
+		return res, stream.Stats{}, err
 	}
 	var emitted []audio.Block
 	for _, b := range decoded {
 		if err := ctx.Err(); err != nil {
-			q.Cancel(err)
-			return res, q.Stats(), nil, fault.Wrap(fault.CodeQueueCanceled, "pipeline.audio", err,
+			return res, stream.Stats{}, fault.Wrap(fault.CodeQueueCanceled, "pipeline.audio", err,
 				"context canceled during audio stage")
 		}
 		mappedData, plan, err := audio.MapLayout(b.Layout, b.Data, b.Frames, dstLayout)
 		if err != nil {
-			return res, q.Stats(), nil, err
+			return res, stream.Stats{}, err
 		}
 		res.plan = plan
 		mb := audio.Block{StartFrame: b.StartFrame, StartTick: b.StartTick,
 			SampleRate: b.SampleRate, Layout: dstLayout, Frames: b.Frames, Data: mappedData}
 		if err := r.Push(mb); err != nil {
-			return res, q.Stats(), nil, err
+			return res, stream.Stats{}, err
 		}
 		emitted = append(emitted, r.Slurp(false, opts.BlockSize)...)
 	}
 	emitted = append(emitted, r.Slurp(true, opts.BlockSize)...)
 	if len(emitted) == 0 {
-		return res, q.Stats(), nil, fault.New(fault.CodeInternal, "pipeline.audio",
+		return res, stream.Stats{}, fault.New(fault.CodeInternal, "pipeline.audio",
 			"audio stage produced no output blocks")
 	}
 
-	// Every block goes through the bounded queue. The consumer retires the
-	// oldest block whenever the queue is full, so the block policy models a
-	// slow-but-progressing consumer instead of discarding audio. Drop
-	// policies reject the incoming block, which is reported as dropped.
+	// Every block goes through a real bounded queue driven by the Pump: a
+	// virtual consumer retires one block per block duration and the producer
+	// pushes at each block's media arrival time. Queue depth therefore
+	// reflects genuine backlog, and the policy is exercised exactly as live.
 	arrivals := make([]float64, 0, len(emitted))
 	src := rng.New(opts.Seed ^ 0xA5A5A5A5)
 	blockMs := float64(opts.BlockSize) * 1000 / float64(opts.TargetRate)
-	consume := func() {
-		it, ok := q.Pop()
-		if !ok {
-			return
-		}
-		if b, ok := it.Value.(audio.Block); ok {
-			res.before = append(res.before, b)
-		}
-	}
-	for i, b := range emitted {
-		item := stream.Item{Bytes: b.Bytes(),
-			Span:  clock.Span{Start: b.StartTick, End: b.EndTick()},
-			Label: "audio", Value: b}
-		ok, err := q.TryPush(item)
-		if err != nil {
-			return res, q.Stats(), nil, err
-		}
-		if !ok {
-			if opts.Policy == string(stream.Drop) {
-				// The producer gave up on this block because the queue was
-				// full; count it as a drop so the policy is observable.
-				res.dropped++
-				continue
-			}
-			if q.Policy() == stream.DropOldest {
-				// Evict the oldest to make room; it is a genuine drop.
-				if _, ok := q.Pop(); !ok {
-					return res, q.Stats(), nil, fault.New(fault.CodeInternal, "pipeline.audio",
-						"queue closed while evicting")
-				}
-				res.evicted++
-				if ok2, perr := q.TryPush(item); perr != nil {
-					return res, q.Stats(), nil, perr
-				} else if !ok2 {
-					res.dropped++
-					continue
-				}
-				arrivals = append(arrivals, float64(i)*blockMs+src.Float()*opts.JitterMs)
-				continue
-			}
-			// Block policy: a waiting producer makes progress each time the
-			// consumer retires a block. Resampling yields blocks of uneven
-			// media duration, so keep retiring until this item fits. If an
-			// empty queue still cannot take it, the item exceeds capacity.
-			for {
-				consume()
-				ok2, perr := q.TryPush(item)
-				if perr != nil {
-					return res, q.Stats(), nil, perr
-				}
-				if ok2 {
-					break
-				}
-				if q.Len() == 0 {
-					return res, q.Stats(), nil, fault.New(fault.CodeQueueLimit, "pipeline.audio",
-						"block of %d bytes / %d ticks exceeds an empty queue (%d bytes / %d ticks)",
-						b.Bytes(), int64(b.EndTick()-b.StartTick), opts.QueueBytes, opts.QueueTicks)
-				}
-			}
-		}
+	for i := range emitted {
 		arrivals = append(arrivals, float64(i)*blockMs+src.Float()*opts.JitterMs)
 	}
-	// Producer is done: close, then drain so the consumer exit releases
-	// every buffer. Without the close, Pop would park on an empty queue.
-	q.Close(nil)
-	for {
-		it, ok := q.Pop()
-		if !ok {
-			break
-		}
-		if b, ok := it.Value.(audio.Block); ok {
-			res.before = append(res.before, b)
-		}
+	q, err := stream.New(stream.Config{MaxBytes: opts.QueueBytes, MaxTicks: opts.QueueTicks,
+		Policy: stream.Policy(opts.Policy)})
+	if err != nil {
+		return res, stream.Stats{}, err
 	}
+	// A consumer that needs longer than one block duration to retire a
+	// block is genuinely slow: backlog builds and the policy engages. A
+	// consumer faster than the cadence keeps up.
+	service := blockMs
+	if opts.ConsumerDelayMs > service {
+		service = opts.ConsumerDelayMs
+	}
+	pump := &Pump{Queue: q, ServiceMs: service}
+	pr, err := pump.Run(emitted, arrivals)
+	if err != nil {
+		return res, q.Stats(), err
+	}
+	res.before = pr.Blocks
+	res.dropped, res.evicted = pr.Dropped, pr.Evicted
+	res.latencies = pr.Latencies
 	if len(res.before) == 0 {
-		return res, q.Stats(), nil, fault.New(fault.CodeInternal, "pipeline.audio",
+		return res, q.Stats(), fault.New(fault.CodeInternal, "pipeline.audio",
 			"queue admitted no blocks")
 	}
 	res.after, res.stats = audio.Loudness(res.before, audio.LoudnessConfig{
 		TargetLUFS: opts.TargetLUFS, PeakCeiling: opts.PeakCeiling})
 	res.roundingErr = r.RoundingError()
 	res.format = format
-	return res, q.Stats(), arrivals, nil
+	return res, q.Stats(), nil
 }
 
 // runRTP sends the audio blocks as RTP packets through the lossy path. Every
