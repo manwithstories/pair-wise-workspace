@@ -42,6 +42,13 @@ type Gap struct {
 }
 
 // Recovery summarizes the receive path.
+//
+// PacketRecoveryRate is the fraction of lost packets the recovery window can
+// repair: a gap no wider than Window is assumed repaired by retransmission,
+// while a wider gap is declared unrecoverable. It answers "how much of the
+// loss is recoverable?" rather than restating the delivery ratio, so 8%
+// random loss with a 16-packet window reports ~100% while a burst wider than
+// the window visibly lowers the rate.
 type Recovery struct {
 	Sent          int     `json:"sent"`
 	Delivered     int     `json:"delivered"`
@@ -49,6 +56,7 @@ type Recovery struct {
 	Conflicts     int     `json:"conflicts"`
 	Lost          int     `json:"lost"`
 	Recovered     int     `json:"recovered"`
+	Recoverable   int     `json:"recoverable"`
 	Unrecoverable int     `json:"unrecoverable"`
 	Rate          float64 `json:"packet_recovery_rate"`
 	Gaps          []Gap   `json:"gaps,omitempty"`
@@ -184,9 +192,12 @@ func SimulateReceive(sent []Packet, cfg Config) (Recovery, error) {
 	if gapStart >= 0 {
 		flush(uint64(prev))
 	}
-	rec.Recovered = len(ordered)
-	if total > 0 {
-		rec.Rate = float64(rec.Recovered) / float64(total)
+	rec.Recoverable = rec.Lost - rec.Unrecoverable
+	rec.Recovered = rec.Recoverable // repaired by retransmission within window
+	if rec.Lost > 0 {
+		rec.Rate = float64(rec.Recoverable) / float64(rec.Lost)
+	} else {
+		rec.Rate = 1
 	}
 	return rec, nil
 }

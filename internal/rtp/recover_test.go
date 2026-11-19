@@ -129,8 +129,13 @@ func TestBeyondWindowGapIsUnrecoverable(t *testing.T) {
 	if len(rec.Gaps) != 1 || rec.Gaps[0].Reason != ReasonWindow {
 		t.Fatalf("gaps=%+v", rec.Gaps)
 	}
-	if rec.Rate >= 0.9 {
-		t.Fatalf("rate %.3f should reflect unrecoverable gap", rec.Rate)
+	// None of the loss is repairable, so the recovery rate is zero even
+	// though 160 of 200 packets were delivered.
+	if rec.Rate != 0 {
+		t.Fatalf("rate %.3f should be 0 for a fully unrecoverable burst", rec.Rate)
+	}
+	if rec.Recoverable != 0 {
+		t.Fatalf("recoverable=%d", rec.Recoverable)
 	}
 }
 
@@ -146,6 +151,9 @@ func TestSmallGapIsRecoverable(t *testing.T) {
 	rec, _ := SimulateReceive(kept, Config{Seed: 2, Window: 8})
 	if rec.Unrecoverable != 0 || len(rec.Gaps) != 1 || rec.Gaps[0].Count != 2 {
 		t.Fatalf("rec=%+v", rec)
+	}
+	if rec.Rate != 1 || rec.Recoverable != 2 {
+		t.Fatalf("small gap must be fully recoverable: %+v", rec)
 	}
 }
 
