@@ -343,6 +343,10 @@ def test_cache_reuses_only_identical_input_and_strategy(fixtures, tmp_path):
     second = process_asset(fixtures.normal, _options(tmp_path))
     assert second.reused is True
     assert second.result.cache == "hit"
+    # A reuse must publish the bytes under the same stable output path.
+    assert second.result.output == first.result.output
+    assert second.result.output is not None and second.result.output.exists()
+    assert second.result.output == tmp_path / "outputs" / "normal_master.remux.mp4"
 
     changed = _options(tmp_path)
     changed.timeout_s = 31.0

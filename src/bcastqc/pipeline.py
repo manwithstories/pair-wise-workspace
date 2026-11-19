@@ -200,6 +200,22 @@ def _compare_packets(
     return matched, total, mismatches
 
 
+def _publish_cached(cached: Path, output_dir: Path, source: Path) -> Path:
+    """Copy a cached remux back to ``output_dir`` under the stable name."""
+    target = output_dir / f"{source.stem}.remux{source.suffix}"
+    if target.exists() and target.stat().st_size == cached.stat().st_size:
+        return target
+    output_dir.mkdir(parents=True, exist_ok=True)
+    sink = atomic_output(output_dir, target.name)
+    try:
+        shutil.copyfile(cached, sink.temp_path)
+        sink.commit()
+    except BaseException:
+        sink.discard()
+        raise
+    return sink.final_path
+
+
 def process_asset(
     path: Path, options: PipelineOptions
 ) -> PipelineResult:
@@ -225,7 +241,12 @@ def process_asset(
         cached = load_cached(options.cache_dir, key, suffix=path.suffix)
         if cached is not None:
             payload, media = cached
-            result = _result_from_cache(payload, path, media)
+            # Re-materialise the cached bytes under the normal output name.
+            # The report must point at the same stable path whether the asset
+            # was just processed or reused, or an operator following the JSON
+            # would be sent into the cache directory.
+            published = _publish_cached(media, options.output_dir, path)
+            result = _result_from_cache(payload, path, published)
             result.latency_ms = (time.monotonic() - started) * 1000.0
             result.cache = "hit"
             result.extra["cache_key"] = key
