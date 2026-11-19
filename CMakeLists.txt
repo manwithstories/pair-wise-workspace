@@ -14,6 +14,7 @@ pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
   libavformat libavcodec libswresample libavutil)
 
 add_library(media_core STATIC
+  src/checkpoint_index.cpp
   src/error_model.cpp
   src/jitter_buffer.cpp
   src/packet_reorder.cpp
