@@ -25,7 +25,7 @@ func TestConsecutiveLossRuns(t *testing.T) {
 		t.Fatalf("want 1 unrecovered range, got %v", rep.UnrecoveredRanges)
 	}
 	r := rep.UnrecoveredRanges[0]
-	if r[0] != 65500 || r[1] != 65500+49 {
+	if r[0] != 65500 || r[1] != 13 { // 65500+49 wraps to 13
 		t.Fatalf("range across wrap: %v", r)
 	}
 
