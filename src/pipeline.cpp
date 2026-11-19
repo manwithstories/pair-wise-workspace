@@ -118,6 +118,17 @@ int run_pipeline(const PipelineConfig& cfg, PipelineMetrics& m) {
   if (read.truncated && cfg.truncated_stream)
     ++m.errors_by_code[error_code_name(ErrorCode::StreamTruncated)];
 
+  // Corrupt-input conditions map to CLI exit code 2: a truncated stream or an
+  // index defect that cannot be fully repaired (out-of-range / non-monotonic).
+  for (const auto& e : read.errors) {
+    if (e.code == ErrorCode::StreamTruncated ||
+        e.code == ErrorCode::IndexOffsetOutOfRange ||
+        e.code == ErrorCode::IndexNotMonotonic ||
+        e.code == ErrorCode::OversizeDeclaration)
+      m.input_corrupt = true;
+  }
+  if (read.truncated && cfg.truncated_stream) m.input_corrupt = true;
+
   // ---- Stage 2: network replay -----------------------------------------------
   NetworkConfig nc;
   nc.seed = cfg.seed;
@@ -194,7 +205,9 @@ int run_pipeline(const PipelineConfig& cfg, PipelineMetrics& m) {
       ++m.errors_by_code[error_code_name(ErrorCode::PacketUnrecoverable)];
 
   // ---- Stage 6: checkpointed block index -------------------------------------
-  return checkpoint_stage(cfg, bundle, m, video_items);
+  const int cp_rc = checkpoint_stage(cfg, bundle, m, video_items);
+  if (cp_rc != 0) return cp_rc;        // checkpoint unrecoverable -> exit 3
+  return m.input_corrupt ? 2 : 0;      // corrupt input/index -> exit 2
 }
 
 std::string format_metrics(const PipelineMetrics& m) {

@@ -39,6 +39,7 @@ struct PipelineMetrics {
   std::map<std::string, std::uint64_t> errors_by_code;
   bool interrupted = false;
   bool checkpoint_corrupt = false;
+  bool input_corrupt = false;
 };
 
 // Full deterministic run. Returns 0 on success, 2 on corrupt input/index,
