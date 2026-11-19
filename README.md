@@ -78,9 +78,9 @@ $ go run ./cmd/archivist recover --input /tmp/archive-fixture/timeline.json \
       --json /tmp/archive-fixture/result.json
 summary tracks=4 corrupt_ranges=1 recovered_ranges=1 unrecoverable_ranges=0
 acceptance tracks=4 corrupt_ranges>=1:true wraps=1 wraps>=1:true constant_fps=false
-acceptance sync_error_p95_ms=1.776 sync_error_p95_ms<=20:true
+acceptance sync_error_p95_ms=0.132 sync_error_p95_ms<=20:true
 acceptance packet_recovery_rate=0.954 packet_recovery_rate>=0.90:true
-acceptance latency_p95_ms=4.073 latency_p95_ms<=250:true (iterations=30)
+acceptance latency_p95_ms=3.734 latency_p95_ms<=250:true (iterations=30)
 metrics keyframe_snap_p95_ms=16.666 crossfade_skew_p95_ms=0.000 boundaries recovered=12 blocked=0
 ```
 
@@ -138,10 +138,13 @@ time, computed in exact rational arithmetic and rounded to 0.001 ppm. Only
 packets that arrive in media order take part; a reordered packet's arrival lag
 is transport jitter, not clock skew. Drift beyond 80 ppm raises a review flag
 and the track is still processed, because the normalized clock remains
-monotonic.
+monotonic. Correcting a slow clock lengthens its elapsed time by that fraction,
+so a 60 s capture whose clock runs 120 ppm slow does not accumulate the 14 ms
+error a sign error would produce.
 
 The capture stores the full 33-bit clock in an RTP header extension, since the
-RFC 3550 timestamp field is only 32 bits.
+RFC 3550 timestamp field is only 32 bits; a capture without the extension falls
+back to a 32-bit modulus.
 
 ### Packets (`internal/rtp`)
 
