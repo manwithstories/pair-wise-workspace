@@ -16,8 +16,8 @@ import numpy as np
 
 from .model import PIX_FMT_IDS, TIMESTAMP_WRAP_NS, frame_nbytes
 
-_V1 = struct.Struct("<4sBBHIQBBHHII")
-_V2 = struct.Struct("<4sBBHIQBBHHIIqI")
+_V1 = struct.Struct("<4sBBHIQBBHHHII")
+_V2 = struct.Struct("<4sBBHIQBBHHHIIqI")
 
 WIDTH, HEIGHT = 64, 48
 STEP_NS = 40_000_000  # 25 fps

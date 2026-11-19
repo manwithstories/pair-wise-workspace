@@ -46,9 +46,11 @@ class Demuxer:
                 events.append(Quarantined(record, "duplicate sequence number"))
                 return events
             st.segment_index += 1
-            st.wrap_count = 0
-            st.last_pts_ns = None
             st.segment = None
+            # The device clock keeps running across a card swap: unwrap
+            # state carries over so the unified timeline stays monotonic.
+            # A clock that genuinely restarted becomes unresolvable below
+            # and the record is quarantined, never silently reordered.
         st.last_seq = record.seq
 
         if st.segment is None:

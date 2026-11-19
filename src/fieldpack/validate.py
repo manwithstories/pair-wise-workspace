@@ -84,12 +84,14 @@ def _validate_audio(audio: dict, base: Path) -> bool:
     from .mapping import summarise_audio
 
     wav = Path(audio["path"])
-    if not wav.is_absolute():
-        wav = base / wav
-    try:
-        return summarise_audio(wav).sha256 == audio["sha256"]
-    except Exception:
-        return False
+    candidates = [wav] if wav.is_absolute() else [Path.cwd() / wav, base / wav]
+    for candidate in candidates:
+        if candidate.is_file():
+            try:
+                return summarise_audio(candidate).sha256 == audio["sha256"]
+            except Exception:
+                return False
+    return False
 
 
 def validate_output(container_path: str | Path, index_path: str | Path) -> ValidationReport:
@@ -157,13 +159,19 @@ def validate_output(container_path: str | Path, index_path: str | Path) -> Valid
         if segment_chains[key].hexdigest() == seg["sha256"]:
             report.segments_matched += 1
 
-    indexed_kf: list[int] = []
-    scanned_kf: list[int] = []
+    # Keyframe index is checked per track so one track's bad entries never
+    # disturb another track's statistics.
+    indexed_by_dev: dict[int, list[int]] = {}
     for kf in index["keyframes"]:
-        indexed_kf.append(kf["pts_ns"])
-    for pts_list in scanned_keyframes.values():
-        scanned_kf.extend(pts_list)
-    report.keyframes = check_keyframe_index(indexed_kf, scanned_kf)
+        indexed_by_dev.setdefault(kf["device_id"], []).append(kf["pts_ns"])
+    combined = KeyframeCheck(indexed=0, scanned=0, hits=0)
+    for dev, idx_pts in indexed_by_dev.items():
+        check = check_keyframe_index(idx_pts, scanned_keyframes.get(dev, []))
+        combined.indexed += check.indexed
+        combined.scanned += check.scanned
+        combined.hits += check.hits
+        combined.errors.extend(f"device={dev}: {e}" for e in check.errors)
+    report.keyframes = combined
 
     if index.get("audio"):
         report.audio_ok = _validate_audio(index["audio"], container_path.parent)

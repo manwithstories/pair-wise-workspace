@@ -32,9 +32,9 @@ MAGICS = {b"FPR1": 1, b"FPR2": 2}
 
 # magic(4) version(1) flags(1) device(2) seq(4) ts(8) pixfmt(1) rsvd(1)
 # width(2) height(2) meta_len(2) payload_len(4) crc32(4)            = 36
-_V1 = struct.Struct("<4sBBHIQBBHHII")
+_V1 = struct.Struct("<4sBBHIQBBHHHII")
 # v2 appends exposure_ns(8, signed) iso(4)                          = 48
-_V2 = struct.Struct("<4sBBHIQBBHHIIqI")
+_V2 = struct.Struct("<4sBBHIQBBHHHIIqI")
 _HEADERS = {1: _V1, 2: _V2}
 
 FLAG_KEYFRAME = 0x01
