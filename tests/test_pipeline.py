@@ -68,6 +68,25 @@ def test_manifest_parses_three_representations(archive: Path) -> None:
     assert not parsed.has_fatal()
 
 
+def test_dash_segment_timeline_maps_to_microseconds(tmp_path: Path) -> None:
+    mpd = (
+        '<MPD mediaPresentationDuration="PT6S">'
+        '<AdaptationSet mimeType="video/mp4">'
+        '<Representation id="v0" codecs="avc1.64" bandwidth="100000">'
+        '<SegmentTemplate timescale="1000" media="$RepresentationID$_$Number$.m4s" startNumber="1">'
+        '<SegmentTimeline><S t="0" d="2000" r="2"/></SegmentTimeline>'
+        '</SegmentTemplate></Representation></AdaptationSet></MPD>'
+    )
+    path = tmp_path / "a.mpd"
+    path.write_text(mpd)
+    parsed = parse_manifest(path)
+    rep = parsed.representations[0]
+    assert [(s.start_us, s.duration_us) for s in rep.segments] == [
+        (0, 2_000_000), (2_000_000, 2_000_000), (4_000_000, 2_000_000)]
+    result = build_timelines(parsed.representations)
+    assert result.timelines["v0"].duration_us == 6_000_000
+
+
 # ---------------------------------------------------------------- timeline
 
 def test_rollback_is_classified_not_silently_overwritten(archive: Path) -> None:
