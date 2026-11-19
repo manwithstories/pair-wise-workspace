@@ -102,6 +102,8 @@ class ProbeResult:
     packet_counts: dict[int, int] = field(default_factory=dict)
     container_metadata: dict[str, str] = field(default_factory=dict)
     observed_duration_ticks: int | None = None
+    open_error: str | None = None
+    index_info: dict[str, object] = field(default_factory=dict)
 
     @property
     def media_streams(self) -> list[StreamInfo]:
@@ -118,6 +120,11 @@ class ProbeResult:
     @property
     def truncated(self) -> bool:
         return any(issue.kind == "truncated" for issue in self.issues)
+
+    @property
+    def unreadable(self) -> bool:
+        """True when the container could not be opened at all."""
+        return self.open_error is not None and not self.streams
 
     @property
     def has_index(self) -> bool:
@@ -140,8 +147,11 @@ class ProbeResult:
             "packet_counts": {str(k): v for k, v in sorted(self.packet_counts.items())},
             "container_metadata": dict(self.container_metadata),
             "observed_duration_ticks": self.observed_duration_ticks,
+            "open_error": self.open_error,
+            "index_info": dict(self.index_info),
             "has_index": self.has_index,
             "truncated": self.truncated,
+            "unreadable": self.unreadable,
         }
 
 
@@ -209,6 +219,218 @@ def _mkv_has_cues(path: Path) -> bool | None:
     return b"\x1c\x53\xbb\x6b" in data
 
 
+# EBML readers shared by the structural checks below.  Element IDs keep the
+# length-marker bit (that is how IDs are specified), while data sizes must have
+# it stripped before the value is usable.
+def _read_vint(data: bytes, position: int) -> tuple[int | None, int]:
+    """Read an EBML element ID, keeping its length marker."""
+    return _read_vint_raw(data, position, keep_marker=True)
+
+
+def _read_size(data: bytes, position: int) -> tuple[int | None, int]:
+    """Read an EBML data size, stripping its length marker."""
+    return _read_vint_raw(data, position, keep_marker=False)
+
+
+def _read_vint_raw(data: bytes, position: int, *, keep_marker: bool) -> tuple[int | None, int]:
+    if position >= len(data):
+        return None, 0
+    first = data[position]
+    if first == 0:
+        return None, 0
+    width = 1
+    mask = 0x80
+    while width <= 8 and not first & mask:
+        mask >>= 1
+        width += 1
+    if width > 8 or position + width > len(data):
+        return None, 0
+    if keep_marker:
+        value = first
+    else:
+        value = first & (mask - 1)
+    for offset in range(1, width):
+        value = (value << 8) | data[position + offset]
+    return value, width
+
+
+def _mkv_index_health(path: Path) -> tuple[bool, list[str], int | None]:
+    """Walk a Matroska file's top-level structure and inspect its Cues.
+
+    Returns ``(has_cues, problems, cue_count)``.  ``problems`` contains
+    stable tokens - ``no_cues``, ``duplicate_cue``, ``cue_out_of_order``,
+    ``cue_past_eof`` - that the CLI surfaces verbatim.  Structural parse
+    failures degrade to ``(False, ["no_cues"], None)`` rather than raising:
+    index health must never be inferred from a best-effort parse that crashed.
+    """
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return False, ["no_cues"], None
+    if not data.startswith(b"\x1a\x45\xdf\xa3"):
+        return False, ["no_cues"], None
+
+    position = 0
+    # Skip the EBML header element.
+    _, header_id_len = _read_vint(data, position)
+    header_size, header_size_len = _read_size(data, position + header_id_len)
+    if header_size is None:
+        return False, ["no_cues"], None
+    # The EBML header is a regular sized element, so the Segment ID follows
+    # immediately at its declared end; no padding to skip.
+    position += header_id_len + header_size_len + header_size
+
+    segment_id, id_len = _read_vint(data, position)
+    if segment_id is None:
+        return False, ["no_cues"], None
+    segment_size, size_len = _read_size(data, position + id_len)
+    if segment_size is None:
+        return False, ["no_cues"], None
+    body_start = position + id_len + size_len
+    unknown_size = segment_size == (1 << (7 * size_len)) - 1
+    body_end = len(data) if unknown_size else min(len(data), body_start + segment_size)
+
+    cues_payload: bytes | None = None
+    cursor = body_start
+    while cursor < body_end:
+        element_id, element_id_len = _read_vint(data, cursor)
+        if element_id is None:
+            break
+        element_size, element_size_len = _read_size(data, cursor + element_id_len)
+        if element_size is None:
+            break
+        payload_start = cursor + element_id_len + element_size_len
+        payload_end = min(len(data), payload_start + element_size)
+        if element_id == 0x1C53BB6B:  # Cues
+            cues_payload = data[payload_start:payload_end]
+            break
+        cursor = payload_start + element_size
+
+    if cues_payload is None:
+        return False, ["no_cues"], None
+
+    times: list[int] = []
+    offenders: set[str] = set()
+    cursor = 0
+    header_size_total = len(data)
+    while cursor < len(cues_payload):
+        element_id, element_id_len = _read_vint(cues_payload, cursor)
+        if element_id is None:
+            break
+        element_size, element_size_len = _read_size(cues_payload, cursor + element_id_len)
+        if element_size is None:
+            break
+        if element_id != 0xBB:  # CuePoint; skip other Cues children (e.g. CRC-32)
+            cursor = cursor + element_id_len + element_size_len + element_size
+            continue
+        point_start = cursor + element_id_len + element_size_len
+        point_end = min(len(cues_payload), point_start + element_size)
+        time_value, position_value = _parse_cue_point(cues_payload, point_start, point_end)
+        if time_value is not None:
+            if times and time_value < times[-1]:
+                offenders.add("cue_out_of_order")
+            elif time_value in times:
+                offenders.add("duplicate_cue")
+            times.append(time_value)
+        if position_value is not None and position_value >= header_size_total:
+            offenders.add("cue_past_eof")
+        cursor = point_start + element_size
+
+    order = {
+        "duplicate_cue": 0,
+        "cue_out_of_order": 1,
+        "cue_past_eof": 2,
+    }
+    return True, sorted(offenders, key=lambda name: order.get(name, 99)), len(times)
+
+
+def _parse_cue_point(payload: bytes, start: int, end: int) -> tuple[int | None, int | None]:
+    time_value: int | None = None
+    position_value: int | None = None
+    cursor = start
+    while cursor < end:
+        element_id, element_id_len = _read_vint(payload, cursor)
+        if element_id is None:
+            break
+        element_size, element_size_len = _read_size(payload, cursor + element_id_len)
+        if element_size is None:
+            break
+        child_start = cursor + element_id_len + element_size_len
+        child_end = min(end, child_start + element_size)
+        if element_id == 0xB3:  # CueTime
+            time_value = int.from_bytes(payload[child_start:child_end], "big")
+        elif element_id == 0xB7:  # CueTrackPositions
+            position_value = _parse_cue_track_positions(payload, child_start, child_end)
+        cursor = child_start + element_size
+    return time_value, position_value
+
+
+def _parse_cue_track_positions(payload: bytes, start: int, end: int) -> int | None:
+    position: int | None = None
+    cursor = start
+    while cursor < end:
+        element_id, element_id_len = _read_vint(payload, cursor)
+        if element_id is None:
+            break
+        element_size, element_size_len = _read_size(payload, cursor + element_id_len)
+        if element_size is None:
+            break
+        child_start = cursor + element_id_len + element_size_len
+        child_end = min(end, child_start + element_size)
+        if element_id == 0xF1:  # CueClusterPosition
+            position = int.from_bytes(payload[child_start:child_end], "big")
+        cursor = child_start + element_size
+    return position
+
+
+def _iso_bmff_atoms(path: Path) -> list[str] | None:
+    """Return the top-level atom types of an ISO-BMFF file, or ``None``.
+
+    Used to tell a tail-truncated MP4/MOV (``moov`` index lost) from a file
+    that was never a valid container: a readable ``ftyp`` followed by a missing
+    ``moov`` is the classic truncation signature.
+    """
+    try:
+        with path.open("rb") as handle:
+            data = handle.read(1 << 16)
+    except OSError:
+        return None
+    if len(data) < 8 or data[4:8] != b"ftyp":
+        return None
+    atoms: list[str] = []
+    position = 0
+    size_total = path.stat().st_size
+    try:
+        handle = path.open("rb")
+    except OSError:
+        return None
+    with handle:
+        while position + 8 <= size_total:
+            handle.seek(position)
+            header = handle.read(16)
+            if len(header) < 8:
+                break
+            size = int.from_bytes(header[0:4], "big")
+            atom = header[4:8].decode("latin1", "replace")
+            atoms.append(atom)
+            if size == 1 and len(header) >= 16:
+                size = int.from_bytes(header[8:16], "big")
+            if size < 8:
+                break
+            position += size
+    return atoms
+
+
+def _classify_open_failure(path: Path) -> ProbeIssue:
+    atoms = _iso_bmff_atoms(path)
+    if atoms is not None and "moov" not in atoms:
+        return ProbeIssue(
+            "truncated",
+            "ISO-BMFF file has ftyp but no moov atom; the index at the tail was lost",
+        )
+    return ProbeIssue("corrupt", "container header could not be parsed")
+
+
 def probe(
     path: str | Path,
     *,
@@ -243,17 +465,27 @@ def probe(
     try:
         container = av.open(str(source))
     except av.error.FFmpegError as exc:
-        raise InputError(
-            "container could not be opened",
-            path=str(source),
-            error=str(exc),
+        issue = _classify_open_failure(source)
+        return ProbeResult(
+            path=source,
+            format_name="",
+            format_long_name="",
+            duration_ticks=None,
+            start_ticks=None,
+            bit_rate=None,
             size_bytes=size_bytes,
-        ) from exc
+            streams=[],
+            issues=[issue],
+            packet_counts={},
+            container_metadata={},
+            open_error=str(exc),
+        )
 
     try:
         format_name = container.format.name or ""
         format_long_name = container.format.long_name or format_name
-        time_base = Fraction(1, 1_000_000) if container.format.name else Fraction(1, 1)
+        index_info: dict[str, object] = {}
+        # Container-level duration/start use av.time_base (microseconds).
         duration_ticks = (
             to_ticks(container.duration, Fraction(1, 1_000_000))
             if container.duration is not None
@@ -269,10 +501,23 @@ def probe(
         bit_rate = container.bit_rate
 
         if "matroska" in format_name or "webm" in format_name:
-            cues = _mkv_has_cues(source)
-            if cues is False:
+            has_cues, problems, cue_count = _mkv_index_health(source)
+            index_info = {"has_cues": has_cues, "problems": problems, "cue_count": cue_count}
+            if not has_cues:
                 issues.append(
-                    ProbeIssue("no_index", "Matroska segment has no Cues element; seeking degrades to linear scan")
+                    ProbeIssue(
+                        "no_index",
+                        "Matroska segment has no Cues element; seeking degrades to linear scan",
+                    )
+                )
+            for problem in problems:
+                if problem == "no_cues":
+                    continue
+                issues.append(
+                    ProbeIssue(
+                        "index_corrupt",
+                        f"Matroska Cues table is unusable: {problem}",
+                    )
                 )
 
         if scan_packets:
@@ -307,10 +552,25 @@ def probe(
                                 last_ticks[packet.stream.index] = max(
                                     last_ticks.get(packet.stream.index, 0), end
                                 )
+                        if packet.is_corrupt:
+                            issues.append(
+                                ProbeIssue(
+                                    "corrupt",
+                                    f"demuxer flagged corrupted packet at pts={packet.pts}",
+                                    stream_index=packet.stream.index,
+                                )
+                            )
                         if decode_check:
                             try:
-                                for _frame in packet.decode():
-                                    pass
+                                for frame in packet.decode():
+                                    if getattr(frame, "is_corrupt", False):
+                                        issues.append(
+                                            ProbeIssue(
+                                                "corrupt",
+                                                f"decoded frame marked corrupt at pts={packet.pts}",
+                                                stream_index=packet.stream.index,
+                                            )
+                                        )
                             except av.error.FFmpegError as exc:
                                 issues.append(
                                     ProbeIssue(
@@ -381,6 +641,7 @@ def probe(
         packet_counts=packet_counts,
         container_metadata=container_metadata,
         observed_duration_ticks=observed_duration,
+        index_info=index_info,
     )
 
 
