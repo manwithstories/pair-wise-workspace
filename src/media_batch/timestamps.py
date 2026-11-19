@@ -58,23 +58,44 @@ class TimecodeSeries:
     wraps: int
 
 
+def split_timecode_lines(data: bytes) -> list[tuple[str, int]]:
+    """Split raw timecode text into (stripped line, byte offset) pairs.
+
+    Blank lines are skipped but still advance the byte offset, so every
+    reported offset points at the exact first byte of its record.
+    """
+    out: list[tuple[str, int]] = []
+    pos = 0
+    for raw in data.split(b"\n"):
+        line_off = pos
+        pos += len(raw) + 1
+        text = raw.rstrip(b"\r").strip()
+        if text:
+            out.append((text.decode("utf-8", errors="replace"), line_off))
+    return out
+
+
 def unwrap_timecodes(codes: list[str], fps: Fraction, log: ErrorLog,
-                     source: str = "") -> TimecodeSeries:
+                     source: str = "", offsets: list[int] | None = None
+                     ) -> TimecodeSeries:
     """Convert timecode strings to monotonically unwrapped frame numbers.
 
     A drop of roughly one day's worth of frames is treated as midnight wrap;
-    any other regression or duplicate is logged, never sorted away.
+    any other regression or duplicate is logged with the byte offset of the
+    offending line, never sorted away.
     """
     frames: list[int] = []
     wraps = 0
     day = frames_per_day(fps)
     prev_raw: int | None = None
+    prev_tc: str | None = None
     offset = 0
     for i, tc in enumerate(codes):
+        off = offsets[i] if offsets is not None and i < len(offsets) else -1
         try:
             raw = timecode_to_frames(tc, fps)
         except ValueError as exc:
-            log.add("invalid_timecode", str(exc), source, -1, i)
+            log.add("invalid_timecode", str(exc), source, off, i)
             continue
         if prev_raw is not None:
             delta = raw - prev_raw
@@ -83,12 +104,12 @@ def unwrap_timecodes(codes: list[str], fps: Fraction, log: ErrorLog,
                 offset += day
             elif delta < 0:
                 log.add("timestamp_regression",
-                        f"timecode {tc!r} regresses from previous {codes[i - 1]!r}",
-                        source, -1, i)
+                        f"timecode {tc!r} regresses from previous {prev_tc!r}",
+                        source, off, i)
             elif delta == 0:
                 log.add("timestamp_duplicate",
-                        f"duplicate timecode {tc!r}", source, -1, i)
-        prev_raw = raw
+                        f"duplicate timecode {tc!r}", source, off, i)
+        prev_raw, prev_tc = raw, tc
         frames.append(raw + offset)
     return TimecodeSeries(frames, wraps)
 
@@ -103,46 +124,49 @@ class DriftReport:
 
 def estimate_drift(anchor_samples: list[int], packet_times: list[Fraction],
                    sample_rate: int,
-                   limit: Fraction = DRIFT_LIMIT) -> DriftReport:
+                   limit: Fraction = DRIFT_LIMIT,
+                   window_seconds: int = 60) -> DriftReport:
     """Compare integer audio-sample times against container packet times.
 
     anchor_samples[i] and packet_times[i] (seconds, rational) describe the same
     media instant from the two clocks. If the implied drift exceeds `limit`
     (default 100 ms/min) the affected span is marked untrusted; durations are
     never compressed to compensate.
+
+    Drift is measured over non-overlapping windows of about `window_seconds`
+    rather than between adjacent packets: packet timestamps are quantised by
+    the container time base, and a single packet's rounding error would
+    otherwise look like a huge local drift.
     """
     if len(anchor_samples) < 2 or len(anchor_samples) != len(packet_times):
         return DriftReport(Fraction(0), Fraction(0), [], trusted=True)
-    s0, s1 = anchor_samples[0], anchor_samples[-1]
-    t0, t1 = packet_times[0], packet_times[-1]
-    span_samples = s1 - s0
-    if span_samples <= 0:
+    if anchor_samples[-1] - anchor_samples[0] <= 0:
         return DriftReport(Fraction(0), Fraction(0), [], trusted=True)
-    sample_span = Fraction(span_samples, sample_rate)
-    packet_span = t1 - t0
-    if sample_span <= 0:
-        return DriftReport(Fraction(0), Fraction(0), [], trusted=True)
-    drift = (packet_span - sample_span) / sample_span
+
+    def _local(a: int, b: int) -> Fraction:
+        ds = anchor_samples[b] - anchor_samples[a]
+        if ds <= 0:
+            return Fraction(0)
+        elapsed = Fraction(ds, sample_rate)
+        return ((packet_times[b] - packet_times[a]) - elapsed) / elapsed
+
+    drift = _local(0, len(anchor_samples) - 1)
     ms_per_min = drift * 60_000
     untrusted: list[tuple[int, int]] = []
-    trusted = True
-    if abs(drift) > limit:
-        trusted = False
-        # mark every span between consecutive anchors whose local drift exceeds
-        # the limit; fall back to the whole range
-        marked = False
-        for i in range(len(anchor_samples) - 1):
-            ds = anchor_samples[i + 1] - anchor_samples[i]
-            if ds <= 0:
-                continue
-            local = ((packet_times[i + 1] - packet_times[i])
-                     - Fraction(ds, sample_rate)) / Fraction(ds, sample_rate)
-            if abs(local) > limit:
-                untrusted.append((anchor_samples[i], anchor_samples[i + 1]))
-                marked = True
-        if not marked:
-            untrusted.append((s0, s1))
-    return DriftReport(drift, ms_per_min, untrusted, trusted)
+    if abs(ms_per_min) > limit * 60_000:
+        window = max(1, window_seconds) * sample_rate
+        i = 0
+        n = len(anchor_samples)
+        while i < n - 1:
+            j = i
+            while j + 1 < n and anchor_samples[j + 1] - anchor_samples[i] <= window:
+                j += 1
+            if j == i:
+                j = i + 1
+            if abs(_local(i, j) * 60_000) > limit * 60_000:
+                untrusted.append((anchor_samples[i], anchor_samples[j]))
+            i = j
+    return DriftReport(drift, ms_per_min, untrusted, trusted=not untrusted)
 
 
 def parse_rate(name: str) -> Fraction:
