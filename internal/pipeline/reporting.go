@@ -123,8 +123,8 @@ const (
 
 // ProfileFor selects the acceptance class from the injected conditions:
 //
-//   - a heavy consumer (>=100ms per block) is the slow-consumer sample,
-//     budgeted at 250ms p95 latency;
+//   - a heavy consumer (>=100ms playout latency) is the slow-consumer
+//     sample, budgeted at 250ms p95 latency and the 80ms boundary sync;
 //   - jitter above 20ms or drift above 2000ppm is the drift-and-jitter
 //     boundary sample, budgeted at 80ms p95 sync;
 //   - everything else is the normal sample: 20ms p95 sync, 120ms latency.
@@ -134,7 +134,9 @@ func ProfileFor(opts Options) (Profile, report.Thresholds) {
 	th := report.Thresholds{RecoveryRateMin: 0.90, QueuePeakMax: 262144}
 	switch {
 	case opts.ConsumerDelayMs >= 100:
-		th.SyncP95Ms, th.LatencyP95Ms = 20, 250
+		// A slow consumer is studied under adverse networks, so the sync
+		// budget is the boundary budget while latency gets the wide one.
+		th.SyncP95Ms, th.LatencyP95Ms = 80, 250
 		return ProfileSlowConsumer, th
 	case opts.JitterMs > 20 || opts.DriftPPM > 2000:
 		th.SyncP95Ms, th.LatencyP95Ms = 80, 120

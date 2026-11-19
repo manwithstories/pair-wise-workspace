@@ -105,9 +105,10 @@ func (p *Pump) Run(blocks []audio.Block, arrivals []float64) (PumpResult, error)
 				}
 			default: // block: wait for the consumer to make room
 				if p.Queue.Len() == 0 {
-					return res, fault.New(fault.CodeQueueLimit, "pipeline.pump",
-						"block of %d bytes / %d ticks exceeds an empty queue",
-						b.Bytes(), int64(b.EndTick()-b.StartTick))
+					return res, fault.New(fault.CodeInvalidArgument, "pipeline.pump",
+						"a single block (%d bytes, %d ticks incl. %0.0fms playout latency) "+
+							"exceeds the queue capacity; raise --queue-bytes or --queue-ms",
+						b.Bytes(), int64(span.End-span.Start), p.ConsumerMs)
 				}
 				it, got := p.Queue.Pop()
 				if !got {

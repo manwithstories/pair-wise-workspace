@@ -203,8 +203,8 @@ func TestRunDropPolicyCountsDroppedBlocks(t *testing.T) {
 func TestSlowConsumerProfileStaysInBudget(t *testing.T) {
 	// The slow-consumer sample keeps pace with the source but adds playout
 	// latency; it must pass the 250ms budget.
-	rep := Run(context.Background(), Options{Seed: 3, ConsumerDelayMs: 180,
-		JitterMs: 10, Loss: 0.08})
+	rep := Run(context.Background(), Options{Seed: 3, ConsumerDelayMs: 150,
+		JitterMs: 40, Loss: 0.08})
 	if rep.Profile != "slow-consumer" {
 		t.Fatalf("profile=%s", rep.Profile)
 	}

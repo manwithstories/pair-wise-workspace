@@ -97,15 +97,25 @@ func TestOutOfRangeFlagsExitTwo(t *testing.T) {
 }
 
 func TestMetricFailureExitsThree(t *testing.T) {
-	// A consumer far slower than the block cadence overruns the slow-consumer
-	// latency budget once the queue depth is tiny.
-	code, stdout, _ := execCLI(t, "run", "--seed", "7", "--consumer-delay-ms", "400",
-		"--queue-bytes", "8192", "--queue-ms", "60")
+	// A one-packet recovery window under heavy loss leaves most gaps
+	// unrecoverable, so packet_recovery_rate misses its 0.9 floor.
+	code, stdout, _ := execCLI(t, "run", "--seed", "2", "--loss", "0.45",
+		"--recovery-window", "1")
 	if code != 3 {
 		t.Fatalf("code=%d stdout=%s", code, stdout)
 	}
-	if !strings.Contains(stdout, "FAIL") || !strings.Contains(stdout, "exit=3") {
-		t.Fatalf("expected failure verdict:\n%s", stdout)
+	if !strings.Contains(stdout, "packet_recovery_rate") || !strings.Contains(stdout, "FAIL") {
+		t.Fatalf("expected recovery-rate failure verdict:\n%s", stdout)
+	}
+}
+
+func TestUnfittableBlockExitsTwo(t *testing.T) {
+	// A single block plus its playout latency cannot fit a tiny queue; this
+	// is a parameter error, not an internal failure.
+	code, _, stderr := execCLI(t, "run", "--consumer-delay-ms", "400",
+		"--queue-bytes", "8192", "--queue-ms", "60")
+	if code != 2 {
+		t.Fatalf("code=%d stderr=%q", code, stderr)
 	}
 }
 

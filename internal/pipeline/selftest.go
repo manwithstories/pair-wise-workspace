@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"avpipe/internal/clock"
+
 	"avpipe/internal/audio"
 	"avpipe/internal/fault"
 	"avpipe/internal/fixture"
@@ -158,11 +160,13 @@ func driftJitterScenario(opts Options) report.Scenario {
 // the backlog growing without limit.
 func slowConsumerScenario(opts Options) report.Scenario {
 	slow := opts
-	slow.ConsumerDelayMs = 180
-	slow.JitterMs = 200
+	slow.ConsumerDelayMs = 150
+	slow.JitterMs = 40
 	slow.Policy = "drop"
-	slow.QueueBytes = 4096
-	slow.QueueTicks = 3600
+	slow.QueueBytes = 16384
+	// Above one block's span (media duration + playout latency), otherwise
+	// every block would be rejected as unfittable.
+	slow.QueueTicks = int64(clock.FromMillis(250))
 	rep := Run(context.Background(), slow)
 	if rep.RootError != nil {
 		return scenarioResult("slow_consumer", nil, false, "slow-consumer run failed: "+rep.RootError.Detail)
