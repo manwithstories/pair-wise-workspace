@@ -25,6 +25,7 @@ add_library(mdcore STATIC
   src/checkpoint.cpp
   src/pipeline.cpp
   src/pipeline_io.cpp
+  src/pipeline_finalize.cpp
   src/sha256.cpp
   src/util.cpp)
 target_include_directories(mdcore PUBLIC src)
