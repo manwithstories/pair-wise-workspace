@@ -51,8 +51,6 @@ func runTrack(fx *fixture.Fixture, node *timeline.Node, engine *transport.Recove
 	sort.SliceStable(deliveries, func(i, j int) bool { return deliveries[i].ArrivalUs < deliveries[j].ArrivalUs })
 	var delivered []transport.Packet
 	var lostGaps []transport.Gap
-	var firstArrival timeline.Micros
-	haveFirst := false
 
 	for _, d := range deliveries {
 		if d.Dropped {
@@ -65,10 +63,6 @@ func runTrack(fx *fixture.Fixture, node *timeline.Node, engine *transport.Recove
 			return res
 		}
 		delivered = append(delivered, pkts...)
-		if !haveFirst && len(pkts) > 0 {
-			firstArrival = pkts[0].ArrivalUs
-			haveFirst = true
-		}
 		if g, ok := buf.OpenGap(); ok {
 			healed, outcome, _ := engine.RepairGap(buf, d.ArrivalUs)
 			delivered = append(delivered, healed...)
@@ -96,9 +90,6 @@ func runTrack(fx *fixture.Fixture, node *timeline.Node, engine *transport.Recove
 	}
 
 	sort.SliceStable(delivered, func(i, j int) bool { return delivered[i].Ext < delivered[j].Ext })
-	if !haveFirst && len(delivered) > 0 {
-		firstArrival = delivered[0].ArrivalUs
-	}
 
 	st := buf.Stats()
 	rep := engine.Report(node.Track)
@@ -120,11 +111,12 @@ func runTrack(fx *fixture.Fixture, node *timeline.Node, engine *transport.Recove
 		})
 	}
 
-	// Effective origin is when the first usable media actually became
-	// available relative to the declared origin. Differences between tracks
-	// are the A/V drift the report exposes.
-	if haveFirst && firstArrival >= spec.Origin {
-		res.SyncOffsetUs = firstArrival - spec.Origin
+	// Effective sync offset is the median delay between a packet's intended
+	// presentation time and its arrival. The median makes the figure robust
+	// against reordering jitter; the spread of these medians across tracks is
+	// the A/V drift the report exposes.
+	if off, ok := medianMediaOffset(deliveries, delivered); ok {
+		res.SyncOffsetUs = off
 	}
 
 	if node.Kind == timeline.KindVideo {
@@ -242,6 +234,31 @@ func validateVideoIndex(fx *fixture.Fixture, spec *fixture.TrackSpec, res *Track
 	}
 	res.Adjustments = append(res.Adjustments, idx.Rejects...)
 	return idx, nil
+}
+
+// medianMediaOffset returns the median (arrival - intended presentation) over
+// delivered packets. Positive means media is late relative to its own clock.
+func medianMediaOffset(deliveries []fixture.Delivery, delivered []transport.Packet) (timeline.Micros, bool) {
+	if len(delivered) == 0 {
+		return 0, false
+	}
+	bySeq := make(map[uint16]fixture.Delivery, len(deliveries))
+	for _, d := range deliveries {
+		bySeq[d.Packet.Seq] = d
+	}
+	offs := make([]timeline.Micros, 0, len(delivered))
+	for _, p := range delivered {
+		d, ok := bySeq[p.Seq]
+		if !ok {
+			continue
+		}
+		offs = append(offs, d.ArrivalUs-d.Packet.SentUs)
+	}
+	if len(offs) == 0 {
+		return 0, false
+	}
+	sort.Slice(offs, func(i, j int) bool { return offs[i] < offs[j] })
+	return offs[len(offs)/2], true
 }
 
 // p95Latency estimates the 95th percentile receiver latency: arrival minus the

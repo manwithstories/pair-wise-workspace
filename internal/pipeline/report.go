@@ -41,27 +41,57 @@ func (r *Report) accumulate(results map[string]*TrackResult, engine *transport.R
 	sort.Strings(r.DegradedTracks)
 	sort.Strings(r.Unrecoverable)
 
-	// Sync error is the worst offset between tracks relative to their declared
-	// origin. A single video baseline gives zero; a shifted camera gives its
-	// declared offset.
+	// Sync error is the presentation spread between healthy tracks: the gap
+	// between the earliest and latest effective origin. A/V drift shows up here
+	// as soon as one track's media becomes available later than another's.
 	if len(syncOffsets) > 1 {
-		var worst timeline.Micros
-		for i := 1; i < len(syncOffsets); i++ {
-			d := (syncOffsets[i] - syncOffsets[0]).Abs()
-			if d > worst {
-				worst = d
+		lo, hi := syncOffsets[0], syncOffsets[0]
+		for _, off := range syncOffsets[1:] {
+			if off < lo {
+				lo = off
+			}
+			if off > hi {
+				hi = off
 			}
 		}
-		r.SyncErrorMS = float64(worst) / 1000
+		r.SyncErrorMS = float64(hi-lo) / 1000
 	}
 	sort.Float64s(latencies)
 	r.LatencyP95MS = percentile(latencies, 0.95)
 	r.RecoveryRate = engine.RecoveryRate()
 }
 
+// finalizeCollections replaces nil slices with empty ones so the JSON contract
+// always emits arrays for list fields.
+func (r *Report) finalizeCollections() {
+	if r.FailedTracks == nil {
+		r.FailedTracks = []string{}
+	}
+	if r.DegradedTracks == nil {
+		r.DegradedTracks = []string{}
+	}
+	if r.Unrecoverable == nil {
+		r.Unrecoverable = []string{}
+	}
+	if r.ValidationErrors == nil {
+		r.ValidationErrors = []*core.Error{}
+	}
+	if r.Tracks == nil {
+		r.Tracks = []TrackResult{}
+	}
+}
+
 // finish decides the exit code and a final consistency pass.
 func (r *Report) finish() {
 	sort.SliceStable(r.Tracks, func(i, j int) bool { return r.Tracks[i].Track < r.Tracks[j].Track })
+	// Surface per-track index failures as top-level validation errors so the
+	// CLI can report "index error, affected track" without digging into tracks.
+	for _, tr := range r.Tracks {
+		if tr.Status == StatusFailed && tr.Error != nil && tr.Error.Code == core.CodeBadIndex {
+			r.ValidationErrors = append(r.ValidationErrors, tr.Error)
+		}
+	}
+	r.finalizeCollections()
 	switch {
 	case len(r.ValidationErrors) > 0:
 		r.ExitCode = 3

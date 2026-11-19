@@ -76,6 +76,11 @@ type Delivery struct {
 // Impair applies loss bursts, reordering and duplication to a sent sequence.
 // The result is deterministic for a given seed and is what the pipeline feeds
 // into the reorder buffer.
+//
+// TrackDelayUs models the per-uplink one-way delay: each remote source has its
+// own encode-and-send latency, which is exactly what shows up as A/V drift when
+// the tracks are naively intercut. It is separate from the congestion jitter
+// driven by BandwidthMBps.
 func Impair(sent []SentPacket, opts NetworkOptions) []Delivery {
 	rng := rand.New(rand.NewSource(opts.Seed ^ 0x5eed))
 	out := make([]Delivery, 0, len(sent))
@@ -85,6 +90,10 @@ func Impair(sent []SentPacket, opts NetworkOptions) []Delivery {
 	if opts.ReorderWindow <= 0 {
 		opts.ReorderWindow = 4
 	}
+	track := sent[0].Track
+	// Encode pipeline latency per source, deterministic from the track id so it
+	// is stable across runs and seeds but different between tracks.
+	pathDelay := timeline.Micros(trackHash(track)%9+2) * 1000
 	// Choose burst starts: one burst per ~60 packets, each burst of LossBurst.
 	drops := make(map[int]bool)
 	if opts.LossBurst > 0 {
@@ -111,7 +120,7 @@ func Impair(sent []SentPacket, opts NetworkOptions) []Delivery {
 			out = append(out, d)
 			continue
 		}
-		arrival := p.SentUs + jitter*timeline.Micros(i%8)
+		arrival := p.SentUs + pathDelay + jitter*timeline.Micros(i%8)
 		// Reorder: swap arrival with a later neighbour occasionally.
 		if i > 0 && i%17 == 0 {
 			arrival -= timeline.Micros(opts.ReorderWindow) * 1000
@@ -164,4 +173,14 @@ func FailedRecords(deliveries []Delivery) map[string]int {
 		}
 	}
 	return out
+}
+
+// trackHash is a stable, dependency-free string hash for per-track constants.
+func trackHash(s string) uint32 {
+	var h uint32 = 2166136261
+	for i := 0; i < len(s); i++ {
+		h ^= uint32(s[i])
+		h *= 16777619
+	}
+	return h
 }
