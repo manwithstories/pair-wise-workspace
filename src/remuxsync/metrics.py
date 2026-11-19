@@ -100,6 +100,7 @@ def summarize(
                     "uncertain_intervals": sum(1 for f in v.frames if f.uncertain),
                     "drift_segments": len(v.drift.segments) if v.drift else 1,
                     "duration_ms": round(ticks_to_ms_float(v.duration_ticks), 3),
+                    "probe": v.probe,
                 }
                 for v in videos
             ],

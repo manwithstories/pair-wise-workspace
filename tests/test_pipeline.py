@@ -285,3 +285,15 @@ def test_deterministic_samples_and_audio_offset(tmp_path):
     # measured 60 ms capture offset within one 48 kHz sample (~0.02 ms)
     assert abs(lav.measured_offset_ticks - 60 * TICKS_PER_MS) <= 2
     assert lav.overrun_ticks > 0                   # retained, never clipped
+
+
+def test_pyav_probe_parses_recovered_streams(tmp_path):
+    from remuxsync.probe import probe_stream
+    samples = _make_samples(tmp_path)
+    out = tmp_path / "out"
+    run(str(samples), str(out), 120)
+    for codec in ("h264", "h265", "av1"):
+        es = next(out.glob(f"*.{codec}.recovered.es"))
+        info = probe_stream(str(es), codec)
+        assert info["available"] is True
+        assert info["parsed_packets"] > 0  # framing independently confirmed

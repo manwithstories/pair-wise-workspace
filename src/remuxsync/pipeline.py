@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from . import annexb, index as index_mod, metrics
+from . import annexb, index as index_mod, metrics, probe
 from .clock import TICKS_PER_MS, ms_to_ticks
 from .errors import ErrorLog, InputError, Recovery, Stage
 from .packets import PacketStream, parse_stream
@@ -122,6 +122,7 @@ def _process_video(
     with open(es_work, "rb") as src, open(final_es, "wb") as dst:
         dst.write(src.read())
     tl.stream_path = final_es
+    tl.probe = probe.probe_stream(final_es, codec)
     return tl, failures, stream
 
 

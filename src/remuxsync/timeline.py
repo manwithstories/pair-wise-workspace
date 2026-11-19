@@ -48,6 +48,7 @@ class VideoTimeline:
     segment_breaks: list[int] = field(default_factory=list)
     stream_path: str = ""
     stream_size: int = 0
+    probe: dict = field(default_factory=dict)
 
     @property
     def duration_ticks(self) -> int:
