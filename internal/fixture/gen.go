@@ -73,14 +73,21 @@ func writeMP4(w *mp4.Writer, samples int, r clock.Rate, offsets []uint32, cam in
 	for i := range sizes {
 		sizes[i] = SampleSize
 	}
+	boxTypes := []mp4.BoxType{mp4.BoxTypeStts(), mp4.BoxTypeStsc(), mp4.BoxTypeStsz(), mp4.BoxTypeStco()}
 	boxes := []mp4.IImmutableBox{
 		&mp4.Stts{EntryCount: 1, Entries: []mp4.SttsEntry{{SampleCount: uint32(samples), SampleDelta: uint32(r.Den)}}},
 		&mp4.Stsc{EntryCount: 1, Entries: []mp4.StscEntry{{FirstChunk: 1, SamplesPerChunk: 1, SampleDescriptionIndex: 1}}},
 		&mp4.Stsz{SampleCount: uint32(samples), EntrySize: sizes},
 		&mp4.Stco{EntryCount: uint32(len(offsets)), ChunkOffset: offsets},
 	}
-	for _, b := range boxes {
+	for i, b := range boxes {
+		if _, err := w.StartBox(&mp4.BoxInfo{Type: boxTypes[i]}); err != nil {
+			return err
+		}
 		if _, err := mp4.Marshal(w, b, mp4.Context{}); err != nil {
+			return err
+		}
+		if _, err := w.EndBox(); err != nil {
 			return err
 		}
 	}
@@ -189,7 +196,7 @@ func GenSRT(cam int, r clock.Rate, cues int, dirty, truncated bool) []byte {
 		start := int64(i*2)*r.Nominal() + r.Nominal()/2
 		end := start + r.Nominal()*3/2
 		if dirty && i == 8 {
-			start -= r.Nominal() / 4 // overlaps the previous cue
+			start -= r.Nominal() // overlaps the previous cue
 		}
 		fmt.Fprintf(&b, "%d\n%s --> %s\ncam%d cue %d\n\n", i+1,
 			srtTime(r.FramesToSeconds(start), ','),
