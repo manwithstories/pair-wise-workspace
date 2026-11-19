@@ -4,6 +4,7 @@
 package mediaerr
 
 import (
+	"context"
 	"errors"
 	"fmt"
 )
@@ -115,7 +116,9 @@ func (e *Error) WithTS(ts uint32) *Error { e.RTPTimestamp = ts; e.HasTS = true; 
 func (e *Error) WithOffset(off int64) *Error { e.Offset = off; e.HasOffset = true; return e }
 
 // AsError extracts a *mediaerr.Error from any error, wrapping unknown errors
-// under the supplied stage so callers always get a structured value.
+// under the supplied stage so callers always get a structured value. Context
+// cancellation and deadline exhaustion keep their semantic kind instead of
+// being mislabeled as invalid input.
 func AsError(stage Stage, err error) *Error {
 	if err == nil {
 		return nil
@@ -123,6 +126,12 @@ func AsError(stage Stage, err error) *Error {
 	var me *Error
 	if errors.As(err, &me) {
 		return me
+	}
+	if errors.Is(err, context.Canceled) {
+		return &Error{Stage: stage, Kind: KindCanceled, Message: err.Error(), Cause: err}
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return &Error{Stage: stage, Kind: KindTimeout, Message: err.Error(), Cause: err}
 	}
 	return &Error{Stage: stage, Kind: KindInvalidInput, Message: err.Error(), Cause: err}
 }

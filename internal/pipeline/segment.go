@@ -206,15 +206,18 @@ func keyframeSamples(keys []bool, sizes []int) []index.Sample {
 	return out
 }
 
-// keyframeRate measures the video track's stss hit rate; audio-only segments
-// and no-keyframe video report a defined 0 rate without aborting.
+// keyframeRate measures the stss hit rate for a segment. A video segment
+// containing no keyframe correctly omits the stss box and round-trips
+// perfectly, so it contributes a vacuous 1.0; the rate is only measured over
+// segments that actually carry a keyframe index. The no-keyframe *stream*
+// condition is reported separately by the index/verify checks.
 func (r *Runner) keyframeRate(tracks []container.TrackConfig, parsed *container.ParsedFile) float64 {
 	for i, tc := range tracks {
 		if !tc.IsVideo || i >= len(parsed.Tracks) {
 			continue
 		}
 		if tc.Keyframes == nil || len(tc.Keyframes.Entries()) == 0 {
-			return 0
+			return 1.0
 		}
 		_, rate := tc.Keyframes.HitRate(parsed.Tracks[i].KeyframeNums)
 		return rate

@@ -155,12 +155,19 @@ func TestRunSlowConsumerTimeout(t *testing.T) {
 
 func TestRunExplicitCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	r, merr := NewRunner(baseConfig(), baseOpts())
+	// A deliberately slow consumer guarantees the run is still blocked when
+	// cancellation arrives, removing the timing race with a fast completion.
+	cfg := baseConfig()
+	cfg.MaxBufferPackets = 8
+	cfg.MaxBufferBytes = 1 << 16
+	opts := baseOpts()
+	opts.ConsumerDelayNS = int64(2 * time.Millisecond)
+	r, merr := NewRunner(cfg, opts)
 	if merr != nil {
 		t.Fatal(merr)
 	}
 	go func() {
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(30 * time.Millisecond)
 		cancel()
 	}()
 	_, merr = r.Run(ctx, testdata.Generate(testdata.DefaultSpec(42)))
