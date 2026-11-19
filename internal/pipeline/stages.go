@@ -152,6 +152,15 @@ func (j *job) consume(ctx context.Context, queue <-chan source.Record) error {
 				}
 				return nil
 			}
+			if j.runner.opts.SlowConsumer > 0 {
+				// Stand-in for a slow indexer or storage volume: it stalls the
+				// consumer, so the bounded queue pushes back on the reader.
+				select {
+				case <-time.After(j.runner.opts.SlowConsumer):
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
 			if err := j.handleRecord(ctx, rec, &chunk); err != nil {
 				return err
 			}

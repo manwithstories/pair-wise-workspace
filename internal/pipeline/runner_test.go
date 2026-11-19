@@ -245,7 +245,7 @@ func TestResumeAfterCancelMatchesCleanRun(t *testing.T) {
 	interrupted := Options{
 		Input: input, Output: filepath.Join(dir, "res.mp4"),
 		CheckpointPath: filepath.Join(dir, "res.ckpt"), ChunkFrames: 32, QueueDepth: 4,
-		SlowConsumer: 1 * time.Millisecond,
+		SlowConsumer: 10 * time.Millisecond,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -253,12 +253,13 @@ func TestResumeAfterCancelMatchesCleanRun(t *testing.T) {
 		_, err := New(interrupted).Run(ctx)
 		done <- err
 	}()
-	time.Sleep(40 * time.Millisecond)
+	// Wait until a checkpoint exists so the cancellation always interrupts a
+	// job that has something to resume.
+	waitForCheckpoint(t, interrupted.CheckpointPath)
 	cancel()
 	if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatalf("first run: %v", err)
 	} else if err == nil {
-		// The run beat the cancellation; there is nothing to resume.
 		t.Skip("run completed before cancellation landed")
 	}
 
@@ -290,14 +291,14 @@ func TestResumeAfterCancelMatchesCleanRun(t *testing.T) {
 func TestCheckpointMismatchOnChangedInput(t *testing.T) {
 	dir, _ := genFixtures(t, 100, nil)
 	o := opts(dir, "normal")
+	o.SlowConsumer = 10 * time.Millisecond
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		o.SlowConsumer = 2 * time.Millisecond
 		_, err := New(o).Run(ctx)
 		done <- err
 	}()
-	time.Sleep(30 * time.Millisecond)
+	waitForCheckpoint(t, o.CheckpointPath)
 	cancel()
 	<-done
 
@@ -417,4 +418,19 @@ func TestStructuralCorruptionIsNotPublished(t *testing.T) {
 	if _, err := os.Stat(o.Output); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("a partly readable source was published as a complete index")
 	}
+}
+
+// waitForCheckpoint blocks until the published checkpoint exists or the test
+// times out. Tests that interrupt a run use it so the cancellation always lands
+// on a job with committed work.
+func waitForCheckpoint(t *testing.T, path string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	t.Fatalf("no checkpoint at %s", path)
 }
