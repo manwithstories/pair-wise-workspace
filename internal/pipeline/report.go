@@ -76,6 +76,11 @@ type Report struct {
 	ExpectedIssues       int             `json:"expected_issues"`
 	DuplicateMatches     int             `json:"duplicate_matches"`
 	SilenceRuns          int             `json:"silence_runs"`
+	BandwidthKbps        []int           `json:"bandwidth_kbps,omitempty"`
+	BandwidthWindows     int             `json:"bandwidth_windows"`
+	ShapedDrops          int             `json:"bandwidth_shaped_drops"`
+	LinkMinKbps          int             `json:"link_min_kbps"`
+	LinkMaxKbps          int             `json:"link_max_kbps"`
 	Stages               []StageReport   `json:"stages"`
 	Segments             []SegmentReport `json:"segments"`
 	Matches              []MatchReport   `json:"matches"`
@@ -163,6 +168,10 @@ func (r *Report) Summary() string {
 	fmt.Fprintf(&b, "reordered_packets     : %d\n", r.ReorderedPackets)
 	fmt.Fprintf(&b, "burst_lost_packets    : %d\n", r.BurstLostPackets)
 	fmt.Fprintf(&b, "errors_with_offset    : %d\n", r.ErrorsWithOffset)
+	if len(r.BandwidthKbps) > 0 {
+		fmt.Fprintf(&b, "bandwidth_profile     : %s (windows=%d shaped_drops=%d)\n",
+			joinInts(r.BandwidthKbps), r.BandwidthWindows, r.ShapedDrops)
+	}
 	fmt.Fprintf(&b, "issues total=%d recoverable=%d expected=%d fatal=%v\n",
 		r.TotalIssues, r.RecoverableIssues, r.ExpectedIssues, r.fatal)
 	b.WriteString("stages:\n")
@@ -314,5 +323,17 @@ func (r *Report) SortedSegments() []SegmentReport {
 		}
 		return out[i].Index < out[j].Index
 	})
+	return out
+}
+
+// joinInts renders a slice of ints as a comma-separated list.
+func joinInts(vals []int) string {
+	out := ""
+	for i, v := range vals {
+		if i > 0 {
+			out += ","
+		}
+		out += fmt.Sprint(v)
+	}
 	return out
 }

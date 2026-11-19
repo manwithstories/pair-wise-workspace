@@ -86,7 +86,9 @@ func Run(opts Options) (*Report, error) {
 	// Stage 3: RTP repair with injected loss, duplicates and reordering.
 	var gaps []segment.Gap
 	if t := r.begin("rtp"); true {
-		plan := testdata.RTPPlan{Packets: 200, PayloadSize: 96, SSRC: 0x0BADCAFE, StartSeq: 65400,
+		// A long enough capture that the fluctuating bandwidth profile cycles
+		// through every declared rate while the reorder window stays bounded.
+		plan := testdata.RTPPlan{Packets: 1200, PayloadSize: 1200, SSRC: 0x0BADCAFE, StartSeq: 65400,
 			DuplicateEvery: 17, ReorderEvery: 11, BurstLoss: opts.PacketLoss, BurstCount: 3}
 		fx := testdata.GenerateRTP(plan)
 		emitted, repairer := rtprepair.Simulate(fx.Packets, rtprepair.Options{Window: opts.Window}, "cam-a.rtp")
@@ -101,16 +103,14 @@ func Run(opts Options) (*Report, error) {
 		r.collect(opts, repairer.Issues()...)
 		gaps = gapsFromPackets(emitted)
 		ok := stats.Emitted > 0 && stats.LostPackets == fx.BurstLost && stats.DuplicatePackets >= fx.Duplicates
-		if len(opts.BandwidthKbps) > 0 {
-			var sizes []string
-			for i, kbps := range opts.BandwidthKbps {
-				sizes = append(sizes, fmt.Sprintf("%ds=%dkbps/%dB", i, kbps, testdata.BandwidthPlan(opts.BandwidthKbps, i)))
-			}
-			r.finish(t, ok, fmt.Sprintf("emitted=%d lost=%d dup=%d reordered=%d profile[%s]",
-				stats.Emitted, stats.LostPackets, stats.DuplicatePackets, stats.ReorderedPackets, join(sizes)), 0)
-		} else {
-			r.finish(t, ok, fmt.Sprintf("emitted=%d lost=%d dup=%d", stats.Emitted, stats.LostPackets, stats.DuplicatePackets), 0)
-		}
+		shape := rtprepair.Shape(fx.Packets, rtprepair.DefaultBandwidthProfile(opts.BandwidthKbps))
+		r.BandwidthKbps = opts.BandwidthKbps
+		r.BandwidthWindows = len(shape.Samples)
+		r.ShapedDrops = shape.DroppedCount
+		r.LinkMinKbps, r.LinkMaxKbps = shape.MinKbps, shape.MaxKbps
+		r.finish(t, ok, fmt.Sprintf("emitted=%d lost=%d dup=%d reordered=%d link=%d..%dkbps windows=%d",
+			stats.Emitted, stats.LostPackets, stats.DuplicatePackets, stats.ReorderedPackets,
+			shape.MinKbps, shape.MaxKbps, len(shape.Samples)), 0)
 	}
 
 	// Stage 4: silence detection on generated PCM.
