@@ -21,6 +21,7 @@ add_library(mbcore
   src/timebase.cpp
   src/subtitle.cpp
   src/stream.cpp
+  src/timeline.cpp
 )
 target_include_directories(mbcore PUBLIC src)
 target_link_libraries(mbcore PUBLIC PkgConfig::FFMPEG Threads::Threads)

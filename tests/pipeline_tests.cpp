@@ -6,6 +6,7 @@
 #include "stream.hpp"
 #include "subtitle.hpp"
 #include "timebase.hpp"
+#include "timeline.hpp"
 
 using namespace mb;
 
@@ -162,4 +163,71 @@ TEST_CASE("stream: close drains remaining items then ends", "[stream]") {
 TEST_CASE("stream: capacity clamped to hard limit", "[stream]") {
   BoundedQueue huge(1'000'000);
   REQUIRE(huge.capacity() == kMaxQueueCapacity);
+}
+
+TEST_CASE("timeline: invalid clips rejected with reasons", "[timeline]") {
+  std::vector<TrackSpec> tracks(1);
+  tracks[0].id = "t0";
+  tracks[0].priority = 1;
+  tracks[0].boundary_start = 10;
+  tracks[0].boundary_end = 100;
+  tracks[0].clips = {
+      {"a", -5, 10, 7},      // 负起点
+      {"b", 20, 20, 8},      // 零长度
+      {"c", 0, 30, 9},       // 起点早于轨边界
+      {"d", 50, 120, 10},    // 尾部越界 -> 裁到 100
+  };
+  auto tl = compose_timeline(tracks);
+  REQUIRE(tl.rejected == 3);
+  // 最后一条裁尾后保留 [50,100)。
+  bool kept = false;
+  for (auto& s : tl.segments)
+    if (s.source_ref == "d") { kept = true; REQUIRE(s.end == 100); }
+  REQUIRE(kept);
+  bool neg = false, zlen = false, oob = false;
+  for (auto& d : tl.decisions) {
+    neg |= d.code == kTlNegative;
+    zlen |= d.code == kTlZeroLen;
+    oob |= d.code == kTlOutOfBounds;
+  }
+  REQUIRE(neg); REQUIRE(zlen); REQUIRE(oob);
+}
+
+TEST_CASE("timeline: priority and source-order overlap rules", "[timeline]") {
+  std::vector<TrackSpec> tracks(2);
+  tracks[0].id = "low"; tracks[0].priority = 1;
+  tracks[0].clips = {{"L", 0, 100, 1}};
+  tracks[1].id = "high"; tracks[1].priority = 5;
+  tracks[1].clips = {{"H", 40, 60, 2}};
+  auto tl = compose_timeline(tracks);
+  // 高优先级占据 [40,60)；低优先级被切成两段，共 3 段且互不重叠。
+  REQUIRE(tl.segments.size() == 3);
+  for (size_t i = 1; i < tl.segments.size(); ++i)
+    REQUIRE(tl.segments[i].start >= tl.segments[i - 1].end);
+  bool lowCliped = false;
+  for (auto& d : tl.decisions) lowCliped |= d.code == kTlOverlapLow;
+  REQUIRE(lowCliped);
+
+  // 同优先级：先到先得（输入顺序），后者被标记 tie。
+  std::vector<TrackSpec> tie(2);
+  tie[0].id = "first"; tie[0].priority = 3; tie[0].clips = {{"A", 0, 10, 0}};
+  tie[1].id = "second"; tie[1].priority = 3; tie[1].clips = {{"B", 5, 15, 0}};
+  auto tl2 = compose_timeline(tie);
+  bool tieMark = false;
+  for (auto& d : tl2.decisions) tieMark |= d.code == kTlOverlapTie;
+  REQUIRE(tieMark);
+  REQUIRE(tl2.segments.size() == 2);  // [0,10) first + [10,15) second
+}
+
+TEST_CASE("timeline: empty track and global end", "[timeline]") {
+  std::vector<TrackSpec> tracks(2);
+  tracks[0].id = "empty"; tracks[0].priority = 1;
+  tracks[1].id = "p"; tracks[1].priority = 1;
+  tracks[1].clips = {{"x", 0, 1000, 0}};
+  auto tl = compose_timeline(tracks, 200);
+  bool emptyMark = false;
+  for (auto& d : tl.decisions) emptyMark |= d.code == kTlEmptyTrack;
+  REQUIRE(emptyMark);
+  REQUIRE(tl.segments.size() == 1);
+  REQUIRE(tl.segments[0].end == 200);  // 全局终点裁尾
 }
