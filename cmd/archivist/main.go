@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"archivearchivist/internal/pipeline"
 	"archivearchivist/internal/recover"
@@ -113,6 +114,17 @@ func cmdAnalyze(args []string, stdout, stderr io.Writer, name string) int {
 		return exitInvalid
 	}
 
+	// Refuse to write the result over an input document: the archive sources
+	// are read-only by contract.
+	if *jsonOut != "" {
+		for _, p := range []string{*input, *capture} {
+			if p != "" && samePath(*jsonOut, p) {
+				fmt.Fprintf(stderr, "%s: --json %s would overwrite an input file\n", name, *jsonOut)
+				return exitInvalid
+			}
+		}
+	}
+
 	inputSpec := pipeline.Input{TimelinePath: *input, CapturePath: *capture}
 	opts := pipeline.Options{
 		Window:  *window,
@@ -179,6 +191,23 @@ type invalidInput struct{ err error }
 
 func (e *invalidInput) Error() string { return e.err.Error() }
 func (e *invalidInput) Unwrap() error { return e.err }
+
+// samePath reports whether two paths name the same file, following symlinks
+// and resolving relative paths. It falls back to the cleaned absolute path
+// when a file does not exist yet (the output case).
+func samePath(a, b string) bool {
+	aa, errA := filepath.Abs(a)
+	bb, errB := filepath.Abs(b)
+	if errA != nil || errB != nil {
+		return a == b
+	}
+	ra, errA := filepath.EvalSymlinks(aa)
+	rb, errB := filepath.EvalSymlinks(bb)
+	if errA == nil && errB == nil {
+		return ra == rb
+	}
+	return filepath.Clean(aa) == filepath.Clean(bb)
+}
 
 func writeJSON(path string, v any) error {
 	b, err := json.MarshalIndent(v, "", "  ")
