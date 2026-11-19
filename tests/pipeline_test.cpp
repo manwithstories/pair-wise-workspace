@@ -5,6 +5,7 @@
 #include "common.hpp"
 #include "packet_source.hpp"
 #include "timeline.hpp"
+#include "segmenter.hpp"
 
 using namespace md;
 
@@ -226,4 +227,95 @@ TEST_CASE("end-to-end capture normalizes with bounded loss accounting",
         if (it != last.end()) REQUIRE(q.unified_us >= it->second);
         last[q.ssrc] = q.unified_us;
     }
+}
+
+// ---- 片段切分 ----
+namespace {
+// 构造带起始码的 H.264 NAL 包：nal 5=IDR(关键帧), 1=P 帧
+MediaPacket mk_video(uint16_t seq, int64_t us, unsigned nal,
+                     bool untrusted = false) {
+    MediaPacket p;
+    p.ssrc = 0x10000001; p.seq = seq; p.codec = CodecId::H264;
+    p.clock_rate = 90000; p.unified_us = us; p.untrusted = untrusted;
+    p.payload = {0x00, 0x00, 0x00, 0x01, uint8_t(nal & 0x1F)};
+    return p;
+}
+} // namespace
+
+TEST_CASE("segments start on keyframes and index correctly", "[segment]") {
+    ProcessConfig cfg; cfg.min_segment_us = 100'000; cfg.max_frame_cache = 64;
+    Segmenter seg(cfg);
+    std::vector<ClosedSegment> out;
+    std::vector<SilenceInterval> no_sil;
+    auto emit = [&](ClosedSegment s) { out.push_back(std::move(s)); };
+    // IDR,P,P, IDR,P,P  每个关键帧间隔 200ms
+    int64_t t = 0; uint16_t sq = 0;
+    for (int g = 0; g < 3; ++g) {
+        seg.push_video(mk_video(sq++, t, 5), no_sil, emit); t += 100'000;
+        seg.push_video(mk_video(sq++, t, 1), no_sil, emit); t += 100'000;
+        seg.push_video(mk_video(sq++, t, 1), no_sil, emit); t += 100'000;
+    }
+    seg.finish(no_sil, emit);
+    REQUIRE(out.size() == 3);
+    for (auto& s : out) REQUIRE(s.starts_with_keyframe);
+    REQUIRE(seg.counters().keyframe_indexed == 3);
+    REQUIRE(seg.counters().missing_keyframe == 0);
+}
+
+TEST_CASE("missing keyframe yields explicit disposition", "[segment][corrupt]") {
+    ProcessConfig cfg; cfg.min_segment_us = 100'000;
+    Segmenter seg(cfg);
+    std::vector<ClosedSegment> out;
+    std::vector<SilenceInterval> no_sil;
+    auto emit = [&](ClosedSegment s) { out.push_back(std::move(s)); };
+    // 全程 P 帧，无关键帧
+    for (int i = 0; i < 4; ++i)
+        seg.push_video(mk_video(uint16_t(i), int64_t(i) * 100'000, 1), no_sil, emit);
+    seg.finish(no_sil, emit);
+    REQUIRE(out.size() == 1);
+    REQUIRE(out[0].disposition == Disposition::MissingKeyframe);
+    REQUIRE(seg.counters().missing_keyframe == 1);
+}
+
+TEST_CASE("short segment below minimum is flagged", "[segment]") {
+    ProcessConfig cfg; cfg.min_segment_us = 500'000;
+    Segmenter seg(cfg);
+    std::vector<ClosedSegment> out;
+    std::vector<SilenceInterval> no_sil;
+    auto emit = [&](ClosedSegment s) { out.push_back(std::move(s)); };
+    seg.push_video(mk_video(0, 0, 5), no_sil, emit);
+    seg.push_video(mk_video(1, 50'000, 1), no_sil, emit);
+    seg.finish(no_sil, emit);
+    REQUIRE(out.size() == 1);
+    REQUIRE(out[0].disposition == Disposition::ShortSegment);
+}
+
+TEST_CASE("silence crossing packet boundary is reported", "[segment]") {
+    ProcessConfig cfg; cfg.min_segment_us = 100'000;
+    Segmenter seg(cfg);
+    std::vector<ClosedSegment> out;
+    // 静音区间跨过第二个包的时间点
+    std::vector<SilenceInterval> sil{{150'000, 450'000}};
+    auto emit = [&](ClosedSegment s) { out.push_back(std::move(s)); };
+    seg.push_video(mk_video(0, 0, 5), sil, emit);
+    seg.push_video(mk_video(1, 200'000, 1), sil, emit);
+    seg.push_video(mk_video(2, 300'000, 1), sil, emit);
+    seg.finish(sil, emit);
+    REQUIRE(out.size() == 1);
+    REQUIRE(out[0].silence_cross_boundary);
+    REQUIRE(out[0].disposition == Disposition::SilenceCrossBoundary);
+}
+
+TEST_CASE("frame cache is bounded regardless of input length", "[segment]") {
+    ProcessConfig cfg; cfg.max_frame_cache = 8; cfg.min_segment_us = 1;
+    Segmenter seg(cfg);
+    std::vector<ClosedSegment> out;
+    std::vector<SilenceInterval> no_sil;
+    auto emit = [&](ClosedSegment s) { out.push_back(std::move(s)); };
+    // 100 个 P 帧、无关键帧，缓存上限 8 => 强制多次闭合
+    for (int i = 0; i < 100; ++i)
+        seg.push_video(mk_video(uint16_t(i), int64_t(i) * 1000, 1), no_sil, emit);
+    seg.finish(no_sil, emit);
+    REQUIRE(out.size() >= 12);
+    for (auto& s : out) REQUIRE(s.packets.size() <= 8);
 }
