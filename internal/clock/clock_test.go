@@ -43,7 +43,8 @@ func TestMillisRoundsHalfAwayFromZero(t *testing.T) {
 	}{
 		{NewRational(1, 2000), 1},
 		{NewRational(-1, 2000), -1},
-		{NewRational(499, 2000), 0},
+		{NewRational(498, 2000), 249},
+		{NewRational(499, 2000), 250},
 		{NewRational(3, 2), 1500},
 	}
 	for _, c := range cases {
