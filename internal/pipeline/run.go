@@ -473,7 +473,8 @@ func analyzeRTP(wire []*rtp.Packet, truth []fixture.RTPPacket, cfg Config) rtpSt
 	// offset describes the node's real skew rather than its counter
 	// origin.
 	var origin int64
-	for i := 0; i < limit; i++ {
+	frame := 0
+	for i := 0; i < len(wire); i++ {
 		t, err := u.Push(wire[i].Header)
 		if err != nil {
 			continue
@@ -490,13 +491,19 @@ func analyzeRTP(wire []*rtp.Packet, truth []fixture.RTPPacket, cfg Config) rtpSt
 		if t.Jump {
 			out.jumps++
 		}
-		if i == 0 {
+		if t.Duplicate {
+			continue // a retransmission carries no new frame
+		}
+		if frame == 0 {
 			origin = t.Extended
 		}
-		out.pairs = append(out.pairs, clock.Pair{
-			SourceTicks: truth[i].SourceTicks,
-			NodeTicks:   t.Extended - origin,
-		})
+		if frame < limit {
+			out.pairs = append(out.pairs, clock.Pair{
+				SourceTicks: truth[frame].SourceTicks,
+				NodeTicks:   t.Extended - origin,
+			})
+		}
+		frame++
 	}
 	return out
 }

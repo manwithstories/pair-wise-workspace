@@ -183,7 +183,17 @@ func Generate(opts Options) (*Set, error) {
 		set.RTP[jump].NodeTicks += 30 * 90000
 		set.RTP[jump].Timestamp = clock.WrapAt(int64(opts.WrapAt) + set.RTP[jump].NodeTicks)
 	}
-	dump, err := encodeRTPDump(set.RTP)
+	// Insert a retransmitted packet (same sequence number and timestamp
+	// as the one before it) into the wire stream only. The ground-truth
+	// slice stays one entry per frame.
+	wireStream := make([]RTPPacket, 0, len(set.RTP)+1)
+	for i, p := range set.RTP {
+		wireStream = append(wireStream, p)
+		if i == 20 {
+			wireStream = append(wireStream, p)
+		}
+	}
+	dump, err := encodeRTPDump(wireStream)
 	if err != nil {
 		return nil, err
 	}

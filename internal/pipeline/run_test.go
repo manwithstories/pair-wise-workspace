@@ -62,6 +62,13 @@ func TestAcceptanceRun(t *testing.T) {
 	if sum.RTPJumps != 1 || sum.RTPAnomalies != 1 {
 		t.Errorf("jumps=%d anomalies=%d, want 1 each", sum.RTPJumps, sum.RTPAnomalies)
 	}
+	if sum.RTPDuplicates != 1 {
+		t.Errorf("duplicates = %d, want the one retransmission", sum.RTPDuplicates)
+	}
+	if sum.Sync.Compared != 120 {
+		t.Errorf("sync compared = %d, want 120 (retransmission excluded)",
+			sum.Sync.Compared)
+	}
 	if !sum.Monotonic || !sum.SubtitleBoundaryOK {
 		t.Errorf("monotonic=%v boundaries=%v", sum.Monotonic, sum.SubtitleBoundaryOK)
 	}
