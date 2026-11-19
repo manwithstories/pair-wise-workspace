@@ -422,31 +422,34 @@ func Estimate(pairs []Pair, base Base, threshold Rational) (Correction, []Anomal
 
 // theilSen returns a robust slope and intercept: the median of all
 // pairwise slopes and the median residual intercept. It tolerates up to
-// ~29% gross outliers. Duplicate source ticks are skipped for the slope
-// and the intercept median handles them separately. Above maxTheilSen
-// pairs the candidate set is decimated so memory and CPU stay bounded.
+// ~29% gross outliers. Large inputs are decimated at the sample level so
+// the pairwise count stays bounded while keeping coverage across the
+// whole clip; the intercept median always uses every pair.
 func theilSen(pairs []Pair) (*big.Rat, *big.Rat) {
-	const maxTheilSen = 200_000
-	stride := 1
-	if n := len(pairs); n > 2 {
-		pairsPossible := n * (n - 1) / 2
-		if pairsPossible > maxTheilSen {
-			stride = pairsPossible/maxTheilSen + 1
+	const maxSeedPoints = 300
+	sample := pairs
+	if len(pairs) > maxSeedPoints {
+		stride := len(pairs) / maxSeedPoints
+		if stride < 1 {
+			stride = 1
+		}
+		sample = make([]Pair, 0, maxSeedPoints+1)
+		for i := 0; i < len(pairs); i += stride {
+			sample = append(sample, pairs[i])
+		}
+		// Always include the final pair so the fit sees the full span.
+		if last := pairs[len(pairs)-1]; len(sample) == 0 || sample[len(sample)-1] != last {
+			sample = append(sample, last)
 		}
 	}
-	var slopes []*big.Rat
-	seen := 0
-	for i := 0; i < len(pairs); i++ {
-		for j := i + 1; j < len(pairs); j++ {
-			seen++
-			if stride > 1 && seen%stride != 0 {
-				continue
-			}
-			dx := pairs[j].SourceTicks - pairs[i].SourceTicks
+	slopes := make([]*big.Rat, 0, len(sample)*(len(sample)-1)/2)
+	for i := 0; i < len(sample); i++ {
+		for j := i + 1; j < len(sample); j++ {
+			dx := sample[j].SourceTicks - sample[i].SourceTicks
 			if dx == 0 {
 				continue
 			}
-			dy := pairs[j].NodeTicks - pairs[i].NodeTicks
+			dy := sample[j].NodeTicks - sample[i].NodeTicks
 			slopes = append(slopes, new(big.Rat).SetFrac(big.NewInt(dy), big.NewInt(dx)))
 		}
 	}
