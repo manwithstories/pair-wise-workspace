@@ -38,7 +38,15 @@ class Manifest:
 
     @property
     def total_duration(self) -> float:
-        return max((s.end for s in self.segments), default=0.0)
+        """清单声明总时长：同一序号只计首次出现（重投/冲突条目不重复累计）。"""
+        seen: set[int] = set()
+        total = 0.0
+        for s in self.segments:
+            if s.sequence in seen:
+                continue
+            seen.add(s.sequence)
+            total = max(total, s.end)
+        return total
 
 
 def _check_uri(uri: str) -> None:

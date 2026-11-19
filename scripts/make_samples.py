@@ -98,9 +98,10 @@ def main() -> int:
     dup = normal + [("reset", 2), ("seg", "seg_002.wav", SEG_DUR)]
     (out / "hls_dup.m3u8").write_text(hls(dup), encoding="utf-8")
 
-    conflict = (normal[:3]
-                + [("reset", 3), ("seg", "cseg_003_alt.wav", SEG_DUR)]
-                + [("seg", "cseg_004.wav", SEG_DUR), ("seg", "seg_005.wav", SEG_DUR)])
+    conflict = ([("seg", "seg_000.wav", SEG_DUR), ("seg", "seg_001.wav", SEG_DUR),
+                 ("seg", "seg_002.wav", SEG_DUR), ("seg", "seg_003.wav", SEG_DUR),
+                 ("seg", "cseg_004.wav", SEG_DUR), ("seg", "seg_005.wav", SEG_DUR)]
+                + [("reset", 3), ("seg", "cseg_003_alt.wav", SEG_DUR)])
     (out / "hls_conflict.m3u8").write_text(hls(conflict), encoding="utf-8")
 
     gap = [("seg", "seg_000.wav", SEG_DUR),

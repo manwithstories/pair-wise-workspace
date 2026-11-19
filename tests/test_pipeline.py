@@ -170,6 +170,7 @@ def test_loudness_and_gain_limit():
     meter = audio.LoudnessMeter(rate, 2)
     meter.update(np.stack([x, x]))
     lufs = meter.integrated()
-    assert lufs is not None and abs(lufs - (-23.7)) < 1.0
+    # 双声道同相信号：声道能量求和 → 比单声道高约 3 dB
+    assert lufs is not None and abs(lufs - (-20.7)) < 0.5
     # 峰值上限约束增益：-2 dBFS 峰值最多提升 1 dB
     assert audio.gain_db(-30.0, -16.0, -2.0, -1.0) == pytest.approx(1.0)
