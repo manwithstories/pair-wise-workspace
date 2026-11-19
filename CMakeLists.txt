@@ -15,6 +15,7 @@ pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
 
 add_library(media_core STATIC
   src/checkpoint_index.cpp
+  src/demo_generator.cpp
   src/error_model.cpp
   src/jitter_buffer.cpp
   src/manifest.cpp
