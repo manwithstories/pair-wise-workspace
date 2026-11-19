@@ -71,3 +71,14 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Python 本地环境与运行产物（不提交构建产物）----
+.venv/
+__pycache__/
+*.pyc
+.tmp-fixtures/
+.tmp-index.sqlite
+*.egg-info/
+dist/
+build/
+.pytest_cache/
