@@ -19,9 +19,20 @@ func TicksToUS(x int64, rate uint32, ppm model.Rational) int64 {
 		}
 		return us.Int64()
 	}
-	// Divide by (1 + ppm/1e6): multiply by 1e6/(1e6+ppm).
-	us.Mul(us, big.NewInt(1_000_000))
-	den := new(big.Int).Add(big.NewInt(1_000_000), big.NewInt(ppm.Num/ppm.Den))
+	// A media clock running ppm slow produces that many fewer ticks per
+	// second, so its elapsed time is longer than the tick count suggests:
+	// corrected = us / (1 - ppm/1e6) = us * 1e6*den/(1e6*den - num).
+	// Multiplying by the rational's denominator keeps this exact.
+	den := new(big.Int).Mul(big.NewInt(1_000_000), big.NewInt(ppm.Den))
+	den.Sub(den, big.NewInt(ppm.Num))
+	if den.Sign() <= 0 {
+		// A clock at or past 1e6 ppm is meaningless; refuse to scale.
+		if !us.IsInt64() {
+			return 0
+		}
+		return us.Int64()
+	}
+	us.Mul(us, new(big.Int).Mul(big.NewInt(1_000_000), big.NewInt(ppm.Den)))
 	us.Quo(us, den)
 	if !us.IsInt64() {
 		return 0
