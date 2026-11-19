@@ -676,3 +676,48 @@ TEST_CASE("generator: full sample bundle is coherent on disk",
   REQUIRE(audio.fragments.size() == cfg.frame_count / 6);
   REQUIRE(audio.sample_rate == cfg.audio_rate);
 }
+
+#include "media_archive/report.h"
+
+TEST_CASE("report: json contains every acceptance field", "[report]") {
+  RecoveryReport r;
+  r.codec = CodecType::H264;
+  r.recovered_packets = 210;
+  r.unrecovered_bytes = 4096;
+  r.loss_recovery_rate = 0.9545;
+  r.p95_latency_ms = 12.345;
+  r.p95_sample_count = 210;
+  r.av_sync_error_ms = 8.5;
+  r.audio_sample_delta = -3;
+  r.index_seek_error_ms = 16.6667;
+  r.checkpoint_resumed = true;
+  r.keyframe_count = 8;
+  r.gap_count = 2;
+  r.uncertain_pts_count = 1;
+  r.valid = true;
+  const std::string json = render_report_json(r);
+  for (const char* key :
+       {"av_sync_error_ms", "loss_recovery_rate", "p95_latency_ms",
+        "p95_sample_count", "index_seek_error_ms", "recovered_packets",
+        "unrecovered_bytes", "checkpoint_resumed"}) {
+    REQUIRE(json.find(key) != std::string::npos);
+  }
+  REQUIRE(json.find("\"rolled_back_block\": null") != std::string::npos);
+  REQUIRE(json.find("\"failure_offset\": null") != std::string::npos);
+  // Determinism: rendering twice yields identical bytes.
+  REQUIRE(render_report_json(r) == json);
+  // Text form renders without throwing and carries the codec name.
+  const std::string text = render_report_text(r);
+  REQUIRE(text.find("h264") != std::string::npos);
+  REQUIRE(text.find("recovered_packets") != std::string::npos);
+}
+
+TEST_CASE("report: rollback block and failure offset are surfaced",
+          "[report]") {
+  RecoveryReport r;
+  r.rolled_back_block = 2;
+  r.failure_offset = 1280;
+  const std::string json = render_report_json(r);
+  REQUIRE(json.find("\"rolled_back_block\": 2") != std::string::npos);
+  REQUIRE(json.find("\"failure_offset\": 1280") != std::string::npos);
+}
