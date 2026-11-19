@@ -150,10 +150,9 @@ func GenRTP(path string, frames int, r clock.Rate, anomalies bool) error {
 	delta := uint32(clockRate * r.Den / r.Num)
 	base := uint32(0xFFFFFFF0) - 2*delta
 	var out bytes.Buffer
-	seq := uint16(1000)
 	for i := 0; i < frames; i++ {
 		if anomalies && i == 30 {
-			continue // dropped packet -> gap
+			continue // dropped packet -> gap (sequence number jumps)
 		}
 		ts := base + uint32(i)*delta
 		switch {
@@ -163,9 +162,8 @@ func GenRTP(path string, frames int, r clock.Rate, anomalies bool) error {
 			ts = base + 10*delta // backward glitch
 		}
 		p := &rtp.Packet{Header: rtp.Header{Version: 2, PayloadType: 96,
-			SequenceNumber: seq, Timestamp: ts, SSRC: 0x11223344},
+			SequenceNumber: uint16(1000 + i), Timestamp: ts, SSRC: 0x11223344},
 			Payload: []byte{byte(i)}}
-		seq++
 		raw, err := p.Marshal()
 		if err != nil {
 			return err
@@ -182,16 +180,23 @@ func GenRTP(path string, frames int, r clock.Rate, anomalies bool) error {
 }
 
 
-// GenSRT returns a deterministic SRT track. With truncated on, the file is
-// cut mid-record at the tail.
-func GenSRT(cam int, r clock.Rate, cues int, truncated bool) []byte {
+// GenSRT returns a deterministic SRT track. With dirty on, one invalid-time
+// record and one overlapping cue are injected mid-file. With truncated on,
+// the file is cut mid-record at the tail.
+func GenSRT(cam int, r clock.Rate, cues int, dirty, truncated bool) []byte {
 	var b bytes.Buffer
 	for i := 0; i < cues; i++ {
 		start := int64(i*2)*r.Nominal() + r.Nominal()/2
 		end := start + r.Nominal()*3/2
+		if dirty && i == 8 {
+			start -= r.Nominal() / 4 // overlaps the previous cue
+		}
 		fmt.Fprintf(&b, "%d\n%s --> %s\ncam%d cue %d\n\n", i+1,
 			srtTime(r.FramesToSeconds(start), ','),
 			srtTime(r.FramesToSeconds(end), ','), cam, i)
+		if dirty && i == 4 {
+			b.WriteString("900\n00:00:99,000 --> 00:00:98,000\nbroken time\n\n")
+		}
 	}
 	data := b.Bytes()
 	if truncated {

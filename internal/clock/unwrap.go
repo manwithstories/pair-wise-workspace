@@ -61,30 +61,33 @@ func UnwrapRTP(raw []uint32, expectedDelta uint32) ([]RTPRecord, []issues.Issue)
 }
 
 // ReadRTPStream reads a stream of 2-byte big-endian length-prefixed RTP
-// packets (RTP-over-TCP framing) and returns the raw 32-bit timestamps.
-func ReadRTPStream(path string) ([]uint32, error) {
+// packets (RTP-over-TCP framing) and returns the raw 32-bit timestamps and
+// the RTP sequence numbers (used to map packets back to frame indices).
+func ReadRTPStream(path string) ([]uint32, []uint16, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer f.Close()
 	var out []uint32
+	var seqs []uint16
 	var hdr [2]byte
 	for {
 		if _, err := io.ReadFull(f, hdr[:]); err != nil {
 			if err == io.EOF {
-				return out, nil
+				return out, seqs, nil
 			}
-			return out, fmt.Errorf("rtp stream: %w", err)
+			return out, seqs, fmt.Errorf("rtp stream: %w", err)
 		}
 		buf := make([]byte, binary.BigEndian.Uint16(hdr[:]))
 		if _, err := io.ReadFull(f, buf); err != nil {
-			return out, fmt.Errorf("rtp packet %d truncated: %w", len(out), err)
+			return out, seqs, fmt.Errorf("rtp packet %d truncated: %w", len(out), err)
 		}
 		var p rtp.Packet
 		if err := p.Unmarshal(buf); err != nil {
-			return out, fmt.Errorf("rtp packet %d: %w", len(out), err)
+			return out, seqs, fmt.Errorf("rtp packet %d: %w", len(out), err)
 		}
 		out = append(out, p.Timestamp)
+		seqs = append(seqs, p.SequenceNumber)
 	}
 }
