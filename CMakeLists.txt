@@ -65,6 +65,7 @@ add_library(media_core STATIC
   src/av_sync.cpp
   src/checkpoint_index.cpp
   src/checkpoint_store.cpp
+  src/pipeline.cpp
   src/cli.cpp)
 # Modules are appended to media_core in later, independently compilable batches.
 # Modules are appended to media_core in later, independently compilable batches.
