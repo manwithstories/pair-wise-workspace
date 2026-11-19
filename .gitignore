@@ -71,3 +71,20 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ============================================================
+# Python 项目 pair-flow 本地环境与构建产物
+# ============================================================
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+# 演示/运行时产物（本地生成，不提交）
+pair-flow/.demo/
+*.checkpoint.json

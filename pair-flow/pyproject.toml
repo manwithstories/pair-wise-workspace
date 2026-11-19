@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "relay-media"
+version = "0.1.0"
+description = "Reliable cross-region relay pipeline for H.264/H.265/AV1 media fragments"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "LicenseRef-Proprietary"
+authors = [{ name = "Regional Live Distribution Team" }]
+dependencies = [
+    "av==12.3.0",
+    "numpy==2.1.3",
+    "soundfile==0.12.1",
+]
+
+[project.scripts]
+relay-media = "relay_media.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
