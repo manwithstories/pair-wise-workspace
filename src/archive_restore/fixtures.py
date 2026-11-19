@@ -115,10 +115,16 @@ def _build_missing(root: Path) -> None:
     victim = sorted((dst / "v0").glob("seg*.ts"))[1]
     victim.unlink()
     playlist = dst / "v0" / "media.m3u8"
-    # Keep the EXTINF but drop the URI: an explicit dangling/missing segment.
+    # Keep the EXTINF but drop the URI: a dangling, missing segment entry.
     text = playlist.read_text().replace(f"#EXTINF:2.0,\n{victim.name}\n",
                                         "#EXTINF:2.0,\n")
     playlist.write_text(text)
+    # Remaining segments keep their real starts; the 2-4s range is an explicit
+    # gap that recovery may fill from the v1 representation of the same kind.
+    (dst / "v0" / "timeline.json").write_text(
+        '{"start_us": [0, 4000000, 6000000], "indices": [0, 2, 3],'
+        ' "gaps": [{"start_us": 2000000, "end_us": 4000000}],'
+        ' "present": [true, false, true, true]}')
 
 
 def _build_duplicate(root: Path) -> None:
@@ -128,7 +134,11 @@ def _build_duplicate(root: Path) -> None:
     text = playlist.read_text()
     dup = f"#EXTINF:2.0,\n{segs[0].name}\n"
     playlist.write_text(text.replace(dup, dup + dup, 1))
-
+    # Five entries, but entries 0 and 1 claim the same (start, duration):
+    # an equal-time duplicate the timeline stage must de-duplicate.
+    (dst / "v0" / "timeline.json").write_text(
+        '{"start_us": [0, 0, 2000000, 4000000, 6000000],'
+        ' "indices": [0, 1, 2, 3, 4]}')
 
 def _build_outoforder(root: Path) -> None:
     dst = _clone_normal(root, "outoforder")
@@ -140,6 +150,11 @@ def _build_outoforder(root: Path) -> None:
     for n in names:
         lines += ["#EXTINF:2.0,", n]
     playlist.write_text("\n".join(lines) + "\n#EXT-X-ENDLIST\n")
+    # Manifest sequence is shuffled while each entry keeps its real start;
+    # the negative jump (2s -> 0s) is what the recovery stage re-sequences.
+    (dst / "v0" / "timeline.json").write_text(
+        '{"start_us": [2000000, 0, 4000000, 6000000],'
+        ' "indices": [1, 0, 2, 3]}')
 
 
 def _build_truncated(root: Path) -> None:
@@ -155,12 +170,36 @@ def _build_truncated(root: Path) -> None:
 
 def _build_rollback(root: Path) -> None:
     dst = _clone_normal(root, "rollback")
+    playlist = dst / "v0" / "media.m3u8"
     segs = sorted((dst / "v0").glob("seg*.ts"))
-    # Re-stamp a later segment so its timeline restarts near zero (rollback).
+    # Re-stamp a later segment so its container restarts at zero too.
     target = segs[2]
     _ffmpeg(["-i", str(segs[2]), "-c", "copy", "-output_ts_offset", "0",
              "-f", "mpegts", str(target.with_suffix(".rb.ts"))])
     target.with_suffix(".rb.ts").replace(target)
+    # Build a playlist whose nominal timeline advances to 6s then jumps back:
+    # a non-zero media sequence and an explicit program-date anchor let the
+    # parser place seg2 at 1,000,000us (before the 4,000,000us high-water mark).
+    lines = ["#EXTM3U", "#EXT-X-TARGETDURATION:2", "#EXT-X-MEDIA-SEQUENCE:100",
+             "#EXT-X-START:TIME-OFFSET=0", "#EXTINF:2.0,", segs[0].name,
+             "#EXTINF:2.0,", segs[1].name,
+             "#EXT-X-PROGRAM-DATE-TIME:2020-01-01T00:00:01.000Z",
+             "#EXTINF:2.0,", segs[2].name,
+             "#EXTINF:2.0,", segs[3].name, "#EXT-X-ENDLIST"]
+    playlist.write_text("\n".join(lines) + "\n")
+    # Sidecar declares the nominal per-segment start microseconds.  The third
+    # segment (index 2) jumps back to 1s, behind the 4s high-water mark, which
+    # the timeline stage must report as a timestamp rollback.
+    (dst / "v0" / "timeline.json").write_text(
+        '{"mode": "rollback", "start_us": [0, 2000000, 1000000, 3000000]}')
+
+
+def _build_wraparound(root: Path) -> None:
+    dst = _clone_normal(root, "wraparound")
+    # A long run followed by a restart exactly at the timeline origin.
+    starts = [i * 2_000_000 for i in range(N_SEGMENTS - 1)] + [0]
+    (dst / "v0" / "timeline.json").write_text(
+        '{"mode": "wraparound", "start_us": ' + json.dumps(starts) + "}")
 
 
 def build_all(out_root: Path) -> dict:
@@ -173,6 +212,7 @@ def build_all(out_root: Path) -> dict:
     _build_outoforder(out_root)
     _build_truncated(out_root)
     _build_rollback(out_root)
+    _build_wraparound(out_root)
     scenarios = {p.name: str(p / "master.m3u8")
                  for p in sorted(out_root.iterdir()) if p.is_dir() and p.name != ".src"}
     manifest = {"generated": scenarios, "segment_us": SEGMENT_US}

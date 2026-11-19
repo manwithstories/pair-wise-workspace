@@ -19,9 +19,6 @@ from dataclasses import dataclass, field
 from .errors import ErrorCollector, ErrorStage, skippable
 from .manifest import Representation, SegmentRef
 
-# A restart smaller than this delta from the timeline high-water mark is
-# interpreted as counter wraparound rather than ordinary rollback.
-WRAP_GUARD_US = 1_000_000
 # Segments longer than this multiple of the representation target duration
 # are flagged as overlong (still kept; the alignment stage reports the drift).
 OVERLONG_FACTOR = 3
@@ -39,6 +36,8 @@ class TimelineSegment:
     byte_length: int | None = None
     valid: bool = True
     note: str = ""
+    position: int = 0
+    disorder: bool = False
 
     @property
     def key(self) -> str:
@@ -85,10 +84,23 @@ def _build_one(rep: Representation, errors: ErrorCollector) -> RepresentationTim
     tl = RepresentationTimeline(rep.rep_id, rep.kind, rep.codec, rep.bandwidth)
     high_water = 0
     wrap_offset = 0
-    for ref in rep.segments:
-        start = (ref.start_us or 0) + wrap_offset
+    for position, ref in enumerate(rep.segments):
+        raw_start = (ref.start_us or 0) + wrap_offset
         duration = max(ref.duration_us or 0, 0)
         note = ""
+        # Wraparound is structural and takes precedence: shift the restarted
+        # origin before any duplicate/rollback comparison runs.
+        if raw_start < high_water and position in rep.wrap_points:
+            wrap_offset += high_water
+            start = raw_start + high_water
+            note = "timestamp wraparound compensated"
+            tl.errors.add(skippable(
+                ErrorStage.TIMELINE, asset,
+                f"timestamp wraparound at segment {ref.index}, offset +{high_water}us",
+                segment_index=ref.index, path=str(ref.path),
+                detail={"wrap_offset_us": high_water}))
+        else:
+            start = raw_start
         duplicate = any(s.start_us == start and s.duration_us == duration and s.index != ref.index
                         for s in tl.segments)
         if duration == 0:
@@ -100,31 +112,29 @@ def _build_one(rep: Representation, errors: ErrorCollector) -> RepresentationTim
                 ErrorStage.TIMELINE, asset, f"equal-time duplicate at {start}us",
                 segment_index=ref.index, byte_offset=ref.byte_offset, path=str(ref.path)))
             note = "duplicate"
-        if start < high_water and not duplicate:
-            # Counter wraparound: timeline restarts near zero after a long run.
-            if high_water > WRAP_GUARD_US and start <= WRAP_GUARD_US:
-                wrap_offset += high_water
-                start += high_water
-                note = "timestamp wraparound compensated"
+        elif start < high_water:
+            conflict = high_water - start
+            if conflict <= ROUNDING_TOLERANCE_US:
+                tl.errors.add(skippable(
+                    ErrorStage.TIMELINE, asset,
+                    f"rounding conflict of {conflict}us at segment {ref.index}",
+                    segment_index=ref.index, byte_offset=ref.byte_offset, path=str(ref.path),
+                    detail={"conflict_us": conflict}))
+                start = high_water
+            elif getattr(ref, "disorder", False):
+                # Out-of-order manifest entry: keep its true start and let the
+                # recovery stage re-sequence by time instead of parking it.
+                note = "out-of-order"
             else:
-                conflict = high_water - start
-                if conflict <= ROUNDING_TOLERANCE_US:
-                    tl.errors.add(skippable(
-                        ErrorStage.TIMELINE, asset,
-                        f"rounding conflict of {conflict}us at segment {ref.index}",
-                        segment_index=ref.index, byte_offset=ref.byte_offset, path=str(ref.path),
-                        detail={"conflict_us": conflict}))
-                    start = high_water
-                else:
-                    tl.errors.add(skippable(
-                        ErrorStage.TIMELINE, asset,
-                        f"timestamp rollback by {conflict}us at segment {ref.index}",
-                        segment_index=ref.index, byte_offset=ref.byte_offset, path=str(ref.path),
-                        detail={"rollback_us": conflict}))
-                    # Preserve the item but park it after the high-water mark so
-                    # later recovery logic can de-duplicate or re-sequence it.
-                    start = high_water
-                    note = "rollback parked"
+                tl.errors.add(skippable(
+                    ErrorStage.TIMELINE, asset,
+                    f"timestamp rollback by {conflict}us at segment {ref.index}",
+                    segment_index=ref.index, byte_offset=ref.byte_offset, path=str(ref.path),
+                    detail={"rollback_us": conflict}))
+                # Keep the item but park it after the high-water mark so
+                # recovery can re-sequence it without overwriting history.
+                start = high_water
+                note = "rollback parked"
         if rep.target_duration_us and duration > rep.target_duration_us * OVERLONG_FACTOR:
             tl.errors.add(skippable(
                 ErrorStage.TIMELINE, asset,
@@ -133,9 +143,11 @@ def _build_one(rep: Representation, errors: ErrorCollector) -> RepresentationTim
                 detail={"duration_us": duration, "target_us": rep.target_duration_us}))
             note = (note + "; overlong").strip("; ")
         seg = TimelineSegment(ref.index, ref.path, start, start + duration, duration,
-                              ref.byte_offset, ref.byte_length, valid=duration > 0, note=note)
+                              ref.byte_offset, ref.byte_length, valid=duration > 0, note=note,
+                              position=getattr(ref, "position", 0),
+                              disorder=getattr(ref, "disorder", False))
         tl.segments.append(seg)
-        if start > high_water and high_water > 0:
+        if high_water > 0 and start > high_water and not seg.disorder:
             tl.gaps.append(Gap(high_water, start, "missing segment"))
         high_water = max(high_water, seg.end_us)
     errors.extend(tl.errors.records)
