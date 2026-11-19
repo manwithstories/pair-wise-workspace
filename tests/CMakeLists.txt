@@ -1,5 +1,6 @@
 add_executable(media_tests
   frame_transform_tests.cpp
+  generator_tests.cpp
   keyframe_index_tests.cpp
   packet_tests.cpp
   reorder_tests.cpp
