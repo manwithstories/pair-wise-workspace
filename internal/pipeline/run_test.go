@@ -8,14 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	"mediasync/internal/media"
 	"mediasync/internal/pipeline"
 )
 
 func runDefault(t *testing.T) *pipeline.Report {
 	t.Helper()
 	opts := pipeline.DefaultOptions()
-	opts.Expected = map[media.Code]bool{media.CodeOutOfRange: true, media.CodeMissingEntry: true}
 	r, err := pipeline.Run(opts)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -97,7 +95,6 @@ func TestRunSeedChangesPayloads(t *testing.T) {
 	a := runDefault(t)
 	opts := pipeline.DefaultOptions()
 	opts.Seed = 7
-	opts.Expected = map[media.Code]bool{media.CodeOutOfRange: true, media.CodeMissingEntry: true}
 	b, err := pipeline.Run(opts)
 	if err != nil {
 		t.Fatal(err)

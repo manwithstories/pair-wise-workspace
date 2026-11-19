@@ -171,12 +171,3 @@ func GenerateRTP(plan RTPPlan) RTPFixture {
 	}
 	return fx
 }
-
-// BandwidthPlan returns the payload size to use at a given second under a
-// fluctuating bandwidth profile, in the order the profile lists it.
-func BandwidthPlan(kbps []int, second int) int {
-	if len(kbps) == 0 {
-		return 800
-	}
-	return kbps[second%len(kbps)]
-}

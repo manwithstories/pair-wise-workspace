@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 
-	"mediasync/internal/media"
 	"mediasync/internal/pipeline"
 )
 
@@ -127,18 +126,12 @@ func runDemo(args []string, stdout, stderr io.Writer) int {
 	opts.TargetMS = *targetMS
 	opts.OverlapMS = *overlapMS
 	opts.Window = *window
-	opts.Expected = map[media.Code]bool{
-		media.CodeOutOfRange:       true,
-		media.CodeMissingEntry:     true,
-		media.CodeInvalidTimestamp: true,
-	}
 
 	report, err := pipeline.Run(opts)
 	if err != nil {
 		fmt.Fprintf(stderr, "mediasync: %v\n", err)
 		return 1
 	}
-	report.GeneratedAt = ""
 	if *out != "" {
 		if err := report.WriteJSON(*out); err != nil {
 			fmt.Fprintf(stderr, "mediasync: write report: %v\n", err)
