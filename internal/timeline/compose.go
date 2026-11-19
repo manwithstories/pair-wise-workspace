@@ -160,6 +160,8 @@ func Compose(tracks []TrackInput, opts Options) *Timeline {
 			composeSubtitle(tl, tr, opts)
 		}
 	}
+	resolveCrossTrackSubtitles(tl, opts)
+	dropCollapsedSubtitles(tl)
 	sort.SliceStable(tl.Entries, func(i, j int) bool {
 		if c := tl.Entries[i].Start.Cmp(tl.Entries[j].Start); c != 0 {
 			return c < 0
@@ -230,8 +232,7 @@ func clip(e Entry, w Window) (Entry, bool) {
 }
 
 // composeSubtitle applies the conflict policy between cues of the same
-// track. Cross-track overlaps are resolved by priority: the higher
-// priority cue wins, ties fall to the policy.
+// track. Cross-track overlaps are resolved afterwards by priority.
 func composeSubtitle(tl *Timeline, tr TrackInput, opts Options) {
 	if tr.Sub == nil {
 		return
@@ -243,9 +244,14 @@ func composeSubtitle(tl *Timeline, tr TrackInput, opts Options) {
 		}
 		return cues[i].End.Cmp(cues[j].End) < 0
 	})
-	var kept []Entry
+	// Each kept entry remembers the source cue ordinal for reporting.
+	type keptEntry struct {
+		entry Entry
+		cue   int
+	}
+	var kept []keptEntry
 	conflictSeq := len(tl.Conflicts)
-	for _, c := range cues {
+	for cueSeq, c := range cues {
 		entry := Entry{
 			Kind: KindSubtitle, Track: tr.Name, Priority: tr.Priority,
 			Start: c.Start, End: c.End, Text: c.Text, Offset: c.Offset,
@@ -257,16 +263,17 @@ func composeSubtitle(tl *Timeline, tr TrackInput, opts Options) {
 		// Find an overlap with any already-kept cue of this track.
 		idx := -1
 		for i := range kept {
-			k := kept[i]
+			k := kept[i].entry
 			if k.End.Cmp(entry.Start) > 0 && entry.Start.Cmp(k.Start) >= 0 {
 				idx = i
 			}
 		}
 		if idx < 0 {
-			kept = append(kept, entry)
+			kept = append(kept, keptEntry{entry: entry, cue: cueSeq})
 			continue
 		}
-		earlier := kept[idx]
+		earlier := kept[idx].entry
+		earlierCue := kept[idx].cue
 		// The overlap runs from the later cue's start to whichever cue
 		// ends first.
 		overlapEnd := earlier.End
@@ -277,7 +284,7 @@ func composeSubtitle(tl *Timeline, tr TrackInput, opts Options) {
 		conflictSeq++
 		cf := Conflict{
 			ID: conflictSeq, Track: tr.Name,
-			Earlier: len(kept) + len(tl.Entries), Later: len(kept) + len(tl.Entries) + 1,
+			Earlier: earlierCue, Later: cueSeq,
 			Overlap: overlap.End.Sub(overlap.Start),
 			Start:   overlap.Start, End: overlap.End,
 			Priority: tr.Priority,
@@ -285,21 +292,20 @@ func composeSubtitle(tl *Timeline, tr TrackInput, opts Options) {
 		switch tl.Policy {
 		case ConflictKeepBoth:
 			cf.Resolved = "kept-both"
-			kept = append(kept, entry)
+			kept = append(kept, keptEntry{entry: entry, cue: cueSeq})
 		case ConflictReject:
 			cf.Resolved = "rejected-later"
-			cf.Later = len(kept)
 		default: // last-wins
 			cf.Resolved = "trimmed-earlier"
 			earlier.End = entry.Start
 			earlier.Trimmed = true
-			kept[idx] = earlier
-			kept = append(kept, entry)
+			kept[idx].entry = earlier
+			kept = append(kept, keptEntry{entry: entry, cue: cueSeq})
 		}
 		tl.Conflicts = append(tl.Conflicts, cf)
 	}
-	for _, e := range kept {
-		tl.Entries = append(tl.Entries, e)
+	for _, k := range kept {
+		tl.Entries = append(tl.Entries, k.entry)
 		tl.SubtitleCount++
 	}
 	for _, e := range tr.Sub.Errors {
@@ -328,4 +334,128 @@ func (t *Timeline) SubtitleBounds() (clock.Rational, clock.Rational, bool) {
 		}
 	}
 	return lo, hi, found
+}
+
+// resolveCrossTrackSubtitles applies track priority to subtitle entries
+// from different tracks that occupy the same moment. The higher
+// priority entry keeps its span; the lower priority entry is trimmed,
+// dropped or left alone according to the policy. Within-track conflicts
+// were already handled during composition.
+func resolveCrossTrackSubtitles(tl *Timeline, opts Options) {
+	subIdx := make([]int, 0, len(tl.Entries))
+	for i := range tl.Entries {
+		if tl.Entries[i].Kind == KindSubtitle {
+			subIdx = append(subIdx, i)
+		}
+	}
+	sort.SliceStable(subIdx, func(a, b int) bool {
+		ea, eb := tl.Entries[subIdx[a]], tl.Entries[subIdx[b]]
+		if c := ea.Start.Cmp(eb.Start); c != 0 {
+			return c < 0
+		}
+		return ea.Priority > eb.Priority
+	})
+	resolved := make(map[[2]int]bool)
+	for ai := 0; ai < len(subIdx); ai++ {
+		i := subIdx[ai]
+		for bi := ai + 1; bi < len(subIdx); bi++ {
+			j := subIdx[bi]
+			a, b := tl.Entries[i], tl.Entries[j]
+			if b.Start.Cmp(a.End) >= 0 {
+				break // sorted by start: no later entry can overlap
+			}
+			if a.Track == b.Track || a.Priority == b.Priority {
+				continue
+			}
+			key := [2]int{i, j}
+			if i > j {
+				key = [2]int{j, i}
+			}
+			if resolved[key] {
+				continue
+			}
+			resolved[key] = true
+			winner, loser := i, j
+			if b.Priority > a.Priority {
+				winner, loser = j, i
+			}
+			w, l := tl.Entries[winner], tl.Entries[loser]
+			overlapEnd := w.End
+			if l.End.Cmp(overlapEnd) < 0 {
+				overlapEnd = l.End
+			}
+			overlapStart := l.Start
+			if w.Start.Cmp(overlapStart) > 0 {
+				overlapStart = w.Start
+			}
+			if overlapEnd.Cmp(overlapStart) <= 0 {
+				continue
+			}
+			cf := Conflict{
+				ID: len(tl.Conflicts) + 1, Track: l.Track,
+				Earlier: winner, Later: loser,
+				Overlap: overlapEnd.Sub(overlapStart),
+				Start:   overlapStart, End: overlapEnd,
+				Priority: w.Priority,
+			}
+			switch tl.Policy {
+			case ConflictKeepBoth:
+				cf.Resolved = "kept-both"
+			case ConflictReject:
+				cf.Resolved = "rejected-lower-priority"
+				le := tl.Entries[loser]
+				le.End = le.Start
+				le.Trimmed = true
+				tl.Entries[loser] = le
+			default: // last-wins trims the lower priority cue
+				cf.Resolved = "trimmed-lower-priority"
+				le := tl.Entries[loser]
+				switch {
+				case l.Start.Cmp(w.Start) >= 0:
+					// Loser begins inside the winner: keep only its tail.
+					le.Start = w.End
+					if le.End.Cmp(le.Start) < 0 {
+						le.End = le.Start
+					}
+				case l.End.Cmp(w.End) > 0:
+					// Loser starts before the winner and ends after it:
+					// keep the leading part only.
+					le.End = w.Start
+					if le.End.Cmp(le.Start) < 0 {
+						le.End = le.Start
+					}
+				default:
+					// Loser fully covered: collapse it.
+					le.End = le.Start
+				}
+				tl.Entries[loser] = le
+				tl.Entries[loser].Trimmed = true
+			}
+			tl.Conflicts = append(tl.Conflicts, cf)
+		}
+	}
+}
+
+// dropCollapsedSubtitles removes subtitle entries that a conflict policy
+// reduced to an empty span, and recomputes the subtitle count so the
+// summary never counts a cue that covers no moment.
+//
+// Two kinds of collapse are distinguished: within-track policies never
+// trim a cue to nothing, so an empty span there means the source cue was
+// zero-length and is preserved; cross-track priority trimming does set
+// Trimmed for a cue it empties, and those are dropped.
+func dropCollapsedSubtitles(tl *Timeline) {
+	out := tl.Entries[:0]
+	count := 0
+	for _, e := range tl.Entries {
+		if e.Kind == KindSubtitle {
+			if e.Trimmed && e.End.Cmp(e.Start) <= 0 {
+				continue
+			}
+			count++
+		}
+		out = append(out, e)
+	}
+	tl.Entries = out
+	tl.SubtitleCount = count
 }

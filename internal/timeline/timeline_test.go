@@ -133,3 +133,42 @@ func TestParseConflictPolicy(t *testing.T) {
 		t.Fatal("expected error for unknown policy")
 	}
 }
+
+func TestCrossTrackPriorityResolution(t *testing.T) {
+	high := cueTrack("sub-high", 10, cue(0, 4, "high", 0))
+	low := cueTrack("sub-low", 1, cue(2, 6, "low", 10))
+	tl := Compose([]TrackInput{low, high}, Options{
+		Policy: ConflictLastWins, FrameDuration: clock.NewRational(1, 25)})
+	if len(tl.Conflicts) != 1 {
+		t.Fatalf("conflicts = %+v", tl.Conflicts)
+	}
+	c := tl.Conflicts[0]
+	if c.Track != "sub-low" || c.Resolved != "trimmed-lower-priority" {
+		t.Fatalf("conflict = %+v", c)
+	}
+	// The lower priority cue starts inside the winner, so it keeps only
+	// its tail after the winner ends.
+	for _, e := range tl.Entries {
+		if e.Track == "sub-low" && (e.Start != clock.NewRational(4, 1) ||
+			e.End != clock.NewRational(6, 1)) {
+			t.Fatalf("low priority cue = %s..%s, want 4..6", e.Start, e.End)
+		}
+	}
+
+	keep := Compose([]TrackInput{low, high}, Options{
+		Policy: ConflictKeepBoth, FrameDuration: clock.NewRational(1, 25)})
+	if keep.Conflicts[0].Resolved != "kept-both" {
+		t.Fatalf("keep-both conflict = %+v", keep.Conflicts[0])
+	}
+	for _, e := range keep.Entries {
+		if e.Track == "sub-low" && e.End != clock.NewRational(6, 1) {
+			t.Fatalf("keep-both changed the low priority cue: %+v", e)
+		}
+	}
+
+	reject := Compose([]TrackInput{low, high}, Options{
+		Policy: ConflictReject, FrameDuration: clock.NewRational(1, 25)})
+	if reject.SubtitleCount != 1 {
+		t.Fatalf("reject kept %d subtitles", reject.SubtitleCount)
+	}
+}
