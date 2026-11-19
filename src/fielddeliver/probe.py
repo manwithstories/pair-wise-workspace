@@ -11,11 +11,10 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from pathlib import Path
 
 import av
 
-from .model import (DEFAULT_LIMITS, ErrorCategory, FrameRecord, Issue,
+from .model import (ErrorCategory, FrameRecord, Issue,
                     Manifest, PipelineError, TrackDecl, TrackKind,
                     VideoCodec, VideoInfo, frames_to_us, resolve_within_root)
 

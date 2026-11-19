@@ -15,8 +15,7 @@ from . import report as report_mod
 from . import sync as sync_mod
 from .color import arbitrate_all
 from .model import (ErrorCategory, ExitCode, Issue, Manifest, TrackKind,
-                    TrackResult, TrackState, atomic_write_json, read_json,
-                    resolve_within_root, sha256_file)
+                    TrackResult, atomic_write_json, resolve_within_root)
 from .scheduler import Scheduler
 from .timeline import build_timeline
 

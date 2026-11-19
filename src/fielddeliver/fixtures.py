@@ -6,7 +6,6 @@
 """
 from __future__ import annotations
 
-import os
 from fractions import Fraction
 from pathlib import Path
 
@@ -15,8 +14,7 @@ import numpy as np
 import soundfile as sf
 
 from .model import (ColorDecl, ColorStrategy, Manifest, PaddingPolicy,
-                    TrackDecl, TrackKind, VideoCodec, atomic_write_json,
-                    resolve_within_root)
+                    TrackDecl, TrackKind, VideoCodec, atomic_write_json)
 
 NANOS = 1_000_000
 

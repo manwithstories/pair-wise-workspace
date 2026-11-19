@@ -11,7 +11,7 @@ import json
 import math
 from dataclasses import asdict, dataclass, field
 
-from .model import (ErrorCategory, ExitCode, Issue, Manifest, TrackResult,
+from .model import (ErrorCategory, ExitCode, Manifest, TrackResult,
                     atomic_write_json)
 from .timeline import Timeline
 

@@ -13,11 +13,10 @@ import hashlib
 import json
 import os
 import time
-from dataclasses import asdict
 from pathlib import Path
 
 from .model import (ErrorCategory, Issue, Manifest, PipelineError,
-                    TrackKind, TrackResult, TrackState, atomic_write_json,
+                    TrackResult, TrackState, atomic_write_json,
                     read_json, sha256_file)
 from .timeline import blocked_by_failure, topological_order
 

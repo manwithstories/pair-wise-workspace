@@ -12,7 +12,7 @@ import numpy as np
 import soundfile as sf
 
 from .model import (AudioInfo, ErrorCategory, Issue, PaddingPolicy,
-                    TrackDecl, US_PER_SEC, atomic_write_bytes,
+                    TrackDecl, US_PER_SEC,
                     resolve_within_root)
 
 # 已知布局 -> 标准声道顺序（soundfile 采用 WAV / SMPTE 顺序）。
