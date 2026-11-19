@@ -10,10 +10,7 @@ import (
 	"github.com/abema/go-mp4"
 )
 
-const (
-	durationUnknown = ^uint64(0)
-	handlerVideo    = "vide"
-)
+const handlerVideo = "vide"
 
 // tableStats is everything the moov writer needs about a spooled table.
 type tableStats struct {
