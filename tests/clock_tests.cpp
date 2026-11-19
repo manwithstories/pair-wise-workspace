@@ -1,9 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
 
-extern "C" {
-#include <libavutil/avutil.h>
-}
-
 #include "media_clock.hpp"
 #include "sha256.hpp"
 #include "util.hpp"

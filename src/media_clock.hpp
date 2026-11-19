@@ -10,6 +10,7 @@
 #include <string>
 
 extern "C" {
+#include <libavutil/avutil.h>
 #include <libavutil/mathematics.h>
 #include <libavutil/rational.h>
 }

@@ -19,6 +19,7 @@ set(MEDIAQC_SOURCES
   src/config.cpp
   src/media_error.cpp
   src/sha256.cpp
+  src/timeline.cpp
   src/util.cpp
 )
 
