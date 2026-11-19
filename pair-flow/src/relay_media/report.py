@@ -72,6 +72,7 @@ def build_report(result: dict, *, source_index_path: str | None = None) -> dict:
         "unrecovered_ranges": transport["unrecovered_ranges"],
         "error_offsets": result["error_offsets"],
         "error_count": result["error_count"],
+        "recovered_event_count": result.get("recovered_event_count", 0),
         "segments": result["segments"],
         "silence": result["silence"],
         "dedup": result["dedup"],
@@ -167,7 +168,8 @@ def format_summary(report: dict, verdict: VerificationVerdict | None = None) -> 
         f"dup={m['duplicate_packets']}, reorder={m['reordered_packets']})",
         f"  reconnect_count    : {m['reconnect_count']}",
         f"  error_offsets      : {report['error_offsets']}",
-        f"  error_count        : {report['error_count']}",
+        f"  error_count        : {report['error_count']} (未恢复)",
+        f"  recovered_events   : {report['recovered_event_count']} (已修复)",
         f"  unrecovered_ranges : {report['unrecovered_ranges']}",
         "-" * 64,
     ]

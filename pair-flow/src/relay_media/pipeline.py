@@ -128,6 +128,8 @@ class Pipeline:
         dedup = self._stage_fingerprint(raw, plan)
         transport_result = self._stage_transport(scan, timeline_pts)
 
+        unrecovered = [e for e in self.errors if not e.recovered]
+        recovered = [e for e in self.errors if e.recovered]
         result = {
             "codec": cfg.codec,
             "video": {"path": video_path, "bytes": len(raw),
@@ -137,9 +139,13 @@ class Pipeline:
             "silence": silence_result.to_dict() if silence_result else None,
             "dedup": dedup.to_dict(),
             "transport": transport_result.metrics(),
+            # error_offsets 汇总全部带字节偏移的问题，便于值守定位
             "error_offsets": sorted({e.offset for e in self.errors
                                      if e.offset >= 0}),
-            "error_count": len(self.errors),
+            "error_count": len(unrecovered),
+            "recovered_event_count": len(recovered),
+            "recovered_events": [e.to_dict() for e in recovered],
+            "unrecovered_errors": [e.to_dict() for e in unrecovered],
         }
         return result
 
