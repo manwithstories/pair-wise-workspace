@@ -76,3 +76,4 @@ AGENTS.md.local
 build/
 *.o
 *.a
+build-rel/
