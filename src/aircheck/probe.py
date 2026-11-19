@@ -254,7 +254,15 @@ def _read_vint_raw(data: bytes, position: int, *, keep_marker: bool) -> tuple[in
     return value, width
 
 
-def _mkv_index_health(path: Path) -> tuple[bool, list[str], int | None]:
+@dataclass(frozen=True)
+class MkvIndexHealth:
+    has_cues: bool
+    problems: list[str]
+    cue_count: int | None
+    cue_entries: list[dict[str, object]]
+
+
+def _mkv_index_health(path: Path) -> MkvIndexHealth:
     """Walk a Matroska file's top-level structure and inspect its Cues.
 
     Returns ``(has_cues, problems, cue_count)``.  ``problems`` contains
@@ -263,29 +271,30 @@ def _mkv_index_health(path: Path) -> tuple[bool, list[str], int | None]:
     failures degrade to ``(False, ["no_cues"], None)`` rather than raising:
     index health must never be inferred from a best-effort parse that crashed.
     """
+    empty = MkvIndexHealth(False, ["no_cues"], None, [])
     try:
         data = path.read_bytes()
     except OSError:
-        return False, ["no_cues"], None
+        return empty
     if not data.startswith(b"\x1a\x45\xdf\xa3"):
-        return False, ["no_cues"], None
+        return empty
 
     position = 0
     # Skip the EBML header element.
     _, header_id_len = _read_vint(data, position)
     header_size, header_size_len = _read_size(data, position + header_id_len)
     if header_size is None:
-        return False, ["no_cues"], None
+        return empty
     # The EBML header is a regular sized element, so the Segment ID follows
     # immediately at its declared end; no padding to skip.
     position += header_id_len + header_size_len + header_size
 
     segment_id, id_len = _read_vint(data, position)
     if segment_id is None:
-        return False, ["no_cues"], None
+        return empty
     segment_size, size_len = _read_size(data, position + id_len)
     if segment_size is None:
-        return False, ["no_cues"], None
+        return empty
     body_start = position + id_len + size_len
     unknown_size = segment_size == (1 << (7 * size_len)) - 1
     body_end = len(data) if unknown_size else min(len(data), body_start + segment_size)
@@ -307,7 +316,7 @@ def _mkv_index_health(path: Path) -> tuple[bool, list[str], int | None]:
         cursor = payload_start + element_size
 
     if cues_payload is None:
-        return False, ["no_cues"], None
+        return empty
 
     times: list[int] = []
     offenders: set[str] = set()
@@ -343,25 +352,9 @@ def _mkv_index_health(path: Path) -> tuple[bool, list[str], int | None]:
         "cue_out_of_order": 1,
         "cue_past_eof": 2,
     }
-    _MKV_CUE_CACHE[str(path)] = cue_entries
-    return True, sorted(offenders, key=lambda name: order.get(name, 99)), len(times)
-
-
-#: Raw Matroska cue entries keyed by file path, so the keyframe validator can
-#: check the container's *own* index instead of only re-scanning packets.
-_MKV_CUE_CACHE: dict[str, list[dict[str, object]]] = {}
-
-
-def mkv_cue_entries(path: Path) -> list[dict[str, object]]:
-    """Return the Matroska cue entries for ``path`` (empty for other formats).
-
-    Entries are ``{"time": int | None, "cluster_position": int | None}`` in
-    file order, including entries a well-behaved muxer would never write.
-    """
-    key = str(path)
-    if key not in _MKV_CUE_CACHE:
-        _mkv_index_health(path)
-    return list(_MKV_CUE_CACHE.get(key, []))
+    return MkvIndexHealth(
+        True, sorted(offenders, key=lambda name: order.get(name, 99)), len(times), cue_entries
+    )
 
 
 def mkv_cue_scale_ns(path: Path) -> int:
@@ -558,12 +551,17 @@ def probe(
         bit_rate = container.bit_rate
 
         if "matroska" in format_name or "webm" in format_name:
-            has_cues, problems, cue_count = _mkv_index_health(source)
+            health = _mkv_index_health(source)
+            has_cues, problems = health.has_cues, health.problems
             index_info = {
                 "has_cues": has_cues,
                 "problems": problems,
-                "cue_count": cue_count,
-                "cue_entries": mkv_cue_entries(source) if has_cues else [],
+                "cue_count": health.cue_count,
+                # Raw cue entries are carried in the result itself, so the
+                # keyframe validator can check the container's own index
+                # without a process-wide cache (which would grow unbounded in a
+                # batch run).
+                "cue_entries": health.cue_entries if has_cues else [],
                 "cue_scale_ns": mkv_cue_scale_ns(source),
                 "segment_start": mkv_segment_start(source),
             }
@@ -738,7 +736,7 @@ __all__ = [
     "ProbeResult",
     "StreamInfo",
     "AircheckError",
-    "mkv_cue_entries",
+    "MkvIndexHealth",
     "mkv_cue_scale_ns",
     "mkv_segment_start",
     "probe",
