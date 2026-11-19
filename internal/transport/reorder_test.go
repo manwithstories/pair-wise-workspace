@@ -157,7 +157,8 @@ func TestRecoveryHealsGap(t *testing.T) {
 		1: {Track: "t", Seq: 1, Payload: []byte("b"), Timestamp: 100},
 	}}
 	eng := NewRecoveryEngine(DefaultRecoveryPolicy(), src)
-	out, outcome, rep := eng.RepairGap(b, 3000)
+	// Age the gap past the reorder hold so retransmission is attempted.
+	out, outcome, rep := eng.RepairGap(b, 100_000)
 	if outcome != Healed {
 		t.Fatalf("outcome = %v, want Healed", outcome)
 	}
@@ -178,7 +179,7 @@ func TestRecoveryUnrecoverableOnMissingSource(t *testing.T) {
 	b.Push(pk(2, "c"), 1000)
 	src := &mapSource{packets: map[uint64]Packet{}} // nothing recoverable
 	eng := NewRecoveryEngine(DefaultRecoveryPolicy(), src)
-	_, outcome, rep := eng.RepairGap(b, 5000)
+	_, outcome, rep := eng.RepairGap(b, 100_000)
 	if outcome != Unrecoverable {
 		t.Fatalf("outcome = %v, want Unrecoverable", outcome)
 	}
@@ -193,9 +194,11 @@ func TestRecoveryRespectsBandwidthViability(t *testing.T) {
 	b.Push(pk(9, "j"), 1000) // 8-packet burst
 	src := &mapSource{packets: map[uint64]Packet{}, maxBurst: 4}
 	eng := NewRecoveryEngine(DefaultRecoveryPolicy(), src)
-	_, outcome, _ := eng.RepairGap(b, 5000)
+	// A blocked gap only becomes a loss once its deadline passes. Use a time
+	// past the deadline (default 250 ms) to observe that transition.
+	_, outcome, _ := eng.RepairGap(b, 1_000_000)
 	if outcome != Unrecoverable {
-		t.Fatalf("oversized burst must be unrecoverable, got %v", outcome)
+		t.Fatalf("oversized burst must be unrecoverable after the deadline, got %v", outcome)
 	}
 }
 

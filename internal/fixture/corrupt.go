@@ -108,11 +108,18 @@ func Impair(sent []SentPacket, opts NetworkOptions) []Delivery {
 		// has no origin and the whole track would be unattributable.
 		delete(drops, 0)
 	}
-	jitter := timeline.Micros(0)
-	if opts.BandwidthMBps > 0 && opts.BandwidthMBps < 5 {
-		// Low bandwidth stretches spacing: 1ms per packet per missing Mbps.
-		jitter = timeline.Micros((5 - opts.BandwidthMBps) * 2000)
+	// Per-packet jitter must be able to exceed one inter-packet interval, so
+	// scale it by the track's own spacing rather than using a fixed constant.
+	spacing := timeline.Micros(1)
+	if len(sent) > 1 {
+		if g := sent[1].SentUs - sent[0].SentUs; g > 0 {
+			spacing = g
+		}
 	}
+	// Small per-packet jitter models ordinary scheduling noise. It must stay
+	// well below one packet interval: reordering is produced by the explicit
+	// held packet below, and huge jitter would masquerade as A/V drift.
+	jitter := spacing / 8
 	for i, p := range sent {
 		d := Delivery{Packet: p}
 		if drops[i] {
@@ -120,10 +127,13 @@ func Impair(sent []SentPacket, opts NetworkOptions) []Delivery {
 			out = append(out, d)
 			continue
 		}
-		arrival := p.SentUs + pathDelay + jitter*timeline.Micros(i%8)
-		// Reorder: swap arrival with a later neighbour occasionally.
-		if i > 0 && i%17 == 0 {
-			arrival -= timeline.Micros(opts.ReorderWindow) * 1000
+		arrival := p.SentUs + pathDelay + jitter*timeline.Micros(i%3)
+		// Reordering: every so often a packet is held past its successor's
+		// nominal arrival. This guarantees the reorder path is exercised even
+		// when the per-packet jitter happens to stay ordered.
+		if i > 0 && i+1 < len(sent) && i%13 == 0 {
+			gap := sent[i+1].SentUs - p.SentUs
+			arrival = sent[i+1].SentUs + gap/2
 		}
 		if arrival < 0 {
 			arrival = 0

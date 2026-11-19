@@ -89,9 +89,11 @@ func runTrack(fx *fixture.Fixture, node *timeline.Node, engine *transport.Recove
 		}
 	}
 
-	// Final repair attempt and flush at the end of the stream.
+	// Final repair attempt and flush at the end of the stream. At end of
+	// stream there is no late packet left to wait for, so the reorder hold is
+	// not applied: the gap is either repaired now or declared a permanent loss.
 	if g, ok := buf.OpenGap(); ok {
-		healed, outcome, _ := engine.RepairGap(buf, lastArrival(deliveries))
+		healed, outcome, _ := engine.FinalGap(buf, lastArrival(deliveries))
 		delivered = append(delivered, healed...)
 		if outcome == transport.Unrecoverable {
 			lostGaps = append(lostGaps, g)

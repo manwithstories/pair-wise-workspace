@@ -56,6 +56,11 @@ type RecoveryPolicy struct {
 	MaxRetries int
 	// DeadlineMs is how long a gap may wait before it is declared a timeout.
 	DeadlineMs float64
+	// ReorderHoldMs is how long to wait for a naturally late packet before
+	// spending a retransmit on the gap. Without it, retransmission wins every
+	// race against mere reordering and the transport reports zero reordered
+	// packets even when the wire is badly out of order.
+	ReorderHoldMs float64
 	// BandwidthMBps is the observed uplink sample.
 	BandwidthMBps float64
 	// MaxDelayMs caps playout delay.
@@ -64,7 +69,10 @@ type RecoveryPolicy struct {
 
 // DefaultRecoveryPolicy is tuned for a 3 Mbps proxy feed.
 func DefaultRecoveryPolicy() RecoveryPolicy {
-	return RecoveryPolicy{MaxRetries: 3, DeadlineMs: 250, BandwidthMBps: 3, MaxDelayMs: 500}
+	return RecoveryPolicy{
+		MaxRetries: 3, DeadlineMs: 250, ReorderHoldMs: 40,
+		BandwidthMBps: 3, MaxDelayMs: 500,
+	}
 }
 
 // RecoveryEngine drives retransmit simulation and decides when a gap must be
@@ -127,17 +135,40 @@ func (e *RecoveryEngine) report(track string) *RecoveryReport {
 	return r
 }
 
-// RepairGap attempts the single open gap for a track. It is idempotent for one
-// gap: repeated calls before the gap heals or is abandoned do not inflate the
-// counters.
+// RepairGap attempts the single open gap for a track.
+//
+// A fresh gap is never abandoned on the first failure. A packet that merely
+// arrived late (reordered) will heal its own gap within a few packet intervals,
+// so abandoning immediately would turn harmless reordering into data loss. The
+// gap is declared unrecoverable only once it has aged past the deadline, which
+// is exactly the latency the pipeline is willing to pay for repair.
 //
 // A gap is healed only if every packet in it can be retransmitted. A partially
 // repaired gap is not consumed: the caller either keeps waiting or advances
 // past it, so a consumer never sees a half-restored span.
+// FinalGap repairs the gap still open when the stream ends. There is no late
+// packet left to wait for, so the reorder hold is skipped: repair immediately
+// or declare the gap a permanent loss.
+func (e *RecoveryEngine) FinalGap(buf *ReorderBuffer, now timeline.Micros) ([]Packet, Outcome, *RecoveryReport) {
+	if buf == nil {
+		return nil, Unrecoverable, nil
+	}
+	if _, ok := buf.OpenGap(); !ok {
+		return nil, NoGap, e.report(buf.Track())
+	}
+	// Treat the end of stream as the deadline: anything still missing will not
+	// arrive.
+	return e.repair(buf, now, true)
+}
+
 func (e *RecoveryEngine) RepairGap(buf *ReorderBuffer, now timeline.Micros) ([]Packet, Outcome, *RecoveryReport) {
 	if buf == nil {
 		return nil, Unrecoverable, nil
 	}
+	return e.repair(buf, now, false)
+}
+
+func (e *RecoveryEngine) repair(buf *ReorderBuffer, now timeline.Micros, atEnd bool) ([]Packet, Outcome, *RecoveryReport) {
 	rep := e.report(buf.Track())
 	rep.BufferBound = e.BufferBound()
 	rep.MaxDelayMs = e.ctrl.MaxDelayMs
@@ -146,11 +177,26 @@ func (e *RecoveryEngine) RepairGap(buf *ReorderBuffer, now timeline.Micros) ([]P
 	if !ok {
 		return nil, NoGap, rep
 	}
+	age := buf.GapAgeMs(now)
+	expired := age >= e.policy.DeadlineMs || atEnd
+
+	// Never re-attempt the same gap start: its outcome cannot change before it
+	// either heals naturally or expires. Reordering (Blocked) is deliberately
+	// NOT recorded as an attempt, so a gap may be revisited as it ages.
 	if prev, done := e.attempted[buf.Track()]; done && prev == g.StartExt {
-		// Already tried this exact gap; only the deadline can change things.
-		if buf.GapAgeMs(now) >= e.policy.DeadlineMs {
+		if expired {
 			return nil, Unrecoverable, rep
 		}
+		return nil, Blocked, rep
+	}
+	// Give a naturally late packet a short window to fill the hole before
+	// spending bandwidth on a retransmit. The hold is always below the deadline
+	// so a gap can never expire before it has had a chance to be repaired.
+	hold := e.policy.ReorderHoldMs
+	if hold >= e.policy.DeadlineMs {
+		hold = e.policy.DeadlineMs * 0.5
+	}
+	if age < hold && !atEnd {
 		return nil, Blocked, rep
 	}
 	e.attempted[buf.Track()] = g.StartExt
@@ -158,9 +204,15 @@ func (e *RecoveryEngine) RepairGap(buf *ReorderBuffer, now timeline.Micros) ([]P
 
 	viable, _ := e.src.(GapViability)
 	if e.src == nil || (viable != nil && !viable.GapViable(buf.Track(), g.StartExt, g.Count)) {
-		rep.Unrecoverable++
-		rep.AbandonedPkts += g.Count
-		return nil, Unrecoverable, rep
+		// Cannot be retransmitted right now. A late arrival may still fill it,
+		// so only give up once the deadline has passed.
+		if expired {
+			rep.Unrecoverable++
+			rep.AbandonedPkts += g.Count
+			rep.Timeouts++
+			return nil, Unrecoverable, rep
+		}
+		return nil, Blocked, rep
 	}
 
 	got := make([]Packet, 0, g.Count)
@@ -173,7 +225,7 @@ func (e *RecoveryEngine) RepairGap(buf *ReorderBuffer, now timeline.Micros) ([]P
 		if !fetched {
 			rep.Unrecoverable++
 			rep.AbandonedPkts += g.Count
-			if buf.GapAgeMs(now) >= e.policy.DeadlineMs {
+			if expired {
 				rep.Timeouts++
 			}
 			return nil, Unrecoverable, rep

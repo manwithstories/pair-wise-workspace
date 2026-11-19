@@ -112,10 +112,9 @@ func Run(opts Options) (*Report, error) {
 		return nil, err
 	}
 
-	engine := transport.NewRecoveryEngine(transport.RecoveryPolicy{
-		MaxRetries: 3, DeadlineMs: 250,
-		BandwidthMBps: opts.BandwidthMBps, MaxDelayMs: 500,
-	}, newSource(fx, opts))
+	policy := transport.DefaultRecoveryPolicy()
+	policy.BandwidthMBps = opts.BandwidthMBps
+	engine := transport.NewRecoveryEngine(policy, newSource(fx, opts))
 	rep.BufferBound = engine.BufferBound()
 
 	results := make(map[string]*TrackResult)
