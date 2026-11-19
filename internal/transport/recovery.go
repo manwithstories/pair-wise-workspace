@@ -3,7 +3,6 @@ package transport
 import (
 	"sort"
 
-	"mediamix/internal/core"
 	"mediamix/internal/timeline"
 )
 
@@ -296,6 +295,3 @@ func (e *RecoveryEngine) HasUnrecoverable() bool {
 	}
 	return false
 }
-
-// Ensure core is referenced even if future edits drop other uses.
-var _ = core.CodeTimeout
