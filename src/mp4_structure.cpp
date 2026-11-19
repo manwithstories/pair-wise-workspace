@@ -132,6 +132,7 @@ void parse_stco(const uint8_t* p, int64_t len, bool co64, TrackStructure& t) {
   const int64_t need = 8 + int64_t(count) * (co64 ? 8 : 4);
   if (need > len || count > kMaxIndexEntries) return;
   t.has_stco = true;
+  t.co64 = co64;
   t.nb_chunks = count;
   t.chunk_offsets.reserve(count);
   for (uint32_t i = 0; i < count; ++i) {
@@ -372,6 +373,9 @@ void build_sample_offsets(TrackStructure& track, int64_t file_size) {
   track.index_entries_out_of_range = 0;
   track.first_bad_sample = -1;
   track.first_bad_offset = -1;
+  track.first_bad_end = -1;
+  track.first_bad_entry_offset = -1;
+  track.first_bad_target = -1;
   if (!track.has_stco || track.runs.empty() || track.sample_sizes.empty()) return;
 
   // Walk chunks in order, advancing the stsc run as chunk numbers pass each
@@ -390,7 +394,13 @@ void build_sample_offsets(TrackStructure& track, int64_t file_size) {
       else break;
     }
     (void)run;
-    int64_t chunk_offset = track.chunk_offsets[static_cast<size_t>(chunk - 1)];
+    const int64_t chunk_offset = track.chunk_offsets[static_cast<size_t>(chunk - 1)];
+    // Byte position of this chunk's stco/co64 entry: box header (8) plus
+    // version/flags (4) and entry count (4) precede the entries.
+    const int64_t entry_offset =
+        track.stco_offset >= 0
+            ? track.stco_offset + 16 + int64_t(chunk - 1) * (track.co64 ? 8 : 4)
+            : -1;
     chunk_bytes_used = 0;
     for (uint32_t k = 0; k < samples_per_chunk && sample < track.nb_samples; ++k, ++sample) {
       const int64_t size = track.sample_sizes[static_cast<size_t>(sample)];
@@ -404,6 +414,9 @@ void build_sample_offsets(TrackStructure& track, int64_t file_size) {
         if (track.first_bad_sample < 0) {
           track.first_bad_sample = sample;
           track.first_bad_offset = ref.offset;
+          track.first_bad_end = ref.offset + std::max<int64_t>(0, ref.size);
+          track.first_bad_entry_offset = entry_offset;
+          track.first_bad_target = chunk_offset;
         }
       }
     }
