@@ -1,5 +1,7 @@
 #include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <string>
 
 extern "C" {
@@ -8,6 +10,8 @@ extern "C" {
 #include <libavutil/opt.h>
 }
 
+#include "media_archive/audio_sync.h"
+#include "media_archive/packet_reader.h"
 #include "media_archive/sample_generator.h"
 
 namespace media_archive {
@@ -195,19 +199,90 @@ std::vector<uint8_t> build_elementary_stream(
   return stream;
 }
 
-Diagnostic generate_sample(const SampleConfig& config,
+Diagnostic generate_sample(const SampleConfig& cfg,
                            GeneratedSample* sample) {
-  // Transport/audio assembly is added in the next generator batch.
-  (void)config;
-  (void)sample;
-  return diag(Status::UsageError, "sample assembly not implemented yet");
+  sample->codec = cfg.codec;
+
+  // 1. Encode the real video stream.
+  Diagnostic d = encode_video(cfg, &sample->frames);
+  if (!d.ok()) return d;
+  if (sample->frames.size() != cfg.frame_count)
+    return diag(Status::IoError, "unexpected encoded frame count");
+
+  // 2. Build the deterministic transport trace over the real frame sizes.
+  std::vector<uint32_t> sizes;
+  sizes.reserve(sample->frames.size());
+  for (const auto& f : sample->frames)
+    sizes.push_back(static_cast<uint32_t>(
+        frame_wire_bytes(cfg.codec, f).size()));
+  TraceConfig trace_cfg = cfg.trace;
+  trace_cfg.seed = cfg.seed;
+  trace_cfg.frame_interval_ms = 1000.0 / static_cast<double>(cfg.fps);
+  sample->trace = build_transport_trace(cfg.frame_count, sizes, trace_cfg);
+
+  // 3. Lay present frames out in the received stream, assigning real byte
+  //    offsets. Gap packets keep offset -1 and contribute no bytes.
+  sample->received_video.clear();
+  uint64_t run_offset = 0;
+  for (auto& p : sample->trace.packets) {
+    if (p.flag == PacketFlag::Gap) {
+      p.source_offset = -1;
+      continue;
+    }
+    if (p.seq >= sample->frames.size())
+      return diag(Status::IoError, "trace sequence exceeds frame count");
+    p.source_offset = static_cast<int64_t>(run_offset);
+    auto wire = frame_wire_bytes(cfg.codec, sample->frames[p.seq]);
+    sample->received_video.insert(sample->received_video.end(),
+                                  wire.begin(), wire.end());
+    run_offset += wire.size();
+  }
+
+  // 4. Synthesize deterministic fragmented audio on the shared clock.
+  sample->audio.sample_rate = cfg.audio_rate;
+  sample->audio.channels = 1;
+  const uint64_t pts_step = kTimebaseHz / cfg.fps;
+  const uint32_t frag_frames = 6;  // one fragment per ~0.2 s of video
+  const uint32_t samples_per_frag = cfg.audio_rate * frag_frames / cfg.fps;
+  for (uint32_t f = 0; f < cfg.frame_count; f += frag_frames) {
+    PcmFragment frag;
+    frag.start_pts_ticks = static_cast<uint64_t>(f) * pts_step;
+    frag.samples_s16.resize(samples_per_frag);
+    for (uint32_t i = 0; i < samples_per_frag; ++i) {
+      // Low-amplitude 220 Hz-ish tone, fully deterministic.
+      const double phase = 6.28318530718 * 220.0 *
+                           static_cast<double>(f * samples_per_frag + i) /
+                           static_cast<double>(cfg.audio_rate);
+      frag.samples_s16[i] =
+          static_cast<int16_t>(std::llround(4000.0 * std::sin(phase)));
+    }
+    sample->audio.fragments.push_back(std::move(frag));
+  }
+
+  sample->timeline_end_pts =
+      static_cast<uint64_t>(cfg.frame_count) * pts_step;
+  return {};
 }
 
 Diagnostic write_sample_bundle(const std::string& dir,
                                const GeneratedSample& sample) {
-  (void)dir;
-  (void)sample;
-  return diag(Status::UsageError, "sample bundle writer not implemented yet");
+  std::error_code ec;
+  std::filesystem::create_directories(dir, ec);
+  if (ec) return diag(Status::IoError, "cannot create sample dir: " + dir);
+
+  const std::string stream_path =
+      dir + "/stream." + codec_extension(sample.codec);
+  {
+    std::ofstream f(stream_path, std::ios::binary | std::ios::trunc);
+    if (!f) return diag(Status::IoError, "cannot write: " + stream_path);
+    f.write(reinterpret_cast<const char*>(sample.received_video.data()),
+            static_cast<std::streamsize>(sample.received_video.size()));
+    if (!f) return diag(Status::IoError, "stream write failed");
+  }
+  Diagnostic md =
+      write_packet_manifest(dir + "/packets.csv", sample.trace.packets);
+  if (!md.ok()) return md;
+  return write_audio_archive(dir + "/audio.pcm", sample.audio);
 }
 
 }  // namespace media_archive

@@ -635,3 +635,44 @@ TEST_CASE("generator: all three codecs encode keyframes", "[generator]") {
     REQUIRE(parsed.size() == 45);
   }
 }
+
+TEST_CASE("generator: full sample bundle is coherent on disk",
+          "[generator]") {
+  namespace fs = std::filesystem;
+  const fs::path dir = fs::temp_directory_path() / "ma_bundle";
+  fs::remove_all(dir);
+  SampleConfig cfg;
+  cfg.seed = 42;
+  cfg.codec = CodecType::H264;
+  cfg.frame_count = 120;
+  cfg.gop = 30;
+  GeneratedSample sample;
+  REQUIRE(generate_sample(cfg, &sample).ok());
+  REQUIRE(write_sample_bundle(dir.string(), sample).ok());
+
+  REQUIRE(fs::exists(dir / "stream.h264"));
+  REQUIRE(fs::exists(dir / "packets.csv"));
+  REQUIRE(fs::exists(dir / "audio.pcm"));
+  REQUIRE(fs::file_size(dir / "stream.h264") ==
+          sample.received_video.size());
+  REQUIRE(sample.trace.gap_packet_count > 0);
+
+  // The received stream must parse, and present frames must match manifest.
+  std::vector<ParsedFrame> parsed;
+  REQUIRE(parse_elementary_stream(sample.received_video, CodecType::H264,
+                                  {}, &parsed)
+              .ok());
+  std::vector<TransportPacket> manifest;
+  REQUIRE(parse_packet_manifest((dir / "packets.csv").string(), &manifest)
+              .ok());
+  const auto present = std::count_if(
+      manifest.begin(), manifest.end(),
+      [](const TransportPacket& p) { return p.flag != PacketFlag::Gap; });
+  REQUIRE(parsed.size() == static_cast<size_t>(present));
+
+  // Audio archive round-trips and covers the timeline.
+  AudioArchive audio;
+  REQUIRE(read_audio_archive((dir / "audio.pcm").string(), &audio).ok());
+  REQUIRE(audio.fragments.size() == cfg.frame_count / 6);
+  REQUIRE(audio.sample_rate == cfg.audio_rate);
+}
