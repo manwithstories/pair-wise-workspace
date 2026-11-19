@@ -151,6 +151,7 @@ func (u *TSUnwrapper) Update(ts uint32) (extended int64, wrapped bool) {
 		u.total = int64(int32(ts))
 		return u.total, false
 	}
+	// 回绕：本次为真实前进（int32 差值为正），但原始 32bit 数值变小（越过 0 边界）。
 	delta := int32(ts - u.last)
 	if delta > 0 && ts < u.last {
 		wrapped = true
@@ -260,13 +261,12 @@ func (t *Timeline) Place(rtpTS int64, sampleCount int64, offset int64) PlaceResu
 	case delta == sampleCount:
 		// 与采样计数严格一致，无需修复。
 	case delta > sampleCount:
-		// RTP 时间戳声称的采样多于实际块：保留显式缺口。
-		missing := delta - sampleCount
-		r := t.MarkUncertain(t.next, t.next+missing, KindBurstLoss,
-			"rtp timestamp indicates missing samples", offset)
+		// 时间戳声称的间隔大于本块采样数。突发丢包缺口统一由 RTP 序号层
+		// (Reconciler.consumeGaps -> InsertGap) 声明；此处只记录时间戳层面的
+		// 证据，不重复推进游标，避免同一缺口被双重计数。
+		r := t.MarkUncertain(t.next, t.next, KindBurstLoss,
+			"timestamp gap corroborates rtp sequence loss", offset)
 		res.Uncertain = &r
-		start += missing
-		res.StartSample = start
 	case delta == 0:
 		// 重复时间戳：信任采样计数顺序放置，标记为修复。
 		r := t.MarkUncertain(start, start, KindDuplicateTimestamp,

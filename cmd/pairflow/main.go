@@ -56,8 +56,15 @@ func mapErrorToExit(err error) int {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return exitInputError
 	}
-	fmt.Fprintf(os.Stderr, "structured_error stage=%s kind=%s device=%q offset=%d seq=%d\n",
-		se.Stage, se.Kind, se.DeviceID, se.Offset, se.Seq)
+	loc := fmt.Sprintf("structured_error stage=%s kind=%s device=%q",
+		se.Stage, se.Kind, se.DeviceID)
+	if se.Offset != clock.NoOffset {
+		loc += fmt.Sprintf(" offset=%d", se.Offset)
+	}
+	if se.Seq != clock.NoSeq {
+		loc += fmt.Sprintf(" seq=%d", se.Seq)
+	}
+	fmt.Fprintln(os.Stderr, loc)
 	fmt.Fprintf(os.Stderr, "message=%s\nrecovery=%s\n", se.Message, se.Recovery)
 	switch se.Kind {
 	case clock.KindIndexSeek, clock.KindManifestAlignment,
@@ -134,13 +141,13 @@ func runVerify(args []string) error {
 		os.Exit(exitInputError)
 	}
 	rep, err := pipeline.VerifyDirectory(*in, *manifestPath, *bitrate)
-	if err != nil {
-		return err
+	if rep != nil {
+		// 即便存在不可恢复媒体区间，已算出的指标仍完整输出。
+		for _, m := range rep.Metrics {
+			printMetrics(m)
+		}
 	}
-	for _, m := range rep.Metrics {
-		printMetrics(m)
-	}
-	return nil
+	return err
 }
 
 func usage() {

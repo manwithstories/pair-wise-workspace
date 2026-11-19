@@ -71,3 +71,10 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# 构建产物与本地运行输出
+/pairflow
+/tmp/
+*.pfc
+*.pfidx
+*.pcm

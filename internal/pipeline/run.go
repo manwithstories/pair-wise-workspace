@@ -95,7 +95,9 @@ func Run(opt Options) (*RunResult, error) {
 			f.Close()
 			return nil, err
 		}
-		replayUntil := wm.Offset
+		// 续跑语义：摘要校验通过后做确定性完整重放。重放是幂等的
+		// （重排/修复/索引均由序号与采样计数决定），检查点的水位用于崩溃定位与
+		// 摘要对账，而非跳过记录，避免内存段状态丢失导致空索引。
 		for {
 			rec, perr := reader.Next()
 			if errors.Is(perr, io.EOF) {
@@ -104,9 +106,6 @@ func Run(opt Options) (*RunResult, error) {
 			if perr != nil {
 				f.Close()
 				return nil, perr
-			}
-			if rec.HeaderOffset < replayUntil {
-				continue // 续跑：跳过已确认消费的记录
 			}
 			t := getTrack(rec.DeviceID)
 			pkts, _, pushErr := t.reord.Push(rec)
@@ -118,7 +117,7 @@ func Run(opt Options) (*RunResult, error) {
 			for _, p := range pkts {
 				t.feedPacket(p, res)
 			}
-			// 水位推进到本记录之后，续跑时从下一条记录开始。
+			// 水位记录已消费位置，供崩溃后定位与人工核对。
 			wm.Offset = rec.HeaderOffset + 5 + int64(len(rec.Packet)) +
 				int64(1+8+2+len(rec.DeviceID)+4)
 			cp.UpdatedNano = time.Now().UnixNano()

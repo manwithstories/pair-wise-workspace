@@ -193,37 +193,37 @@ func (r *Reorderer) Push(rec CaptureRecord) ([]Packet, []Conflict, error) {
 	r.buf[ext] = entry{pkt: pkt, arrive: r.arrival, size: len(rec.Packet)}
 	r.cached += int64(len(rec.Packet))
 
-	if err := r.enforceCacheLimit(); err != nil {
-		return nil, conflicts, err
-	}
-	return r.advance(false), conflicts, nil
+	forced := r.enforceCacheLimit()
+	out := r.advance(false)
+	return append(forced, out...), conflicts, nil
 }
 
-// enforceCacheLimit 在缓存超限时先尝试落盘检查点；仍超限则强制推进等待窗口。
-func (r *Reorderer) enforceCacheLimit() error {
+// enforceCacheLimit 在缓存超限时先尝试落盘检查点；仍超限则强制推进等待窗口，
+// 被推进的有序包必须正常交付（缺口显式声明），不得静默丢弃。
+func (r *Reorderer) enforceCacheLimit() []Packet {
 	if r.cached <= r.cfg.MaxCacheBytes || len(r.buf) == 0 {
 		return nil
 	}
 	if r.cfg.OnCheckpoint != nil {
-		if err := r.cfg.OnCheckpoint(r.stats.DeviceID, r.cached); err != nil {
-			return err
+		if err := r.cfg.OnCheckpoint(r.stats.DeviceID, r.cached); err == nil {
+			r.stats.CacheCheckpoints++
 		}
-		r.stats.CacheCheckpoints++
 	}
+	var delivered []Packet
+	// 检查点落盘后若仍超限，逐步收紧预算（最小到 1）并强制交付最旧包。
 	for r.cached > r.cfg.MaxCacheBytes && len(r.buf) > 0 {
 		keys := r.sortedKeys()
-		oldest := keys[0]
 		if !r.haveBase {
-			r.lowest = oldest
+			r.lowest = keys[0]
 			r.haveBase = true
 		}
-		// 把最旧序号推进一格，必要时声明缺口，直到缓存回落。
-		r.releaseThrough(oldest)
+		oldest := keys[0]
+		delivered = append(delivered, r.releaseThrough(oldest)...)
 	}
-	return nil
+	return delivered
 }
 
-// Flush 在输入结束时输出全部剩余缓存，尾部缺口同样显式声明。
+// Push 摄入一条采集记录对应的原始 RTP 报文，返回本次可按序输出的包。
 func (r *Reorderer) Flush() ([]Packet, []Gap) {
 	out := r.advance(true)
 	return out, r.stats.Gaps
@@ -270,18 +270,22 @@ func (r *Reorderer) advance(flush bool) []Packet {
 	return out
 }
 
-// releaseThrough 强制把序号 <=seq 的缓存处理掉（用于缓存超限），缺口照常声明。
-func (r *Reorderer) releaseThrough(seq uint64) {
+// releaseThrough 强制把序号 <=seq 的缓存处理掉（用于缓存超限），
+// 缺口照常声明，被释放的有序包作为交付结果返回（绝不静默丢弃）。
+func (r *Reorderer) releaseThrough(seq uint64) []Packet {
+	var out []Packet
 	for {
 		keys := r.sortedKeys()
 		if len(keys) == 0 || keys[0] > seq {
-			return
+			return out
 		}
 		k := keys[0]
 		if k > r.lowest {
 			r.declareGap(r.lowest, k)
 		}
 		e := r.buf[k]
+		r.rememberTS(e.pkt.Timestamp)
+		out = append(out, e.pkt)
 		delete(r.buf, k)
 		r.cached -= int64(e.size)
 		r.lowest = k + 1

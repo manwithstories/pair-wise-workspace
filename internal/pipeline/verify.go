@@ -68,8 +68,8 @@ func VerifyDirectory(outDir, manifestPath string, targetBitrate int64) (*VerifyR
 		m.ManifestAlignmentMS = align[tr.TrackID]
 		out.Metrics = append(out.Metrics, m)
 		out.AlignmentByID[tr.TrackID] = align[tr.TrackID]
-		if len(rr.Uncertain) > 0 {
-			out.HasUnrecoverable = rr.HasIndeterminate() || hasAnyUncertain(rr)
+		if rr.HasIndeterminate() {
+			out.HasUnrecoverable = true
 		}
 		if align[tr.TrackID] > 2 {
 			se := clock.New("pipeline.verify", clock.KindManifestAlignment, tr.DeviceID,
@@ -77,6 +77,11 @@ func VerifyDirectory(outDir, manifestPath string, targetBitrate int64) (*VerifyR
 			out.StageErrors = append(out.StageErrors, se)
 			return out, se
 		}
+	}
+	if out.HasUnrecoverable {
+		return out, clock.New("pipeline.verify", clock.KindIndeterminate, "", 0,
+			clock.NoSeq, "one or more tracks contain irrecoverable media ranges",
+			"重传对应源块后重新运行修复阶段")
 	}
 	return out, nil
 }
@@ -108,13 +113,4 @@ func reconstructResult(rf *os.File, mdatBase int64, tr manifest.Track, es []inde
 		})
 	}
 	return rr
-}
-
-func hasAnyUncertain(rr *repair.Result) bool {
-	for _, u := range rr.Uncertain {
-		if u.Length() > 0 {
-			return true
-		}
-	}
-	return false
 }
