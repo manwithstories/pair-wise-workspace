@@ -70,6 +70,12 @@ func NewMuxer(out io.WriteSeeker, tracks []MuxTrack) (*Muxer, error) {
 	return m, nil
 }
 
+// ResumeMuxer continues an existing fMP4 file (header already written):
+// no ftyp/moov is emitted and fragment numbering continues at seq.
+func ResumeMuxer(out io.WriteSeeker, tracks []MuxTrack, seq uint32) *Muxer {
+	return &Muxer{out: out, w: mp4.NewWriter(out), tracks: tracks, seq: seq}
+}
+
 // Offset returns the current write position.
 func (m *Muxer) Offset() int64 {
 	off, _ := m.out.Seek(0, io.SeekCurrent)
