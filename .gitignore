@@ -71,3 +71,12 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 本项目构建产物与本地环境（不纳入交付）----
+.venv/
+.tmp/
+__pycache__/
+*.egg-info/
+*.pyc
+build/
+dist/
