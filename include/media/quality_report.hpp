@@ -1,6 +1,8 @@
 #pragma once
 // 质量统计：码率偏差、PSNR、帧数、清单对齐误差、机器可读诊断与 JSON 报告。
 #include <cstdint>
+#include <fstream>
+#include <memory>
 #include <string>
 #include <vector>
 #include "media/manifest.hpp"
@@ -53,6 +55,7 @@ public:
 private:
   std::string path_;
   bool opened_ = false;
+  std::unique_ptr<std::ofstream> file_;
 };
 
 std::string renderReportJson(const QualityStats& s);

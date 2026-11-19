@@ -1,114 +1,74 @@
-Start testing: Nov 20 01:13 CST
+Start testing: Nov 20 01:14 CST
 ----------------------------------------------------------
-8/14 Testing: 有界队列背压与取消
-8/14 Test: 有界队列背压与取消
+10/16 Testing: 有界队列背压与取消
+10/16 Test: 有界队列背压与取消
 Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "有界队列背压与取消" "--order decl"
 Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
-"有界队列背压与取消" start time: Nov 20 01:13 CST
+"有界队列背压与取消" start time: Nov 20 01:14 CST
 Output:
 ----------------------------------------------------------
 Filters: "有界队列背压与取消"
-Randomness seeded to: 1594581066
+Randomness seeded to: 1353291244
 ===============================================================================
 All tests passed (6 assertions in 1 test case)
-
-<end of output>
-Test time =   0.02 sec
-----------------------------------------------------------
-Test Passed.
-"有界队列背压与取消" end time: Nov 20 01:13 CST
-"有界队列背压与取消" time elapsed: 00:00:00
-----------------------------------------------------------
-
-12/14 Testing: 索引原子写入：截断临时文件不得误报成功
-12/14 Test: 索引原子写入：截断临时文件不得误报成功
-Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "索引原子写入：截断临时文件不得误报成功" "--order decl"
-Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
-"索引原子写入：截断临时文件不得误报成功" start time: Nov 20 01:13 CST
-Output:
-----------------------------------------------------------
-Filters: "索引原子写入：截断临时文件不得误报成功"
-Randomness seeded to: 2955363755
-===============================================================================
-All tests passed (3 assertions in 1 test case)
-
-<end of output>
-Test time =   0.02 sec
-----------------------------------------------------------
-Test Passed.
-"索引原子写入：截断临时文件不得误报成功" end time: Nov 20 01:13 CST
-"索引原子写入：截断临时文件不得误报成功" time elapsed: 00:00:00
-----------------------------------------------------------
-
-7/14 Testing: 小幅倒退判定歧义且不可交付
-7/14 Test: 小幅倒退判定歧义且不可交付
-Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "小幅倒退判定歧义且不可交付" "--order decl"
-Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
-"小幅倒退判定歧义且不可交付" start time: Nov 20 01:13 CST
-Output:
-----------------------------------------------------------
-Filters: "小幅倒退判定歧义且不可交付"
-Randomness seeded to: 2594500876
-===============================================================================
-All tests passed (3 assertions in 1 test case)
-
-<end of output>
-Test time =   0.02 sec
-----------------------------------------------------------
-Test Passed.
-"小幅倒退判定歧义且不可交付" end time: Nov 20 01:13 CST
-"小幅倒退判定歧义且不可交付" time elapsed: 00:00:00
-----------------------------------------------------------
-
-3/14 Testing: ticks 与统一微秒时间基互转
-3/14 Test: ticks 与统一微秒时间基互转
-Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "ticks 与统一微秒时间基互转" "--order decl"
-Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
-"ticks 与统一微秒时间基互转" start time: Nov 20 01:13 CST
-Output:
-----------------------------------------------------------
-Filters: "ticks 与统一微秒时间基互转"
-Randomness seeded to: 3140868413
-===============================================================================
-All tests passed (3 assertions in 1 test case)
-
-<end of output>
-Test time =   0.02 sec
-----------------------------------------------------------
-Test Passed.
-"ticks 与统一微秒时间基互转" end time: Nov 20 01:13 CST
-"ticks 与统一微秒时间基互转" time elapsed: 00:00:00
-----------------------------------------------------------
-
-2/14 Testing: 33 位掩码常量
-2/14 Test: 33 位掩码常量
-Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "33 位掩码常量" "--order decl"
-Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
-"33 位掩码常量" start time: Nov 20 01:13 CST
-Output:
-----------------------------------------------------------
-Filters: "33 位掩码常量"
-Randomness seeded to: 3580970215
-===============================================================================
-All tests passed (2 assertions in 1 test case)
 
 <end of output>
 Test time =   0.01 sec
 ----------------------------------------------------------
 Test Passed.
-"33 位掩码常量" end time: Nov 20 01:13 CST
-"33 位掩码常量" time elapsed: 00:00:00
+"有界队列背压与取消" end time: Nov 20 01:14 CST
+"有界队列背压与取消" time elapsed: 00:00:00
 ----------------------------------------------------------
 
-9/14 Testing: 流水线背压峰值受限且下游致命错误取消生产者
-9/14 Test: 流水线背压峰值受限且下游致命错误取消生产者
+14/16 Testing: 索引原子写入：截断临时文件不得误报成功
+14/16 Test: 索引原子写入：截断临时文件不得误报成功
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "索引原子写入：截断临时文件不得误报成功" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
+"索引原子写入：截断临时文件不得误报成功" start time: Nov 20 01:14 CST
+Output:
+----------------------------------------------------------
+Filters: "索引原子写入：截断临时文件不得误报成功"
+Randomness seeded to: 4163684067
+===============================================================================
+All tests passed (3 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"索引原子写入：截断临时文件不得误报成功" end time: Nov 20 01:14 CST
+"索引原子写入：截断临时文件不得误报成功" time elapsed: 00:00:00
+----------------------------------------------------------
+
+9/16 Testing: 小幅倒退判定歧义且不可交付
+9/16 Test: 小幅倒退判定歧义且不可交付
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "小幅倒退判定歧义且不可交付" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
+"小幅倒退判定歧义且不可交付" start time: Nov 20 01:14 CST
+Output:
+----------------------------------------------------------
+Filters: "小幅倒退判定歧义且不可交付"
+Randomness seeded to: 3847239771
+===============================================================================
+All tests passed (3 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"小幅倒退判定歧义且不可交付" end time: Nov 20 01:14 CST
+"小幅倒退判定歧义且不可交付" time elapsed: 00:00:00
+----------------------------------------------------------
+
+11/16 Testing: 流水线背压峰值受限且下游致命错误取消生产者
+11/16 Test: 流水线背压峰值受限且下游致命错误取消生产者
 Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "流水线背压峰值受限且下游致命错误取消生产者" "--order decl"
 Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
-"流水线背压峰值受限且下游致命错误取消生产者" start time: Nov 20 01:13 CST
+"流水线背压峰值受限且下游致命错误取消生产者" start time: Nov 20 01:14 CST
 Output:
 ----------------------------------------------------------
 Filters: "流水线背压峰值受限且下游致命错误取消生产者"
-Randomness seeded to: 3560192416
+Randomness seeded to: 968855017
 ===============================================================================
 All tests passed (8 assertions in 1 test case)
 
@@ -116,19 +76,59 @@ All tests passed (8 assertions in 1 test case)
 Test time =   0.01 sec
 ----------------------------------------------------------
 Test Passed.
-"流水线背压峰值受限且下游致命错误取消生产者" end time: Nov 20 01:13 CST
+"流水线背压峰值受限且下游致命错误取消生产者" end time: Nov 20 01:14 CST
 "流水线背压峰值受限且下游致命错误取消生产者" time elapsed: 00:00:00
 ----------------------------------------------------------
 
-13/14 Testing: 线性拟合与斜率钳制
-13/14 Test: 线性拟合与斜率钳制
+5/16 Testing: ticks 与统一微秒时间基互转
+5/16 Test: ticks 与统一微秒时间基互转
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "ticks 与统一微秒时间基互转" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
+"ticks 与统一微秒时间基互转" start time: Nov 20 01:14 CST
+Output:
+----------------------------------------------------------
+Filters: "ticks 与统一微秒时间基互转"
+Randomness seeded to: 94672772
+===============================================================================
+All tests passed (3 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"ticks 与统一微秒时间基互转" end time: Nov 20 01:14 CST
+"ticks 与统一微秒时间基互转" time elapsed: 00:00:00
+----------------------------------------------------------
+
+2/16 Testing: 33 位掩码常量
+2/16 Test: 33 位掩码常量
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "33 位掩码常量" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
+"33 位掩码常量" start time: Nov 20 01:14 CST
+Output:
+----------------------------------------------------------
+Filters: "33 位掩码常量"
+Randomness seeded to: 4018341229
+===============================================================================
+All tests passed (2 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"33 位掩码常量" end time: Nov 20 01:14 CST
+"33 位掩码常量" time elapsed: 00:00:00
+----------------------------------------------------------
+
+15/16 Testing: 线性拟合与斜率钳制
+15/16 Test: 线性拟合与斜率钳制
 Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "线性拟合与斜率钳制" "--order decl"
 Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
-"线性拟合与斜率钳制" start time: Nov 20 01:13 CST
+"线性拟合与斜率钳制" start time: Nov 20 01:14 CST
 Output:
 ----------------------------------------------------------
 Filters: "线性拟合与斜率钳制"
-Randomness seeded to: 3054529710
+Randomness seeded to: 3696086528
 ===============================================================================
 All tests passed (9 assertions in 1 test case)
 
@@ -136,19 +136,19 @@ All tests passed (9 assertions in 1 test case)
 Test time =   0.01 sec
 ----------------------------------------------------------
 Test Passed.
-"线性拟合与斜率钳制" end time: Nov 20 01:13 CST
+"线性拟合与斜率钳制" end time: Nov 20 01:14 CST
 "线性拟合与斜率钳制" time elapsed: 00:00:00
 ----------------------------------------------------------
 
-4/14 Testing: 侧车解析、截断与零时长
-4/14 Test: 侧车解析、截断与零时长
+6/16 Testing: 侧车解析、截断与零时长
+6/16 Test: 侧车解析、截断与零时长
 Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "侧车解析、截断与零时长" "--order decl"
 Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
-"侧车解析、截断与零时长" start time: Nov 20 01:13 CST
+"侧车解析、截断与零时长" start time: Nov 20 01:14 CST
 Output:
 ----------------------------------------------------------
 Filters: "侧车解析、截断与零时长"
-Randomness seeded to: 1189266558
+Randomness seeded to: 2265246119
 ===============================================================================
 All tests passed (10 assertions in 1 test case)
 
@@ -156,39 +156,19 @@ All tests passed (10 assertions in 1 test case)
 Test time =   0.01 sec
 ----------------------------------------------------------
 Test Passed.
-"侧车解析、截断与零时长" end time: Nov 20 01:13 CST
+"侧车解析、截断与零时长" end time: Nov 20 01:14 CST
 "侧车解析、截断与零时长" time elapsed: 00:00:00
 ----------------------------------------------------------
 
-11/14 Testing: 漂移估计：缺锚点低置信度，充足锚点恢复斜率
-11/14 Test: 漂移估计：缺锚点低置信度，充足锚点恢复斜率
-Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "漂移估计：缺锚点低置信度，充足锚点恢复斜率" "--order decl"
-Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
-"漂移估计：缺锚点低置信度，充足锚点恢复斜率" start time: Nov 20 01:13 CST
-Output:
-----------------------------------------------------------
-Filters: "漂移估计：缺锚点低置信度，充足锚点恢复斜率"
-Randomness seeded to: 3845682690
-===============================================================================
-All tests passed (4 assertions in 1 test case)
-
-<end of output>
-Test time =   0.01 sec
-----------------------------------------------------------
-Test Passed.
-"漂移估计：缺锚点低置信度，充足锚点恢复斜率" end time: Nov 20 01:13 CST
-"漂移估计：缺锚点低置信度，充足锚点恢复斜率" time elapsed: 00:00:00
-----------------------------------------------------------
-
-14/14 Testing: 重复 PTS 可恢复
-14/14 Test: 重复 PTS 可恢复
+16/16 Testing: 重复 PTS 可恢复
+16/16 Test: 重复 PTS 可恢复
 Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "重复 PTS 可恢复" "--order decl"
 Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
-"重复 PTS 可恢复" start time: Nov 20 01:13 CST
+"重复 PTS 可恢复" start time: Nov 20 01:14 CST
 Output:
 ----------------------------------------------------------
 Filters: "重复 PTS 可恢复"
-Randomness seeded to: 1055534255
+Randomness seeded to: 1000419070
 ===============================================================================
 All tests passed (4 assertions in 1 test case)
 
@@ -196,39 +176,19 @@ All tests passed (4 assertions in 1 test case)
 Test time =   0.01 sec
 ----------------------------------------------------------
 Test Passed.
-"重复 PTS 可恢复" end time: Nov 20 01:13 CST
+"重复 PTS 可恢复" end time: Nov 20 01:14 CST
 "重复 PTS 可恢复" time elapsed: 00:00:00
 ----------------------------------------------------------
 
-1/14 Testing: 33 位 PTS 回绕展开
-1/14 Test: 33 位 PTS 回绕展开
-Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "33 位 PTS 回绕展开" "--order decl"
+13/16 Testing: 漂移估计：缺锚点低置信度，充足锚点恢复斜率
+13/16 Test: 漂移估计：缺锚点低置信度，充足锚点恢复斜率
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "漂移估计：缺锚点低置信度，充足锚点恢复斜率" "--order decl"
 Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
-"33 位 PTS 回绕展开" start time: Nov 20 01:13 CST
+"漂移估计：缺锚点低置信度，充足锚点恢复斜率" start time: Nov 20 01:14 CST
 Output:
 ----------------------------------------------------------
-Filters: "33 位 PTS 回绕展开"
-Randomness seeded to: 1487504708
-===============================================================================
-All tests passed (6 assertions in 1 test case)
-
-<end of output>
-Test time =   0.01 sec
-----------------------------------------------------------
-Test Passed.
-"33 位 PTS 回绕展开" end time: Nov 20 01:13 CST
-"33 位 PTS 回绕展开" time elapsed: 00:00:00
-----------------------------------------------------------
-
-6/14 Testing: 剪辑点对齐最近有效帧
-6/14 Test: 剪辑点对齐最近有效帧
-Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "剪辑点对齐最近有效帧" "--order decl"
-Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
-"剪辑点对齐最近有效帧" start time: Nov 20 01:13 CST
-Output:
-----------------------------------------------------------
-Filters: "剪辑点对齐最近有效帧"
-Randomness seeded to: 1727981063
+Filters: "漂移估计：缺锚点低置信度，充足锚点恢复斜率"
+Randomness seeded to: 2289685402
 ===============================================================================
 All tests passed (4 assertions in 1 test case)
 
@@ -236,19 +196,39 @@ All tests passed (4 assertions in 1 test case)
 Test time =   0.01 sec
 ----------------------------------------------------------
 Test Passed.
-"剪辑点对齐最近有效帧" end time: Nov 20 01:13 CST
+"漂移估计：缺锚点低置信度，充足锚点恢复斜率" end time: Nov 20 01:14 CST
+"漂移估计：缺锚点低置信度，充足锚点恢复斜率" time elapsed: 00:00:00
+----------------------------------------------------------
+
+8/16 Testing: 剪辑点对齐最近有效帧
+8/16 Test: 剪辑点对齐最近有效帧
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "剪辑点对齐最近有效帧" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
+"剪辑点对齐最近有效帧" start time: Nov 20 01:14 CST
+Output:
+----------------------------------------------------------
+Filters: "剪辑点对齐最近有效帧"
+Randomness seeded to: 3809283669
+===============================================================================
+All tests passed (4 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"剪辑点对齐最近有效帧" end time: Nov 20 01:14 CST
 "剪辑点对齐最近有效帧" time elapsed: 00:00:00
 ----------------------------------------------------------
 
-5/14 Testing: 关键帧索引定位与落点误差
-5/14 Test: 关键帧索引定位与落点误差
-Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "关键帧索引定位与落点误差" "--order decl"
+1/16 Testing: 33 位 PTS 回绕展开
+1/16 Test: 33 位 PTS 回绕展开
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "33 位 PTS 回绕展开" "--order decl"
 Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
-"关键帧索引定位与落点误差" start time: Nov 20 01:13 CST
+"33 位 PTS 回绕展开" start time: Nov 20 01:14 CST
 Output:
 ----------------------------------------------------------
-Filters: "关键帧索引定位与落点误差"
-Randomness seeded to: 2432569891
+Filters: "33 位 PTS 回绕展开"
+Randomness seeded to: 105524121
 ===============================================================================
 All tests passed (6 assertions in 1 test case)
 
@@ -256,19 +236,19 @@ All tests passed (6 assertions in 1 test case)
 Test time =   0.01 sec
 ----------------------------------------------------------
 Test Passed.
-"关键帧索引定位与落点误差" end time: Nov 20 01:13 CST
-"关键帧索引定位与落点误差" time elapsed: 00:00:00
+"33 位 PTS 回绕展开" end time: Nov 20 01:14 CST
+"33 位 PTS 回绕展开" time elapsed: 00:00:00
 ----------------------------------------------------------
 
-10/14 Testing: 清单解析与故障路径
-10/14 Test: 清单解析与故障路径
+12/16 Testing: 清单解析与故障路径
+12/16 Test: 清单解析与故障路径
 Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "清单解析与故障路径" "--order decl"
 Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
-"清单解析与故障路径" start time: Nov 20 01:13 CST
+"清单解析与故障路径" start time: Nov 20 01:14 CST
 Output:
 ----------------------------------------------------------
 Filters: "清单解析与故障路径"
-Randomness seeded to: 468068295
+Randomness seeded to: 4116806722
 ===============================================================================
 All tests passed (7 assertions in 1 test case)
 
@@ -276,8 +256,68 @@ All tests passed (7 assertions in 1 test case)
 Test time =   0.01 sec
 ----------------------------------------------------------
 Test Passed.
-"清单解析与故障路径" end time: Nov 20 01:13 CST
+"清单解析与故障路径" end time: Nov 20 01:14 CST
 "清单解析与故障路径" time elapsed: 00:00:00
 ----------------------------------------------------------
 
-End testing: Nov 20 01:13 CST
+7/16 Testing: 关键帧索引定位与落点误差
+7/16 Test: 关键帧索引定位与落点误差
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "关键帧索引定位与落点误差" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
+"关键帧索引定位与落点误差" start time: Nov 20 01:14 CST
+Output:
+----------------------------------------------------------
+Filters: "关键帧索引定位与落点误差"
+Randomness seeded to: 161818494
+===============================================================================
+All tests passed (6 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"关键帧索引定位与落点误差" end time: Nov 20 01:14 CST
+"关键帧索引定位与落点误差" time elapsed: 00:00:00
+----------------------------------------------------------
+
+3/16 Testing: JSONL 诊断与报告字段
+3/16 Test: JSONL 诊断与报告字段
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "JSONL 诊断与报告字段" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
+"JSONL 诊断与报告字段" start time: Nov 20 01:14 CST
+Output:
+----------------------------------------------------------
+Filters: "JSONL 诊断与报告字段"
+Randomness seeded to: 46261375
+===============================================================================
+All tests passed (13 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"JSONL 诊断与报告字段" end time: Nov 20 01:14 CST
+"JSONL 诊断与报告字段" time elapsed: 00:00:00
+----------------------------------------------------------
+
+4/16 Testing: PSNR 与码率偏差计算
+4/16 Test: PSNR 与码率偏差计算
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "PSNR 与码率偏差计算" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
+"PSNR 与码率偏差计算" start time: Nov 20 01:14 CST
+Output:
+----------------------------------------------------------
+Filters: "PSNR 与码率偏差计算"
+Randomness seeded to: 2769590117
+===============================================================================
+All tests passed (5 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"PSNR 与码率偏差计算" end time: Nov 20 01:14 CST
+"PSNR 与码率偏差计算" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Nov 20 01:14 CST

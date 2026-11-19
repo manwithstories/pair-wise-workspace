@@ -260,3 +260,46 @@ TEST_CASE("索引原子写入：截断临时文件不得误报成功", "[index]"
   CHECK_FALSE(KeyframeIndex::isComplete(path));
   std::filesystem::remove_all(dir);
 }
+
+#include "media/quality_report.hpp"
+
+TEST_CASE("PSNR 与码率偏差计算", "[quality]") {
+  PsnrAccumulator ps;
+  ps.addFrame(100.0); // PSNR = 10*log10(65025/100)
+  CHECK(ps.frames() == 1);
+  CHECK(ps.psnrDb() == Approx(28.13).margin(0.05));
+  ps.addFrame(0.0);   // 完美帧 -> 封顶 60dB
+  CHECK(ps.psnrDb() > 40.0);
+  CHECK(computeBitrateErrorPct(1'800'000, 1'900'000) == Approx(5.5556).margin(0.01));
+  CHECK(computeBitrateErrorPct(0, 100) == 0.0);
+}
+
+TEST_CASE("JSONL 诊断与报告字段", "[quality]") {
+  auto dir = std::filesystem::temp_directory_path() /
+             ("md_q_" + std::to_string(::getpid()));
+  std::filesystem::create_directories(dir);
+  auto path = (dir / "diag.jsonl").string();
+  DiagnosticLog log(path);
+  REQUIRE(log.open() == TimeError::None);
+  REQUIRE(log.append({7, 123, 456, TimeError::Wrap, "wrap"}) == TimeError::None);
+  REQUIRE(log.close() == TimeError::None);
+  std::ifstream in(path);
+  std::string line;
+  std::getline(in, line);
+  CHECK(line.find("\"packet_index\":7") != std::string::npos);
+  CHECK(line.find("\"error\":\"wrap\"") != std::string::npos);
+
+  QualityStats st;
+  st.packetsIn = 1000;
+  st.targetBitrateBps = 1'800'000;
+  st.actualBitrateBps = 1'850'000;
+  st.bitrateErrorPct = computeBitrateErrorPct(st.targetBitrateBps,
+                                               st.actualBitrateBps);
+  st.psnrDb = 33.3;
+  auto json = renderReportJson(st);
+  for (const char* key : {"packets_in", "wraps", "queue_peak",
+                          "target_bitrate_bps", "bitrate_error_pct",
+                          "psnr_db", "manifest_alignment_ms", "seek_error_ms"})
+    CHECK(json.find(key) != std::string::npos);
+  std::filesystem::remove_all(dir);
+}
