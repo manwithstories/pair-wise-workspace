@@ -71,3 +71,9 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- build outputs / demo ----
+build/
+demo/
+.DS_Store
+*.o
