@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"mediq/internal/checkpoint"
 	"mediq/internal/fixture"
 	"mediq/internal/index"
 	"mediq/internal/model"
@@ -317,10 +318,43 @@ func TestCheckpointMismatchOnChangedInput(t *testing.T) {
 	}
 }
 
+func TestCompletedRunLeavesNoResumeState(t *testing.T) {
+	dir, _ := genFixtures(t, 20, nil)
+	o := opts(dir, "normal")
+	if _, err := New(o).Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// A finished delivery must not look like an interrupted job.
+	if _, err := os.Stat(o.CheckpointPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("checkpoint survived completion: %v", err)
+	}
+	// Rerunning overwrites the output cleanly.
+	o.Restart = true
+	if _, err := New(o).Run(context.Background()); err != nil {
+		t.Fatalf("restart failed: %v", err)
+	}
+}
+
 func TestCompletedCheckpointRefused(t *testing.T) {
 	dir, _ := genFixtures(t, 20, nil)
 	o := opts(dir, "normal")
 	if _, err := New(o).Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// Forge a checkpoint that claims the source ended, as would be left by a
+	// crash between the final checkpoint and the publish.
+	st, err := checkpoint.New(o.CheckpointPath).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st == nil {
+		st = &checkpoint.State{
+			InputPath: o.Input, InputSize: 1, CommittedOffset: 0, SourceDone: true,
+		}
+	}
+	st.SourceDone = true
+	st.InputSize = mustSize(t, o.Input)
+	if err := checkpoint.New(o.CheckpointPath).Save(st); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := New(o).Run(context.Background()); !errors.Is(err, model.ErrCheckpointMismatch) {
@@ -330,6 +364,15 @@ func TestCompletedCheckpointRefused(t *testing.T) {
 	if _, err := New(o).Run(context.Background()); err != nil {
 		t.Fatalf("restart failed: %v", err)
 	}
+}
+
+func mustSize(t *testing.T, path string) int64 {
+	t.Helper()
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fi.Size()
 }
 
 func TestPeakQueueDepthBounded(t *testing.T) {

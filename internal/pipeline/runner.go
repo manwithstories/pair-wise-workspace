@@ -230,6 +230,14 @@ func (r *Runner) Run(ctx context.Context) (*Stats, error) {
 	}
 	teardown = nil // Finish/Publish released the part file and tables
 	idx = nil
+	// A finished job has no resumable state: drop the checkpoint so a later
+	// invocation cannot mistake a completed delivery for an interrupted one.
+	if err := r.cks.Reset(); err != nil {
+		r.log("warning: could not remove the completed checkpoint: %v", err)
+	}
+	if err := r.chunkLog.Reset(); err != nil {
+		r.log("warning: could not remove the completed chunk log: %v", err)
+	}
 	stats.ResumeMs = time.Since(started).Milliseconds()
 	stats.CommittedChunks = job.chunkCount
 	return stats, nil

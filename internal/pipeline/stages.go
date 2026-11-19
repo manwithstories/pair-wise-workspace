@@ -150,6 +150,10 @@ func (j *job) consume(ctx context.Context, queue <-chan source.Record) error {
 				if err := j.flushChunk(&chunk, true); err != nil {
 					return err
 				}
+				// The run is done once Run publishes; nothing should be able
+				// to "resume" it afterwards. Removing the checkpoint here
+				// would race with the cancellation path, so Run removes it
+				// after a successful publish.
 				return nil
 			}
 			if j.runner.opts.SlowConsumer > 0 {
