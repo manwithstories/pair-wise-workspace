@@ -50,18 +50,21 @@ std::string encodeMJpeg(
     return "write_header: " + avError(rc);
 
   Frame frame;
-  frame.p->format = enc.p->pix_fmt;
-  frame.p->width = spec.width;
-  frame.p->height = spec.height;
   Packet pkt;
+  size_t encodedIndex = 0;
   auto drain = [&]() -> std::string {
     while (true) {
       rc = avcodec_receive_packet(enc.p, pkt.p);
       if (rc == AVERROR(EAGAIN) || rc == AVERROR_EOF) break;
       if (rc < 0) return "receive_packet: " + avError(rc);
-      if (corrupt(size_t(pkt.p->pts)) && pkt.p->size > 4)
-        for (int k = 1; k <= 3; ++k)
-          pkt.p->data[pkt.p->size / 2 + k] ^= uint8_t(0xA5 * k);
+      if (encodedIndex < frameCount && corrupt(encodedIndex) &&
+          pkt.p->size > 16) {
+        // 只在码流安全区内做字节破坏，绝不越界写。
+        int base = pkt.p->size / 2;
+        for (int k = 0; k < 3 && base + k < pkt.p->size; ++k)
+          pkt.p->data[base + k] ^= uint8_t(0xA5 + k);
+      }
+      ++encodedIndex;
       av_packet_rescale_ts(pkt.p, enc.p->time_base, st->time_base);
       if ((rc = av_interleaved_write_frame(fmt, pkt.p)) < 0)
         return "write_frame: " + avError(rc);
@@ -71,6 +74,10 @@ std::string encodeMJpeg(
   };
 
   for (size_t i = 0; i < frameCount; ++i) {
+    // av_frame_unref 会清空这些字段，每帧必须重新设置。
+    frame.p->format = enc.p->pix_fmt;
+    frame.p->width = spec.width;
+    frame.p->height = spec.height;
     if ((rc = av_frame_get_buffer(frame.p, 0)) < 0)
       return "frame buffer: " + avError(rc);
     if ((rc = av_frame_make_writable(frame.p)) < 0)

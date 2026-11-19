@@ -18,24 +18,31 @@ std::vector<FramePlan> videoPlan(const GenConfig& cfg, uint64_t seed,
   const int frames = cfg.seconds * 30;
   std::vector<FramePlan> plan;
   plan.reserve(frames);
-  // 保证 12 秒内发生一次回绕：从接近 33 位边界处起步。
-  int64_t start = cfg.wrapPts ? int64_t(PTS33_MOD - VIDEO_TB * cfg.seconds) : 0;
-  double prevDev = 0.0;
+  // 保证素材期内发生一次回绕：起点距 33 位边界仅约 1 秒。
+  int64_t start = cfg.wrapPts ? int64_t(PTS33_MOD - VIDEO_TB) : 0;
+  const double baseStepUs = 1'000'000.0 / 30.0;
+  const int64_t baseStepTick = VIDEO_TB / 30; // 3000
+  double driftUs = 0.0;   // 漂移累计（不含常数偏移）
+  int64_t lastTick = start;
   uint64_t prevWrap = 0;
   for (int i = 0; i < frames; ++i) {
-    double idealUs = double(i) * 1'000'000.0 / 30.0 + double(offsetUs);
+    // VFR 抖动只作用于本帧间隔（0.96..1.04），保证严格单调。
     double vfr = cfg.vfr ? 1.0 + (rng.unit() - 0.5) * 0.08 : 1.0;
-    double dev = (idealUs - double(offsetUs)) * (1.0 + ppm * 1e-6) * vfr;
-    int64_t tick = start + int64_t(std::llround(dev / 1e6 * VIDEO_TB));
+    double stepUs = baseStepUs * vfr;
+    driftUs += stepUs * (ppm * 1e-6);
+    double devUs = double(i) * baseStepUs + driftUs + double(offsetUs);
+    int64_t tick = start + int64_t(std::llround(devUs / 1e6 * VIDEO_TB));
+    if (tick <= lastTick) tick = lastTick + 1; // 数值兜底：严格递增
     uint64_t wrapN = uint64_t(tick) / PTS33_MOD;
     int64_t pts = int64_t(uint64_t(tick) & PTS33_MASK);
-    int64_t dur = std::max(int64_t(1),
-        int64_t(std::llround((dev - prevDev) / 1e6 * VIDEO_TB)));
-    prevDev = dev;
-    plan.push_back({pts, dur, (i % 12 == 0),
+    // CFR 时步长恒定；VFR 时取相邻 tick 之差，首帧用理想步长。
+    int64_t dur = cfg.vfr ? (i == 0 ? baseStepTick : tick - lastTick)
+                          : baseStepTick;
+    plan.push_back({pts, tick, dur, (i % 12 == 0),
                     corruptStride > 0 && (i % corruptStride == 0) && i > 0,
                     wrapN != prevWrap});
     prevWrap = wrapN;
+    lastTick = tick;
   }
   return plan;
 }

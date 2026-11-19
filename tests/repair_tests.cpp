@@ -338,3 +338,58 @@ TEST_CASE("合成视频时序：漂移/VFR/33 位回绕", "[generator]") {
   CHECK(audio.size() == size_t(12 * 24000 / 1024) + 1);
   CHECK(audio.front().samples == 1024);
 }
+
+#include "media/generator.hpp"
+
+TEST_CASE("端到端合成：媒体/侧车/清单生成且确定性可复现", "[generator]") {
+  auto base = std::filesystem::temp_directory_path() /
+              ("md_gen_" + std::to_string(::getpid()));
+  GenConfig cfg;
+  cfg.outDir = (base / "run1").string();
+  cfg.seconds = 4;
+  cfg.driftPpm = 180;
+  cfg.wrapPts = true;
+  cfg.vfr = true;
+  cfg.corruptEvery = 37;
+  GenResult r1;
+  REQUIRE(generateSynthetic(cfg, r1).empty());
+  for (const auto& f : r1.files) CHECK(std::filesystem::exists(f));
+  for (const auto& f : r1.sidecars) CHECK(std::filesystem::exists(f));
+  CHECK(std::filesystem::exists(r1.manifestPath));
+  // MKV/WAV 非空且包含真实编码数据。
+  CHECK(std::filesystem::file_size(r1.files[0]) > 1000);
+  CHECK(std::filesystem::file_size(r1.files[2]) > 1000);
+
+  Sidecar sc;
+  std::string err;
+  REQUIRE(loadSidecar(r1.sidecars[0], sc, err));
+  CHECK(sc.entries.size() == 4u * 30u);
+  size_t keyframes = 0, corrupt = 0;
+  for (const auto& e : sc.entries) {
+    if (e.keyframe) ++keyframes;
+    if (e.corrupt) ++corrupt;
+  }
+  CHECK(keyframes >= 8);
+  CHECK(corrupt >= 1);
+
+  // 复现：同参数再生成，侧车逐字节一致。
+  GenConfig cfg2 = cfg;
+  cfg2.outDir = (base / "run2").string();
+  GenResult r2;
+  REQUIRE(generateSynthetic(cfg2, r2).empty());
+  auto readAll = [](const std::string& p) {
+    std::ifstream f(p, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(f),
+                       std::istreambuf_iterator<char>());
+  };
+  CHECK(readAll(r1.sidecars[0]) == readAll(r2.sidecars[0]));
+
+  Manifest m;
+  std::ifstream mf(r1.manifestPath);
+  std::string text((std::istreambuf_iterator<char>(mf)),
+                   std::istreambuf_iterator<char>());
+  REQUIRE_FALSE(parseManifest(text, m));
+  CHECK(m.tracks.size() == 3);
+  CHECK_FALSE(m.transitions.empty());
+  std::filesystem::remove_all(base);
+}
