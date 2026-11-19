@@ -7,6 +7,7 @@ package render
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -53,6 +54,7 @@ type Manifest struct {
 	Frames       []Frame   `json:"frames"`
 	Segments     []Segment `json:"segments"`
 	KeyframeHits int       `json:"keyframe_hits"`
+	KeyframeMiss int       `json:"keyframe_misses"`
 	MissingHits  []int     `json:"missing_keyframe_hits,omitempty"`
 }
 
@@ -133,6 +135,7 @@ func Render(tl *timeline.Timeline, targets []timeline.Entry, opt Options) (*Mani
 		}
 		keyframe := e.Sample == nil || e.Sample.Sync
 		if !keyframe {
+			man.KeyframeMiss++
 			man.MissingHits = append(man.MissingHits, i)
 		} else {
 			man.KeyframeHits++
@@ -153,6 +156,9 @@ func Render(tl *timeline.Timeline, targets []timeline.Entry, opt Options) (*Mani
 		}
 	}
 	man.Segments = buildSegments(man.Frames, tl, opt.SegmentSize)
+	if err := writeSegments(root, man); err != nil {
+		return nil, err
+	}
 	if err := WriteManifest(root, man); err != nil {
 		return nil, err
 	}
@@ -255,6 +261,39 @@ func atomicWrite(path string, data []byte, root string) error {
 	return safepath.WriteAtomic(path, data, root)
 }
 
+// writeSegments writes one JSON document per segment listing its frames
+// and digest, so a reviewer can check a segment without loading the
+// whole manifest.
+func writeSegments(root string, man *Manifest) error {
+	bySeg := map[int][]Frame{}
+	for _, f := range man.Frames {
+		bySeg[f.Segment] = append(bySeg[f.Segment], f)
+	}
+	for _, seg := range man.Segments {
+		doc := struct {
+			Index  int            `json:"index"`
+			Track  string         `json:"track"`
+			Start  clock.Rational `json:"start"`
+			End    clock.Rational `json:"end"`
+			SHA256 string         `json:"sha256"`
+			Frames []Frame        `json:"frames"`
+		}{seg.Index, seg.Track, seg.Start, seg.End, seg.SHA256, bySeg[seg.Index]}
+		data, err := json.MarshalIndent(doc, "", "  ")
+		if err != nil {
+			return err
+		}
+		data = append(data, '\n')
+		path, err := safepath.Join(root, seg.File)
+		if err != nil {
+			return err
+		}
+		if err := atomicWrite(path, data, root); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // WriteManifest writes manifest.json atomically.
 func WriteManifest(root string, man *Manifest) error {
 	data, err := marshalManifest(man)
@@ -263,6 +302,9 @@ func WriteManifest(root string, man *Manifest) error {
 	}
 	return atomicWrite(filepath.Join(root, "manifest.json"), data, root)
 }
+
+// ManifestPath returns the absolute manifest path inside root.
+func ManifestPath(root string) string { return filepath.Join(root, "manifest.json") }
 
 // SegmentDigests returns id→digest in index order for verification.
 func (m *Manifest) SegmentDigests() map[int]string {

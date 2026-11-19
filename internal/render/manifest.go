@@ -2,8 +2,6 @@ package render
 
 import (
 	"encoding/json"
-
-	"pairflow/media/internal/timeline"
 )
 
 // marshalManifest renders the manifest as pretty JSON with a trailing
@@ -15,5 +13,3 @@ func marshalManifest(m *Manifest) ([]byte, error) {
 	}
 	return append(data, '\n'), nil
 }
-
-var _ = timeline.KindVideo

@@ -75,6 +75,23 @@ func TestRenderProducesDeterministicFrames(t *testing.T) {
 			t.Fatalf("segment %d digest differs between runs", i)
 		}
 	}
+	// Each segment digest on disk must cover its listed frames.
+	for _, seg := range man.Segments {
+		raw, err := os.ReadFile(filepath.Join(dir, seg.File))
+		if err != nil {
+			t.Fatalf("segment file %s: %v", seg.File, err)
+		}
+		var doc struct {
+			SHA256 string                    `json:"sha256"`
+			Frames []struct{ SHA256 string } `json:"frames"`
+		}
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			t.Fatalf("segment JSON %s: %v", seg.File, err)
+		}
+		if doc.SHA256 != seg.SHA256 || len(doc.Frames) != seg.Frames {
+			t.Fatalf("segment file mismatch for %s", seg.File)
+		}
+	}
 	// Manifest must be valid JSON on disk.
 	raw, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
 	if err != nil {

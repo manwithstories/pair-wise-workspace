@@ -304,7 +304,7 @@ func Run(cfg Config) (*Summary, error) {
 		}
 		sum.Frames = len(man.Frames)
 		sum.SegmentSHACount = len(man.Segments)
-		sum.ManifestPath = cfg.OutDir + "/manifest.json"
+		sum.ManifestPath = render.ManifestPath(ropt.OutDir)
 		sum.Stages = append(sum.Stages, StageResult{Name: "render", OK: true,
 			Detail: fmt.Sprintf("%d frames, %d segments", len(man.Frames), len(man.Segments))})
 	}
