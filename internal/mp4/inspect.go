@@ -168,5 +168,45 @@ func ScanFile(path, trackID string) (*Scan, error) {
 	if err != nil {
 		return nil, err
 	}
-	return scanReader(f, fi.Size(), path)
+	return ScanReader(f, fi.Size(), path, trackID)
+}
+
+// ScanReader scans an open file image of the given size.
+func ScanReader(r io.ReaderAt, size int64, path, trackID string) (*Scan, error) {
+	sc := &Scan{Path: path, Bytes: size}
+	boxes, truncated, faults := Walk(r, size)
+	sc.Truncated = truncated
+	sc.Faults.Add(faults...)
+
+	traks := selectBoxes(boxes, "moov/trak")
+	if fts := selectBoxes(boxes, "ftyp"); len(fts) > 0 {
+		var ftyp mp4.Ftyp
+		if unmarshal(r, fts[0], &ftyp) == nil {
+			sc.Brand = string(ftyp.MajorBrand[:])
+		}
+	}
+	for i, trak := range traks {
+		tr, err := scanTrack(r, trak, boxes, size)
+		if err != nil {
+			sc.Faults.Add(model.NewFault(model.CodeCorruptRange, model.SevError, "track %d: %v", i+1, err))
+			continue
+		}
+		sc.Tracks = append(sc.Tracks, tr)
+		sc.CorruptRanges = append(sc.CorruptRanges, tr.corruptRanges()...)
+	}
+	if len(traks) == 0 {
+		sc.Faults.Add(model.NewFault(model.CodeCorruptRange, model.SevError, "%s: no readable track", path))
+	}
+	sc.Faults.Sort()
+	return sc, nil
+}
+
+func (t Track) corruptRanges() []ByteRange {
+	var out []ByteRange
+	for _, s := range t.Samples {
+		if s.Corrupt && s.Size > 0 {
+			out = append(out, ByteRange{Start: s.Offset, End: s.Offset + int64(s.Size) - 1, Track: fmt.Sprint(t.ID)})
+		}
+	}
+	return out
 }

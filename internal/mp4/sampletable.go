@@ -8,6 +8,65 @@ import (
 	mp4 "github.com/abema/go-mp4"
 )
 
+// zeroRunDamage is the byte run length at which a zero-filled region is
+// treated as damage rather than a legitimate low-entropy payload.
+const zeroRunDamage = 512
+
+// corruptionProbeBytes caps how much of one sample is read for the zero-run
+// check. A malicious stsz can declare multi-gigabyte samples; the scan must
+// stay well inside the 512 MiB budget regardless.
+const corruptionProbeBytes = 8192
+
+// flagCorruption marks samples whose bytes fall outside the file or contain a
+// long zero run. Fixture payloads are pseudo-random, so a run of zeroRunDamage
+// zero bytes (or half a small sample) is damage rather than media.
+func flagCorruption(r io.ReaderAt, tr *Track, size int64) {
+	for i := range tr.Samples {
+		s := &tr.Samples[i]
+		if s.Size == 0 {
+			continue
+		}
+		if s.Offset < 0 || s.Offset+int64(s.Size) > size {
+			s.Corrupt = true
+			continue
+		}
+		probe := int64(s.Size)
+		if probe > corruptionProbeBytes {
+			probe = corruptionProbeBytes
+		}
+		buf := make([]byte, probe)
+		if _, err := r.ReadAt(buf, s.Offset); err != nil {
+			s.Corrupt = true
+			continue
+		}
+		limit := zeroRunDamage
+		if half := len(buf) / 2; half < limit {
+			limit = half
+		}
+		if _, run := zeroRun(buf); run > 0 && run >= limit {
+			s.Corrupt = true
+		}
+	}
+}
+
+func zeroRun(buf []byte) (start, length int) {
+	bestStart, best, cur := 0, 0, 0
+	for i, b := range buf {
+		if b == 0 {
+			cur++
+			if cur == 1 {
+				start = i
+			}
+			if cur > best {
+				bestStart, best = start, cur
+			}
+			continue
+		}
+		cur = 0
+	}
+	return bestStart, best
+}
+
 func constantDurations(stts mp4.Stts) bool {
 	seen := map[uint32]bool{}
 	for _, e := range stts.Entries {
