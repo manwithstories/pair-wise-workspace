@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .errors import ErrorCollector, ErrorStage, skippable
-from .manifest import Representation, SegmentRef
+from .manifest import Representation
 
 # Segments longer than this multiple of the representation target duration
 # are flagged as overlong (still kept; the alignment stage reports the drift).

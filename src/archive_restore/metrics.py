@@ -68,11 +68,8 @@ def _video_span(directory: Path, errors: ErrorCollector, asset_id: str,
         try:
             container = av.open(str(path))
             local: list[int] = []
-            frame_dur_us = 0
             for stream in container.streams.video:
                 base_us = int((stream.start_time or 0) * 1_000_000 * stream.time_base)
-                if stream.average_rate:
-                    frame_dur_us = round(1_000_000 / float(stream.average_rate))
                 for frame in container.decode(stream):
                     if frame.pts is None:
                         continue
