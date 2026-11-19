@@ -24,6 +24,10 @@ type RTPFixture struct {
 	// Wire holds the packets actually delivered to the receiver, after loss,
 	// duplication and reordering.
 	Wire []*rtp.Packet
+	// ArrivalTick gives each wire packet's arrival slot in 10 ms units. The
+	// sender's slot is derived from its sequence number, so the difference is
+	// the reassembly latency a jitter buffer would need to absorb.
+	ArrivalTick []int64
 	// Origin maps a sequence number to its send index for ground truth.
 	Origin map[uint16]uint64
 }
@@ -87,7 +91,40 @@ func GenerateRTP(seed int64, loss float64, packetCount int) (*RTPFixture, error)
 		j := i - rng.Intn(minInt(i, 8)+1)
 		f.Wire[i], f.Wire[j] = f.Wire[j], f.Wire[i]
 	}
+	// Each arrival slot is the wire position; the sender slot is the send
+	// index. The difference is exactly how late the packet reached the
+	// receiver, which is what a fixed jitter buffer must cover.
+	f.ArrivalTick = make([]int64, len(f.Wire))
+	for i := range f.Wire {
+		f.ArrivalTick[i] = int64(i)
+	}
 	return f, nil
+}
+
+// LatencyMs returns per-packet reassembly latency in milliseconds, measured as
+// the positive difference between arrival and send order at the sender's
+// 10 ms packet cadence. Duplicates resolve to their first copy.
+func (f *RTPFixture) LatencyMs() []float64 {
+	if f == nil || len(f.Wire) == 0 {
+		return nil
+	}
+	const tickMs = 10.0
+	out := make([]float64, 0, len(f.Wire))
+	seen := make(map[uint16]bool, len(f.Wire))
+	for i, p := range f.Wire {
+		if seen[p.SequenceNumber] {
+			continue
+		}
+		seen[p.SequenceNumber] = true
+		send, ok := f.Origin[p.SequenceNumber]
+		if !ok {
+			continue
+		}
+		if d := int64(i) - int64(send); d > 0 {
+			out = append(out, float64(d)*tickMs)
+		}
+	}
+	return out
 }
 
 func minInt(a, b int) int {

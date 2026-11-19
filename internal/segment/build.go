@@ -125,51 +125,61 @@ func Build(tr *model.TrackTimeline, keyframes []int, cfg Config) *Result {
 	}
 	var boundaries []int
 	boundaries = append(boundaries, kf[0])
-	next := 0 // first keyframe not yet considered for a cut
+	next := 1 // first keyframe that may still become a cut
 	for {
 		target := start + int64(len(boundaries))*cfg.TargetNs
 		if target >= duration {
 			break
 		}
+		// The nearest keyframe can sit on either side of the target: clock
+		// rounding and drift make exact hits rare. Consider both the first
+		// keyframe at or after the target and its predecessor, and never reuse
+		// a keyframe already used as a boundary.
 		best := -1
-		bestDev := int64(1<<62 - 1)
+		var bestDev int64
+		consider := func(k int) {
+			if k <= 0 || k <= boundaries[len(boundaries)-1] {
+				return
+			}
+			dev := tr.PTS[k] - target
+			if dev < 0 {
+				dev = -dev
+			}
+			if best < 0 || dev < bestDev || (dev == bestDev && k < best) {
+				best, bestDev = k, dev
+			}
+		}
+		// Advance next past keyframes strictly before the search window.
+		for next < len(kf) && tr.PTS[kf[next]] < target-cfg.MaxNs {
+			next++
+		}
+		atOrAfter := -1
 		for i := next; i < len(kf); i++ {
-			k := kf[i]
-			if tr.PTS[k] < target {
-				next = i + 1
-				continue
-			}
-			if d := tr.PTS[k] - target; d < bestDev {
-				best, bestDev = k, d
-			}
-			if tr.PTS[k] > target+cfg.MaxNs {
+			if tr.PTS[kf[i]] >= target {
+				atOrAfter = i
 				break
 			}
 		}
-		// Not enough keyframe coverage near the target: end the segment here.
-		if best < 0 || bestDev > cfg.MaxBoundaryNs {
-			if best >= 0 {
-				res.Issues.Add(errs.ClassOutOfRange, errs.CodeSegmentBoundary,
-					fmt.Sprintf("nearest keyframe %d misses target by %.3f ms (> %.3f ms)",
-						best, float64(bestDev)/1e6, float64(cfg.MaxBoundaryNs)/1e6), loc(best))
-				res.Pending++
-				boundaries = append(boundaries, best)
-				next++
-				if next >= len(kf) {
-					break
-				}
-				continue
+		if atOrAfter >= 0 {
+			consider(kf[atOrAfter])
+			if atOrAfter > 0 {
+				consider(kf[atOrAfter-1])
 			}
+		} else if len(kf) > 0 {
+			// Every remaining keyframe sits before the target; the nearest one
+			// on the left is the last keyframe.
+			consider(kf[len(kf)-1])
+		}
+		if best < 0 {
 			break
 		}
-		if best <= boundaries[len(boundaries)-1] {
-			break
+		if bestDev > cfg.MaxBoundaryNs {
+			// No keyframe is close enough; the segment ends at the nearest one
+			// and the boundary is reported as pending review below.
+			boundaries = append(boundaries, best)
+			continue
 		}
 		boundaries = append(boundaries, best)
-		next++
-		if next >= len(kf) {
-			break
-		}
 	}
 	// Build cut records with their end boundaries.
 	endSample := func(i int) int64 {
@@ -190,8 +200,10 @@ func Build(tr *model.TrackTimeline, keyframes []int, cfg Config) *Result {
 		}
 		pending := dev > cfg.MaxBoundaryNs
 		if pending {
+			res.Pending++
 			res.Issues.Add(errs.ClassOutOfRange, errs.CodeSegmentBoundary,
-				fmt.Sprintf("segment %d boundary deviation %.3f ms", i, float64(dev)/1e6), loc(b))
+				fmt.Sprintf("segment %d boundary deviation %.3f ms exceeds %.3f ms",
+					i, float64(dev)/1e6, float64(cfg.MaxBoundaryNs)/1e6), loc(b))
 		}
 		res.Cuts = append(res.Cuts, Cut{
 			Index: i, StartNs: tr.PTS[b], EndNs: endSample(i),

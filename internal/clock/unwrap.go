@@ -252,50 +252,106 @@ func fitDrift(nominal []int64, in Input) ([][2]int, []affine, []int, errs.List) 
 	if breakNs <= 0 {
 		breakNs = DefaultBreakNs
 	}
-	// Residuals against the first anchor's offset; a jump beyond breakNs starts
-	// a new segment with its own fit.
-	breakIdx := []int{0}
+	// Group anchors into segments whose residual offsets agree. A residual jump
+	// beyond breakNs starts a new segment. The breakpoint is placed at the
+	// actual source-clock discontinuity between the two anchors, not at the
+	// following anchor, so the first segment is never extrapolated past it.
+	type seg struct {
+		first, last int // anchor index range [first,last]
+		breakAt     int // sample where this segment starts (0 for the first)
+		jump        int64
+	}
+	segs := []seg{{first: 0, last: 0}}
 	for i := 1; i < len(anchors); i++ {
-		d := (anchors[i].ProgramNs - nominal[anchors[i].Sample]) - (anchors[i-1].ProgramNs - nominal[anchors[i-1].Sample])
+		d := (anchors[i].ProgramNs - nominal[anchors[i].Sample]) -
+			(anchors[i-1].ProgramNs - nominal[anchors[i-1].Sample])
 		if d > breakNs || d < -breakNs {
-			breakIdx = append(breakIdx, i)
+			at := locateBreak(nominal, anchors[i-1], anchors[i])
+			segs = append(segs, seg{first: i, last: i, breakAt: at, jump: d})
 			issues.Add(errs.ClassClock, errs.CodeClockDriftBreak,
-				fmt.Sprintf("drift break between anchors at samples %d and %d (residual jump %.3f ms)",
-					anchors[i-1].Sample, anchors[i].Sample, float64(d)/1e6), loc(anchors[i].Sample))
+				fmt.Sprintf("drift break at sample %d between anchors %d and %d (residual jump %.3f ms)",
+					at, anchors[i-1].Sample, anchors[i].Sample, float64(d)/1e6), loc(at))
+			continue
 		}
+		segs[len(segs)-1].last = i
 	}
 
-	segments := make([][2]int, 0, len(breakIdx))
-	models := make([]affine, 0, len(breakIdx))
-	breaks := make([]int, 0, len(breakIdx))
+	segments := make([][2]int, 0, len(segs))
+	models := make([]affine, 0, len(segs))
+	breaks := make([]int, 0, len(segs)-1)
 	maxPPM := in.MaxDriftPPM
 	if maxPPM <= 0 {
 		maxPPM = DefaultMaxDriftPPM
 	}
-	for k, ai := range breakIdx {
-		endAnchor := len(anchors)
-		if k+1 < len(breakIdx) {
-			endAnchor = breakIdx[k+1]
-		}
+	for k, s := range segs {
 		startSample := 0
 		if k > 0 {
-			startSample = anchors[ai].Sample
+			startSample = s.breakAt
 			breaks = append(breaks, startSample)
 		}
 		endSample := n
-		if k+1 < len(breakIdx) {
-			endSample = anchors[endAnchor].Sample
+		if k+1 < len(segs) {
+			endSample = segs[k+1].breakAt
 		}
-		m := fitLine(nominal, anchors[ai:endAnchor])
+		if startSample >= endSample {
+			endSample = startSample + 1
+		}
+		m := fitLine(nominal, anchors[s.first:s.last+1])
 		if m.ppm > maxPPM || m.ppm < -maxPPM {
 			issues.AddFatal(errs.ClassClock, errs.CodeClockDriftBreak,
 				fmt.Sprintf("fitted drift %d ppm exceeds limit %d ppm in segment %d", m.ppm, maxPPM, k),
-				loc(anchors[ai].Sample))
+				loc(anchors[s.first].Sample))
 		}
 		segments = append(segments, [2]int{startSample, endSample})
 		models = append(models, m)
 	}
 	return segments, models, breaks, issues
+}
+
+// locateBreak finds the sample where the source clock jumped: the inter-sample
+// step in (prev.Sample, next.Sample] that deviates most from the local cadence
+// is the discontinuity. When no step stands out (the jump was spread across a
+// gap wider than the anchors), the newer anchor is the safe boundary, since
+// every sample before it is still covered by the previous fit.
+func locateBreak(nominal []int64, prev, next Anchor) int {
+	lo, hi := prev.Sample, next.Sample
+	if hi-lo < 2 {
+		return hi
+	}
+	// Local cadence from the samples between the anchors.
+	var sum int64
+	var cnt int64
+	for i := lo + 1; i <= hi; i++ {
+		if d := nominal[i] - nominal[i-1]; d > 0 {
+			sum += d
+			cnt++
+		}
+	}
+	if cnt == 0 {
+		return hi
+	}
+	cadence := sum / cnt
+	bestAt := hi
+	var bestDev int64
+	for i := lo + 1; i <= hi; i++ {
+		dev := nominal[i] - nominal[i-1] - cadence
+		if dev < 0 {
+			dev = -dev
+		}
+		if dev > bestDev {
+			bestDev, bestAt = dev, i
+		}
+	}
+	// Require the outlier to be a real discontinuity rather than ordinary VFR
+	// jitter: at least a quarter of the observed residual jump.
+	jump := (next.ProgramNs - nominal[next.Sample]) - (prev.ProgramNs - nominal[prev.Sample])
+	if jump < 0 {
+		jump = -jump
+	}
+	if bestDev*4 < jump {
+		return hi
+	}
+	return bestAt
 }
 
 // fitLine computes a least-squares affine fit of anchor program times against

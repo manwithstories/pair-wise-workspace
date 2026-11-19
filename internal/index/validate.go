@@ -312,14 +312,23 @@ func Validate(p *Parsed, scan *stream.Result, file string) *RepairResult {
 			res.Pending++
 		}
 	}
-	// PTS must never regress within an original-sourced run.
+	// PTS must never regress within an original-sourced run. A drop of more
+	// than half the 32-bit range is a counter wrap, not corruption; it is
+	// classified as a recoverable clock event so operators can tell them apart.
+	const wrapThreshold = int64(1) << 31
 	for i := 1; i < len(res.Entries); i++ {
-		if res.Entries[i].Source == SourceOriginal && res.Entries[i-1].Source == SourceOriginal &&
-			res.Entries[i].PTS < res.Entries[i-1].PTS {
-			res.Issues.Add(errs.ClassClock, errs.CodeIndexPTSRegressed,
-				fmt.Sprintf("PTS regressed between samples %d and %d", i-1, i),
-				errs.Location{File: file, Sample: i, Offset: res.Entries[i].Offset})
+		a, b := res.Entries[i-1], res.Entries[i]
+		if a.Source != SourceOriginal || b.Source != SourceOriginal || b.PTS >= a.PTS {
+			continue
 		}
+		loc := errs.Location{File: file, Sample: i, Offset: b.Offset}
+		if a.PTS-b.PTS > wrapThreshold {
+			res.Issues.Add(errs.ClassClock, errs.CodeClockWrap,
+				fmt.Sprintf("index PTS wrapped between samples %d and %d", i-1, i), loc)
+			continue
+		}
+		res.Issues.Add(errs.ClassClock, errs.CodeIndexPTSRegressed,
+			fmt.Sprintf("PTS regressed between samples %d and %d", i-1, i), loc)
 	}
 	return res
 }
