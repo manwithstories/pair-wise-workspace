@@ -67,8 +67,8 @@ func ParseTimecode(label string, rate Rate) (Timecode, error) {
 	if tc.Minute > 59 || tc.Second > 59 {
 		return Timecode{}, tcErr("timecode %q out of range: minutes/seconds must be 0..59", label)
 	}
-	if tc.Hours > 99 {
-		return Timecode{}, tcErr("timecode %q out of range: hours must be 0..99", label)
+	if tc.Hours > 23 {
+		return Timecode{}, tcErr("timecode %q out of range: hours must be 0..23 for a 24-hour clock", label)
 	}
 	nominal := rate.Nominal()
 	if tc.Frame >= nominal {
