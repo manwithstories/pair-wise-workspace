@@ -402,6 +402,7 @@ TEST_CASE("端到端合成：媒体/侧车/清单生成且确定性可复现", "
 }
 
 #include "media/decoder.hpp"
+#include "media/pipeline.hpp"
 
 TEST_CASE("MJPEG 解码与 PSNR 质量度量", "[decoder]") {
   auto base = std::filesystem::temp_directory_path() /
@@ -437,5 +438,68 @@ TEST_CASE("MJPEG 解码与 PSNR 质量度量", "[decoder]") {
   std::vector<bool> none(90, false);
   auto good = measureVideo(rc2.files[0], none);
   CHECK(good.psnr.psnrDb() >= out.psnr.psnrDb());
+  std::filesystem::remove_all(base);
+}
+
+TEST_CASE("连续多次 33 位回绕保持单调", "[repair]") {
+  ClockRepair rep(Rational{1, 90000}, MediaType::Video);
+  int64_t step = 9000;
+  int64_t raw = int64_t(PTS33_MASK) - step;
+  int64_t prevUs = 0;
+  size_t wraps = 0;
+  for (int i = 0; i < int(PTS33_MOD / uint64_t(step)) + 10; ++i) {
+    auto p = mkPkt(size_t(i), raw & int64_t(PTS33_MASK), step);
+    auto e = rep.accept(p);
+    if (e == TimeError::Wrap) ++wraps;
+    if (i > 0) CHECK(p.repairedUs > prevUs); // 严格单调
+    prevUs = p.repairedUs;
+    raw += step;
+  }
+  CHECK(wraps >= 2);
+  CHECK(rep.summary().deliverable);
+}
+
+TEST_CASE("损坏包经有界队列作为可恢复事件不取消管线", "[pipeline]") {
+  std::vector<MediaPacket> src(30);
+  for (size_t i = 0; i < src.size(); ++i) {
+    src[i].globalIndex = i;
+    src[i].index = i;
+    src[i].corrupt = (i % 5 == 0);
+  }
+  PacketQueue q(4);
+  size_t corruptSeen = 0;
+  auto st = runPipeline(q, src, [&](MediaPacket& p) {
+    if (p.corrupt) ++corruptSeen;
+    return TimeError::None; // 可恢复：不返回致命错误
+  });
+  CHECK(st.error == TimeError::None);
+  CHECK(st.consumed == 30);
+  CHECK(corruptSeen == 6);
+  CHECK_FALSE(q.cancelled());
+  CHECK(st.peak <= 4);
+}
+
+TEST_CASE("端到端流水线截断返回致命错误与首坏包位置", "[pipeline]") {
+  auto base = std::filesystem::temp_directory_path() /
+              ("md_pipe_" + std::to_string(::getpid()));
+  GenConfig cfg;
+  cfg.outDir = (base / "g").string();
+  cfg.seconds = 4;
+  cfg.wrapPts = true;
+  cfg.vfr = true;
+  GenResult r;
+  REQUIRE(generateSynthetic(cfg, r).empty());
+
+  PipelineConfig pc;
+  pc.workDir = cfg.outDir;
+  pc.manifestPath = r.manifestPath;
+  pc.queuePackets = 8;
+  pc.truncateAt = 43;
+  pc.diagPath = (base / "d.jsonl").string();
+  PipelineReport rep;
+  auto fatal = runPipeline(pc, rep);
+  CHECK(isFatal(fatal));
+  CHECK(fatal == TimeError::TruncatedInput);
+  CHECK(rep.firstBadPacket == 43);
   std::filesystem::remove_all(base);
 }
