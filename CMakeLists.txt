@@ -32,6 +32,7 @@ add_library(media_restore_core STATIC
   src/timeline.cpp
   src/sha256.cpp
   src/audio_restore.cpp
+  src/color_metadata.cpp
 )
 target_include_directories(media_restore_core PUBLIC include)
 target_link_libraries(media_restore_core PUBLIC PkgConfig::FFMPEG)

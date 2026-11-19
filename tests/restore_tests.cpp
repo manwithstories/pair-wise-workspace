@@ -8,6 +8,7 @@
 
 #include "audio_restore.hpp"
 #include "bitstream.hpp"
+#include "color_metadata.hpp"
 #include "error.hpp"
 #include "hash.hpp"
 #include "json.hpp"
@@ -654,4 +655,98 @@ TEST_CASE("wav encoder writes a stable RIFF header", "[audio]") {
   REQUIRE(media_restore::encode_wav(buffer, &again, &diagnostics));
   CHECK(wav == again);
   CHECK(media_restore::Sha256::digest(wav) == media_restore::Sha256::digest(again));
+}
+
+namespace {
+media_restore::Manifest color_manifest() {
+  media_restore::Manifest manifest;
+  media_restore::Track track;
+  track.id = "reel";
+  track.kind = media_restore::TrackKind::video;
+  media_restore::Segment a;
+  a.id = "a";
+  a.color.primaries = "bt709";
+  a.color.transfer = "bt709";
+  a.color.source = "tape_a";
+  media_restore::Segment b;
+  b.id = "b";
+  b.color.primaries = "bt2020";
+  b.color.transfer = "smpte2084";
+  b.color.source = "tape_b";
+  track.segments = {a, b};
+  manifest.tracks.push_back(track);
+  return manifest;
+}
+}  // namespace
+
+TEST_CASE("color conflicts are recorded, never silently overwritten", "[color]") {
+  const auto manifest = color_manifest();
+  std::vector<media_restore::Diagnostic> diagnostics;
+  media_restore::ColorReport report;
+  media_restore::ArchiveColor archive;
+  REQUIRE(media_restore::resolve_color_metadata(
+      manifest, media_restore::ColorStrategy::preserve, archive, &report,
+      &diagnostics));
+  // Each of the two segments reports primaries and transfer as conflicted.
+  CHECK(report.conflicts == 4);
+  REQUIRE(report.segments.size() == 2);
+  CHECK(report.segments[0].primaries.value.value() == "bt709");
+  CHECK(report.segments[1].primaries.value.value() == "bt2020");
+  CHECK(report.segments[0].conflicted);
+  bool saw_primaries = false;
+  for (const auto& d : diagnostics) {
+    if (d.code == media_restore::ErrorCode::color_conflict &&
+        d.location.field == "primaries") {
+      saw_primaries = true;
+      CHECK(d.severity == media_restore::Severity::warning);
+      CHECK(d.message.find("bt2020") != std::string::npos);
+    }
+  }
+  CHECK(saw_primaries);
+}
+
+TEST_CASE("archive color strategy applies the archive value on conflict", "[color]") {
+  const auto manifest = color_manifest();
+  std::vector<media_restore::Diagnostic> diagnostics;
+  media_restore::ColorReport report;
+  media_restore::ArchiveColor archive;
+  archive.primaries = "bt709";
+  archive.transfer = "bt709";
+  REQUIRE(media_restore::resolve_color_metadata(
+      manifest, media_restore::ColorStrategy::archive, archive, &report,
+      &diagnostics));
+  for (const auto& segment : report.segments) {
+    CHECK(segment.primaries.value.value() == "bt709");
+    CHECK(segment.transfer.value.value() == "bt709");
+  }
+  CHECK(report.segments[1].primaries.applied_archive);
+  CHECK(report.segments[1].primaries.source == "archive");
+}
+
+TEST_CASE("missing color fields are counted and filled only by archive policy", "[color]") {
+  media_restore::Manifest manifest;
+  media_restore::Track track;
+  track.id = "reel";
+  media_restore::Segment segment;
+  segment.id = "a";
+  segment.color.source = "none";
+  track.segments.push_back(segment);
+  manifest.tracks.push_back(track);
+  media_restore::ColorReport report;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  media_restore::ArchiveColor archive;
+  REQUIRE(media_restore::resolve_color_metadata(
+      manifest, media_restore::ColorStrategy::preserve, archive, &report,
+      &diagnostics));
+  CHECK(report.missing_fields == 4);
+  CHECK(report.segments[0].missing_any);
+  CHECK_FALSE(report.segments[0].primaries.value.has_value());
+
+  diagnostics.clear();
+  report = media_restore::ColorReport{};
+  REQUIRE(media_restore::resolve_color_metadata(
+      manifest, media_restore::ColorStrategy::archive, archive, &report,
+      &diagnostics));
+  CHECK(report.segments[0].primaries.value.value() == "bt709");
+  CHECK(report.segments[0].range.value.value() == "tv");
 }
