@@ -64,6 +64,7 @@ type Summary struct {
 	RTPAnomalies       int                  `json:"drift_anomalies"`
 	EstimatedDriftPPM  clock.Rational       `json:"estimated_drift_ppm"`
 	EstimatedOffsetMS  clock.Rational       `json:"estimated_offset_ms"`
+	Sync               SyncResult           `json:"rtp_mp4_sync"`
 	SubtitleCues       int                  `json:"subtitle_cues"`
 	Conflicts          int                  `json:"subtitle_conflicts"`
 	VideoSamples       int                  `json:"video_samples"`
@@ -184,10 +185,15 @@ func Run(cfg Config) (*Summary, error) {
 			"packet %d node=%d residual=%sms retained", a.Index, a.NodeTicks,
 			a.ResidualMS.String()))
 	}
+	// Cross-check the corrected node clock against the origin MP4 decode
+	// timeline. The anomaly sample is excluded by the ordinal pairing
+	// only in the sense that its raw residual is reported, never fixed.
+	sum.Sync = syncRTPToMP4(rtpStats.pairs, videoIdx.Tracks[0], corr, base, anomalies)
 	sum.Stages = append(sum.Stages, StageResult{Name: "clock", OK: true,
 		Errors: len(anomalies),
-		Detail: fmt.Sprintf("drift=%.1fppm offset=%.1fms wraps=%d jumps=%d",
-			corr.DriftPPM.Seconds(), corr.Offset.Seconds()*1000, rtpStats.wraps, rtpStats.jumps)})
+		Detail: fmt.Sprintf("drift=%.1fppm wraps=%d jumps=%d clean_max=%.1fms anomaly_max=%.1fms",
+			corr.DriftPPM.Seconds(), rtpStats.wraps, rtpStats.jumps,
+			sum.Sync.CleanMaxMS.Seconds(), sum.Sync.AnomalyMaxMS.Seconds())})
 
 	// Stage 3: SMPTE timecode on both sides of the day boundary.
 	frameDur := cfg.FrameRate.FrameDuration()

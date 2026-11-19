@@ -297,3 +297,34 @@ func TestWrapBiasVariants(t *testing.T) {
 		}
 	}
 }
+
+// TestSyncCorrectionRemovesDrift asserts the fitted correction brings
+// healthy RTP packets onto the MP4 decode timeline and leaves the
+// injected jump visible rather than smoothing it away.
+func TestSyncCorrectionRemovesDrift(t *testing.T) {
+	cfg := acceptanceConfig(t)
+	cfg.Render = false
+	cfg.DriftPPM = 400
+	sum, err := Run(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.Sync.Compared < 100 {
+		t.Fatalf("compared = %d", sum.Sync.Compared)
+	}
+	// Uncorrected skew over the clip must be tens of milliseconds at
+	// 400 ppm; after correction healthy packets land within 2 ms.
+	if sum.Sync.RawMaxMS.Seconds() < 5 {
+		t.Errorf("raw residual = %.3f ms, expected a measurable skew", sum.Sync.RawMaxMS.Seconds())
+	}
+	if sum.Sync.CleanMaxMS.Seconds() > 2 {
+		t.Errorf("clean residual = %.4f ms, want <= 2", sum.Sync.CleanMaxMS.Seconds())
+	}
+	if sum.Sync.CleanMaxMS.Cmp(sum.Sync.RawMaxMS) >= 0 {
+		t.Error("correction did not improve residual")
+	}
+	if sum.Sync.AnomalyMaxMS.Seconds() < 20_000 {
+		t.Errorf("jump residual = %.1f ms, want the raw jump preserved",
+			sum.Sync.AnomalyMaxMS.Seconds())
+	}
+}
