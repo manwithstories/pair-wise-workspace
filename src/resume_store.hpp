@@ -52,6 +52,7 @@ struct Checkpoint {
   int64_t errors = 0;
   int64_t dropped = 0;
   std::string output_sha256;  // set once Written
+  std::string journal_path;   // byte-offset map kept after the output is installed
   std::string written_at;     // ISO-8601, informational only
 
   bool usable() const {

@@ -77,6 +77,7 @@ struct ScanOutcome {
   bool truncated_tail = false;
   bool fragmented = false;
   int64_t dropped_packets = 0;
+  bool stopped_by_sink = false;  // the packet callback asked to stop
 };
 
 // Called for every complete packet.  Returning false aborts streaming (the

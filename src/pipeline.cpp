@@ -238,8 +238,11 @@ AssetRun process_asset(const BatchOptions& options, const std::filesystem::path&
           const auto elapsed = std::chrono::steady_clock::now() - resume_start;
           res.resume_seconds = std::max<int64_t>(
               1, std::chrono::duration_cast<std::chrono::seconds>(elapsed).count());
-          // Evidence files from the first run are still valid; if they were
-          // removed the verify subcommand will report missing offsets.
+          // Evidence files from the first run are still valid; rewrite the
+          // sidecar so a deleted one is restored without redoing the work.
+          std::string serr;
+          res.journal_path = checkpoint.journal_path;
+          write_sidecar(output, res, serr);
           run.fatal = false;
           return run;
         }
@@ -326,15 +329,15 @@ AssetRun process_asset(const BatchOptions& options, const std::filesystem::path&
   for (size_t i = 0; i < scan.tracks.size(); ++i) {
     track_of_stream[scan.tracks[i].stream_index] = i;
   }
-  // On resume the demuxer is replayed from the beginning (seeking would make
-  // packet boundaries ambiguous), but packets already committed to the
-  // journal are skipped: their per-stream counts are exact, so the first
-  // packet appended after resume is the one the checkpoint stopped before.
-  std::map<int, int64_t> skip_remaining;
+  // On resume the demuxer is replayed from the beginning (seeking into the
+  // middle of an MP4 would make packet boundaries ambiguous), but the packets
+  // already committed to the journal are skipped by a single global count.
+  // A global count keeps the journal byte-identical to an uninterrupted run:
+  // per-stream skipping would let the two streams interleave differently and
+  // change the output hash.
+  int64_t skip_remaining = 0;
   if (have_checkpoint && checkpoint.stage == JobStage::Streaming) {
-    for (size_t i = 0; i < checkpoint.stream_indices.size(); ++i) {
-      skip_remaining[checkpoint.stream_indices[i]] = checkpoint.per_stream[i].packets;
-    }
+    skip_remaining = checkpoint.packets_written;
   }
   int64_t packets_skipped = 0;
 
@@ -350,9 +353,8 @@ AssetRun process_asset(const BatchOptions& options, const std::filesystem::path&
       [&](int si, const AVPacket& pkt, std::string& why) {
         auto it = track_of_stream.find(si);
         if (it == track_of_stream.end()) return true;
-        auto skip = skip_remaining.find(si);
-        if (skip != skip_remaining.end() && skip->second > 0) {
-          --skip->second;
+        if (skip_remaining > 0) {
+          --skip_remaining;
           ++packets_skipped;
           return true;
         }
@@ -386,8 +388,11 @@ AssetRun process_asset(const BatchOptions& options, const std::filesystem::path&
         }
         ++per_stream_packets[ti];
         if (pkt.pos >= 0) last_consumed_offset = pkt.pos + pkt.size;
-        if (stop_after > 0 && per_stream_packets[ti] >= stop_after) {
+        // The cut is global so that a resumed run replays the exact same
+        // journal order an uninterrupted run would have produced.
+        if (stop_after > 0 && appended >= stop_after) {
           why = "stop-after-packet limit reached (test hook)";
+          stream_error = why;
           aborted = true;
           return false;
         }
@@ -425,7 +430,12 @@ AssetRun process_asset(const BatchOptions& options, const std::filesystem::path&
     }
   }
 
-  if (aborted && stop_after > 0 && stream_error.find("stop-after") != std::string::npos) {
+  // A stop requested by the packet callback (the test hook) is a resumable
+  // interruption; a timeline failure or a truncated tail is not.
+  const bool deliberately_stopped =
+      aborted && stop_after > 0 && !run.fatal && scan.stopped_by_sink &&
+      stream_error.find("stop-after") != std::string::npos;
+  if (deliberately_stopped) {
     // Deliberate interruption: persist a checkpoint with the committed counts
     // so the next run resumes from here.
     writer.flush(err);
@@ -577,6 +587,7 @@ AssetRun process_asset(const BatchOptions& options, const std::filesystem::path&
   Checkpoint cp = checkpoint;
   cp.stage = JobStage::Verified;
   cp.output_sha256 = res.output_sha256;
+  cp.journal_path = writer.journal_path().string();
   cp.packets_written = writer.packets();
   cp.bytes_written = writer.payload_bytes();
   cp.repairs = res.repairs;

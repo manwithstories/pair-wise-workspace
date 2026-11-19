@@ -161,9 +161,14 @@ TEST_CASE("truncated mdat is localised to the first missing byte") {
   REQUIRE(fs.last_confirmed_offset == int64_t(full.size() - 2));
   REQUIRE(fs.tracks.size() == 1);
   const auto& t = fs.tracks[0];
-  REQUIRE(t.first_bad_sample == 2);
-  REQUIRE(t.first_bad_offset == fs.mdats[0].data_offset + 10);
-  REQUIRE_FALSE(t.usable_index());
+  // The chunk offsets themselves are valid; the file is simply short, so the
+  // damage is a tail cut at EOF rather than a bad index entry.
+  REQUIRE(t.index_entries_out_of_range == 0);
+  REQUIRE(t.samples_past_eof == 1);
+  REQUIRE(t.first_past_eof_sample == 2);
+  REQUIRE(t.first_bad_sample == -1);
+  REQUIRE(t.samples[2].offset + t.samples[2].size > fs.file_size);
+  REQUIRE(t.usable_index());
   std::filesystem::remove(path);
 }
 

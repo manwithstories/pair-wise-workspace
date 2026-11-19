@@ -91,6 +91,7 @@ std::string serialize_checkpoint(const Checkpoint& cp) {
   os << "errors=" << cp.errors << "\n";
   os << "dropped=" << cp.dropped << "\n";
   os << "output_sha256=" << cp.output_sha256 << "\n";
+  os << "journal_path=" << json_escape(cp.journal_path) << "\n";
   os << "written_at=" << cp.written_at << "\n";
   os << "streams=" << cp.stream_indices.size() << "\n";
   for (size_t i = 0; i < cp.stream_indices.size(); ++i) {
@@ -136,6 +137,7 @@ bool parse_checkpoint(const std::string& text, Checkpoint& cp, std::string& err)
       else if (k == "errors") cp.errors = std::stoll(v);
       else if (k == "dropped") cp.dropped = std::stoll(v);
       else if (k == "output_sha256") cp.output_sha256 = v;
+      else if (k == "journal_path") cp.journal_path = v;
       else if (k == "written_at") cp.written_at = v;
       else if (k == "streams") { /* count only; stream lines follow */ }
       else if (k == "stream") {

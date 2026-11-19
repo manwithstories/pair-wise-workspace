@@ -9,7 +9,7 @@ namespace mediaqc {
 struct Limits {
   int64_t max_input_bytes = int64_t{16} * 1024 * 1024 * 1024;  // 16 GiB per asset
   int max_tracks = 64;
-  int64_t max_packet_bytes = 64 * 1024 * 1024;
+  int64_t max_packet_bytes = int64_t{64} * 1024 * 1024;
   int64_t max_timeline_errors = 100000;  // per asset
   int64_t max_offset_errors = 100000;
   int max_decode_errors = 4096;

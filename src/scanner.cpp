@@ -541,6 +541,7 @@ bool Scanner::stream(const PacketCallback& cb, ScanOutcome& out) {
     av_packet_unref(pkt);
   }
   av_packet_free(&pkt);
+  if (!ok && !why.empty()) out.stopped_by_sink = true;
   return ok;
 }
 
