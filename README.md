@@ -104,7 +104,7 @@ index_valid=true
 | code | meaning |
 | --- | --- |
 | 0 | completed; verification passed (isolated bad frames are still 0) |
-| 1 | unexpected local failure, or a `verify` target that cannot be read |
+| 1 | unexpected local failure, including an unreadable `verify` target |
 | 2 | invalid arguments |
 | 3 | input damaged beyond recovery (framing lost, nothing publishable) |
 | 4 | checkpoint does not belong to this job |
