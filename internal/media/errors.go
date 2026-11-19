@@ -53,6 +53,7 @@ const (
 	CodeMissingEntry     Code = "missing_entry"
 	CodePacketLoss       Code = "packet_loss"
 	CodeDuplicatePacket  Code = "duplicate_packet"
+	CodeDuplicate        Code = "duplicate_entry"
 	CodeWindowExceeded   Code = "reorder_window_exceeded"
 	CodeOffsetInsideGap  Code = "offset_inside_gap"
 	CodeNoKeyframe       Code = "boundary_without_keyframe"
