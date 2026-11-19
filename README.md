@@ -189,9 +189,10 @@ is also refused, so a stale one can never mask a rerun.
   reorder window is bounded, the index tables are spooled to disk, verification
   streams both the sample tables and the source. Measured maximum RSS is about
   13–16 MB for 10 thousand, 100 thousand and 1 million frames.
-* The only superlinear costs left are per-chunk durability barriers (`fsync`),
-  about 4.5 ms each on the development machine; raise `--chunk-frames` to trade
-  resume granularity for throughput.
+* Committing a chunk performs durability barriers (`fsync`). They cost a few
+  milliseconds each on the development machine, so raise `--chunk-frames` to
+  trade resume granularity for throughput: 1,000,000 frames take about 8 s with
+  4096-frame chunks and about 90 s with 256-frame chunks.
 
 ## Layout
 
