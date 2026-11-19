@@ -174,6 +174,15 @@ func (p *parser) parseTiming(line rawLine, rec int) (start, end int64, ok bool) 
 	if i := strings.IndexAny(endField, " \t"); i >= 0 {
 		endTok = endField[:i]
 	}
+	if p.input == media.InputWebVTT {
+		for _, tok := range []string{startTok, endTok} {
+			if strings.Contains(tok, ",") {
+				p.issue(media.CodeInvalidTimestamp, line.off+int64(columnOf(line.text, tok)), rec,
+					"WebVTT timestamps use '.' not ',' in %q", tok)
+				return 0, 0, false
+			}
+		}
+	}
 	var err error
 	start, err = timeline.ParseClockTimestamp(startTok)
 	if err != nil {

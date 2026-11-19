@@ -165,9 +165,10 @@ func (a Timebase) Compatible(b Timebase) bool {
 		a.DropFrame == b.DropFrame
 }
 
-// FramesToNanos converts a frame count to nanoseconds, half-up.
+// FramesToNanos converts a frame count to nanoseconds, half-up. The product
+// is formed in 128 bits so extreme frame counts saturate instead of wrapping.
 func (r Rate) FramesToNanos(frames int64) int64 {
-	return mulDiv(frames*1_000_000_000, r.Den, r.Num)
+	return mulDiv(frames, 1_000_000_000*r.Den, r.Num)
 }
 
 // NanosToFrames converts nanoseconds to the nearest whole frame.
@@ -182,7 +183,7 @@ func (r Rate) SecondsToFrames(sec float64) int64 {
 
 // TicksToNanos converts raw clock ticks to nanoseconds.
 func (tb Timebase) TicksToNanos(ticks int64) int64 {
-	return mulDiv(ticks*1_000_000_000, 1, int64(tb.Clock.Ticks))
+	return mulDiv(ticks, 1_000_000_000, int64(tb.Clock.Ticks))
 }
 
 // NanosToTicks converts nanoseconds to raw clock ticks, half-up.

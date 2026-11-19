@@ -31,13 +31,24 @@ func ParseTimecode(label string, rate Rate) (Timecode, error) {
 	if err := rate.Validate(); err != nil {
 		return Timecode{}, tcErr("%v", err)
 	}
+	// Drop-frame labels separate hours/minutes/seconds with ':' and the
+	// frame field with ';', matching SMPTE HB:MM:SS;FF.
 	sep := byte(':')
-	if strings.Count(label, ";") == 1 {
-		sep = ';'
-	} else if strings.Count(label, ";") > 1 {
+	if n := strings.Count(label, ";"); n > 1 {
 		return Timecode{}, tcErr("malformed timecode %q: multiple ';'", label)
+	} else if n == 1 {
+		sep = ';'
 	}
-	parts := strings.Split(label, string(sep))
+	var parts []string
+	if sep == ';' {
+		head, frames, ok := strings.Cut(label, ";")
+		if !ok {
+			return Timecode{}, tcErr("malformed timecode %q: missing ';' frame separator", label)
+		}
+		parts = append(strings.Split(head, ":"), frames)
+	} else {
+		parts = strings.Split(label, ":")
+	}
 	if len(parts) != 4 {
 		return Timecode{}, tcErr("malformed timecode %q: want HH:MM:SS%cFF", label, sep)
 	}
