@@ -65,6 +65,7 @@ class PacketStream:
     expected_seq_max: int = -1
     recovered_seqs: set[int] = field(default_factory=set)
     unrecovered_seqs: set[int] = field(default_factory=set)
+    max_buffer_packets: int = 0  # peak live reorder-buffer occupancy
 
 
 def encode_packet(seq: int, ts33: int, payload: bytes, flags: int) -> bytes:
@@ -235,6 +236,7 @@ def parse_stream(
             continue
         buffer.append(p)
         flush_ready()
+        result.max_buffer_packets = max(result.max_buffer_packets, len(buffer))
     buffer.sort(key=lambda q: (q.ts_unwrapped, q.seq))
     while buffer:
         emit(buffer.pop(0))

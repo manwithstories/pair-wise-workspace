@@ -297,3 +297,57 @@ def test_pyav_probe_parses_recovered_streams(tmp_path):
         info = probe_stream(str(es), codec)
         assert info["available"] is True
         assert info["parsed_packets"] > 0  # framing independently confirmed
+
+
+def test_ambiguous_timestamp_marks_uncertain_interval(tmp_path):
+    from remuxsync.annexb import Unit
+    from remuxsync.packets import Packet, PacketStream
+    from remuxsync.timeline import build_video_timeline
+
+    # four 30 fps frames, then a 10x gap -> ambiguous interval, still parsed
+    tss = [0, 3000, 6000, 9000, 39000]
+    packets, spans, units = [], [], []
+    off = 0
+    for i, ts in enumerate(tss):
+        payload = bytes([0x65 if i == 0 else 0x61]) + b"x" * 10
+        packets.append(Packet(seq=i, ts33=ts, ts_unwrapped=ts, flags=0,
+                              payload=payload, offset=i * 32))
+        spans.append((i, off, off + len(payload), ts))
+        units.append(Unit("h264", 5 if i == 0 else 1, off,
+                          len(payload), i == 0))
+        off += len(payload)
+    stream = PacketStream(packets=packets, expected_seq_max=4)
+    log = ErrorLog()
+    tl = build_video_timeline("t", "h264", stream, units, spans,
+                              str(tmp_path / "x.es"), off, log)
+    assert len(tl.frames) == 5
+    assert any(f.uncertain for f in tl.frames)
+    assert any("ambiguous timestamp interval" in e.message for e in log.records)
+
+
+def test_reorder_buffer_bounded_by_window(tmp_path):
+    p = tmp_path / "b.pkt"
+    n = 60
+    step = 3000  # 33.3 ms at 90 kHz
+    # fully reversed delivery in blocks of 3: heavy reordering, all in-window
+    chunks = [
+        encode_packet(i, i * step, bytes([i & 0xFF]), 0)
+        for i in range(n)
+    ]
+    blob = b""
+    for block in range(0, n, 3):
+        blob += b"".join(reversed(chunks[block:block + 3]))
+    p.write_bytes(blob)
+
+    log = ErrorLog()
+    ps = parse_stream(str(p), "b", log, 120)
+    # all recovered, and the live buffer never exceeds the 120 ms window:
+    # at most ceil(120/33.3)+1 ~ 5 packets, far below the stream length
+    assert not ps.unrecovered_seqs
+    assert ps.max_buffer_packets <= 5
+    assert ps.max_buffer_packets < n  # never buffered the whole stream
+
+    # a 33 ms window cannot absorb a 3-slot displacement -> unrecoverable
+    tight = ErrorLog()
+    ps_tight = parse_stream(str(p), "b", tight, 33)
+    assert ps_tight.unrecovered_seqs
