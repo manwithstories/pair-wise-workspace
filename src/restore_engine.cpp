@@ -209,7 +209,6 @@ bool restore_archive(const Manifest& manifest, const RestoreOptions& options,
   const size_t before = diagnostics->size();
   *summary = RestoreSummary{};
   summary->time_base = manifest.time_base;
-  summary->total_segments = static_cast<int64_t>(manifest.tracks.size());
 
   // Structural checks first: the timeline and dependency graph must be sound
   // before any per-segment work is attempted.

@@ -62,7 +62,6 @@ struct RestoreSummary {
   size_t quarantined_ok = 0;
   size_t quarantined_mismatch = 0;
   size_t failures = 0;
-  int64_t total_segments = 0;
   Rational time_base;
 };
 
