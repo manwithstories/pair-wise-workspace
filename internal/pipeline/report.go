@@ -58,7 +58,6 @@ type StageReport struct {
 type Report struct {
 	Version              int             `json:"version"`
 	Seed                 int64           `json:"seed"`
-	GeneratedAt          string          `json:"generated_at,omitempty"`
 	RoundtripConsistency float64         `json:"roundtrip_consistency"`
 	KeyframeHitRate      float64         `json:"keyframe_hit_rate"`
 	SegmentCount         int             `json:"segment_count"`

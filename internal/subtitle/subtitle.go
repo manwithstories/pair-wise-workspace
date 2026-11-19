@@ -28,12 +28,11 @@ func (c Cue) DurationNS() int64 {
 
 // Result is the outcome of parsing one subtitle file.
 type Result struct {
-	Format    string         `json:"format"`
-	Cues      []Cue          `json:"cues"`
-	Issues    []*media.Issue `json:"issues"`
-	Lines     int            `json:"lines"`
-	Bytes     int            `json:"bytes"`
-	Recovered int            `json:"recovered"`
+	Format string         `json:"format"`
+	Cues   []Cue          `json:"cues"`
+	Issues []*media.Issue `json:"issues"`
+	Lines  int            `json:"lines"`
+	Bytes  int            `json:"bytes"`
 }
 
 // Fatal reports whether parsing stopped on an unrecoverable issue.

@@ -92,7 +92,7 @@ func (p *parser) issue(code media.Code, off int64, rec int, format string, args 
 // cueFromBlock converts a block of lines into a cue. It returns false when the
 // record is unrecoverable, having already recorded the issue.
 func (p *parser) cueFromBlock(b block, allowIdentifier bool) (Cue, bool) {
-	rec := p.res.Recovered + len(p.res.Cues) + 1
+	rec := len(p.res.Cues) + len(p.res.Issues) + 1
 	idx := 0
 	pos := b.first
 	if allowIdentifier && pos+1 <= b.last && !strings.Contains(p.lines[pos].text, "-->") &&
