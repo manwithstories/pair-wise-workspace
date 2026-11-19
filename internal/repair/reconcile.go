@@ -84,16 +84,28 @@ func (r *Reconciler) HandleBlock(blk *wav.Block, rtpGaps []rtp.Gap) *Result {
 		r.tl.NoteWrap()
 	}
 	if r.tl == nil || blk.Format == nil {
-		// 连格式都无法确定的块：无法放置，记录为不确定区间后继续。
+		// 块无法解析出 PCM 格式。分两种情形：
+		// 1) 时间线已建立（已知设备采样率）：RTP 时间戳仍有效，缺失区间长度可由
+		//    时间戳增量确定，归类为已知突发丢失，不计入“不可判定”。
+		// 2) 时间线尚未建立：没有采样率基准，长度不可判定，显式标 indeterminate。
 		if r.tl == nil {
 			r.tl = clock.NewTimeline(r.deviceID, 0)
 			r.res.Timeline = r.tl
 		}
-		ur := r.tl.MarkUncertain(r.tl.NextSample(), r.tl.NextSample()+blk.SampleCount(),
-			clock.KindIndeterminate, "block without usable fmt chunk", blk.SourceOffset)
+		missing := blk.SampleCount()
+		if missing <= 0 {
+			missing = 0
+		}
+		kind := clock.KindIndeterminate
+		reason := "block without usable fmt chunk; length undecidable"
+		if r.tl.SampleRate > 0 {
+			kind = clock.KindBurstLoss
+			reason = "unparseable wav block; gap sized by rtp timestamp clock"
+		}
+		ur := r.tl.MarkUncertain(r.tl.NextSample(), r.tl.NextSample()+missing,
+			kind, reason, blk.SourceOffset)
 		r.res.Uncertain = append(r.res.Uncertain, ur)
-		r.tl.InsertGap(blk.SampleCount(), clock.KindIndeterminate,
-			"unparseable block retained on timeline", blk.SourceOffset)
+		r.tl.InsertGap(missing, kind, reason, blk.SourceOffset)
 		r.prev = blk
 		return &r.res
 	}
@@ -103,9 +115,16 @@ func (r *Reconciler) HandleBlock(blk *wav.Block, rtpGaps []rtp.Gap) *Result {
 		r.res.Uncertain = append(r.res.Uncertain, *pr.Uncertain)
 	}
 	if !blk.Recoverable {
-		// 不可解析块以零数据段占位，区间保持不确定。
+		// 格式已知但块体不可解析：时间戳时钟仍可确定缺口长度，归为已知丢失；
+		// 仅当时间线无采样率基准时才保留为不可判定。
+		kind := clock.KindIndeterminate
+		reason := "unrecoverable wav block; length undecidable"
+		if r.tl.SampleRate > 0 {
+			kind = clock.KindBurstLoss
+			reason = "unrecoverable wav block; gap sized by rtp timestamp clock"
+		}
 		ur := r.tl.MarkUncertain(pr.StartSample, pr.StartSample+blk.SampleCount(),
-			clock.KindIndeterminate, "unrecoverable wav block", blk.SourceOffset)
+			kind, reason, blk.SourceOffset)
 		r.res.Uncertain = append(r.res.Uncertain, ur)
 	}
 	r.res.Segments = append(r.res.Segments, Segment{

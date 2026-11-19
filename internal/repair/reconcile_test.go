@@ -81,3 +81,28 @@ func TestRepairDriftUsesSampleCount(t *testing.T) {
 		t.Fatalf("sample count must drive placement, next=%d", rr.Timeline.NextSample())
 	}
 }
+
+func TestIndeterminateWhenNoClockBaseline(t *testing.T) {
+	f := testkit.PCMFormat{SampleRate: 48000, Channels: 2, BitsPerSample: 16}
+	r := NewReconciler("d")
+	// 首个块即截断：时间线尚未建立、无采样率基准，长度不可判定。
+	trunc := testkit.TruncateWAV(testkit.BuildWAVBlock(f, testkit.SynthesizePCM(f, 0, 8, 1)), 8)
+	blk := wav.ParseBlock("d", 0, 0, 0, 0, 0, trunc)
+	rr := r.HandleBlock(blk, nil)
+	if !rr.HasIndeterminate() {
+		t.Fatal("first-block parse failure with no clock baseline must be indeterminate")
+	}
+}
+
+func TestTruncatedAfterBaselineIsKnownLoss(t *testing.T) {
+	f := testkit.PCMFormat{SampleRate: 48000, Channels: 2, BitsPerSample: 16}
+	r := NewReconciler("d")
+	r.HandleBlock(block("d", 0, 0, 0, 0, f), nil)
+	// 时间线已建立后出现截断块：应归为已知突发丢失而非不可判定。
+	trunc := testkit.TruncateWAV(testkit.BuildWAVBlock(f, testkit.SynthesizePCM(f, 1, testkit.FramesPerBlock, 1)), 8)
+	blk := wav.ParseBlock("d", 1, 1, testkit.FramesPerBlock, 1, 0, trunc)
+	rr := r.HandleBlock(blk, nil)
+	if rr.HasIndeterminate() {
+		t.Fatal("truncated block after clock baseline must be a known loss, not indeterminate")
+	}
+}

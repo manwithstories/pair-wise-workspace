@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	pionrtp "github.com/pion/rtp"
+
 	"pairflow/internal/clock"
 	"pairflow/internal/rtp"
 	"pairflow/internal/testkit"
@@ -153,4 +155,39 @@ func TestWraparoundRepaired(t *testing.T) {
 	if !wrapSeen {
 		t.Fatal("burst-loss gaps (incl. across seq wrap) must be present")
 	}
+}
+
+func TestExit3WhenFirstBlockUnparseable(t *testing.T) {
+	dir := t.TempDir()
+	fx := testkit.GenerateFixture(41, "steady")
+	// 把第一台设备的第一个 RTP 负载替换为截断头，制造无时钟基准的不可判定块。
+	fx.Captures[0].Records[0].Packet = corruptFirstPayload(fx.Captures[0].Records[0].Packet)
+	files := writeFixtureCaptures(t, dir, fx)
+	out := filepath.Join(dir, "out")
+	if _, err := Run(Options{OutDir: out, InputFiles: files}); err != nil {
+		// 单轨损坏不阻断整体，Run 仍可能成功；关键看 verify 的判定。
+		t.Logf("run returned: %v", err)
+	}
+	rep, verr := VerifyDirectory(out, filepath.Join(out, "manifest.json"), 192000)
+	if verr == nil || !rep.HasUnrecoverable {
+		t.Fatalf("unparseable first block must surface as exit-3 media error, got %v", verr)
+	}
+	se, ok := clock.AsStageError(verr)
+	if !ok || se.Kind != clock.KindIndeterminate {
+		t.Fatalf("want indeterminate_gap, got %v", verr)
+	}
+}
+
+// corruptFirstPayload 保留 RTP 头，仅把负载替换为 8 字节截断 WAV。
+func corruptFirstPayload(raw []byte) []byte {
+	p := &pionrtp.Packet{}
+	if err := p.Unmarshal(raw); err != nil {
+		return raw
+	}
+	p.Payload = []byte{'R', 'I', 'F', 'F', 0, 0, 0, 0}
+	out, err := p.Marshal()
+	if err != nil {
+		return raw
+	}
+	return out
 }
