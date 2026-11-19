@@ -157,3 +157,29 @@ func TestBuildTinyTrackStillTiles(t *testing.T) {
 		t.Fatalf("degenerate cut: %+v", res.Cuts[0])
 	}
 }
+
+// TestBuildDoesNotStopAfterAnOvershoot reproduces a case where the first cut
+// overshoots the second target: a naive cursor then rejects the only
+// candidate and stops segmenting early.
+func TestBuildDoesNotStopAfterAnOvershoot(t *testing.T) {
+	tr := &model.TrackTimeline{TrackID: 1, Kind: model.KindVideo, Timescale: 90000}
+	for i := 0; i < 200; i++ {
+		tr.PTS = append(tr.PTS, int64(i)*40_000_000)
+	}
+	// Keyframes: 0 s, 2.48 s, 3.0 s, 5.0 s.
+	kf := []int{0, 62, 75, 125}
+	res := Build(tr, kf, Config{TargetNs: 1_000_000_000, MaxBoundaryNs: 2_000_000_000})
+	if res.SegmentCount < 4 {
+		t.Fatalf("segments=%d, tail after the overshoot was dropped: %+v", res.SegmentCount, res.Cuts)
+	}
+	// Every keyframe that can start a segment must have been used.
+	used := map[int]bool{}
+	for _, c := range res.Cuts {
+		used[c.KeyframeSample] = true
+	}
+	for _, k := range kf {
+		if !used[k] {
+			t.Fatalf("keyframe sample %d was skipped: %+v", k, res.Cuts)
+		}
+	}
+}

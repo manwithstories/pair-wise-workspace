@@ -138,16 +138,17 @@ func scanAnnexB(codec Codec, data []byte, headerLen int) (*Result, error) {
 			Length: length, Type: nalType, Codec: codec,
 		}
 		u.Keyframe = isKeyframeNAL(codec, nalType)
-		if u.Keyframe {
-			res.Keyframes = append(res.Keyframes, u.Index)
-		}
-		if len(res.Units) < MaxUnits {
-			res.Units = append(res.Units, u)
-		} else {
+		if len(res.Units) >= MaxUnits {
 			res.Issues.Add(errs.ClassCorrupt, errs.CodeNALLengthOverrun,
 				fmt.Sprintf("unit count exceeds limit %d", MaxUnits), loc(s.offset))
 			break
 		}
+		// Only record the keyframe after the unit is actually stored: a
+		// Keyframes entry must always address a Units element.
+		if u.Keyframe {
+			res.Keyframes = append(res.Keyframes, u.Index)
+		}
+		res.Units = append(res.Units, u)
 	}
 	return res, nil
 }
@@ -194,7 +195,6 @@ const (
 	obuSequenceHeader = 1
 	obuFrame          = 6
 	obuFrameHeader    = 3
-	obuTileGroup      = 4
 	obuTemporalDelim  = 2
 )
 
@@ -260,10 +260,11 @@ func scanAV1(data []byte) (*Result, error) {
 			res.Truncated = true
 			break
 		}
+		payload := data[p : p+int(size)]
 		u := Unit{
 			Index: len(res.Units), Offset: int64(off), HeaderAt: int64(off),
 			Length: p + int(size) - off, Type: obuType, Codec: AV1,
-			Keyframe: obuType == obuFrame || obuType == obuTileGroup,
+			Keyframe: isAV1Keyframe(obuType, payload),
 		}
 		if u.Keyframe {
 			res.Keyframes = append(res.Keyframes, u.Index)
@@ -272,6 +273,25 @@ func scanAV1(data []byte) (*Result, error) {
 		off = p + int(size)
 	}
 	return res, nil
+}
+
+// isAV1Keyframe inspects the uncompressed frame header carried by a FRAME or
+// FRAME_HEADER OBU. Tile-group OBUs never announce a random-access point on
+// their own, so treating every frame as a keyframe would make the index
+// meaningless. A frame is a keyframe when show_existing_frame is 0 and
+// frame_type is KEY_FRAME (0).
+func isAV1Keyframe(obuType int, payload []byte) bool {
+	if obuType != obuFrame && obuType != obuFrameHeader {
+		return false
+	}
+	if len(payload) == 0 {
+		return false
+	}
+	b := payload[0]
+	if b&0x80 != 0 { // show_existing_frame
+		return false
+	}
+	return (b>>5)&0x03 == 0 // frame_type == KEY_FRAME
 }
 
 // readLeb128 decodes an AV1 length field, bounded to 8 bytes.

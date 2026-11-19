@@ -206,3 +206,73 @@ func TestUnwrapAnchorOutOfRangeReported(t *testing.T) {
 		t.Fatalf("bad anchor not reported: %v", r.Issues)
 	}
 }
+
+func TestExtrapolationLimitedAndReported(t *testing.T) {
+	// Only two anchors near the start; a tight bound must stop the fit from
+	// extrapolating across the rest of the capture, and say so.
+	raw := ts(3000, 3000)
+	anchors := []Anchor{
+		{Sample: 1000, ProgramNs: model.ClockToNs(raw[1000], 90000)},
+		{Sample: 1100, ProgramNs: model.ClockToNs(raw[1100], 90000) + 20_000_000},
+	}
+	r, err := Unwrap(Input{
+		TrackID: 1, Kind: model.KindVideo, Timescale: 90000, RawPTS: raw,
+		Anchors: anchors, MaxExtrapNs: 2_000_000_000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.Issues.Has(errs.CodeClockExtrapolation) {
+		t.Fatalf("extrapolation not reported: %v", r.Issues)
+	}
+	// Beyond the clamp the map continues at unit slope from the last anchor,
+	// so it must not carry the fitted step outward.
+	last := r.Track.PTS[len(r.Track.PTS)-1]
+	want := anchors[1].ProgramNs + (model.ClockToNs(raw[len(raw)-1], 90000) - model.ClockToNs(raw[1100], 90000))
+	if d := last - want; d < -2_000_000 || d > 2_000_000 {
+		t.Fatalf("clamped tail off by %d ns", d)
+	}
+}
+
+func TestHugeDriftAnchorHandledSafely(t *testing.T) {
+	// An anchor that implies an absurd slope must never reach the int64
+	// conversion unchecked. It may be segmented as a break or rejected
+	// fatally, but the output (if any) must be finite and monotonic.
+	raw := []int64{0, 1, 2}
+	r, err := Unwrap(Input{
+		TrackID: 1, Kind: model.KindVideo, Timescale: 1, RawPTS: raw,
+		Anchors: []Anchor{{Sample: 0, ProgramNs: 0}, {Sample: 1, ProgramNs: 1 << 60}},
+	})
+	if err != nil {
+		return // refusing outright is acceptable
+	}
+	if !monotonic(r.Track.PTS) {
+		t.Fatalf("huge anchor produced non-monotonic output: %v", r.Track.PTS)
+	}
+	for i, p := range r.Track.PTS {
+		if p <= -1<<62 || p >= 1<<62 {
+			t.Fatalf("sample %d overflowed to %d", i, p)
+		}
+	}
+	// Either it was segmented as a break or flagged; it must not pass silently.
+	if !r.Issues.Has(errs.CodeClockDriftBreak) && !r.Issues.HasFatal() {
+		t.Fatalf("huge anchor accepted silently: %v", r.Issues)
+	}
+}
+
+func TestLargeBackwardRestartNotTreatedAsWrap(t *testing.T) {
+	// An 8-hour backward restart is not a counter rollover: the values are not
+	// near the range edges, so it must surface as a discontinuity.
+	raw := []int64{3_000_000_000, 3_003_000_000, 100_000_000, 100_003_000_000 % (1 << 32)}
+	raw[3] = 100_000_000 + 3000
+	r, err := Unwrap(Input{TrackID: 1, Kind: model.KindVideo, Timescale: 90000, RawPTS: raw})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Wraps != 0 {
+		t.Fatalf("backward restart misclassified as wrap: wraps=%d", r.Wraps)
+	}
+	if r.Backward == 0 {
+		t.Fatalf("backward restart not recorded: %+v", r)
+	}
+}

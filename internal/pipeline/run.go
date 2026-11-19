@@ -259,6 +259,11 @@ func recoverTrack(in clock.Input, rep *report.Report, file string) *model.TrackT
 		}
 		rep.Issues = append(rep.Issues, i)
 	}
+	if r.Issues.HasFatal() {
+		// The mapping is not trustworthy; do not feed it downstream. The fatal
+		// findings are already in the report with their locations.
+		return nil
+	}
 	if rep.Timeline != nil {
 		rep.Timeline.Samples += len(r.Track.PTS)
 	}

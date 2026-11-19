@@ -6,6 +6,7 @@ package clock
 
 import (
 	"fmt"
+	"math"
 	"sort"
 
 	"archive.local/recover/internal/errs"
@@ -17,7 +18,11 @@ const (
 	DefaultWrapBits    = 32
 	DefaultBreakNs     = 20_000_000 // 20 ms residual jump marks a new segment
 	DefaultMaxDriftPPM = 50_000     // accept up to 5% clock rate deviation
-	DefaultMaxExtrapNs = 2_000_000_000
+	// DefaultMaxExtrapNs bounds how far beyond the segment's own anchors a fit
+	// may predict. It is deliberately larger than a typical 10 s anchor gap so
+	// ordinary drift correction is unaffected, but a capture with only a couple
+	// of anchors cannot silently extrapolate across minutes.
+	DefaultMaxExtrapNs = 60_000_000_000
 	MaxSamples         = 5_000_000
 )
 
@@ -76,17 +81,23 @@ func Unwrap(in Input) (*Result, error) {
 		return errs.Location{File: in.File, TrackID: in.TrackID, Kind: in.Kind, Sample: sample, Offset: -1}
 	}
 
-	// 1. Unwrap the counter. Only a step near the full counter range is a
-	//    rollover; anything smaller is a genuine backward jump and is repaired,
-	//    not silently re-based.
+	// 1. Unwrap the counter. A rollover is only credible when the previous
+	//    value was near the top of the counter range and the new value is near
+	//    the bottom; a large backward jump between arbitrary values is a real
+	//    discontinuity and must stay visible to the repair and drift stages
+	//    rather than being re-based by a full range.
 	wrap := int64(1) << bits
+	nearTop := wrap - wrap/16
+	nearBottom := wrap / 16
 	unwrapped := make([]int64, len(in.RawPTS))
 	var offset int64
 	unwrapped[0] = in.RawPTS[0]
 	for i := 1; i < len(in.RawPTS); i++ {
 		v := in.RawPTS[i] + offset
 		prev := unwrapped[i-1]
-		if v < prev && prev-v > wrap/2 {
+		prevRaw := in.RawPTS[i-1]
+		curRaw := in.RawPTS[i]
+		if v < prev && prev-v > wrap/2 && prevRaw >= nearTop && curRaw <= nearBottom {
 			offset += wrap
 			v = in.RawPTS[i] + offset
 			r.Wraps++
@@ -102,20 +113,31 @@ func Unwrap(in Input) (*Result, error) {
 	r.Repeats, r.Backward = repeats, backward
 
 	// 3. Fit a piecewise drift affine against anchors.
-	segments, models, breaks, issues := fitDrift(nominal, in)
+	segments, models, breaks, issues, fatal := fitDrift(nominal, in)
 	r.Segments, r.Breakpoints = segments, breaks
 	r.AnchorCount = len(in.Anchors)
 	r.Issues = append(r.Issues, issues...)
+	if fatal {
+		// A fit outside the accepted drift band means the mapping is not
+		// credible; refuse to emit a timeline rather than apply it.
+		return r, fmt.Errorf("track %d: fitted drift exceeds the accepted band", in.TrackID)
+	}
 
 	// 4. Apply the model. Each segment only ever maps its own sample range, so
-	//    no prediction crosses a breakpoint.
+	//    no prediction crosses a breakpoint. Extrapolation beyond MaxExtrapNs
+	//    from the segment's anchors is clamped so a sparse fit cannot silently
+	//    run away, and the clamp is reported once per track.
 	pts := make([]int64, len(nominal))
 	segIdx := 0
+	clamped := false
 	for i := range nominal {
 		for segIdx+1 < len(segments) && i >= segments[segIdx+1][0] {
 			segIdx++
 		}
 		m := models[segIdx]
+		if m.clamps(nominal[i]) {
+			clamped = true
+		}
 		pts[i] = m.apply(nominal[i])
 		if i > 0 && pts[i] <= pts[i-1] {
 			// Float rounding in a fitted segment must never reverse an ordered
@@ -123,6 +145,11 @@ func Unwrap(in Input) (*Result, error) {
 			// dropped and the input-level counters stay accurate.
 			pts[i] = pts[i-1] + 1
 		}
+	}
+	if clamped {
+		r.Issues.Add(errs.ClassClock, errs.CodeClockExtrapolation,
+			fmt.Sprintf("drift fit extrapolated beyond %.0f ms from its anchors; limited to unit slope", mExtrapMs(in)),
+			loc(0))
 	}
 
 	tr := &model.TrackTimeline{
@@ -211,15 +238,49 @@ type affine struct {
 	m   float64
 	c   int64
 	ppm int64
+	// loN/hiN delimit the nominal range covered by the segment's anchors, with
+	// trusted program times loP/hiP at those endpoints. Outside that span the
+	// map may only be extrapolated by maxExtrap.
+	loN, hiN, loP, hiP int64
+	maxExtrap          int64
 }
 
+// apply maps a nominal time. Between the segment's anchors the fitted slope is
+// used; beyond them by more than maxExtrap the map falls back to unit slope
+// from the nearest anchor, bounding the error a sparse fit can introduce while
+// still honouring drift inside the observed span.
 func (m affine) apply(nominal int64) int64 {
+	if m.maxExtrap > 0 {
+		if nominal < m.loN-m.maxExtrap {
+			return m.loP + (nominal - m.loN)
+		}
+		if nominal > m.hiN+m.maxExtrap {
+			return m.hiP + (nominal - m.hiN)
+		}
+	}
 	return m.c + int64(float64(nominal)*m.m)
+}
+
+// clamps reports whether apply would leave the fitted span for nominal.
+func (m affine) clamps(nominal int64) bool {
+	if m.maxExtrap <= 0 {
+		return false
+	}
+	return nominal < m.loN-m.maxExtrap || nominal > m.hiN+m.maxExtrap
+}
+
+// mExtrapMs renders the configured extrapolation limit for messages.
+func mExtrapMs(in Input) float64 {
+	v := in.MaxExtrapNs
+	if v <= 0 {
+		v = DefaultMaxExtrapNs
+	}
+	return float64(v) / 1e6
 }
 
 // fitDrift partitions samples at anchor residual jumps and fits one affine per
 // segment. Without anchors the identity map is used and nothing is predicted.
-func fitDrift(nominal []int64, in Input) ([][2]int, []affine, []int, errs.List) {
+func fitDrift(nominal []int64, in Input) ([][2]int, []affine, []int, errs.List, bool) {
 	var issues errs.List
 	loc := func(sample int) errs.Location {
 		return errs.Location{File: in.File, TrackID: in.TrackID, Kind: in.Kind, Sample: sample, Offset: -1}
@@ -227,7 +288,7 @@ func fitDrift(nominal []int64, in Input) ([][2]int, []affine, []int, errs.List) 
 	n := len(nominal)
 	identity := affine{m: 1}
 	if len(in.Anchors) == 0 {
-		return [][2]int{{0, n}}, []affine{identity}, nil, issues
+		return [][2]int{{0, n}}, []affine{identity}, nil, issues, false
 	}
 	anchors := make([]Anchor, 0, len(in.Anchors))
 	seen := map[int]bool{}
@@ -244,7 +305,7 @@ func fitDrift(nominal []int64, in Input) ([][2]int, []affine, []int, errs.List) 
 		anchors = append(anchors, a)
 	}
 	if len(anchors) == 0 {
-		return [][2]int{{0, n}}, []affine{identity}, nil, issues
+		return [][2]int{{0, n}}, []affine{identity}, nil, issues, false
 	}
 	sort.Slice(anchors, func(i, j int) bool { return anchors[i].Sample < anchors[j].Sample })
 
@@ -282,6 +343,11 @@ func fitDrift(nominal []int64, in Input) ([][2]int, []affine, []int, errs.List) 
 	if maxPPM <= 0 {
 		maxPPM = DefaultMaxDriftPPM
 	}
+	maxExtrap := in.MaxExtrapNs
+	if maxExtrap <= 0 {
+		maxExtrap = DefaultMaxExtrapNs
+	}
+	fatal := false
 	for k, s := range segs {
 		startSample := 0
 		if k > 0 {
@@ -296,7 +362,15 @@ func fitDrift(nominal []int64, in Input) ([][2]int, []affine, []int, errs.List) 
 			endSample = startSample + 1
 		}
 		m := fitLine(nominal, anchors[s.first:s.last+1])
+		m.maxExtrap = maxExtrap
+		// The extrapolation bound is measured from the span the segment's
+		// anchors actually cover; its endpoints carry trusted program times.
+		m.loN = nominal[anchors[s.first].Sample]
+		m.hiN = nominal[anchors[s.last].Sample]
+		m.loP = anchors[s.first].ProgramNs
+		m.hiP = anchors[s.last].ProgramNs
 		if m.ppm > maxPPM || m.ppm < -maxPPM {
+			fatal = true
 			issues.AddFatal(errs.ClassClock, errs.CodeClockDriftBreak,
 				fmt.Sprintf("fitted drift %d ppm exceeds limit %d ppm in segment %d", m.ppm, maxPPM, k),
 				loc(anchors[s.first].Sample))
@@ -304,7 +378,7 @@ func fitDrift(nominal []int64, in Input) ([][2]int, []affine, []int, errs.List) 
 		segments = append(segments, [2]int{startSample, endSample})
 		models = append(models, m)
 	}
-	return segments, models, breaks, issues
+	return segments, models, breaks, issues, fatal
 }
 
 // locateBreak finds the sample where the source clock jumped: the inter-sample
@@ -378,6 +452,23 @@ func fitLine(nominal []int64, anchors []Anchor) affine {
 	if den != 0 {
 		m = (nn*sxy - sx*sy) / den
 	}
+	// Reject non-finite or absurd slopes before they reach the int64
+	// conversion: such a fit is corrupt, and letting it through would both
+	// overflow the map and hide the error behind a wrapped ppm value.
+	if math.IsNaN(m) || math.IsInf(m, 0) {
+		m = 1
+	}
+	if m > 4 {
+		m = 4
+	} else if m < 0.25 {
+		m = 0.25
+	}
 	intercept := int64(float64(baseP) - m*float64(baseN))
-	return affine{m: m, c: intercept, ppm: int64((m - 1) * 1e6)}
+	ppm := (m - 1) * 1e6
+	if ppm > math.MaxInt64/2 {
+		ppm = math.MaxInt64 / 2
+	} else if ppm < math.MinInt64/2 {
+		ppm = math.MinInt64 / 2
+	}
+	return affine{m: m, c: intercept, ppm: int64(ppm)}
 }

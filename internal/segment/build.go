@@ -125,7 +125,6 @@ func Build(tr *model.TrackTimeline, keyframes []int, cfg Config) *Result {
 	}
 	var boundaries []int
 	boundaries = append(boundaries, kf[0])
-	next := 1 // first keyframe that may still become a cut
 	for {
 		target := start + int64(len(boundaries))*cfg.TargetNs
 		if target >= duration {
@@ -133,28 +132,31 @@ func Build(tr *model.TrackTimeline, keyframes []int, cfg Config) *Result {
 		}
 		// The nearest keyframe can sit on either side of the target: clock
 		// rounding and drift make exact hits rare. Consider both the first
-		// keyframe at or after the target and its predecessor, and never reuse
-		// a keyframe already used as a boundary.
+		// keyframe at or after the target and the greatest keyframe before it,
+		// without ever reusing a keyframe already used as a boundary.
+		last := boundaries[len(boundaries)-1]
 		best := -1
-		var bestDev int64
+		bestDev := int64(1<<62 - 1)
 		consider := func(k int) {
-			if k <= 0 || k <= boundaries[len(boundaries)-1] {
+			if k <= 0 || k <= last {
 				return
 			}
 			dev := tr.PTS[k] - target
 			if dev < 0 {
 				dev = -dev
 			}
-			if best < 0 || dev < bestDev || (dev == bestDev && k < best) {
+			if dev < bestDev || (dev == bestDev && (best < 0 || k < best)) {
 				best, bestDev = k, dev
 			}
 		}
-		// Advance next past keyframes strictly before the search window.
-		for next < len(kf) && tr.PTS[kf[next]] < target-cfg.MaxNs {
-			next++
-		}
+		// atOrAfter: first keyframe at or after the target that is not already a
+		// boundary. Anchoring the search at index 0 and skipping used
+		// candidates means a prior overshoot cannot hide later keyframes.
 		atOrAfter := -1
-		for i := next; i < len(kf); i++ {
+		for i := 0; i < len(kf); i++ {
+			if kf[i] <= last {
+				continue
+			}
 			if tr.PTS[kf[i]] >= target {
 				atOrAfter = i
 				break
@@ -162,22 +164,21 @@ func Build(tr *model.TrackTimeline, keyframes []int, cfg Config) *Result {
 		}
 		if atOrAfter >= 0 {
 			consider(kf[atOrAfter])
-			if atOrAfter > 0 {
-				consider(kf[atOrAfter-1])
-			}
-		} else if len(kf) > 0 {
-			// Every remaining keyframe sits before the target; the nearest one
-			// on the left is the last keyframe.
-			consider(kf[len(kf)-1])
+		}
+		// The greatest unused keyframe strictly before the target.
+		before := len(kf) - 1
+		if atOrAfter >= 0 {
+			before = atOrAfter - 1
+		}
+		for before >= 0 && kf[before] <= last {
+			before--
+		}
+		if before >= 0 {
+			consider(kf[before])
 		}
 		if best < 0 {
+			// No remaining keyframe can start a later segment.
 			break
-		}
-		if bestDev > cfg.MaxBoundaryNs {
-			// No keyframe is close enough; the segment ends at the nearest one
-			// and the boundary is reported as pending review below.
-			boundaries = append(boundaries, best)
-			continue
 		}
 		boundaries = append(boundaries, best)
 	}

@@ -130,7 +130,7 @@ func TestScanAV1OBUs(t *testing.T) {
 	data := []byte{}
 	data = append(data, obu(obuTemporalDelim, nil)...)
 	data = append(data, obu(obuSequenceHeader, []byte{1, 2, 3})...)
-	data = append(data, obu(obuFrame, []byte{9, 9, 9, 9})...)
+	data = append(data, obu(obuFrame, []byte{0x00, 9, 9, 9})...)
 	r, err := Scan(AV1, data)
 	if err != nil {
 		t.Fatal(err)
@@ -176,5 +176,56 @@ func BenchmarkScanH264(b *testing.B) {
 		if _, err := Scan(H264, data); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+func TestKeyframesIndexAlwaysInRangeAtUnitLimit(t *testing.T) {
+	// Every unit is an IDR. At the unit cap the scanner must stop recording
+	// units and keyframes together; a keyframe index that addresses no unit
+	// would panic later in KeyframeOffsets.
+	var data []byte
+	for len(data) < MaxScanBytes-8 {
+		data = append(data, 0, 0, 0, 1, 0x65)
+	}
+	r, err := Scan(H264, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ki := range r.Keyframes {
+		if ki < 0 || ki >= len(r.Units) {
+			t.Fatalf("keyframe index %d out of range for %d units", ki, len(r.Units))
+		}
+	}
+	// Must not panic.
+	_ = r.KeyframeOffsets()
+}
+
+func TestAV1KeyframeFollowsFrameType(t *testing.T) {
+	// Two frames: a KEY_FRAME (frame_type 0, show_existing 0) and an inter
+	// frame (frame_type 1). Only the first is a random-access point.
+	key := obu(obuFrame, []byte{0x00, 1, 2, 3})   // 0b0_00_00000
+	inter := obu(obuFrame, []byte{0x20, 1, 2, 3}) // 0b0_01_00000
+	show := obu(obuFrame, []byte{0x80, 1, 2, 3})  // show_existing_frame
+	data := append(append(key, inter...), show...)
+	r, err := Scan(AV1, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Units) != 3 {
+		t.Fatalf("units=%d", len(r.Units))
+	}
+	if len(r.Keyframes) != 1 || r.Units[r.Keyframes[0]].Offset != 0 {
+		t.Fatalf("keyframes=%v want only the first frame", r.Keyframes)
+	}
+}
+
+func TestAV1TileGroupNotKeyframe(t *testing.T) {
+	data := obu(4 /* tile group */, []byte{0x00, 1, 2})
+	r, err := Scan(AV1, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Keyframes) != 0 {
+		t.Fatalf("tile group treated as keyframe: %v", r.Keyframes)
 	}
 }

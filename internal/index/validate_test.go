@@ -192,3 +192,55 @@ func TestParseOversizedRejected(t *testing.T) {
 		t.Fatalf("oversized index accepted: %v", p.Issues)
 	}
 }
+
+func TestValidateClampsWildSampleNumber(t *testing.T) {
+	data, kf := buildStream(2, 6)
+	scan := scanH264(t, data)
+	// A tiny index whose sample number claims ~4 billion pages. It must be
+	// clamped to the scanned switch points, not allocated.
+	p := &Parsed{Timescale: 90000, Entries: []Entry{
+		{Sample: 0xFFFFFFFE, Offset: kf[0], Size: 7, PTS: 0},
+	}}
+	res := Validate(p, scan, "idx.bin")
+	if len(res.Entries) > len(scan.Units)+len(kf)+8 {
+		t.Fatalf("repaired index exploded to %d entries", len(res.Entries))
+	}
+	if !res.Issues.Has(errs.CodeIndexOffsetOutOfRange) {
+		t.Fatalf("wild claim not reported: %v", res.Issues)
+	}
+}
+
+func TestValidateDropsOutOfOrderOriginal(t *testing.T) {
+	data, kf := buildStream(2, 6)
+	scan := scanH264(t, data)
+	// Sample 0 points at the later keyframe, sample 1 at the earlier one.
+	p := &Parsed{Timescale: 90000, Entries: []Entry{
+		{Sample: 0, Offset: kf[1], Size: 7, PTS: 0},
+		{Sample: 1, Offset: kf[0], Size: 7, PTS: 3000},
+	}}
+	res := Validate(p, scan, "idx.bin")
+	if res.Dropped == 0 {
+		t.Fatalf("out-of-order entries not dropped: %+v", res.Entries)
+	}
+	// The kept/rep aired index must be non-decreasing in offset.
+	for i := 1; i < len(res.Entries); i++ {
+		if res.Entries[i].Offset >= 0 && res.Entries[i-1].Offset >= 0 &&
+			res.Entries[i].Offset < res.Entries[i-1].Offset {
+			t.Fatalf("repaired index still out of order: %+v", res.Entries)
+		}
+	}
+}
+
+func TestValidateExtrapolationNothing(t *testing.T) {
+	// Regression: an originally-ordered index keeps both entries.
+	data, kf := buildStream(2, 6)
+	scan := scanH264(t, data)
+	p := &Parsed{Timescale: 90000, Entries: []Entry{
+		{Sample: 0, Offset: kf[0], Size: 7, PTS: 0},
+		{Sample: 1, Offset: kf[1], Size: 7, PTS: 3000},
+	}}
+	res := Validate(p, scan, "idx.bin")
+	if res.Dropped != 0 {
+		t.Fatalf("ordered entries dropped: %v", res.Issues)
+	}
+}

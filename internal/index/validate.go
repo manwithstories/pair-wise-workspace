@@ -100,7 +100,6 @@ func Parse(data []byte, file string) (res *ParseResult) {
 	if len(data) < hdr {
 		res.Issues.AddFatal(errs.ClassTruncated, errs.CodeIndexHeaderTruncated,
 			fmt.Sprintf("index header needs %d bytes, got %d", hdr, len(data)), loc(0))
-		res.Truncated = true
 		return res
 	}
 	if [4]byte{data[0], data[1], data[2], data[3]} != Magic {
@@ -235,6 +234,27 @@ func Validate(p *Parsed, scan *stream.Result, file string) *RepairResult {
 		byOffset[e.Offset] = e.Sample
 	}
 
+	// Entries that survive must also be ordered consistently: a higher sample
+	// ordinal may never point earlier in the bitstream than a lower one. An
+	// inversion is a stale or misassembled page, so the later entry is dropped
+	// and recovered from the scan.
+	lastOffset := int64(-1)
+	for _, e := range p.Entries {
+		if !bySample[e.Sample] {
+			continue
+		}
+		if e.Offset < lastOffset {
+			res.Issues.Add(errs.ClassCorrupt, errs.CodeIndexOffsetOutOfRange,
+				fmt.Sprintf("sample %d offset %d precedes the prior entry's %d", e.Sample, e.Offset, lastOffset),
+				errs.Location{File: file, Sample: e.Sample, Offset: e.Offset})
+			delete(bySample, e.Sample)
+			delete(byOffset, e.Offset)
+			res.Dropped++
+			continue
+		}
+		lastOffset = e.Offset
+	}
+
 	// Rebuild in sample order, filling gaps from scanned keyframes.
 	keyframes := scan.KeyframeOffsets()
 	maxSample := -1
@@ -251,6 +271,24 @@ func Validate(p *Parsed, scan *stream.Result, file string) *RepairResult {
 		if want == 0 {
 			want = len(scan.Units)
 		}
+	}
+	// A corrupt or hostile index can claim an arbitrarily large sample number.
+	// The repaired index can never legitimately be longer than the number of
+	// scanned keyframes (or units when the scan found no keyframes), so clamp
+	// to that before allocating: this is what keeps a 12-byte index from
+	// producing billions of rows.
+	limit := len(keyframes)
+	if limit == 0 {
+		limit = len(scan.Units)
+	}
+	if limit == 0 {
+		limit = 1
+	}
+	if want > limit {
+		res.Issues.Add(errs.ClassOutOfRange, errs.CodeIndexOffsetOutOfRange,
+			fmt.Sprintf("index claims %d samples but the bitstream has only %d switch points; clamped", want, limit),
+			errs.Location{File: file, Sample: limit, Offset: -1})
+		want = limit
 	}
 	accepted := map[int]RepairedEntry{}
 	for _, e := range p.Entries {
