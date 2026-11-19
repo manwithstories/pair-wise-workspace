@@ -50,6 +50,9 @@ class PipelineConfig:
     silence_threshold_db: float = -45.0
     seed: int = 12789
     mtu: int = transport_mod.DEFAULT_MTU
+    # 传输评估的字节规模：弱网作用于完整流，截断只影响码流解析侧，
+    # 为 None 时回退到实际文件字节数。
+    transport_bytes: int | None = None
 
     def to_dict(self) -> dict:
         return {k: getattr(self, k) for k in self.__slots__}
@@ -216,14 +219,19 @@ class Pipeline:
         return dedup
 
     def _stage_transport(self, scan, pts_map):
+        total = self.config.transport_bytes
+        if total is None or total <= 0:
+            total = scan.total_bytes
         result = transport_mod.simulate(
-            scan.total_bytes,
+            total,
             loss_burst=self.config.loss_burst,
             reorder_prob=self.config.reorder_prob,
             duplicate_prob=self.config.duplicate_prob,
             mtu=self.config.mtu, seed=self.config.seed,
             pts_by_offset=pts_map)
-        self._record(Stage.TRANSPORT, {"bytes": scan.total_bytes},
+        self._record(Stage.TRANSPORT,
+                     {"file_bytes": scan.total_bytes,
+                      "transport_bytes": total},
                      {"loss_burst": self.config.loss_burst,
                       "seed": self.config.seed},
                      result.metrics(), result.errors)
