@@ -7,6 +7,11 @@ import (
 	"mediasync/internal/rtprepair"
 )
 
+// TimecodeList renders newline-separated labels from a fixture.
+func TimecodeList(fx TimecodeFixture) []byte {
+	return []byte(strings.Join(fx.Labels, "\n") + "\n")
+}
+
 // SubtitleKind selects a subtitle fixture variant.
 type SubtitleKind string
 

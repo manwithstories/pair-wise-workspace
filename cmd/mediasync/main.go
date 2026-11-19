@@ -22,6 +22,8 @@ const usage = `mediasync - multi-camera media synchronisation toolkit
 usage:
   mediasync demo [flags]        run the full generated pipeline
   mediasync inspect [flags]     parse caller-supplied subtitle/MP4 files
+  mediasync timecode FILE --frames RATE
+                                convert a timecode list onto the timeline
   mediasync version             print the build version
 
 flags for demo:
@@ -56,6 +58,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runDemo(args[1:], stdout, stderr)
 	case "inspect":
 		return runInspect(args[1:], stdout, stderr)
+	case "timecode":
+		return runTimecode(args[1:], stdout, stderr)
 	case "version", "--version", "-v":
 		fmt.Fprintln(stdout, "mediasync 1.0.0")
 		return 0
