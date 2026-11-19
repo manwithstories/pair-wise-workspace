@@ -83,6 +83,7 @@ type Report struct {
 	Segments             []SegmentReport `json:"segments"`
 	Matches              []MatchReport   `json:"matches"`
 	Issues               []IssueReport   `json:"issues"`
+	Validated            bool            `json:"gates_passed"`
 
 	fatal bool
 }

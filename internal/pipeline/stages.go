@@ -52,8 +52,9 @@ func Run(opts Options) (*Report, error) {
 		r.collect(opts, camA.subs.Issues...)
 		r.collectExpected(opts, badRes.Issues...) // damage injected on purpose
 		r.collect(opts, camB.subs.Issues...)
-		r.finish(t, len(badRes.Cues) == 3, fmt.Sprintf("cam-a=%d cues cam-c recovered=%d cues cam-b=%d cues",
-			len(camA.subs.Cues), len(badRes.Cues), len(camB.subs.Cues)),
+		r.finish(t, len(camA.subs.Cues) == 5 && len(badRes.Cues) == 3 && len(camB.subs.Cues) == 5,
+			fmt.Sprintf("cam-a=%d cues cam-c recovered=%d cues cam-b=%d cues",
+				len(camA.subs.Cues), len(badRes.Cues), len(camB.subs.Cues)),
 			len(camA.subs.Issues)+len(badRes.Issues)+len(camB.subs.Issues))
 	}
 
@@ -123,9 +124,9 @@ func Run(opts Options) (*Report, error) {
 		camA.silence = audio.Detect(camA.pcm, camA.pcmFmt, audio.DefaultOptions())
 		r.collect(opts, camA.silence.Issues...)
 		r.SilenceRuns = len(camA.silence.Runs)
-		expectedRuns := 2
-		audioMatches = 0
-		if len(camA.silence.Runs) == expectedRuns {
+		// The fixture has exactly two separated silence runs: the merged run
+		// around the 50ms blip and the closing tail.
+		if len(camA.silence.Runs) == 2 {
 			audioMatches = 1
 		}
 		r.finish(t, audioMatches == 1,
@@ -216,9 +217,7 @@ func Run(opts Options) (*Report, error) {
 		ok := r.GatesPass() && audioMatches == 1
 		r.finish(t, ok, fmt.Sprintf("roundtrip=%.4f keyframe_hit=%.4f segments=%d",
 			r.RoundtripConsistency, r.KeyframeHitRate, r.SegmentCount), 0)
-		if !ok && r.RoundtripConsistency == 0 && r.KeyframeHitRate == 0 {
-			r.fatal = true
-		}
+		r.Validated = ok
 	}
 
 	// Silence annotations are attached after segmentation so clip windows are
