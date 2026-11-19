@@ -61,6 +61,7 @@ struct ErrorEvent {
 // A media packet on the wire. Sequence numbers are 16-bit and wrap.
 struct Packet {
   std::uint16_t sequence = 0;
+  std::uint64_t linear_index = 0;  // stable position before reordering/loss
   MediaKind kind = MediaKind::Video;
   CodecType codec = CodecType::H264;
   std::int64_t pts_us = 0;      // presentation time on the media clock
