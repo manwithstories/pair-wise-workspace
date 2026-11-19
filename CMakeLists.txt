@@ -13,3 +13,15 @@ endif()
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
   libavformat libavcodec libswscale libswresample libavutil)
+
+add_library(media_core STATIC
+  src/sha256.cpp
+)
+target_include_directories(media_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(media_core PUBLIC PkgConfig::FFMPEG)
+target_compile_options(media_core PRIVATE -Wall -Wextra -Wpedantic)
+
+enable_testing()
+find_package(Catch2 3 CONFIG REQUIRED)
+
+add_subdirectory(tests)
