@@ -38,9 +38,18 @@ target_link_libraries(md_core PUBLIC Threads::Threads)
 add_executable(media-deliver src/main.cpp)
 target_link_libraries(media-deliver PRIVATE md_core)
 
-add_executable(repair_tests tests/repair_tests.cpp)
-target_link_libraries(repair_tests PRIVATE md_core Catch2::Catch2WithMain)
+set(MD_TESTS
+  test_time_manifest
+  test_repair
+  test_pipeline_index
+  test_generator_decoder)
+foreach(t ${MD_TESTS})
+  add_executable(${t} tests/${t}.cpp)
+  target_link_libraries(${t} PRIVATE md_core Catch2::Catch2WithMain)
+endforeach()
 
 include(CTest)
 include(Catch)
-catch_discover_tests(repair_tests)
+foreach(t ${MD_TESTS})
+  catch_discover_tests(${t})
+endforeach()
