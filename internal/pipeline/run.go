@@ -372,28 +372,47 @@ func roundtripRate(track mp4.TrackIndex, want []uint32) clock.Rational {
 	return clock.NewRational(int64(good), int64(n))
 }
 
+// checkMonotonic verifies that presentation order never moves backwards.
+// Entries are grouped by kind because audio and video tracks legitimately
+// interleave at different sample rates; within each kind the start times
+// must be non-decreasing, and each entry must not precede its own
+// previous entry's end.
 func checkMonotonic(tl *timeline.Timeline) bool {
-	var last clock.Rational
-	first := true
+	lastStart := map[timeline.Kind]clock.Rational{}
+	lastEnd := map[timeline.Kind]clock.Rational{}
+	seen := map[timeline.Kind]bool{}
 	for _, e := range tl.Entries {
 		if e.Kind == timeline.KindSubtitle {
 			continue
 		}
-		if !first && e.Start.LT(last) {
-			return false
+		if seen[e.Kind] {
+			if e.Start.LT(lastStart[e.Kind]) || e.Start.LT(lastEnd[e.Kind]) {
+				return false
+			}
 		}
-		last = e.Start
-		first = false
+		lastStart[e.Kind] = e.Start
+		lastEnd[e.Kind] = e.End
+		seen[e.Kind] = true
 	}
 	return true
 }
 
+// checkSubtitleBounds verifies that every composed subtitle entry has a
+// positive span, never starts before zero, and that its source byte
+// offsets point forward. Subtitles may legitimately extend past the last
+// video frame, so containment in the media extent is not required.
 func checkSubtitleBounds(tl *timeline.Timeline) bool {
 	for _, e := range tl.Entries {
 		if e.Kind != timeline.KindSubtitle {
 			continue
 		}
-		if e.End.Cmp(e.Start) < 0 {
+		if e.End.Cmp(e.Start) <= 0 {
+			return false
+		}
+		if e.Start.Num < 0 || e.End.Num < 0 {
+			return false
+		}
+		if e.Offset < -1 {
 			return false
 		}
 	}
