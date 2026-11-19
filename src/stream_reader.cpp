@@ -1,5 +1,6 @@
 #include "media/stream_reader.hpp"
 #include "media/checksum.hpp"
+#include "media/stream_index.hpp"
 
 namespace media {
 
@@ -139,21 +140,6 @@ Av1Scan scan_av1(const std::vector<std::uint8_t>& bytes,
 }
 
 } // namespace
-
-// Minimal index handling for the parser batch; full validation/rebuild lands
-// in the next batch (stream_index.cpp).
-static void validate_index(ReadResult& r,
-                           const std::vector<std::uint8_t>& bytes,
-                           const StreamIndex* supplied) {
-  if (supplied) {
-    r.validated_index = *supplied;
-    return;
-  }
-  r.validated_index.declared_size = bytes.size();
-  for (const auto& f : r.frames)
-    if (f.keyframe)
-      r.validated_index.entries.push_back({f.index, f.offset, f.pts_us});
-}
 
 ReadResult read_stream(const std::vector<std::uint8_t>& bytes,
                        CodecType declared,

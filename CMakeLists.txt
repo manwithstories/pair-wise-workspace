@@ -57,6 +57,8 @@ add_library(media_core STATIC
   src/sample_fixtures.cpp
   src/stream_codec.cpp
   src/stream_reader.cpp
+  src/stream_index_text.cpp
+  src/stream_index.cpp
   src/cli.cpp)
 # Modules are appended to media_core in later, independently compilable batches.
 # Modules are appended to media_core in later, independently compilable batches.
