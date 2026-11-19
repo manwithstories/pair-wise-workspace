@@ -1,6 +1,8 @@
 // packet_source.hpp — 采集流生成与读取（样例数据随代码生成，不引用外部文件）
 #pragma once
 #include "common.hpp"
+#include <fstream>
+#include <memory>
 #include <string>
 #include <vector>
 #include <functional>
@@ -45,7 +47,7 @@ public:
     uint32_t total_records() const { return records_seen_; }
 
 private:
-    std::vector<uint8_t> bytes_;
+    std::unique_ptr<std::ifstream> stream_;
     size_t pos_ = 0;
     std::vector<RtcpReport> rtcp_;
     InputSummary summary_;

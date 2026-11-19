@@ -16,7 +16,8 @@ find_package(Catch2 3 REQUIRED)
 
 add_library(mdcore STATIC
   src/common.cpp
-  src/packet_source.cpp
+  src/capture_gen.cpp
+  src/capture_read.cpp
   src/timeline.cpp
   src/segmenter.cpp
   src/silence.cpp
