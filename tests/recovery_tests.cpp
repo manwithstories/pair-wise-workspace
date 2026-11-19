@@ -434,3 +434,170 @@ TEST_CASE("index: serialization round-trip and corruption detection",
   REQUIRE(!d.ok());
   REQUIRE(d.status == Status::MediaCorrupt);
 }
+
+#include "media_archive/checkpoint_store.h"
+
+namespace {
+KeyframeEntry kf_entry(uint64_t pts, uint64_t off) {
+  KeyframeEntry e;
+  e.pts_ticks = pts;
+  e.source_offset = off;
+  e.size_bytes = 50;
+  e.frame_type = 1;
+  e.extended_seq = static_cast<uint32_t>(pts / 3000);
+  e.checksum = crc32_ieee(reinterpret_cast<const uint8_t*>(&pts),
+                          sizeof(pts));
+  return e;
+}
+}  // namespace
+
+TEST_CASE("checkpoint: blocks are written and recovered", "[checkpoint]") {
+  namespace fs = std::filesystem;
+  const fs::path dir = fs::temp_directory_path() / "ma_cp_basic";
+  fs::remove_all(dir);
+  CheckpointConfig cfg;
+  cfg.records_per_block = 10;
+  {
+    CheckpointStore store;
+    REQUIRE(store.open(dir.string(), cfg).ok());
+    for (uint64_t i = 0; i < 25; ++i)
+      REQUIRE(store.append(kf_entry(i * 3000, i * 100)).ok());
+    REQUIRE(store.flush().ok());
+  }
+  CheckpointOpenResult reopened;
+  REQUIRE(open_checkpoint_dir(dir.string(), cfg, &reopened).ok());
+  REQUIRE(reopened.recovered.size() == 25);
+  REQUIRE(reopened.recovered.front().pts_ticks == 0);
+  REQUIRE(reopened.recovered.back().pts_ticks == 24 * 3000);
+  REQUIRE(reopened.last_valid_block == 2);
+}
+
+TEST_CASE("checkpoint: crash then resume keeps only durable blocks",
+          "[checkpoint]") {
+  namespace fs = std::filesystem;
+  const fs::path dir = fs::temp_directory_path() / "ma_cp_crash";
+  fs::remove_all(dir);
+  CheckpointConfig cfg;
+  cfg.records_per_block = 10;
+  {
+    CheckpointStore store;
+    REQUIRE(store.open(dir.string(), cfg).ok());
+    for (uint64_t i = 0; i < 25; ++i) {
+      Diagnostic d = store.append(kf_entry(i * 3000, i * 100),
+                                  /*crash_after_appends=*/15);
+      if (i >= 15) { REQUIRE(!d.ok()); break; }
+      REQUIRE(d.ok());
+    }
+    // Destructor runs; flush must not resurrect uncommitted appends.
+  }
+  CheckpointOpenResult reopened;
+  REQUIRE(open_checkpoint_dir(dir.string(), cfg, &reopened).ok());
+  REQUIRE(reopened.resumed);
+  // Only the first fully finalized block (10 records) survives.
+  REQUIRE(reopened.recovered.size() == 10);
+  REQUIRE(reopened.last_valid_block == 0);
+}
+
+TEST_CASE("checkpoint: corrupt tail block rolls back", "[checkpoint]") {
+  namespace fs = std::filesystem;
+  const fs::path dir = fs::temp_directory_path() / "ma_cp_tail";
+  fs::remove_all(dir);
+  CheckpointConfig cfg;
+  cfg.records_per_block = 10;
+  {
+    CheckpointStore store;
+    REQUIRE(store.open(dir.string(), cfg).ok());
+    for (uint64_t i = 0; i < 30; ++i)
+      REQUIRE(store.append(kf_entry(i * 3000, i * 100)).ok());
+    REQUIRE(store.flush().ok());
+  }
+  // Corrupt the last block (block 2) in place.
+  fs::path last = dir / "block-000002.cp";
+  REQUIRE(fs::exists(last));
+  {
+    std::fstream f(last.string(),
+                   std::ios::in | std::ios::out | std::ios::binary);
+    f.seekp(20);  // inside the record area
+    char flip = 0x5A;
+    f.write(&flip, 1);
+  }
+  CheckpointOpenResult reopened;
+  REQUIRE(open_checkpoint_dir(dir.string(), cfg, &reopened).ok());
+  REQUIRE(reopened.rolled_back_block == 2);
+  REQUIRE(reopened.last_valid_block == 1);
+  REQUIRE(reopened.recovered.size() == 20);
+}
+
+TEST_CASE("checkpoint: repeated runs are deterministic", "[checkpoint]") {
+  namespace fs = std::filesystem;
+  const fs::path a = fs::temp_directory_path() / "ma_cp_det_a";
+  const fs::path b = fs::temp_directory_path() / "ma_cp_det_b";
+  fs::remove_all(a);
+  fs::remove_all(b);
+  CheckpointConfig cfg;
+  cfg.records_per_block = 7;
+  auto build = [&](const fs::path& d) {
+    CheckpointStore store;
+    REQUIRE(store.open(d.string(), cfg).ok());
+    for (uint64_t i = 0; i < 18; ++i)
+      REQUIRE(store.append(kf_entry(i * 3000, i * 100)).ok());
+    REQUIRE(store.flush().ok());
+  };
+  build(a);
+  build(b);
+  CheckpointOpenResult ra, rb;
+  REQUIRE(open_checkpoint_dir(a.string(), cfg, &ra).ok());
+  REQUIRE(open_checkpoint_dir(b.string(), cfg, &rb).ok());
+  REQUIRE(ra.recovered.size() == rb.recovered.size());
+  for (size_t i = 0; i < ra.recovered.size(); ++i) {
+    REQUIRE(ra.recovered[i].pts_ticks == rb.recovered[i].pts_ticks);
+    REQUIRE(ra.recovered[i].checksum == rb.recovered[i].checksum);
+  }
+}
+
+TEST_CASE("checkpoint: resume after crash completes deterministically",
+          "[checkpoint]") {
+  namespace fs = std::filesystem;
+  const fs::path dir = fs::temp_directory_path() / "ma_cp_resume";
+  const fs::path clean = fs::temp_directory_path() / "ma_cp_clean";
+  fs::remove_all(dir);
+  fs::remove_all(clean);
+  CheckpointConfig cfg;
+  cfg.records_per_block = 10;
+
+  // Interrupted run: crash after 15 appends.
+  {
+    CheckpointStore store;
+    REQUIRE(store.open(dir.string(), cfg).ok());
+    for (uint64_t i = 0; i < 25; ++i) {
+      Diagnostic d = store.append(kf_entry(i * 3000, i * 100), 15);
+      if (!d.ok()) break;
+    }
+  }
+  // Resume on a fresh store instance and finish the remaining entries.
+  {
+    CheckpointStore store;
+    REQUIRE(store.open(dir.string(), cfg).ok());
+    for (uint64_t i = 10; i < 25; ++i)
+      REQUIRE(store.append(kf_entry(i * 3000, i * 100)).ok());
+    REQUIRE(store.flush().ok());
+  }
+  // Clean reference run, never interrupted.
+  {
+    CheckpointStore store;
+    REQUIRE(store.open(clean.string(), cfg).ok());
+    for (uint64_t i = 0; i < 25; ++i)
+      REQUIRE(store.append(kf_entry(i * 3000, i * 100)).ok());
+    REQUIRE(store.flush().ok());
+  }
+  CheckpointOpenResult ra, rb;
+  REQUIRE(open_checkpoint_dir(dir.string(), cfg, &ra).ok());
+  REQUIRE(open_checkpoint_dir(clean.string(), cfg, &rb).ok());
+  REQUIRE(ra.recovered.size() == 25);
+  REQUIRE(ra.recovered.size() == rb.recovered.size());
+  for (size_t i = 0; i < 25; ++i) {
+    REQUIRE(ra.recovered[i].pts_ticks == rb.recovered[i].pts_ticks);
+    REQUIRE(ra.recovered[i].source_offset == rb.recovered[i].source_offset);
+    REQUIRE(ra.recovered[i].checksum == rb.recovered[i].checksum);
+  }
+}
