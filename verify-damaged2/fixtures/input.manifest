@@ -1,0 +1,7 @@
+media=verify-damaged2/fixtures/damaged.mkv
+srt=verify-damaged2/fixtures/bad.srt
+vtt=verify-damaged2/fixtures/bad.vtt
+fps=25/1
+duration_ms=2000
+damaged=1
+seed=98765

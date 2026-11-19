@@ -1,0 +1,7 @@
+media=verify-good/fixtures/program.mkv
+srt=verify-good/fixtures/good.srt
+vtt=verify-good/fixtures/good.vtt
+fps=25/1
+duration_ms=2000
+damaged=0
+seed=12345
