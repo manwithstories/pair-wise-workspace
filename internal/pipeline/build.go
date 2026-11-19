@@ -127,7 +127,11 @@ func Build(o BuildOptions) (*Result, error) {
 			st := trackStat(&stats, t.ID)
 			for _, s := range t.Samples {
 				pts := clock.Ticks(s.PTS, t.Timescale)
-				if pts < bounds[i].Ticks || pts >= segEnd {
+				// Every sample is owned by exactly one segment: samples
+				// before the first boundary or at/after the stream end
+				// clamp to the edge segments, so the checkpoint count
+				// always covers the whole input.
+				if segment.SegmentIndex(pts, bounds) != i {
 					continue
 				}
 				st.Samples++
