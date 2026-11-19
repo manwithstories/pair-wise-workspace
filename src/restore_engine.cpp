@@ -756,7 +756,6 @@ bool verify_archive(const Manifest& manifest, const Json& result,
     if (audio != nullptr && audio->is_object() && rate_expected > 0) {
       const Json* out_rate = audio->find("output_rate");
       const Json* out_layout = audio->find("layout_out");
-      const Json* out_lufs = audio->find("output_lufs");
       if (out_rate == nullptr || !out_rate->is_integer() ||
           out_rate->as_integer() != rate_expected) {
         diagnostics->push_back(make(ErrorCode::audio_unsupported_rate,
@@ -821,8 +820,6 @@ bool verify_archive(const Manifest& manifest, const Json& result,
                 Severity::warning));
           }
         }
-      } else {
-        (void)out_lufs;
       }
     }
   }

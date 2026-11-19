@@ -510,7 +510,6 @@ int command_restore(const Args& args) {
 
   RestoreSummary summary;
   std::vector<Diagnostic> diagnostics;
-  const size_t before = diagnostics.size();
   const bool ok = restore_archive(manifest, options, limits, &summary, &diagnostics);
   print_diagnostics(diagnostics);
 
@@ -572,7 +571,6 @@ int command_restore(const Args& args) {
       return 3;
     }
   }
-  (void)before;
   return 0;
 }
 

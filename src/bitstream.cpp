@@ -215,7 +215,6 @@ bool scan_av1(const std::string& buffer, const Limits& limits, StreamScan* out,
 
   size_t pos = 0;
   bool fresh_temporal_unit = true;
-  bool saw_frame = false;
   int64_t temporal_unit_start = 0;
   while (pos < buffer.size()) {
     const size_t header = pos;
@@ -287,7 +286,6 @@ bool scan_av1(const std::string& buffer, const Limits& limits, StreamScan* out,
         out->units.push_back(unit);
         out->keyframes.push_back(unit);
       }
-      saw_frame = true;
       fresh_temporal_unit = false;
     }
     pos += static_cast<size_t>(payload);
@@ -298,7 +296,6 @@ bool scan_av1(const std::string& buffer, const Limits& limits, StreamScan* out,
       return false;
     }
   }
-  (void)saw_frame;
   out->codec = Codec::av1;
   out->stream_size = size;
   out->unit_count = out->units.size();
