@@ -406,3 +406,65 @@ TEST_CASE("aac capture decodes and yields bounded digest", "[silence][aac]") {
     // 有界：摘要条目数 == 音频帧数，且环形缓存固定 1 秒
     REQUIRE(det.sample_digest().size() <= audio);
 }
+
+// ---- 指纹与去重 ----
+#include "fingerprint.hpp"
+namespace {
+std::vector<MediaPacket> mk_identical_content() {
+    std::vector<MediaPacket> v;
+    for (int i = 0; i < 3; ++i) {
+        MediaPacket p;
+        p.unified_us = int64_t(i) * 33333;
+        p.payload = {0x00, 0x00, 0x00, 0x01, uint8_t(0x65 + i), 0xAA};
+        v.push_back(std::move(p));
+    }
+    return v;
+}
+SegmentReport mk_report(uint32_t id, const Fingerprint& fp) {
+    SegmentReport r;
+    r.id = id; r.sha256 = fp.sha256_hex;
+    r.sample_summary = fp.sample_summary_hex;
+    return r;
+}
+} // namespace
+
+TEST_CASE("fingerprint is stable and 64 hex chars", "[fingerprint]") {
+    auto a = mk_identical_content();
+    auto b = mk_identical_content();
+    Fingerprint fa = compute_fingerprint(a);
+    Fingerprint fb = compute_fingerprint(b);
+    REQUIRE(fa.sha256_hex == fb.sha256_hex);
+    REQUIRE(fa.sample_summary_hex == fb.sample_summary_hex);
+    REQUIRE(fa.sha256_hex.size() == 64);
+}
+
+TEST_CASE("different content yields different fingerprint", "[fingerprint]") {
+    auto a = mk_identical_content();
+    auto b = mk_identical_content();
+    b[1].payload.push_back(0x77); // 内容差异
+    REQUIRE(compute_fingerprint(a).sha256_hex !=
+            compute_fingerprint(b).sha256_hex);
+}
+
+TEST_CASE("cross-camera duplicate removed after summary confirmation",
+          "[fingerprint]") {
+    Deduper d;
+    auto content = mk_identical_content();
+    Fingerprint fp = compute_fingerprint(content);
+    auto dup = d.check_and_add(mk_report(1, fp));
+    REQUIRE_FALSE(dup.has_value());
+    auto again = d.check_and_add(mk_report(2, fp)); // 跨机位同内容
+    REQUIRE(again.has_value());
+    REQUIRE(again.value() == 1);
+}
+
+TEST_CASE("hash collision with differing summary is not deleted",
+          "[fingerprint][corrupt]") {
+    Deduper d;
+    SegmentReport r1; r1.id = 1; r1.sha256 = std::string("a") + std::string(63, '0');
+    r1.sample_summary = std::string(64, '1');
+    SegmentReport r2; r2.id = 2; r2.sha256 = r1.sha256; // 相同哈希
+    r2.sample_summary = std::string(64, '2');          // 不同摘要 => 碰撞
+    REQUIRE_FALSE(d.check_and_add(r1).has_value());
+    REQUIRE_FALSE(d.check_and_add(r2).has_value());    // 不凭哈希删除
+}
