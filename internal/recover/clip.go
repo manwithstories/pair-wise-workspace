@@ -138,7 +138,7 @@ func recoverTransition(x model.Transition, bs []Boundary) TransitionResult {
 	// clip's media position at its out-point must equal the incoming clip's
 	// media position at its in-point, up to transport jitter.
 	diff := a.MediaTime.Sub(b.MediaTime)
-	tr.SkewUS = diff.Millis() * 1000
+	tr.SkewUS = diff.Scale(1_000_000)
 	if tr.SkewUS < 0 {
 		tr.SkewUS = -tr.SkewUS
 	}

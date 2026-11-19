@@ -29,13 +29,22 @@ func findRanges(trackID string, sc *mp4.Scan, cfg Config) []Range {
 }
 
 func bracket(trackID string, tr mp4.Track, i, j int, cfg Config) Range {
+	corruptEnd := tr.Samples[j].Offset + int64(tr.Samples[j].Size) - 1
+	if tr.Samples[j].Size == 0 {
+		// A zero-length sample still occupies the position between its
+		// neighbours; keep the range non-inverted rather than ending before it
+		// starts.
+		corruptEnd = tr.Samples[j].Offset
+	}
 	r := Range{
-		Track:          trackID,
-		CorruptStart:   tr.Samples[i].Offset,
-		CorruptEnd:     tr.Samples[j].Offset + int64(tr.Samples[j].Size) - 1,
-		BeforeKeyframe: -1, AfterKeyframe: -1,
-		RecoverableStart: -1, RecoverableEnd: -1,
-		Status: "unrecoverable",
+		Track:            trackID,
+		CorruptStart:     tr.Samples[i].Offset,
+		CorruptEnd:       corruptEnd,
+		BeforeKeyframe:   -1,
+		AfterKeyframe:    -1,
+		RecoverableStart: -1,
+		RecoverableEnd:   -1,
+		Status:           "unrecoverable",
 	}
 	before, after := -1, -1
 	lo := i - cfg.KeyframeSearch
@@ -72,14 +81,16 @@ func bracket(trackID string, tr mp4.Track, i, j int, cfg Config) Range {
 		r.Detail = "the only decodable keyframe is the damaged sample itself"
 		return r
 	}
-	// Decoding can restart from the preceding keyframe; without one, only the
-	// frame after the damage is guaranteed, so the recoverable interval starts
-	// at the first sample after the run.
-	start := tr.Samples[j].Offset + int64(tr.Samples[j].Size)
+	// The recoverable interval spans the damage. Decoding restarts at the
+	// preceding keyframe when there is one; otherwise the samples after the
+	// damage are usable but the lead-in is not. Either way the interval
+	// encloses the corrupt bytes, so an operator reading it sees which bytes
+	// the rebuild replaces.
+	start := r.CorruptStart
 	if before >= 0 {
 		start = tr.Samples[before].Offset
 	}
-	end := tr.Samples[j].Offset
+	end := r.CorruptEnd
 	if after >= 0 {
 		end = tr.Samples[after].Offset + int64(tr.Samples[after].Size) - 1
 	}
