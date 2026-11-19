@@ -21,7 +21,9 @@ set(MEDIAQC_SOURCES
   src/mp4_structure.cpp
   src/scanner.cpp
   src/resume_store.cpp
+  src/fixtures.cpp
   src/index_writer.cpp
+  src/pipeline.cpp
   src/verifier.cpp
   src/sha256.cpp
   src/timeline.cpp

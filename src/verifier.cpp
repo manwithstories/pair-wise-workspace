@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdarg>
 #include <cstring>
+#include <cstdlib>
 #include <map>
 #include <set>
 
@@ -29,9 +30,14 @@ struct DecodeLogContext {
   std::string last_message;
 };
 
-void decode_log_callback(void* opaque, int level, const char* fmt, va_list ap) {
+// Set by the log callback and read after each decode step.  The callback has
+// no per-context opaque in this FFmpeg API, so a single static instance is
+// used; decode is strictly serial inside verify_output.
+DecodeLogContext g_log;
+
+void decode_log_callback(void* /*opaque*/, int level, const char* fmt, va_list ap) {
   if (level > AV_LOG_ERROR) return;
-  auto* ctx = static_cast<DecodeLogContext*>(opaque);
+  DecodeLogContext* ctx = &g_log;
   char buf[512];
   std::vsnprintf(buf, sizeof buf, fmt, ap);
   char* nl = std::strchr(buf, '\n');
@@ -72,6 +78,7 @@ bool verify_output(const std::filesystem::path& output,
                    VerificationReport& report, Error& fatal) {
   report = VerificationReport{};
   fatal = Error{};
+  if (std::getenv("MEDIAQC_TRACE")) std::fprintf(stderr, "[verify] begin\n");
   fatal.file = output.string();
   fatal.stage = Stage::Verify;
 
@@ -94,6 +101,7 @@ bool verify_output(const std::filesystem::path& output,
     return false;
   }
 
+  if (std::getenv("MEDIAQC_TRACE")) std::fprintf(stderr, "[verify] hashed\n");
   std::vector<JournalEntry> entries;
   if (!journal.empty()) {
     std::string jerr;
@@ -186,6 +194,7 @@ bool verify_output(const std::filesystem::path& output,
   }
   if (bad > 0) report.ok = false;
 
+  if (std::getenv("MEDIAQC_TRACE")) std::fprintf(stderr, "[verify] index checked\n");
   // ---- seek reachability --------------------------------------------------
   int64_t video_stream = -1;
   for (unsigned i = 0; i < ctx->nb_streams; ++i) {
@@ -278,6 +287,7 @@ bool verify_output(const std::filesystem::path& output,
     av_seek_frame(ctx, -1, 0, AVSEEK_FLAG_BACKWARD);
   }
 
+  if (std::getenv("MEDIAQC_TRACE")) std::fprintf(stderr, "[verify] seeks done\n");
   // ---- decode every stream and check monotonic DTS ------------------------
   std::map<int, AVCodecContext*> decoders;
   std::vector<int> out_stream_of_demux(ctx->nb_streams, -1);
@@ -310,17 +320,16 @@ bool verify_output(const std::filesystem::path& output,
   int monotonic_errors = 0;
 
   // FFmpeg's log callback has no per-decoder opaque in this API, so the
-  // verifier routes messages through a single context while it decodes one
-  // packet at a time on one thread.
-  static DecodeLogContext g_log;
-  g_log.pending_errors = 0;
-  g_log.last_message.clear();
-  DecodeLogContext& global_ctx = g_log;
+  // verifier routes messages through a single static context while it decodes
+  // one packet at a time on one thread.
+  g_log = DecodeLogContext{};
   av_log_set_level(AV_LOG_ERROR);
   av_log_set_callback(decode_log_callback);
 
+  if (std::getenv("MEDIAQC_TRACE")) std::fprintf(stderr, "[verify] decoders open\n");
   while (av_read_frame(ctx, pkt) >= 0) {
     const int si = pkt->stream_index;
+    if (std::getenv("MEDIAQC_TRACE")) std::fprintf(stderr, "[verify] pkt %lld stream %d\n", (long long)report.packets, si);
     ++report.packets;
     const int64_t ordinal = packet_ordinal[si]++;
     auto dit = decoders.find(si);
@@ -356,13 +365,13 @@ bool verify_output(const std::filesystem::path& output,
     if (pkt->flags & AV_PKT_FLAG_KEY) ++report.keyframes;
 
     // Decode and attribute any decoder error to the packet in flight.
-    global_ctx.pending_errors = 0;
-    global_ctx.last_message.clear();
+    g_log.pending_errors = 0;
+    g_log.last_message.clear();
     int send = avcodec_send_packet(dit->second, pkt);
     while (avcodec_receive_frame(dit->second, frame) >= 0) {
       frames[si]++;
       report.frames_decoded++;
-      if (global_ctx.pending_errors > 0 && decode_errors < config.limits.max_decode_errors) {
+      if (g_log.pending_errors > 0 && decode_errors < config.limits.max_decode_errors) {
         Error err;
         err.file = output.string();
         err.stage = Stage::Verify;
@@ -374,16 +383,16 @@ bool verify_output(const std::filesystem::path& output,
           // The decoder does not expose an intra-packet position, so the
           // whole packet is the uncertainty span: exactly one packet wide.
           err.set_range(je->src_offset, je->src_offset + je->size);
-          err.detail = "decoder reported: " + global_ctx.last_message +
+          err.detail = "decoder reported: " + g_log.last_message +
                        "; input range covers the packet that produced the frame";
           err.action = "report the input byte range; the fault is inside one packet";
         } else {
           err.offset_known = false;
-          err.detail = "decoder reported: " + global_ctx.last_message;
+          err.detail = "decoder reported: " + g_log.last_message;
         }
         add_error(report, err);
         decode_errors++;
-        global_ctx.pending_errors = 0;
+        g_log.pending_errors = 0;
       }
       if (send < 0) break;
     }
@@ -415,8 +424,8 @@ bool verify_output(const std::filesystem::path& output,
 
   // Flush decoders so trailing frames are counted and attributed.
   for (auto& [si, cc] : decoders) {
-    global_ctx.pending_errors = 0;
-    global_ctx.last_message.clear();
+    g_log.pending_errors = 0;
+    g_log.last_message.clear();
     avcodec_send_packet(cc, nullptr);
     while (avcodec_receive_frame(cc, frame) >= 0) {
       frames[si]++;
