@@ -8,12 +8,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"pairflow/media/internal/clock"
+	"pairflow/media/internal/safepath"
 	"pairflow/media/internal/timeline"
 )
 
@@ -114,11 +113,8 @@ func Render(tl *timeline.Timeline, targets []timeline.Entry, opt Options) (*Mani
 	if opt.SegmentSize <= 0 {
 		opt.SegmentSize = 8
 	}
-	root, err := safeDir(opt.OutDir)
+	root, err := safepath.EnsureDir(opt.OutDir)
 	if err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, err
 	}
 	man := &Manifest{
@@ -247,61 +243,16 @@ func max64(a, b int64) int64 {
 	return b
 }
 
-// safeDir resolves dir to an absolute path and refuses paths that
-// escape via ".." at any point.
+// safeDir resolves dir and refuses traversal via ".." at any point.
 func safeDir(dir string) (string, error) {
-	if strings.TrimSpace(dir) == "" {
-		return "", clock.NewSourceError("render", "bad_output_path", -1, "empty output directory")
-	}
-	clean := filepath.Clean(dir)
-	for _, part := range strings.Split(filepath.ToSlash(clean), "/") {
-		if part == ".." {
-			return "", clock.Errorf("render", "path_traversal", -1,
-				"output path %q escapes the working tree", dir)
-		}
-	}
-	abs, err := filepath.Abs(clean)
-	if err != nil {
-		return "", err
-	}
-	if strings.HasPrefix(abs, "/") && filepath.Base(abs) == "/" {
-		return "", clock.NewSourceError("render", "bad_output_path", -1, "refusing filesystem root")
-	}
-	return abs, nil
+	return safepath.Resolve(dir)
 }
 
 // atomicWrite writes data to a sibling temp file and renames it over
 // path. The temp file lives inside root so the rename stays on one
 // filesystem.
 func atomicWrite(path string, data []byte, root string) error {
-	if !strings.HasPrefix(path, root+string(os.PathSeparator)) {
-		return clock.Errorf("render", "path_escape", -1,
-			"refusing to write %q outside %q", path, root)
-	}
-	tmp, err := os.CreateTemp(root, ".pairflow-*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		os.Remove(tmpName)
-		return err
-	}
-	return nil
+	return safepath.WriteAtomic(path, data, root)
 }
 
 // WriteManifest writes manifest.json atomically.
