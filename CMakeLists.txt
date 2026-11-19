@@ -22,6 +22,7 @@ add_library(mbcore
   src/subtitle.cpp
   src/stream.cpp
   src/timeline.cpp
+  src/checkpoint.cpp
 )
 target_include_directories(mbcore PUBLIC src)
 target_link_libraries(mbcore PUBLIC PkgConfig::FFMPEG Threads::Threads)

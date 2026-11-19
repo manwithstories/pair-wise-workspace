@@ -231,3 +231,115 @@ TEST_CASE("timeline: empty track and global end", "[timeline]") {
   REQUIRE(tl.segments.size() == 1);
   REQUIRE(tl.segments[0].end == 200);  // 全局终点裁尾
 }
+
+#include <fstream>
+#include <unistd.h>
+
+#include "checkpoint.hpp"
+
+namespace {
+namespace fs = std::filesystem;
+size_t cp_seq = 0;
+}
+
+namespace {
+fs::path cp_workdir() {
+  static fs::path base;
+  if (base.empty()) {
+    base = fs::temp_directory_path() /
+           ("mb_cp_test_" + std::to_string(::getpid()));
+    fs::remove_all(base);
+    fs::create_directories(base);
+  }
+  return base / fs::path("run_" + std::to_string(++cp_seq));
+}
+}  // namespace
+
+TEST_CASE("checkpoint: write, resume and idempotency", "[checkpoint]") {
+  auto dir = cp_workdir();
+  std::string digest = CheckpointStore::compute_digest("manifest-v1");
+  CheckpointConfig cfg{dir, digest, "runA"};
+  {
+    CheckpointStore cp;
+    CpError e;
+    REQUIRE(cp.open(cfg, &e));
+    std::vector<uint8_t> p0(100, 7), p1(50, 9);
+    REQUIRE(cp.write_block(0, 0, 90000, 25, p0, &e));
+    REQUIRE(cp.write_block(1, 90000, 180000, 25, p1, &e));
+    REQUIRE(cp.finalize(&e));
+  }
+  // 重新打开：摘要一致，resume 应校验两个块并幂等复用。
+  CheckpointStore cp2;
+  CpError e2;
+  REQUIRE(cp2.open(cfg, &e2));
+  ResumeResult rr;
+  REQUIRE(cp2.resume(&rr, &e2));
+  REQUIRE(rr.resumed_blocks == 2);
+  REQUIRE(rr.complete_blocks == std::vector<int>{0, 1});
+}
+
+TEST_CASE("checkpoint: truncated block is rejected", "[checkpoint]") {
+  auto dir = cp_workdir();
+  std::string digest = CheckpointStore::compute_digest("m");
+  CheckpointConfig cfg{dir, digest, "r"};
+  CheckpointStore cp;
+  CpError e;
+  REQUIRE(cp.open(cfg, &e));
+  REQUIRE(cp.write_block(0, 0, 1, 1, std::vector<uint8_t>(40, 1), &e));
+  // 截断块文件，破坏大小与内容。
+  auto bp = cp.block_path(0);
+  std::ofstream(bp, std::ios::binary | std::ios::trunc)
+      << std::string(5, 'x');
+  ResumeResult rr;
+  REQUIRE_FALSE(cp.resume(&rr, &e));
+  REQUIRE(e.code == kCpBlockTruncated);
+}
+
+TEST_CASE("checkpoint: corrupted index and changed digest rejected",
+          "[checkpoint]") {
+  auto dir = cp_workdir();
+  std::string digest = CheckpointStore::compute_digest("m");
+  CheckpointConfig cfg{dir, digest, "r"};
+  CheckpointStore cp;
+  CpError e;
+  REQUIRE(cp.open(cfg, &e));
+  REQUIRE(cp.write_block(0, 0, 1, 1, std::vector<uint8_t>(10, 2), &e));
+  auto idx = dir / "checkpoint" / "index.cpi";
+  // 1) 篡改索引字节但保留尾部 -> 校验和失配。
+  {
+    std::ofstream f(idx, std::ios::binary | std::ios::app);
+    f << "tampered";
+  }
+  CheckpointStore cp2;
+  CpError e2;
+  REQUIRE_FALSE(cp2.open(cfg, &e2));
+  REQUIRE(e2.code == kCpIndexCorrupt);
+
+  // 2) 恢复索引后，换输入摘要必须拒绝复用。
+  auto dir3 = cp_workdir();
+  CheckpointConfig cfg3{dir3, digest, "r"};
+  CheckpointStore cp3;
+  REQUIRE(cp3.open(cfg3, &e));
+  REQUIRE(cp3.write_block(0, 0, 1, 1, std::vector<uint8_t>(10, 3), &e));
+  CheckpointConfig changed{dir3, CheckpointStore::compute_digest("other"),
+                           "r"};
+  CheckpointStore cp4;
+  CpError e4;
+  REQUIRE_FALSE(cp4.open(changed, &e4));
+  REQUIRE(e4.code == kCpInputChanged);
+}
+
+TEST_CASE("checkpoint: failed block retained and reported on resume",
+          "[checkpoint]") {
+  auto dir = cp_workdir();
+  CheckpointConfig cfg{dir, CheckpointStore::compute_digest("m"), "r"};
+  CheckpointStore cp;
+  CpError e;
+  REQUIRE(cp.open(cfg, &e));
+  REQUIRE(cp.write_block(0, 0, 1, 1, std::vector<uint8_t>(8, 4), &e));
+  REQUIRE(cp.mark_block_failed(1, 1, 2, &e));  // 失败区间，块0保留
+  ResumeResult rr;
+  REQUIRE(cp.resume(&rr, &e));
+  REQUIRE(rr.complete_blocks == std::vector<int>{0});
+  REQUIRE(rr.failed_blocks == std::vector<int>{1});
+}
