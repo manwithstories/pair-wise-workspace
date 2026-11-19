@@ -37,7 +37,6 @@ public:
 
 private:
   Rational tb_;
-  MediaType type_;
   uint64_t wrapCount_ = 0;
   int64_t lastRaw_ = 0;
   int64_t lastRepairedUs_ = 0;

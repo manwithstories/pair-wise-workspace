@@ -4,6 +4,7 @@
 #include "media/packet.hpp"
 #include "media/stream_pipeline.hpp"
 #include "media/manifest.hpp"
+#include "media/clock_repair.hpp"
 
 using namespace media;
 using Catch::Approx;
@@ -85,4 +86,68 @@ TEST_CASE("剪辑点对齐最近有效帧", "[manifest]") {
   CHECK(st.actualUs == 33'333);
   CHECK(st.errorUs == -16'667);
   CHECK(st.nearestPacket == 1);
+}
+
+namespace {
+MediaPacket mkPkt(size_t gi, int64_t pts, int64_t dur, bool key = false) {
+  MediaPacket p;
+  p.globalIndex = gi;
+  p.index = gi;
+  p.rawPts = pts;
+  p.rawDts = pts;
+  p.durationTicks = dur;
+  p.keyframe = key;
+  return p;
+}
+} // namespace
+
+TEST_CASE("33 位 PTS 回绕展开", "[repair]") {
+  ClockRepair rep(Rational{1, 90000}, MediaType::Video);
+  auto p1 = mkPkt(0, PTS33_MASK, 9000);
+  auto p2 = mkPkt(1, 8999, 9000); // 跨回绕边界，相差恰好 9000 滴答
+  CHECK(rep.accept(p1) == TimeError::None);
+  CHECK(rep.accept(p2) == TimeError::Wrap);
+  // 回绕后时间应连续（同一 90kHz 时间基，差 9000 滴答 = 100000us）。
+  CHECK(p2.repairedUs - p1.repairedUs == ticksToUs(9000, Rational{1, 90000}));
+  CHECK(p2.repairedUs > p1.repairedUs);
+  CHECK(rep.summary().wraps == 1);
+  CHECK(rep.summary().deliverable);
+}
+
+TEST_CASE("小幅倒退判定歧义且不可交付", "[repair]") {
+  ClockRepair rep(Rational{1, 90000}, MediaType::Video);
+  auto p1 = mkPkt(0, 900000, 3000);
+  auto p2 = mkPkt(1, 899000, 3000);
+  rep.accept(p1);
+  CHECK(rep.accept(p2) == TimeError::Ambiguous);
+  CHECK_FALSE(rep.summary().deliverable);
+  CHECK(rep.summary().firstBadPacket == 1);
+}
+
+TEST_CASE("重复 PTS 可恢复", "[repair]") {
+  ClockRepair rep(Rational{1, 90000}, MediaType::Video);
+  auto p1 = mkPkt(0, 90000, 3000);
+  auto p2 = mkPkt(1, 90000, 3000);
+  rep.accept(p1);
+  CHECK(rep.accept(p2) == TimeError::DuplicatePts);
+  CHECK(p2.duplicate);
+  CHECK(p2.repairedUs == p1.repairedUs);
+  CHECK(rep.summary().deliverable);
+}
+
+TEST_CASE("漂移估计：缺锚点低置信度，充足锚点恢复斜率", "[repair]") {
+  ClockRepair rep(Rational{1, 24000}, MediaType::Audio);
+  DriftParams empty = rep.estimateDrift();
+  CHECK(empty.lowConfidence);
+
+  ClockRepair rep2(Rational{1, 24000}, MediaType::Audio);
+  for (int i = 0; i < 100; ++i) {
+    double raw = double(i) * 0.01;              // 设备时间
+    double expected = raw * (1.0 + 180e-6);     // 应达时间（快 180ppm）
+    rep2.addAnchor(raw, expected);
+  }
+  DriftParams d = rep2.estimateDrift();
+  CHECK_FALSE(d.lowConfidence);
+  CHECK(d.driftPpm == Approx(180.0).margin(1.0));
+  CHECK(std::abs(d.confidence - 1.0) < 0.01);
 }

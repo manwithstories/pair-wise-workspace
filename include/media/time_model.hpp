@@ -68,6 +68,7 @@ struct DriftParams {
   double slope = 1.0;     // 无量纲，1.0 = 无漂移
   int64_t offsetUs = 0;   // 常数时钟偏移
   double driftPpm = 0.0;  // (slope - 1) * 1e6
+  double r2 = 0.0;        // 线性拟合决定系数
   double confidence = 0.0;// 0..1，锚点不足时为低置信度
   bool lowConfidence = true;
 };

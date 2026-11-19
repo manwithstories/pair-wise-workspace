@@ -25,9 +25,9 @@ LineFit fitLine(const std::vector<std::pair<double, double>>& pts) {
   out.points = pts.size();
   const size_t n = pts.size();
   if (n < 2) return out;
-  double sx = 0, sy = 0, sxx = 0, sxy = 0, syy = 0;
+  double sx = 0, sy = 0, sxx = 0, sxy = 0;
   for (const auto& [x, y] : pts) {
-    sx += x; sy += y; sxx += x * x; sxy += x * y; syy += y * y;
+    sx += x; sy += y; sxx += x * x; sxy += x * y;
   }
   const double den = double(n) * sxx - sx * sx;
   if (std::fpclassify(den) == FP_ZERO) return out;
