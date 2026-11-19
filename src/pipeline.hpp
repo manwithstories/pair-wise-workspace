@@ -47,6 +47,26 @@ public:
         return true;
     }
 
+    // 协作式非阻塞接口：确定性单线程引擎使用，满/空立即返回
+    bool try_push(T item) {
+        std::lock_guard<std::mutex> lk(mu_);
+        if (q_.size() >= cap_) return false;   // 背压：通知上游停一步
+        q_.push(std::move(item));
+        peak_ = std::max(peak_, uint32_t(q_.size()));
+        return true;
+    }
+    bool try_pop(T& out) {
+        std::lock_guard<std::mutex> lk(mu_);
+        if (q_.empty()) return false;
+        out = std::move(q_.front());
+        q_.pop();
+        return true;
+    }
+    uint32_t size() const {
+        std::lock_guard<std::mutex> lk(mu_);
+        return uint32_t(q_.size());
+    }
+
     uint32_t peak() const {
         std::lock_guard<std::mutex> lk(mu_);
         return peak_;

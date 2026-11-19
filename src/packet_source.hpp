@@ -52,6 +52,8 @@ public:
     const std::vector<RtcpReport>& rtcp_reports() const { return rtcp_; }
     const InputSummary& summary() const { return summary_; }
     uint32_t total_records() const { return records_seen_; }
+    // 头部声明的期望记录数（截断时大于实际可完整读取数）
+    uint32_t expected_records() const { return summary_.record_count; }
 
 private:
     std::unique_ptr<std::ifstream> stream_;
