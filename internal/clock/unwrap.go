@@ -259,7 +259,6 @@ func fitDrift(nominal []int64, in Input) ([][2]int, []affine, []int, errs.List) 
 	type seg struct {
 		first, last int // anchor index range [first,last]
 		breakAt     int // sample where this segment starts (0 for the first)
-		jump        int64
 	}
 	segs := []seg{{first: 0, last: 0}}
 	for i := 1; i < len(anchors); i++ {
@@ -267,7 +266,7 @@ func fitDrift(nominal []int64, in Input) ([][2]int, []affine, []int, errs.List) 
 			(anchors[i-1].ProgramNs - nominal[anchors[i-1].Sample])
 		if d > breakNs || d < -breakNs {
 			at := locateBreak(nominal, anchors[i-1], anchors[i])
-			segs = append(segs, seg{first: i, last: i, breakAt: at, jump: d})
+			segs = append(segs, seg{first: i, last: i, breakAt: at})
 			issues.Add(errs.ClassClock, errs.CodeClockDriftBreak,
 				fmt.Sprintf("drift break at sample %d between anchors %d and %d (residual jump %.3f ms)",
 					at, anchors[i-1].Sample, anchors[i].Sample, float64(d)/1e6), loc(at))
