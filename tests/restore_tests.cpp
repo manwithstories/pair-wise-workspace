@@ -475,7 +475,7 @@ TEST_CASE("layout names parse canonically and reject unknowns", "[audio]") {
   CHECK_FALSE(parse_layout("", &layout));
 }
 
-TEST_CASE("mono is upmixed to 5.1 without clipping the centre", "[audio]") {
+TEST_CASE("mono is upmixed to 5.1 deterministically", "[audio]") {
   auto input = make_tone(44100, "mono", 44100, 440.0, 0.5);
   media_restore::AudioRestoreConfig config;
   config.output_rate = 48000;
@@ -492,6 +492,18 @@ TEST_CASE("mono is upmixed to 5.1 without clipping the centre", "[audio]") {
   // One second at 44.1 kHz resampled to 48 kHz lands within a frame.
   CHECK(std::llabs(output.frames - 48000) <= 1);
   CHECK(stats.input_frames == 44100);
+  // swresample places a mono source in the centre channel; pin that so a
+  // future change to the matrix is a deliberate decision, not silent drift.
+  double centre_energy = 0.0;
+  double other_energy = 0.0;
+  for (int64_t i = 0; i < output.frames; ++i) {
+    centre_energy += output.plane(2)[i] * output.plane(2)[i];
+    for (int c = 0; c < output.channels; ++c) {
+      if (c != 2) other_energy += output.plane(c)[i] * output.plane(c)[i];
+    }
+  }
+  CHECK(centre_energy > 0.0);
+  CHECK(other_energy == 0.0);
 }
 
 TEST_CASE("planar and interleaved inputs produce identical output", "[audio]") {
