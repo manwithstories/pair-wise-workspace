@@ -70,18 +70,22 @@ DemoTrace generate_demo_trace(const DemoConfig& cfg) {
     Timecode start_tc{23, 59, 50, 0};
     auto start_frame = timecode_to_frame(start_tc, kFps2997);
 
+    // 多个包共享同一帧（每帧约 6 个包）：帧号 -> 主时基 PTS。
+    const int64_t total_frames =
+        static_cast<int64_t>(duration_ms) * 30000 / 1001 / 1000;
+
     std::vector<MediaPacket> sent;
     sent.reserve(total);
     for (uint64_t i = 0; i < total; ++i) {
         MediaPacket p;
         p.sequence = i;
         p.track = (i % 6 == 5) ? TrackKind::Audio : TrackKind::Video;
-        // 视频 PTS 走时间码换算（含日界回绕）；音频带 +12ms 偏移与 5ppm 漂移。
-        int64_t frame = *start_frame + static_cast<int64_t>(i);
-        int64_t pts = frame_to_ticks(unwrapper.unwrap(frame % frames_per_day(kFps2997)),
-                                     kFps2997);
+        int64_t frame =
+            *start_frame + static_cast<int64_t>(i) * total_frames / static_cast<int64_t>(total);
+        int64_t pts = frame_to_ticks(
+            unwrapper.unwrap(frame % frames_per_day(kFps2997)), kFps2997);
         if (p.track == TrackKind::Audio)
-            pts += ms_to_ticks(12) + i / 200; // 偏移 + 缓变漂移
+            pts += ms_to_ticks(12) + static_cast<int64_t>(i) / 200; // 偏移+漂移
         p.pts_ticks = pts;
         p.payload_bytes = static_cast<uint32_t>(
             payload + static_cast<int64_t>(rng() % 160) - 80);
