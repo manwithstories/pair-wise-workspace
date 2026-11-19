@@ -319,3 +319,90 @@ TEST_CASE("frame cache is bounded regardless of input length", "[segment]") {
     REQUIRE(out.size() >= 12);
     for (auto& s : out) REQUIRE(s.packets.size() <= 8);
 }
+
+// ---- 静音检测 ----
+#include "silence.hpp"
+namespace {
+MediaPacket mk_audio_pcm(uint16_t seq, int64_t us, bool silent,
+                         uint32_t samples = 320) {
+    MediaPacket p;
+    p.ssrc = 0x20000002; p.seq = seq; p.codec = CodecId::PcmS16;
+    p.clock_rate = 16000; p.unified_us = us;
+    p.payload.resize(samples * sizeof(int16_t));
+    auto* s = reinterpret_cast<int16_t*>(p.payload.data());
+    for (uint32_t i = 0; i < samples; ++i)
+        s[i] = silent ? int16_t(0) : int16_t(12000); // 远高于 50 千分比阈值
+    return p;
+}
+} // namespace
+
+TEST_CASE("pcm silence windows detected and overlaps merged", "[silence]") {
+    ProcessConfig cfg;
+    SilenceDetector det(cfg);
+    std::vector<PipelineError> errs;
+    int64_t t = 0;
+    // 3 个有声包，随后 8 个静音包（覆盖多个重叠窗口），再有声
+    for (int i = 0; i < 3; ++i) { det.push(mk_audio_pcm(uint16_t(i), t, false), errs); t += 20'000; }
+    for (int i = 0; i < 8; ++i) { det.push(mk_audio_pcm(uint16_t(3 + i), t, true), errs); t += 20'000; }
+    for (int i = 0; i < 2; ++i) { det.push(mk_audio_pcm(uint16_t(11 + i), t, false), errs); t += 20'000; }
+    auto iv = det.finish();
+    REQUIRE_FALSE(iv.empty());
+    // 重叠静音窗口被合并为单个区间
+    REQUIRE(iv.size() <= 3);
+    REQUIRE(det.counters().silence_windows > 0);
+    REQUIRE(det.counters().corrupt_frames == 0);
+    // 静音区间位于中段，不在开头
+    REQUIRE(iv.front().begin_us > 40'000);
+}
+
+TEST_CASE("corrupt frames are not counted as silence", "[silence][corrupt]") {
+    ProcessConfig cfg;
+    SilenceDetector det(cfg);
+    std::vector<PipelineError> errs;
+    // 损坏的“音频”包：声明 AAC 但载荷不是 ADTS
+    MediaPacket bad;
+    bad.codec = CodecId::Aac; bad.seq = 7; bad.unified_us = 0;
+    bad.payload = {0x00, 0x11, 0x22}; // 无 ADTS 同步字
+    det.push(bad, errs);
+    auto iv = det.finish();
+    REQUIRE(det.counters().corrupt_frames == 1);
+    REQUIRE(iv.empty()); // 损坏帧不产生静音区间
+    bool has_decode_err = false;
+    for (auto& e : errs) has_decode_err |= e.type == ErrType::DecodeError;
+    REQUIRE(has_decode_err);
+    REQUIRE(errs.front().seq == 7);
+    REQUIRE(errs.front().stage == stage::Silence);
+}
+
+TEST_CASE("unsupported codec reported with stage and seq", "[silence]") {
+    ProcessConfig cfg;
+    SilenceDetector det(cfg);
+    std::vector<PipelineError> errs;
+    MediaPacket weird; weird.codec = CodecId::Unknown; weird.seq = 9;
+    det.push(weird, errs);
+    REQUIRE(errs.size() == 1);
+    REQUIRE(errs[0].type == ErrType::UnsupportedCodec);
+    REQUIRE(errs[0].seq == 9);
+}
+
+TEST_CASE("aac capture decodes and yields bounded digest", "[silence][aac]") {
+    auto p = tmp_path("aacsil");
+    GenerateOptions o; o.seed = 13; o.aac = true;
+    PipelineError e;
+    REQUIRE(generate_capture(p, o, e) > 0);
+    PacketSource src; REQUIRE(src.open(p, e));
+    ProcessConfig cfg; cfg.aac = true;
+    SilenceDetector det(cfg);
+    std::vector<PipelineError> errs;
+    MediaPacket pkt; uint32_t audio = 0;
+    while (src.next_rtp(pkt, nullptr, e)) {
+        if (pkt.codec == CodecId::Aac) { det.push(pkt, errs); ++audio; }
+    }
+    det.finish();
+    REQUIRE(audio > 10);
+    REQUIRE(det.counters().decoded_frames > 0);
+    // 合成音频含确定性静音段，应检测到静音
+    REQUIRE(det.counters().silence_windows > 0);
+    // 有界：摘要条目数 == 音频帧数，且环形缓存固定 1 秒
+    REQUIRE(det.sample_digest().size() <= audio);
+}
