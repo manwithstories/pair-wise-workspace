@@ -66,7 +66,9 @@ int checkpoint_stage(const PipelineConfig& cfg, const SampleBundle& bundle,
   const std::uint32_t total = static_cast<std::uint32_t>(
       (video_items.size() + kBlockItems - 1) / kBlockItems);
   for (std::uint32_t block = 0; block < total; ++block) {
-    if (block < prior.blocks.size()) continue; // already durable
+    // An explicit interrupt injection fires at the requested block even when a
+    // durable copy already exists, so the resume command can demonstrate the
+    // crash-and-continue path (a hidden partial is left and never published).
     if (cfg.inject_interrupt > 0 && block == cfg.inject_interrupt) {
       CheckpointBlock partial;
       partial.block_id = block;
@@ -74,8 +76,9 @@ int checkpoint_stage(const PipelineConfig& cfg, const SampleBundle& bundle,
       std::string err;
       cp.simulate_interrupt(partial, err);
       m.interrupted = true;
-      return 0; // process stops; the resume command continues later
+      return 0; // process stops; the next resume continues from valid prefix
     }
+    if (block < prior.blocks.size()) continue; // already durable
     const std::size_t begin = static_cast<std::size_t>(block) * kBlockItems;
     const std::size_t end = std::min(video_items.size(), begin + kBlockItems);
     CheckpointBlock b;
