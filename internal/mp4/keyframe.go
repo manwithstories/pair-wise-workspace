@@ -8,21 +8,27 @@ import (
 	"mediasync/internal/media"
 )
 
-// buildKeyframeIndex derives the keyframe list. When stss is absent every
-// sample is treated as sync (ISO/IEC 14496-12 allows this for all-I tracks).
-// A missing or out-of-range stss entry triggers a scan-and-rebuild pass that
-// identifies candidates from the sample table instead of silently dropping
-// the track from the keyframe index.
+// buildKeyframeIndex derives the keyframe list for a track. When stss is
+// absent, ISO/IEC 14496-12 says every sample is sync for audio-ish tracks but
+// video tracks are expected to carry one; a missing or out-of-range stss entry
+// triggers a scan-and-rebuild pass so damaged indexes degrade instead of
+// silently dropping keyframes.
 func buildKeyframeIndex(tr *Track, stss *mp4.Stss, data []byte) {
 	if len(tr.Samples) == 0 {
 		return
 	}
+	video := tr.Handler == "vide"
 	if stss == nil {
+		if !video {
+			markAllKeyframes(tr)
+			return
+		}
 		for i := range tr.Samples {
 			tr.Keyframes = append(tr.Keyframes, i)
 		}
 		tr.issue(media.CodeMissingEntry, 0, 0,
-			"track %d has no stss box; falling back to stss-less sync policy", tr.TrackID)
+			"track %d has no stss box; every sample treated as sync", tr.TrackID)
+		markKeyframeFlags(tr)
 		return
 	}
 	seen := make([]bool, len(tr.Samples))
@@ -47,27 +53,47 @@ func buildKeyframeIndex(tr *Track, stss *mp4.Stss, data []byte) {
 		bad = true
 	}
 	sort.Ints(tr.Keyframes)
-	if !bad {
-		return
+	if bad {
+		rebuilt := scanKeyframeCandidates(tr, seen)
+		if len(rebuilt) == 0 {
+			tr.issue(media.CodeNoKeyframe, 0, 0,
+				"track %d has no usable keyframe entry and no rebuild candidates", tr.TrackID)
+			return
+		}
+		tr.Keyframes = rebuilt
+		tr.RebuiltKeys = true
+		tr.issue(media.CodeMissingEntry, 0, 0,
+			"rebuilt %d keyframe candidates by scanning the sample table", len(rebuilt))
 	}
-	rebuilt := scanKeyframeCandidates(tr, seen)
-	if len(rebuilt) == 0 {
-		tr.issue(media.CodeNoKeyframe, 0, 0,
-			"track %d has no usable keyframe entry and no rebuild candidates", tr.TrackID)
-		return
+	markKeyframeFlags(tr)
+	_ = data
+}
+
+func markAllKeyframes(tr *Track) {
+	tr.Keyframes = tr.Keyframes[:0]
+	for i := range tr.Samples {
+		tr.Keyframes = append(tr.Keyframes, i)
 	}
-	tr.Keyframes = rebuilt
-	tr.RebuiltKeys = true
-	tr.issue(media.CodeMissingEntry, 0, 0,
-		"rebuilt %d keyframe candidates by scanning the sample table", len(rebuilt))
+	markKeyframeFlags(tr)
+}
+
+func markKeyframeFlags(tr *Track) {
+	key := make([]bool, len(tr.Samples))
+	for _, idx := range tr.Keyframes {
+		if idx >= 0 && idx < len(key) {
+			key[idx] = true
+		}
+	}
+	for i := range tr.Samples {
+		tr.Samples[i].Keyframe = key[i]
+	}
 }
 
 // scanKeyframeCandidates recovers a synthetic keyframe list for a track whose
-// stss is damaged. Candidates are the first sample plus every sample that
-// starts a new chunk (chunk boundaries are stored group-of-pictures anchors in
-// the fixtures generated here).
+// stss is damaged: the first sample and every still-marked sync sample are
+// candidates, and if nothing survives the first sample is used as an anchor.
 func scanKeyframeCandidates(tr *Track, seen []bool) []int {
-	var out []int
+	out := make([]int, 0, len(tr.Keyframes)+1)
 	for i := range tr.Samples {
 		if seen[i] || i == 0 {
 			out = append(out, i)
@@ -75,5 +101,3 @@ func scanKeyframeCandidates(tr *Track, seen []bool) []int {
 	}
 	return out
 }
-
-var _ = media.CodeDuplicate

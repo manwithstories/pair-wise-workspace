@@ -6,8 +6,6 @@ import (
 	"io"
 	"sort"
 
-	"github.com/abema/go-mp4"
-
 	"mediasync/internal/media"
 )
 
@@ -79,9 +77,11 @@ func (t *Track) KeyframeAt(ns int64) int {
 	return -1
 }
 
-func (t *Track) issue(code media.Code, off int64, rec int, format string, args ...any) {
-	t.Issues = append(t.Issues, media.New(media.StageMP4, media.InputMP4, code, format, args...).
-		WithFile(t.File).WithOffset(off).WithRecord(rec))
+func (t *Track) issue(code media.Code, off int64, rec int, format string, args ...any) *media.Issue {
+	is := media.New(media.StageMP4, media.InputMP4, code, format, args...).
+		WithFile(t.File).WithOffset(off).WithRecord(rec)
+	t.Issues = append(t.Issues, is)
+	return is
 }
 
 func fatalErr(file string, format string, args ...any) *media.Issue {

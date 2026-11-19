@@ -99,7 +99,7 @@ func sampleSizes(stsz *mp4.Stsz, n int) []uint32 {
 
 // expandChunks returns the number of samples stored in each chunk.
 func expandChunks(stsc *mp4.Stsc, chunkCount int, tr *Track) []int {
-	entries := stsc.GetEntries()
+	entries := stsc.Entries
 	counts := make([]int, chunkCount)
 	if len(entries) == 0 {
 		tr.issue(media.CodeMissingEntry, 0, 0, "track %d has an empty stsc table", tr.TrackID)
@@ -164,4 +164,4 @@ func offAt(data []byte, off int64) int64 {
 	return off
 }
 
-func stszOffset(tb *trackBoxes) uint64 { return tb.stszOffset }
+func stszOffset(tb *trackBoxes) uint64 { return tb.stszOff }
