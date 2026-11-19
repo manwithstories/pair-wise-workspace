@@ -16,6 +16,7 @@ import (
 	"archive.local/recover/internal/media"
 	"archive.local/recover/internal/model"
 	"archive.local/recover/internal/report"
+	"archive.local/recover/internal/resume"
 	"archive.local/recover/internal/segment"
 	"archive.local/recover/internal/stream"
 	"archive.local/recover/internal/testkit"
@@ -50,6 +51,21 @@ type Result struct {
 	Report *report.Report
 	// LatencySamplesMs are per-packet reassembly latencies used for the P95.
 	LatencySamplesMs []float64
+	// InputDigest identifies the exact generated artifact set for resume.
+	InputDigest string
+}
+
+// InputDigest renders the deterministic identity of a demo configuration
+// before any work is done. It matches the digest the full run reports, so the
+// journal can be checked up front and compared after generation.
+func InputDigest(cfg Config) string {
+	fx, err := testkit.Generate(testkit.Options{
+		Seed: cfg.Seed, DurationNs: cfg.DurationNs, Bitrates: cfg.Bitrates, Loss: cfg.Loss, Case: cfg.Case,
+	})
+	if err != nil {
+		return ""
+	}
+	return resume.DigestInputs(fx.Inputs())
 }
 
 // Run executes the full demo pipeline for the configured case.
@@ -61,7 +77,7 @@ func Run(cfg Config) (*Result, error) {
 		return nil, err
 	}
 	rep := report.New(cfg.Case, cfg.Seed)
-	res := &Result{Report: rep}
+	res := &Result{Report: rep, InputDigest: resume.DigestInputs(fx.Inputs())}
 
 	bitrateCount := len(fx.Renditions)
 	rep.Timeline = &report.TimelineReport{Tracks: 2 * bitrateCount, DurationNs: cfg.DurationNs}

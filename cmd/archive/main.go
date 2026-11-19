@@ -189,7 +189,7 @@ func runDemo(args []string, stdout, stderr io.Writer) int {
 	var prev *resume.State
 	var inputDigest, cfgDigest string
 	if f.outDir != "" {
-		inputDigest = "demo:" + fmt.Sprintf("%d:%d:%v:%g:%s", cfg.Seed, cfg.DurationNs, cfg.Bitrates, cfg.Loss, cfg.Case)
+		inputDigest = pipeline.InputDigest(cfg)
 		if d, err := resume.DigestConfig(cfg); err == nil {
 			cfgDigest = d
 		}
@@ -203,6 +203,25 @@ func runDemo(args []string, stdout, stderr io.Writer) int {
 			if !d.Reuse {
 				return emitRefused(stdout, stderr, cfg, d)
 			}
+			// Digests match: reuse the stored manifest instead of recomputing.
+			rep, err := loadManifest(f.outDir)
+			if err != nil {
+				fmt.Fprintf(stderr, "archive demo: reuse manifest: %v\n", err)
+				return exitUnrecoverable
+			}
+			rep.Resume = &report.ResumeReport{
+				Used: true, InputDigest: inputDigest, ConfigDigest: cfgDigest,
+				Reason: d.Reason,
+			}
+			rep.Finalize()
+			if f.json || f.caseName != "" {
+				if err := report.Write(stdout, rep); err != nil {
+					return exitUnrecoverable
+				}
+			} else {
+				printHuman(stdout, rep)
+			}
+			return rep.ExitCode
 		}
 	}
 
@@ -213,6 +232,12 @@ func runDemo(args []string, stdout, stderr io.Writer) int {
 	}
 	rep := res.Report
 	rep.SchemaVersion = report.SchemaVersion
+	if f.outDir != "" {
+		rep.Resume = &report.ResumeReport{
+			Used: false, InputDigest: res.InputDigest, ConfigDigest: cfgDigest,
+			Reason: "fresh run",
+		}
+	}
 	rep.Finalize()
 
 	if f.outDir != "" {
@@ -292,6 +317,19 @@ func emitRefused(stdout, stderr io.Writer, cfg pipeline.Config, d *resume.Decisi
 }
 
 func resumePath(dir string) string { return dir + "/resume.state" }
+
+// loadManifest reads a manifest written by a previous run for reuse.
+func loadManifest(dir string) (*report.Report, error) {
+	b, err := resume.ReadAll(dir+"/manifest.json", 64<<20)
+	if err != nil {
+		return nil, err
+	}
+	var rep report.Report
+	if err := json.Unmarshal(b, &rep); err != nil {
+		return nil, fmt.Errorf("manifest is not a report: %w", err)
+	}
+	return &rep, nil
+}
 
 func writeOutputs(dir string, rep *report.Report, inputDigest, cfgDigest string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {

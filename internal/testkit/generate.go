@@ -224,10 +224,13 @@ func generateRendition(opts Options, idx, bitrate int) (*Rendition, error) {
 			PTS:    rawClock[s],
 		})
 	}
-	if opts.Case == CaseCorruptIndex && len(pages) > 8 {
-		// One entry points past the end of the bitstream, one page is missing.
-		pages[3].Offset = int64(len(stream)) + 4096
-		pages = append(pages[:7], pages[8:]...)
+	if opts.Case == CaseCorruptIndex && len(pages) >= 4 {
+		// One entry points past the end of the bitstream and one page is
+		// missing; the index still covers the tail, so repair must reconcile.
+		bad := len(pages) / 2
+		pages[bad].Offset = int64(len(stream)) + 4096
+		drop := bad - 1
+		pages = append(pages[:drop], pages[drop+1:]...)
 	}
 	idxBytes := index.Encode(videoTimescale, pages)
 
@@ -307,6 +310,19 @@ func makeAnchors(program []int64, seed int64, intervalNs int64) []clock.Anchor {
 			out = append(out, clock.Anchor{Sample: i, ProgramNs: p + jitter, Source: "external-sync"})
 			next = p + step
 		}
+	}
+	return out
+}
+
+// Inputs returns the ordered input artifacts as raw bytes, keyed by the name
+// used in reports. The resume journal digests exactly this set, so a change in
+// any rendered artifact is detected.
+func (f *Fixture) Inputs() map[string][]byte {
+	out := make(map[string][]byte, 2*len(f.Renditions))
+	for i := range f.Renditions {
+		r := &f.Renditions[i]
+		out[r.Name+".master.mp4"] = r.Master
+		out[r.Name+".keyidx"] = r.Index
 	}
 	return out
 }

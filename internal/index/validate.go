@@ -292,7 +292,10 @@ func Validate(p *Parsed, scan *stream.Result, file string) *RepairResult {
 			continue
 		}
 		off := keyframes[idx]
-		src, conf := SourceScan, "medium"
+		// A repair is certain when the scan supplies exactly the keyframe the
+		// index expected. When the index was truncated or an entry was rejected
+		// the ordinal mapping is only a candidate, so it stays pending review.
+		src, conf := SourceScan, "high"
 		if p.Truncated || res.Dropped > 0 {
 			src, conf = SourcePending, "low"
 			res.Issues.Add(errs.ClassTruncated, errs.CodeIndexPendingReview,

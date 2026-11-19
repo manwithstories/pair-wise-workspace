@@ -145,11 +145,15 @@ func New(caseName string, seed int64) *Report {
 }
 
 // Finalize sorts issues, recomputes counts and derives the exit code.
+// Finalize sorts issues, recomputes counts and derives the exit code. OK means
+// the run completed without unrecoverable errors; a partial run that still
+// produced a report is not OK, so automation reading only the field is never
+// misled by a nonzero exit code.
 func (r *Report) Finalize() {
 	r.Issues.Sort()
 	r.IssueCounts = r.Issues.CountByClass()
-	r.OK = !r.Issues.HasFatal()
 	r.ExitCode = ExitCodeFor(r)
+	r.OK = r.ExitCode == ExitOK
 }
 
 // ExitCodes are the program's stable contract with automation.
