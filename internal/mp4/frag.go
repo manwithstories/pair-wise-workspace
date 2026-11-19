@@ -96,7 +96,7 @@ func (m *Muxer) writeStsd(t MuxTrack) error {
 // Sample payloads are copied verbatim (lossless passthrough). Samples of
 // one track within a fragment must have contiguous DTS.
 func (m *Muxer) AddFragment(frags []FragTrack) error {
-	scratch := &memWS{}
+	scratch := &MemWS{}
 	if err := m.marshalMoof(scratch, frags, 0); err != nil {
 		return err
 	}
@@ -208,13 +208,23 @@ func marshalBox(w *mp4.Writer, t mp4.BoxType, p mp4.IImmutableBox) error {
 	return err
 }
 
-// memWS is an in-memory io.WriteSeeker used to size boxes before writing.
-type memWS struct {
+// MemWS is an in-memory io.WriteSeeker used to size boxes before writing
+// and by callers that need to mux into memory.
+type MemWS struct {
 	buf []byte
 	pos int64
 }
 
-func (m *memWS) Write(p []byte) (int, error) {
+// Bytes returns the written content.
+func (m *MemWS) Bytes() []byte { return m.buf }
+
+// Truncate cuts the buffer to n bytes and seeks there.
+func (m *MemWS) Truncate(n int64) {
+	m.buf = m.buf[:n]
+	m.pos = n
+}
+
+func (m *MemWS) Write(p []byte) (int, error) {
 	end := m.pos + int64(len(p))
 	if end > int64(len(m.buf)) {
 		buf := make([]byte, end)
@@ -226,7 +236,7 @@ func (m *memWS) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func (m *memWS) Seek(offset int64, whence int) (int64, error) {
+func (m *MemWS) Seek(offset int64, whence int) (int64, error) {
 	var abs int64
 	switch whence {
 	case io.SeekStart:

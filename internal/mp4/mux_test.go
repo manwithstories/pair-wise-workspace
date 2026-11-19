@@ -7,7 +7,7 @@ import (
 
 func muxFixture(t *testing.T, tfdt32 bool, baseDTS int64) []byte {
 	t.Helper()
-	ws := &memWS{}
+	ws := &MemWS{}
 	m, err := NewMuxer(ws, []MuxTrack{
 		{ID: 1, Type: "video", Codec: "avc1", Timescale: 90000, Language: "eng", Width: 640, Height: 360},
 		{ID: 2, Type: "audio", Codec: "mp4a", Timescale: 48000, Language: "jpn"},
@@ -99,7 +99,7 @@ func TestDemuxWrappedTfdt(t *testing.T) {
 }
 
 func TestMemWS(t *testing.T) {
-	ws := &memWS{}
+	ws := &MemWS{}
 	ws.Write([]byte("hello"))
 	ws.Seek(0, 0)
 	ws.Write([]byte("HE"))
