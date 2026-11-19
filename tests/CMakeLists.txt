@@ -3,6 +3,7 @@ add_executable(media_tests
   generator_tests.cpp
   keyframe_index_tests.cpp
   packet_tests.cpp
+  pipeline_tests.cpp
   reorder_tests.cpp
   sha256_tests.cpp
   timestamp_tests.cpp
