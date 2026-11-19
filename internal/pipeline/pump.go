@@ -70,7 +70,13 @@ func (p *Pump) Run(blocks []audio.Block, arrivals []float64) (PumpResult, error)
 		if err := retireAll(a); err != nil {
 			return res, err
 		}
-		item := stream.Item{Bytes: b.Bytes(), Span: clock.Span{Start: b.StartTick, End: b.EndTick()},
+		// The duration limit charges how long the block would occupy the
+		// buffer: its media duration plus the consumer's playout latency.
+		span := clock.Span{Start: b.StartTick, End: b.EndTick()}
+		if extra := clock.FromMillis(p.ConsumerMs); extra > 0 {
+			span.End += extra
+		}
+		item := stream.Item{Bytes: b.Bytes(), Span: span,
 			Label: "audio", Value: pumpEntry{block: b, arrival: a}}
 		ok, err := p.Queue.TryPush(item)
 		if err != nil {
