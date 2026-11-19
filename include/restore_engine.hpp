@@ -49,6 +49,7 @@ struct SegmentOutcome {
   std::string output_path;
   std::string summary_hash;          // hash of the processing summary (no media)
   AudioStats audio;
+  SegmentColor color;                // resolved color metadata and conflicts
   std::vector<Diagnostic> diagnostics;
 };
 

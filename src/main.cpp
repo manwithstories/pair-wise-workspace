@@ -34,6 +34,7 @@ void usage(std::ostream& out) {
          "      Validate a manifest, its keyframe indexes and track graph.\n"
          "  restore --manifest FILE --rate RATE --layout LAYOUT --loudness LUFS\n"
          "          [--true-peak DBTP] [--color preserve|archive]\n"
+         "          [--archive-primaries V] [--archive-transfer V] [--archive-range V]\n"
          "          [--out DIR] [--json FILE]\n"
          "      Validate media, order tracks, restore audio and hash outputs.\n"
          "  verify --manifest FILE --result FILE [--json FILE]\n"
@@ -500,6 +501,23 @@ int command_restore(const Args& args) {
       return fail(usage_error("--true-peak must be between -20 and 0 dBTP"));
     }
     options.true_peak = true_peak;
+  }
+  // Archive color values: the policy writes these over conflicting or
+  // missing source metadata when --color archive is selected.
+  if (args.has_option("--archive-primaries")) {
+    if (!args.get("--archive-primaries", &options.archive_color.primaries)) {
+      return fail(usage_error("--archive-primaries requires a value"));
+    }
+  }
+  if (args.has_option("--archive-transfer")) {
+    if (!args.get("--archive-transfer", &options.archive_color.transfer)) {
+      return fail(usage_error("--archive-transfer requires a value"));
+    }
+  }
+  if (args.has_option("--archive-range")) {
+    if (!args.get("--archive-range", &options.archive_color.range)) {
+      return fail(usage_error("--archive-range requires a value"));
+    }
   }
   std::string strategy;
   if (args.get("--color", &strategy)) {

@@ -36,6 +36,14 @@ endfunction()
 run_cli(0 generate --out "${WORK_DIR}" --include-damaged)
 expect_contains("${LAST_STDOUT}" "damaged=included")
 
+# The result document records resolved color provenance for every segment.
+run_cli(0 restore --manifest "${manifest}" --rate 48000 --layout 5.1
+        --loudness -23 --json "${WORK_DIR}/color.json" --out "${WORK_DIR}/color-out")
+file(READ "${WORK_DIR}/color.json" color_json)
+expect_contains("${color_json}" "\"color\"")
+expect_contains("${color_json}" "\"primaries\"")
+expect_contains("${color_json}" "\"applied_archive\"")
+
 run_cli(0 inspect --manifest "${manifest}")
 expect_contains("${LAST_STDOUT}" "manifest_roundtrip=100%")
 expect_contains("${LAST_STDOUT}" "keyframe_hits=19/19")

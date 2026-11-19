@@ -168,6 +168,33 @@ bool validate_segment(const Manifest& manifest, const Segment& segment,
   return diagnostics->size() == before;
 }
 
+Json resolved_field_json(const ResolvedField& field) {
+  Json json = Json::object();
+  if (field.value) {
+    json.set("value", Json(*field.value));
+  } else {
+    json.set("value", Json(nullptr));
+  }
+  json.set("source", Json(field.source));
+  json.set("missing_from_segment", Json(field.missing_from_segment));
+  json.set("applied_archive", Json(field.applied_archive));
+  Json conflicts = Json::array();
+  for (const auto& value : field.conflicts) conflicts.push(Json(value));
+  json.set("conflicts", std::move(conflicts));
+  return json;
+}
+
+Json color_json(const SegmentColor& color) {
+  Json json = Json::object();
+  json.set("primaries", resolved_field_json(color.primaries));
+  json.set("transfer", resolved_field_json(color.transfer));
+  json.set("matrix", resolved_field_json(color.matrix));
+  json.set("range", resolved_field_json(color.range));
+  json.set("conflicted", Json(color.conflicted));
+  json.set("missing", Json(color.missing_any));
+  return json;
+}
+
 Json audio_json(const AudioStats& stats) {
   Json json = Json::object();
   json.set("input_rate", Json(static_cast<int64_t>(stats.input_rate)));
@@ -298,6 +325,7 @@ bool restore_archive(const Manifest& manifest, const RestoreOptions& options,
       resolve_segment_color(track, segment, options.color_strategy,
                             options.archive_color, &resolved_color,
                             &segment_diagnostics);
+      outcome.color = resolved_color;
 
       // Decide the fate of this segment.
       if (outcome.quarantined) {
@@ -562,6 +590,7 @@ Json restore_result_json(const Manifest& /*manifest*/, const RestoreSummary& sum
     } else {
       item.set("failure_code", Json(nullptr));
     }
+    item.set("color", color_json(outcome.color));
     item.set("audio", audio_json(outcome.audio));
     segments.push(std::move(item));
   }
