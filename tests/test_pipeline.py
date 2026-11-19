@@ -150,7 +150,6 @@ class TimelineDiagnosticTests(unittest.TestCase):
         self.assertTrue(all(f.track_id == "hi" for f in merged.frames if f.tick == 1000))
 
     def test_backward_and_missing_frame_diagnostics(self):
-        from mediamix.timeline import TrackTimeline
         from mediamix.clock import DriftModel
         from fractions import Fraction
         from types import SimpleNamespace
