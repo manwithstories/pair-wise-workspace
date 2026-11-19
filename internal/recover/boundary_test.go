@@ -274,3 +274,81 @@ func TestDriftCarriedIntoBoundaryTime(t *testing.T) {
 		}
 	}
 }
+
+// TestParentClipBlockingPropagates verifies that a clip whose parent lives on
+// a failed track is blocked rather than silently recovered.
+func TestParentClipBlockingPropagates(t *testing.T) {
+	bad := scanTrack(4, 1, 0, 3) // every sample corrupt, no keyframe anywhere
+	good := scanTrack(30, 5, -1, -1)
+	tl := timelineWith(
+		[]model.Clip{
+			{ID: "C-P", Track: "P1", Start: rat(0, 1), Duration: rat(1, 1), SourceIn: rat(0, 1)},
+			{ID: "C-Child", Track: "A1", Start: rat(0, 1), Duration: rat(1, 1), SourceIn: rat(0, 1), Parent: "C-P"},
+		},
+		[]model.Track{
+			videoTrack("P1"),
+			{ID: "A1", Kind: model.KindAudio, Codec: "mp4a", Source: "a.mp4", Timescale: 90000},
+		},
+	)
+	g, _ := graph.Build(tl)
+	res := recover.Run(recover.Input{
+		Timeline: tl, Graph: g,
+		Scans: map[string]*mp4.Scan{"P1": bad, "A1": good},
+	}, recover.Config{})
+	status := map[string]string{}
+	for _, b := range res.Boundaries {
+		status[b.Clip+"/"+b.Edge] = b.Status
+	}
+	if status["C-P/in"] != "blocked" {
+		t.Fatalf("parent clip status = %q, want blocked", status["C-P/in"])
+	}
+	if status["C-Child/in"] != "blocked" {
+		t.Fatalf("child of a blocked clip recovered: %q", status["C-Child/in"])
+	}
+}
+
+// TestRecoverableIntervalEnclosesDamage checks that the recovered byte span
+// contains the corrupt bytes, including when the damage has no preceding
+// keyframe.
+func TestRecoverableIntervalEnclosesDamage(t *testing.T) {
+	// Damage at the very start: no preceding keyframe exists.
+	sc := scanTrack(30, 5, 0, 1)
+	tl := timelineWith(
+		[]model.Clip{{ID: "C1", Track: "V1", Start: rat(0, 1), Duration: rat(1, 1), SourceIn: rat(0, 1)}},
+		[]model.Track{videoTrack("V1")},
+	)
+	g, _ := graph.Build(tl)
+	res := recover.Run(recover.Input{Timeline: tl, Graph: g, Scans: map[string]*mp4.Scan{"V1": sc}}, recover.Config{})
+	if len(res.Ranges) != 1 {
+		t.Fatalf("ranges = %+v", res.Ranges)
+	}
+	r := res.Ranges[0]
+	if r.Status != "recovered" {
+		t.Fatalf("status = %s (%s)", r.Status, r.Detail)
+	}
+	if r.RecoverableStart > r.CorruptStart || r.RecoverableEnd < r.CorruptEnd {
+		t.Fatalf("recoverable [%d,%d] excludes damage [%d,%d]",
+			r.RecoverableStart, r.RecoverableEnd, r.CorruptStart, r.CorruptEnd)
+	}
+}
+
+// TestZeroSizeCorruptSampleRangeIsOrdered verifies a zero-length damaged
+// sample still yields a non-inverted byte interval.
+func TestZeroSizeCorruptSampleRangeIsOrdered(t *testing.T) {
+	sc := scanTrack(30, 5, -1, -1)
+	sc.Tracks[0].Samples[12].Corrupt = true
+	sc.Tracks[0].Samples[12].Size = 0
+	tl := timelineWith(
+		[]model.Clip{{ID: "C1", Track: "V1", Start: rat(0, 1), Duration: rat(1, 1), SourceIn: rat(0, 1)}},
+		[]model.Track{videoTrack("V1")},
+	)
+	g, _ := graph.Build(tl)
+	res := recover.Run(recover.Input{Timeline: tl, Graph: g, Scans: map[string]*mp4.Scan{"V1": sc}}, recover.Config{})
+	if len(res.Ranges) != 1 {
+		t.Fatalf("ranges = %+v", res.Ranges)
+	}
+	r := res.Ranges[0]
+	if r.CorruptEnd < r.CorruptStart {
+		t.Fatalf("inverted corrupt range [%d,%d]", r.CorruptStart, r.CorruptEnd)
+	}
+}

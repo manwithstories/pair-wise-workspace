@@ -137,6 +137,11 @@ func Run(in Input, cfg Config) Result {
 	for i := range in.Timeline.Clips {
 		clipByID[in.Timeline.Clips[i].ID] = &in.Timeline.Clips[i]
 	}
+	// Clip-level blocking: a clip cannot be recovered if any clip it depends
+	// on (its parent) is blocked or itself unusable. The graph's topological
+	// order guarantees the parent is decided first.
+	clipBlocked := map[string]string{}
+
 	for _, id := range topoOrder(in.Graph) {
 		cid, isClip := trimClip(id)
 		if !isClip {
@@ -148,11 +153,20 @@ func Run(in Input, cfg Config) Result {
 		}
 		clip := *clipPtr
 		st := states[clip.Track]
-		if st == nil || !trackReady[clip.Track] {
-			reason := "owning track unavailable"
+		var reason string
+		switch {
+		case st == nil || !trackReady[clip.Track]:
+			reason = "owning track unavailable"
 			if st != nil && st.Reason != "" {
 				reason = st.Reason
 			}
+		case clip.Parent != "":
+			if upstream, blocked := clipBlocked[clip.Parent]; blocked {
+				reason = "parent clip " + clip.Parent + " is blocked: " + upstream
+			}
+		}
+		if reason != "" {
+			clipBlocked[cid] = reason
 			res.Boundaries = append(res.Boundaries,
 				Boundary{Clip: cid, Track: clip.Track, Edge: "in", Intended: clip.Start, Status: "blocked", Keyframe: -1, ErrorUS: -1},
 				Boundary{Clip: cid, Track: clip.Track, Edge: "out", Intended: clip.Start.Add(clip.Duration), Status: "blocked", Keyframe: -1, ErrorUS: -1},
