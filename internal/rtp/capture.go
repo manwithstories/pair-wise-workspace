@@ -32,10 +32,11 @@ type CaptureHeader struct {
 
 // CaptureRecord 是一条采集记录：一个 RTP 包及其到达时间、源字节偏移。
 type CaptureRecord struct {
-	DeviceID    string
-	ArrivalNano int64
-	Packet      []byte // 完整 RTP 报文（含头部）
-	FileOffset  int64  // 记录在采集文件中的起始字节偏移
+	DeviceID     string
+	ArrivalNano  int64
+	Packet       []byte // 完整 RTP 报文（含头部）
+	FileOffset   int64  // 记录在采集文件中的起始字节偏移
+	HeaderOffset int64  // 记录头（magic 起）的绝对字节偏移，用作续跑水位
 }
 
 // WriteCaptureHeader 写出 32 字节定长采集头。
@@ -153,7 +154,8 @@ func (c *CaptureReader) Next() (CaptureRecord, error) {
 			clock.NoSeq, "record payload length mismatch", "跳过损坏文件")
 	}
 	rec.Packet = body[pos : pos+pl]
-	rec.FileOffset = off
+	rec.HeaderOffset = off
+	rec.FileOffset = off + 5 + int64(pos)
 	return rec, nil
 }
 

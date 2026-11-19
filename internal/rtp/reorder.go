@@ -335,6 +335,11 @@ func (r *Reorderer) Stats() Stats {
 	return r.stats
 }
 
+// RestoreStats 在检查点续跑时恢复统计基线（缺口列表同样带回）。
+func (r *Reorderer) RestoreStats(s Stats) {
+	r.stats = s
+}
+
 func bytesEqual(a, b []byte) bool {
 	if len(a) != len(b) {
 		return false
