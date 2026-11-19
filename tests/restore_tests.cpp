@@ -910,3 +910,19 @@ TEST_CASE("nearest tick conversion bounds its rounding error", "[rational]") {
   CHECK(ticks == -44);
   CHECK(remainder.to_double() < 0.0);
 }
+
+TEST_CASE("a segment too short to gate is delivered, not failed", "[audio]") {
+  auto input = make_tone(48000, "mono", 480, 440.0, 0.5);  // 10 ms
+  media_restore::AudioRestoreConfig config;
+  config.output_rate = 48000;
+  REQUIRE(media_restore::parse_layout("mono", &config.output_layout));
+  media_restore::AudioStats stats;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  REQUIRE(media_restore::normalize_loudness(config, &input, &stats, &diagnostics));
+  CHECK(stats.short_segment);
+  bool only_warnings = true;
+  for (const auto& diagnostic : diagnostics) {
+    only_warnings &= diagnostic.severity == media_restore::Severity::warning;
+  }
+  CHECK(only_warnings);
+}

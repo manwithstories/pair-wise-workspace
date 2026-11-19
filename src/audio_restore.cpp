@@ -35,9 +35,12 @@ std::string av_error(int error) {
   return std::string(buffer);
 }
 
-Diagnostic make(ErrorCode code, std::string message, const Location& location = {}) {
+Diagnostic make(ErrorCode code, std::string message,
+                const Location& location = {},
+                Severity severity = Severity::error) {
   Diagnostic diagnostic;
   diagnostic.code = code;
+  diagnostic.severity = severity;
   diagnostic.message = std::move(message);
   diagnostic.location = location;
   return diagnostic;
@@ -535,11 +538,14 @@ bool measure_loudness(const PcmBuffer& buffer, double* lufs, double* true_peak,
     measured = buffer;
   }
   if (measured.frames < kBlockStep) {
+    // Too short to gate: report the explicit short-path warning, keep the
+    // measured true peak, and leave loudness at the silence floor.  The
+    // caller skips gain, so the segment is still delivered.
     diagnostics->push_back(make(
         ErrorCode::loudness_invalid,
         "segment is shorter than one 100 ms gating block; loudness stays at "
         "the silence floor",
-        {}));
+        {}, Severity::warning));
     return true;
   }
 
@@ -1051,7 +1057,12 @@ bool restore_segment_audio(const std::filesystem::path& source,
   if (!normalize_loudness(config, &converted, &stats, diagnostics)) return false;
   if (!encode_wav(converted, &out->wav, diagnostics)) return false;
   out->stats = stats;
-  return diagnostics->size() == before;
+  // Warnings (a segment too short to gate, for example) are expected outcomes,
+  // not failures; only error-level diagnostics fail the segment.
+  for (size_t i = before; i < diagnostics->size(); ++i) {
+    if ((*diagnostics)[i].is_error()) return false;
+  }
+  return true;
 }
 
 }  // namespace media_restore
