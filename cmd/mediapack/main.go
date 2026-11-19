@@ -18,7 +18,6 @@ import (
 	"mediapack/internal/fault"
 	"mediapack/internal/fixture"
 	"mediapack/internal/index"
-	"mediapack/internal/manifest"
 	"mediapack/internal/metrics"
 	"mediapack/internal/pipeline"
 )
@@ -195,13 +194,7 @@ func cmdVerify(args []string) int {
 	if faults != nil && faults.MaxSeverity() >= fault.Fatal {
 		return exitMedia
 	}
-	loaded, err := manifest.Load(*manifestPath)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "verify:", err)
-		return exitParam
-	}
-	_ = m
-	metrics.Render(os.Stdout, loaded)
+	metrics.Render(os.Stdout, m)
 	fmt.Println("verify: ok")
 	return exitOK
 }

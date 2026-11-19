@@ -56,11 +56,12 @@ func Verify(input, manifestPath string) (*manifest.Manifest, *fault.List, error)
 	if err != nil {
 		return nil, c.Faults, err
 	}
+	expected.Digest = expected.ComputeDigest()
 	if expected.Digest != m.Digest {
-		return expected, c.Faults, fmt.Errorf("%w: digest %s != recomputed %s",
+		return nil, c.Faults, fmt.Errorf("%w: digest %s != recomputed %s",
 			ErrManifestMismatch, m.Digest, expected.Digest)
 	}
-	return expected, c.Faults, nil
+	return m, c.Faults, nil
 }
 
 // IsManifestMismatch reports whether err is a manifest/media mismatch.

@@ -25,7 +25,11 @@ func Cut(master *demux.Track, targetTicks int64) []Boundary {
 	kfs := keyframeTimes(master)
 	dur := clock.Ticks(master.Duration(), master.Timescale)
 	bounds := []Boundary{{Ticks: 0}}
-	if len(kfs) > 0 && kfs[0].Ticks == 0 {
+	if len(kfs) > 0 {
+		// The first boundary sits on the first keyframe: there is no
+		// presentable video before it, and anchoring here keeps every
+		// representation exactly aligned at the stream start.
+		bounds[0].Ticks = kfs[0].Ticks
 		bounds[0].SampleIndex = kfs[0].Index
 	}
 	for target := targetTicks; target < dur; target += targetTicks {
@@ -34,7 +38,7 @@ func Cut(master *demux.Track, targetTicks int64) []Boundary {
 			break
 		}
 		last := bounds[len(bounds)-1].Ticks
-		if kf.Ticks <= last { // dedupe: never go backwards or repeat
+		if kf.Ticks <= last || kf.Ticks >= dur { // dedupe and stay inside
 			continue
 		}
 		bounds = append(bounds, Boundary{Ticks: kf.Ticks, SampleIndex: kf.Index})

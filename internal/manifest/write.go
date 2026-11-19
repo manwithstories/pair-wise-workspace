@@ -71,9 +71,9 @@ const (
 	CompleteName = "manifest.complete"
 )
 
-// digest computes a stable content hash over the fields that must be
-// identical across repeated runs of the same input and configuration.
-func (m *Manifest) digest() string {
+// ComputeDigest computes a stable content hash over the fields that must
+// be identical across repeated runs of the same input and configuration.
+func (m *Manifest) ComputeDigest() string {
 	core := struct {
 		Segments        []SegmentEntry   `json:"segments"`
 		Representations []Representation `json:"representations"`
@@ -94,7 +94,7 @@ func Write(dir string, m *Manifest) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	m.Digest = m.digest()
+	m.Digest = m.ComputeDigest()
 	raw, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return err
