@@ -563,7 +563,12 @@ bool measure_loudness(const PcmBuffer& buffer, double* lufs, double* true_peak,
           high_pass.process(shelf.process(static_cast<double>(samples[i])));
     }
   }
-  std::vector<double> block_levels;
+  // Block energies (sum of channel-weighted mean squares).  Keeping energy
+  // rather than dB is what makes the absolute and relative gates composable:
+  // the -0.691 calibration constant belongs to the final logarithm only, and
+  // applying it to each block and again to their mean would bias the result
+  // by -0.69 LU.
+  std::vector<double> block_energies;
   for (int64_t start = 0; start + kBlockFrames <= measured.frames;
        start += kBlockStep) {
     double sum = 0.0;
@@ -576,28 +581,34 @@ bool measure_loudness(const PcmBuffer& buffer, double* lufs, double* true_peak,
       energy /= static_cast<double>(kBlockFrames);
       sum += channel_weight(measured.layout, c) * energy;
     }
-    block_levels.push_back(-0.691 + 10.0 * std::log10(sum + 1e-30));
+    block_energies.push_back(sum);
   }
-  if (block_levels.empty()) return true;
+  if (block_energies.empty()) return true;
 
+  const auto loudness_of = [](double energy) {
+    return -0.691 + 10.0 * std::log10(energy + 1e-30);
+  };
+
+  // Absolute gate at -70 LUFS, then a relative gate 10 LU below the mean of
+  // the blocks that pass the absolute gate.
   std::vector<double> absolute_gated;
-  for (const double level : block_levels) {
-    if (level > kAbsoluteGateLufs) absolute_gated.push_back(level);
+  for (const double energy : block_energies) {
+    if (loudness_of(energy) > kAbsoluteGateLufs) absolute_gated.push_back(energy);
   }
   if (absolute_gated.empty()) {
     *silent = true;
     return true;
   }
   double sum = 0.0;
-  for (const double level : absolute_gated) sum += std::pow(10.0, level / 10.0);
+  for (const double energy : absolute_gated) sum += energy;
   const double relative_gate =
-      -0.691 + 10.0 * std::log10(sum / static_cast<double>(absolute_gated.size())) -
-      10.0;
+      loudness_of(sum / static_cast<double>(absolute_gated.size())) - 10.0;
   double final_sum = 0.0;
   size_t final_count = 0;
-  for (const double level : block_levels) {
+  for (const double energy : block_energies) {
+    const double level = loudness_of(energy);
     if (level > std::max(kAbsoluteGateLufs, relative_gate)) {
-      final_sum += std::pow(10.0, level / 10.0);
+      final_sum += energy;
       ++final_count;
     }
   }
@@ -605,7 +616,7 @@ bool measure_loudness(const PcmBuffer& buffer, double* lufs, double* true_peak,
     *silent = true;
     return true;
   }
-  *lufs = -0.691 + 10.0 * std::log10(final_sum / static_cast<double>(final_count));
+  *lufs = loudness_of(final_sum / static_cast<double>(final_count));
   return true;
 }
 

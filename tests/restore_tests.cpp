@@ -944,3 +944,22 @@ TEST_CASE("a negative audio offset is compensated with a warning", "[timeline]")
   REQUIRE_FALSE(timeline.tracks.front().segments.empty());
   CHECK(timeline.tracks.front().segments.front().audio_offset_tick < 0);
 }
+
+TEST_CASE("integrated loudness matches the BS.1770 reference for a sine", "[audio]") {
+  // A 1 kHz stereo sine at 0.5 amplitude measures about -6.0 LUFS: two
+  // channels of 0.354 rms each, plus the +0.67 dB K-weighting at 1 kHz.
+  // Mono carries half the energy, i.e. 3 LU lower at the same level.
+  auto buffer = make_tone(48000, "stereo", 48000 * 3, 1000.0, 0.5);
+  double lufs = 0.0;
+  double peak = 0.0;
+  bool silent = true;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  REQUIRE(media_restore::measure_loudness(buffer, &lufs, &peak, &silent,
+                                          &diagnostics));
+  CHECK_FALSE(silent);
+  CHECK(std::fabs(lufs - (-6.01)) < 0.1);
+  auto mono = make_tone(48000, "mono", 48000 * 3, 1000.0, 0.5);
+  REQUIRE(media_restore::measure_loudness(mono, &lufs, &peak, &silent,
+                                          &diagnostics));
+  CHECK(std::fabs(lufs - (-9.02)) < 0.1);
+}
