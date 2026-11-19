@@ -39,7 +39,9 @@ class Muxer:
         self.out_path = Path(out_path)
         self.index_path = self.out_path.with_suffix(self.out_path.suffix + ".index.json")
         self._av = av
-        self._container = av.open(str(self.out_path), "w", format="matroska")
+        # NUT: an ffmpeg-native container that stores rawvideo losslessly
+        # and keeps the exact 1/1e9 time base (matroska rejects rawvideo).
+        self._container = av.open(str(self.out_path), "w", format="nut")
         self._streams: dict[int, "av.video.stream.VideoStream"] = {}
         self._outputs: dict[int, str] = {}
         for vm in plan.videos:
