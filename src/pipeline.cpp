@@ -42,7 +42,8 @@ namespace {
 // 单轨：解封装 -> 修复 + 锚点 -> 有界队列背压 -> 索引/对齐。
 TimeError processTrack(const TrackSpec& spec, const Sidecar& sc,
                        const PipelineConfig& cfg, const Manifest& manifest,
-                       TrackResult& out, size_t& queuePeak) {
+                       TrackResult& out, size_t& queuePeak,
+                       DiagnosticLog& diagLog) {
   auto dem = demuxTrack(spec.id, sc, cfg.truncateAt);
   if (isFatal(dem.fatal)) {
     out.repair.firstBadPacket = dem.firstBadPacket;
@@ -66,13 +67,14 @@ TimeError processTrack(const TrackSpec& spec, const Sidecar& sc,
   applyDrift(dem.packets, drift);
   out.repair = repair.summary();
   out.repair.drift = drift;
+  // 修复阶段事件（回绕/重复/歧义/锚点不足）写入机器可读诊断。
+  for (const auto& ev : repair.events()) diagLog.append(ev);
 
   // 有界队列：队满背压；损坏包作为可恢复事件，不取消管线。
   PacketQueue q(cfg.queuePackets);
-  std::vector<TimeEvent> diag;
   auto stats = runPipeline(q, dem.packets, [&](MediaPacket& p) {
     if (p.corrupt)
-      diag.push_back({p.globalIndex, p.rawPts, p.repairedUs,
+      diagLog.append({p.globalIndex, p.rawPts, p.repairedUs,
                       TimeError::CorruptPacket, "corrupt packet"});
     return TimeError::None;
   });
@@ -117,7 +119,8 @@ TimeError runPipeline(const PipelineConfig& cfg, PipelineReport& rep) {
     TrackResult tr;
     tr.id = spec.id;
     tr.type = spec.type;
-    auto e = processTrack(spec, cars[spec.id], cfg, manifest, tr, rep.queuePeak);
+    auto e = processTrack(spec, cars[spec.id], cfg, manifest, tr,
+                          rep.queuePeak, diag);
     if (isFatal(e)) {
       rep.fatal = e;
       rep.firstBadPacket = tr.repair.firstBadPacket;
