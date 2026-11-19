@@ -432,3 +432,84 @@ TEST_CASE("media: missing audio track is reported, not fatal", "[media]") {
   for (auto& e : errs) missing |= e.code == kMediaMissing;
   REQUIRE(missing);
 }
+
+#include "render.hpp"
+
+TEST_CASE("render: PNG sequence, manifest hashes and partial tail",
+          "[render]") {
+  av_log_set_level(AV_LOG_QUIET);
+  auto dir = fs::temp_directory_path() /
+             ("mb_render_" + std::to_string(++cp_seq));
+  fs::remove_all(dir);
+  fs::create_directories(dir);
+  MediaSpec spec;
+  spec.path = (dir / "m.mkv").string();
+  spec.fps = {25, 1};
+  spec.duration_ms = 2000;  // 50 帧
+  REQUIRE(make_test_media(spec, nullptr));
+
+  // 时间线只覆盖 [0, 12 帧 + 半帧)，制造末尾不足整帧区间。
+  Timeline tl;
+  int64_t tick = kMasterHz / 25;
+  tl.start = 0;
+  tl.end = 12 * tick + tick / 2;  // 12.5 帧跨度
+  tl.segments.push_back({"t0", "m", 0, tl.end, 1, 7});
+
+  RenderConfig rc;
+  rc.out_dir = dir / "frames";
+  rc.media = spec;
+  rc.timeline = &tl;
+  rc.emit_frames = 0;  // 按整帧数 -> 12
+  RenderResult rr;
+  ErrList errs;
+  REQUIRE(render_frames(rc, &rr, &errs));
+  REQUIRE(rr.exported == 12);
+  REQUIRE(rr.partial_tail == 1);
+  REQUIRE(rr.frames.size() == 12);
+  for (auto& fr : rr.frames) {
+    REQUIRE(fs::exists(rc.out_dir / fr.file));
+    REQUIRE(fr.sha256.size() == 64);
+    REQUIRE(fr.track_id == "t0");
+  }
+  // 清单文件存在且行数 = 表头 + 12 帧。
+  std::ifstream mfin(rr.manifest_path);
+  std::string line;
+  int lines = 0;
+  while (std::getline(mfin, line)) ++lines;
+  REQUIRE(lines == 13);
+}
+
+TEST_CASE("render: gap produces missing frame, dense sample duplicates",
+          "[render]") {
+  av_log_set_level(AV_LOG_QUIET);
+  auto dir = fs::temp_directory_path() /
+             ("mb_render2_" + std::to_string(++cp_seq));
+  fs::remove_all(dir);
+  fs::create_directories(dir);
+  MediaSpec spec;
+  spec.path = (dir / "m.mkv").string();
+  spec.fps = {25, 1};
+  spec.duration_ms = 2000;
+  REQUIRE(make_test_media(spec, nullptr));
+
+  // 时间线含空隙：只覆盖前 3 帧，第 4、5 个采样点落入空隙 -> 缺帧。
+  Timeline tl;
+  int64_t tick = kMasterHz / 25;
+  tl.start = 0;
+  tl.end = 8 * tick;
+  tl.segments.push_back({"t0", "m", 0, 3 * tick, 1, 1});
+
+  RenderConfig rc;
+  rc.out_dir = dir / "frames";
+  rc.media = spec;
+  rc.timeline = &tl;
+  rc.emit_frames = 6;
+  RenderResult rr;
+  ErrList errs;
+  REQUIRE(render_frames(rc, &rr, &errs));
+  REQUIRE(rr.exported == 3);
+  REQUIRE(rr.missing == 3);
+  bool missCode = false;
+  for (auto& e : errs) missCode |= e.code == kRenderMissing;
+  REQUIRE(missCode);
+}
