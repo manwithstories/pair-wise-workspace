@@ -21,6 +21,7 @@ const usage = `mediasync - multi-camera media synchronisation toolkit
 
 usage:
   mediasync demo [flags]        run the full generated pipeline
+  mediasync inspect [flags]     parse caller-supplied subtitle/MP4 files
   mediasync version             print the build version
 
 flags for demo:
@@ -32,7 +33,12 @@ flags for demo:
   --overlap-ms N           clip overlap (default 200)
   --window N               RTP reorder window in packets (default 64)
   --out PATH               write the JSON report (atomic, traversal-checked)
-  --kids                   one-shot alias for --packet-loss-burst
+` + inspectUsage
+
+const inspectUsage = `
+flags for inspect:
+  --subtitle a.srt,b.vtt   parse subtitles and report issues with offsets
+  --mp4 a.mp4,b.mp4        build sample/keyframe indexes and report issues
 `
 
 func main() {
@@ -48,6 +54,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "demo":
 		return runDemo(args[1:], stdout, stderr)
+	case "inspect":
+		return runInspect(args[1:], stdout, stderr)
 	case "version", "--version", "-v":
 		fmt.Fprintln(stdout, "mediasync 1.0.0")
 		return 0
