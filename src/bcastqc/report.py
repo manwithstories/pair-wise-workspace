@@ -164,7 +164,6 @@ class BatchReport:
         return any(r.sync_error_ms is not None for r in self.successful)
 
     def thresholds(self) -> dict[str, dict[str, Any]]:
-        sync = self.sync_error_ms()
         return {
             "sync_error_ms": _check(
                 self.measured_sync_error_ms(),
