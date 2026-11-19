@@ -16,15 +16,17 @@ import (
 
 // audioResult is the outcome of the audio chain.
 type audioResult struct {
-	dropped     int64
-	evicted     int64
-	latencies   []float64
-	before      []audio.Block
-	after       []audio.Block
-	stats       audio.LoudnessStats
-	roundingErr float64
-	plan        audio.MappingPlan
-	format      audio.Format
+	sourceFrames int64
+	outputFrames int64
+	dropped      int64
+	evicted      int64
+	latencies    []float64
+	before       []audio.Block
+	after        []audio.Block
+	stats        audio.LoudnessStats
+	roundingErr  float64
+	plan         audio.MappingPlan
+	format       audio.Format
 }
 
 // runAudio performs generate -> parse -> decode -> map -> resample -> queue ->
@@ -124,6 +126,8 @@ func runAudio(ctx context.Context, opts Options) (audioResult, stream.Stats, err
 	res.after, res.stats = audio.Loudness(res.before, audio.LoudnessConfig{
 		TargetLUFS: opts.TargetLUFS, PeakCeiling: opts.PeakCeiling})
 	res.roundingErr = r.RoundingError()
+	res.sourceFrames = r.InFrames()
+	res.outputFrames = r.OutFrames()
 	res.format = format
 	return res, q.Stats(), nil
 }

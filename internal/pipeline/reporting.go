@@ -81,7 +81,7 @@ func Run(ctx context.Context, opts Options) *report.Report {
 	rep.QueuePeakBytes = qstats.PeakBytes
 	rep.QueuePeakTicks = qstats.PeakTicks
 	rep.Blocks = len(audioRes.before)
-	rep.Frames = len(audioRes.before)
+	rep.Frames = int(audioRes.sourceFrames)
 	rep.Consumed = qstats.Dequeued
 	rep.Dropped = qstats.Dropped + audioRes.dropped
 	rep.Evicted = qstats.Evicted + audioRes.evicted
@@ -92,7 +92,7 @@ func Run(ctx context.Context, opts Options) *report.Report {
 	rep.PeakAfter = audioRes.stats.PeakAfter
 	rep.GainDB = audioRes.stats.GainDB
 	rep.RoundingError = audioRes.roundingErr
-	rep.Resamples = int64(len(audioRes.before))
+	rep.Resamples = audioRes.outputFrames
 	rep.LatencySamples = len(audioRes.latencies)
 	rep.LatencyP95Ms = percentile(audioRes.latencies, 0.95)
 	rep.PacketRecovery = rec.Rate

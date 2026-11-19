@@ -84,6 +84,12 @@ func TestRunResamplesWhenRatesDiffer(t *testing.T) {
 	if !rep.Passed {
 		t.Fatalf("resample run failed: %+v", rep.Metrics)
 	}
+	if rep.Frames != 44100 {
+		t.Fatalf("source frames=%d want 44100", rep.Frames)
+	}
+	if rep.Resamples != 48000 {
+		t.Fatalf("output frames=%d want 48000", rep.Resamples)
+	}
 	if rep.RoundingError < 0 || rep.RoundingError >= 1 {
 		t.Fatalf("rounding error %v outside one sample", rep.RoundingError)
 	}

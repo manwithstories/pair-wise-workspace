@@ -217,6 +217,9 @@ func (r *Resampler) Slurp(endOfStream bool, blockFrames int) []Block {
 // OutFrames is the number of emitted output frames.
 func (r *Resampler) OutFrames() int64 { return r.out }
 
+// InFrames is the number of source frames pushed so far.
+func (r *Resampler) InFrames() int64 { return r.written }
+
 // RoundingError reports the cumulative rounding error in source samples: the
 // gap between the ideal continuous output duration and the integer number of
 // emitted frames. It grows from integer frame quantization only.
