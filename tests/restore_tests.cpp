@@ -926,3 +926,21 @@ TEST_CASE("a segment too short to gate is delivered, not failed", "[audio]") {
   }
   CHECK(only_warnings);
 }
+
+TEST_CASE("a negative audio offset is compensated with a warning", "[timeline]") {
+  media_restore::Manifest manifest;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  const auto text = manifest_with_tracks(
+      R"({"id":"a","kind":"audio","depends_on":[],"segments":[
+          {"id":"s1","start":"0/1","duration":"2/1","media":"m.wav",
+           "audio":{"sample_rate":48000,"layout":"stereo","offset":"-1/100"}}]})");
+  REQUIRE(media_restore::parse_manifest(text, &manifest, &diagnostics));
+  media_restore::Timeline timeline;
+  const bool ok = media_restore::build_timeline(manifest, &diagnostics, &timeline);
+  CHECK(ok);  // a warning must not fail the timeline
+  REQUIRE_FALSE(diagnostics.empty());
+  CHECK(diagnostics.back().severity == media_restore::Severity::warning);
+  CHECK(diagnostics.back().code == media_restore::ErrorCode::segment_negative);
+  REQUIRE_FALSE(timeline.tracks.front().segments.empty());
+  CHECK(timeline.tracks.front().segments.front().audio_offset_tick < 0);
+}
