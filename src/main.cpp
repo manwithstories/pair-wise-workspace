@@ -307,6 +307,25 @@ bool inspect_archive(const Manifest& manifest, const Limits& limits,
                   segment_diagnostics.push_back(std::move(diagnostic));
                 }
                 segment_ok = false;
+              } else if (index.version != loaded.version &&
+                         index.version != 0) {
+                // The manifest is authoritative about which index format the
+                // archive was built with; a file written under another version
+                // is a disagreement, not a fallback opportunity.
+                Location where;
+                where.track = track.id;
+                where.segment = segment.id;
+                where.field = "version";
+                Diagnostic diagnostic;
+                diagnostic.code = ErrorCode::index_version;
+                diagnostic.message =
+                    "index version in the manifest (" +
+                    std::to_string(index.version) +
+                    ") differs from the index file (" +
+                    std::to_string(loaded.version) + ")";
+                diagnostic.location = where;
+                segment_diagnostics.push_back(std::move(diagnostic));
+                segment_ok = false;
               } else {
                 index.entries = std::move(loaded.entries);
                 if (index.version == 0) index.version = loaded.version;

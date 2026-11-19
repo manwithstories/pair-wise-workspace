@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <fstream>
 #include <limits>
 #include <string>
 #include <vector>
@@ -859,4 +860,27 @@ TEST_CASE("index entries recovered from a scan keep their origin", "[bitstream]"
     CHECK(candidate.origin == media_restore::EntryOrigin::scan);
     CHECK_FALSE(candidate.tick.has_value());
   }
+}
+
+TEST_CASE("index version disagreements surface as diagnostics", "[bitstream]") {
+  // The manifest names version 2 while the file on disk is version 1: this is
+  // a schema disagreement, not something to silently accept.
+  media_restore::Limits limits;
+  const std::string index_text = R"({
+    "format": "media-archive-keyframe-index", "version": 1,
+    "entries": [{"tick": 0, "offset": 0, "keyframe": true}]
+  })";
+  const std::filesystem::path path =
+      std::filesystem::temp_directory_path() / "mr-index-version-test.json";
+  {
+    std::ofstream out(path);
+    out << index_text;
+  }
+  media_restore::KeyframeIndex index;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  REQUIRE(media_restore::load_keyframe_index(path, limits, &index, &diagnostics));
+  CHECK(index.version == 1);
+  std::error_code ec;
+  std::filesystem::remove(path, ec);
+
 }
