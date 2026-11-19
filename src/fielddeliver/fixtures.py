@@ -20,6 +20,11 @@ from .model import (ColorDecl, ColorStrategy, Manifest, PaddingPolicy,
 
 NANOS = 1_000_000
 
+# 同步闪光帧序号；对应时刻 SYNC_FLASH_FRAME / frame_rate 秒，
+# 音频同步脉冲也放在同一时刻，供互相关实测音画同步。
+SYNC_FLASH_FRAME = 2
+SYNC_PULSE_S = SYNC_FLASH_FRAME / 30.0
+
 
 # ---------------------------------------------------------------- 视频生成
 
@@ -47,6 +52,9 @@ def _encode_video(path: str, codec: VideoCodec, frames: int,
         x = int((i * 7) % max(1, width - 20))
         img[:, x:x + 16, 0] = 200
         img[:, :, 1] = (i * 9) % 255
+        # 同步闪光：固定第 2 帧全帧高亮，与音频同步脉冲同一时刻(2/rate 秒)。
+        if i == SYNC_FLASH_FRAME:
+            img[:, :, :] = 235
         noise = rng.integers(0, 24, size=(height, width, 1), dtype=np.int16)
         img = np.clip(img.astype(np.int16) + noise, 0, 255).astype(np.uint8)
         frame = av.VideoFrame.from_ndarray(img, format="rgb24")
@@ -290,11 +298,11 @@ def generate_demo(out_root: str, seed: int) -> Manifest:
 
     # 音频：分轨、不同采样率/布局/偏移；含一条空音轨边界样例。
     audio_specs = [
-        ("aud_master", 48000, 2, "stereo", 0.05, 0, 48000, "stereo",
+        ("aud_master", 48000, 2, "stereo", SYNC_PULSE_S, 0, 48000, "stereo",
          PaddingPolicy.SILENCE, ["cam_a"]),
-        ("aud_lav", 44100, 1, "mono", 0.05, 1_000, 16000, "mono",
+        ("aud_lav", 44100, 1, "mono", SYNC_PULSE_S, 1_000, 16000, "mono",
          PaddingPolicy.SILENCE, ["cam_a"]),
-        ("aud_empty", 48000, 1, "mono", 0.05, 0, 48000, "mono",
+        ("aud_empty", 48000, 1, "mono", SYNC_PULSE_S, 0, 48000, "mono",
          PaddingPolicy.SILENCE, ["cam_b"]),
     ]
     for tid, sr, ch, layout, pulse_s, off, tgt_sr, tgt_layout, pad, deps in \
