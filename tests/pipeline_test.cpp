@@ -468,3 +468,68 @@ TEST_CASE("hash collision with differing summary is not deleted",
     REQUIRE_FALSE(d.check_and_add(r1).has_value());
     REQUIRE_FALSE(d.check_and_add(r2).has_value());    // 不凭哈希删除
 }
+
+// ---- 检查点 ----
+#include "checkpoint.hpp"
+TEST_CASE("checkpoint roundtrip preserves cursors and segments",
+          "[checkpoint]") {
+    auto path = std::string("/tmp/mdtest_cp_") +".state";
+    ProcessConfig cfg;
+    CheckpointData cp;
+    cp.param_version = PARAM_VERSION;
+    cp.input_sha256 = Sha256::hash_bytes(
+        reinterpret_cast<const uint8_t*>("in"), 2);
+    cp.params_sha256 = hash_config(cfg);
+    cp.stage = PipelineStage::Segment;
+    cp.source_cursor = 123;
+    cp.timeline_cursor = 456789;
+    cp.recovered_stage = "timeline";
+    cp.segments.push_back({1, std::string(64, 'a'), 100, 200, 9});
+    cp.segments.push_back({2, std::string(64, 'b'), 300, 400, 7});
+    PipelineError err;
+    REQUIRE(save_checkpoint(path, cp, err));
+    auto loaded = load_checkpoint(path, err);
+    REQUIRE(loaded.has_value());
+    REQUIRE(loaded->source_cursor == 123);
+    REQUIRE(loaded->timeline_cursor == 456789);
+    REQUIRE(loaded->stage == PipelineStage::Segment);
+    REQUIRE(loaded->recovered_stage == "timeline");
+    REQUIRE(loaded->segments.size() == 2);
+    REQUIRE(loaded->segments[1].sha256_hex == std::string(64, 'b'));
+    REQUIRE(validate_checkpoint(*loaded, cp.input_sha256,
+                                cp.params_sha256) == CpReject::None);
+}
+
+TEST_CASE("changed input or params rejects checkpoint with reason",
+          "[checkpoint][corrupt]") {
+    auto path = std::string("/tmp/mdtest_cp2_") +".state";
+    ProcessConfig cfg;
+    CheckpointData cp;
+    cp.input_sha256 = Sha256::hash_bytes(
+        reinterpret_cast<const uint8_t*>("old"), 3);
+    cp.params_sha256 = hash_config(cfg);
+    PipelineError err;
+    REQUIRE(save_checkpoint(path, cp, err));
+    auto loaded = load_checkpoint(path, err);
+    REQUIRE(loaded.has_value());
+    auto new_input = Sha256::hash_bytes(
+        reinterpret_cast<const uint8_t*>("new-input"), 9);
+    REQUIRE(validate_checkpoint(*loaded, new_input, cp.params_sha256)
+            == CpReject::InputChanged);
+    cfg.queue_capacity = 4; // 参数变化
+    REQUIRE(validate_checkpoint(*loaded, cp.input_sha256, hash_config(cfg))
+            == CpReject::ParamsChanged);
+    loaded->param_version = PARAM_VERSION + 1;
+    REQUIRE(validate_checkpoint(*loaded, cp.input_sha256, cp.params_sha256)
+            == CpReject::ParamVersion);
+}
+
+TEST_CASE("corrupt checkpoint file is detected", "[checkpoint][corrupt]") {
+    auto path = std::string("/tmp/mdtest_cp3_") +".state";
+    std::string io;
+    REQUIRE(atomic_write(path, std::vector<uint8_t>(50, 0xEE), io));
+    PipelineError err;
+    auto loaded = load_checkpoint(path, err);
+    REQUIRE_FALSE(loaded.has_value());
+    REQUIRE(err.type == ErrType::CheckpointMismatch);
+}
