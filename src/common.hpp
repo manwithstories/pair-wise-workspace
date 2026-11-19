@@ -29,6 +29,7 @@ enum class ErrType {
     ClockDrift,          // RTCP 漂移超限
     DecodeError,         // 解码失败（损坏帧，不计静音）
     DiskWriteFailed,     // 磁盘写入失败
+    IoReadFailed,        // 输入读取失败
     QueueCancelled,      // 有界队列被取消
     CheckpointMismatch,  // 检查点与输入/参数不兼容
     SegmentHashMismatch, // 已落盘片段哈希校验失败

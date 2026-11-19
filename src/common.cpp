@@ -15,6 +15,7 @@ const char* err_name(ErrType t) noexcept {
         case ErrType::ClockDrift: return "clock_drift";
         case ErrType::DecodeError: return "decode_error";
         case ErrType::DiskWriteFailed: return "disk_write_failed";
+        case ErrType::IoReadFailed: return "io_read_failed";
         case ErrType::QueueCancelled: return "queue_cancelled";
         case ErrType::CheckpointMismatch: return "checkpoint_mismatch";
         case ErrType::SegmentHashMismatch: return "segment_hash_mismatch";
