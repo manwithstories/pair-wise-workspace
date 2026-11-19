@@ -112,10 +112,11 @@ class AnalyzeTests(unittest.TestCase):
         b = np.concatenate([np.zeros(4800, dtype=np.int16),
                             (tone * 0.1 * 32767).astype(np.int16)])
         fpa, fpb = analyze.audio_fingerprint(a, rate), analyze.audio_fingerprint(b, rate)
-        self.assertEqual(fpa, fpb)
+        self.assertGreaterEqual(analyze.fingerprint_similarity(fpa, fpb), 0.95)
         other = (np.sin(2 * np.pi * 900 * t) * 0.3 * 32767).astype(np.int16)
-        mapping = analyze.find_duplicates(
-            [fpa, analyze.audio_fingerprint(other, rate), fpb])
+        fp_other = analyze.audio_fingerprint(other, rate)
+        self.assertLess(analyze.fingerprint_similarity(fpa, fp_other), 0.90)
+        mapping = analyze.find_duplicates([fpa, fp_other, fpb])
         self.assertEqual(mapping, {2: 0})
 
 
@@ -157,8 +158,29 @@ class PipelineE2ETests(unittest.TestCase):
         self.assertTrue(info.has_audio and info.has_video)
         pkts = probe.probe_packets(self.dir / "input" / "program.mp4", ErrorLog())
         self.assertTrue(probe.detect_vfr(pkts))
+        self.assertTrue(all(p.pos >= 0 for p in pkts[:10]))
+        log = ErrorLog()
+        pkts = probe.probe_packets(self.dir / "input" / "truncated.mp4", log)
+        self.assertTrue(pkts)
+        bad = log.by_code("bad_packet")
+        self.assertEqual(len(bad), 1)
+        self.assertGreater(bad[0].source_offset, 0)
         with self.assertRaises(MediaBatchError):
             probe.probe_packets(self.dir / "input" / "broken.mp4", ErrorLog())
+
+    def test_1b_missing_audio_and_drift(self):
+        log = ErrorLog()
+        info = probe.stream_info(self.dir / "input" / "video_only.mp4", log)
+        self.assertFalse(info.has_audio)
+        self.assertEqual(len(log.by_code("missing_audio_track")), 1)
+        log = ErrorLog()
+        anchors, times, rate = probe.audio_clock_anchors(
+            self.dir / "input" / "drift.mka", log)
+        self.assertEqual(rate, 48000)
+        report = timestamps.estimate_drift(anchors, times, rate)
+        self.assertFalse(report.trusted)
+        self.assertGreater(float(report.ms_per_minute), 100.0)
+        self.assertTrue(report.untrusted)
 
     def test_2_interrupt_resume_verify(self):
         rc = cli.main(["demo", "--workdir", str(self.dir), "--interrupt-after", "2"])
@@ -170,9 +192,22 @@ class PipelineE2ETests(unittest.TestCase):
         self.assertGreaterEqual(len(report["subtitle_errors"]), 3)
         self.assertLess(report["recovery_seconds"], 3.0)
         self.assertEqual(report["reprocessed_chunks"][0], 2)
-        self.assertTrue(report["duplicates"])
+        # two deliberate duplicates: cue 80 == cue 30, cue 95 == cue 40
+        self.assertEqual(len(report["duplicates"]), 2)
+        plan = json.loads((self.dir / "work" / "plan.json").read_text())
+        seq_to_text = {p["seq"]: p["text"] for p in plan}
+        texts = {seq_to_text[int(dup)] for dup in report["duplicates"]}
+        self.assertEqual(texts, {"cue 80 text", "cue 95 text"})
         self.assertTrue(any(e["source_offset"] >= 0
                             for e in report["subtitle_errors"]))
+        codes = {e["code"] for e in report["errors"]}
+        for expected in ("invalid_time", "truncated_record", "overlap",
+                         "bad_packet", "missing_audio_track", "bad_container",
+                         "untrusted_drift"):
+            self.assertIn(expected, codes)
+        drift = {d["source"].split("/")[-1]: d for d in report["drift"]}
+        self.assertTrue(drift["program.mp4"]["trusted"])
+        self.assertFalse(drift["drift.mka"]["trusted"])
         rc = cli.main(["verify", "--workdir", str(self.dir)])
         self.assertEqual(rc, 0)
         rc = cli.main(["verify", "--workdir", str(self.dir), "--corrupt-at", "4096"])
@@ -184,13 +219,51 @@ class PipelineE2ETests(unittest.TestCase):
         idx = CheckpointIndex(self.dir / "work" / "index.db")
         recs = idx.committed_chunks()
         idx.close()
+        self.assertGreaterEqual(len(recs), 7)
         target = recs[5]
         pcm = self.dir / "work" / "output.pcm"
         data = bytearray(pcm.read_bytes())
         data[target.output_offset] ^= 0xFF
         pcm.write_bytes(bytes(data))
         report = pipeline.run(self.dir, resume=True)
-        self.assertEqual(report["reprocessed_chunks"][0], 5)
+        self.assertEqual(report["reprocessed_chunks"][0], target.seq)
+        self.assertEqual(report["rolled_back_chunks"],
+                         len(recs) - recs.index(target))
+
+    def test_4_resume_is_idempotent(self):
+        # A completed run resumed again recomputes nothing and writes no
+        # extra audio: the checkpoint table and PCM must line up exactly.
+        pcm = self.dir / "work" / "output.pcm"
+        before = pcm.stat().st_size
+        report = pipeline.run(self.dir, resume=True)
+        self.assertEqual(report["reprocessed_chunks"], [])
+        self.assertEqual(pcm.stat().st_size, before)
+
+    def test_5_verify_offset_is_exact(self):
+        final = self.dir / "output" / "program.out.wav"
+        clean = final.read_bytes()
+        self.addCleanup(final.write_bytes, clean)
+        for offset in (44, 45, 4096, 100_000):
+            data = bytearray(clean)
+            data[offset] ^= 0xFF
+            final.write_bytes(bytes(data))
+            self.assertEqual(_verify_offset(self.dir), offset)
+        final.write_bytes(clean)
+        self.assertEqual(cli.main(["verify", "--workdir", str(self.dir)]), 0)
+
+
+def _verify_offset(workdir: Path) -> int:
+    """Run verify's locating logic directly and return the reported offset."""
+    from media_batch.output import locate_chunk_damage
+
+    index = CheckpointIndex(workdir / "work" / "index.db")
+    records = index.committed_chunks()
+    index.close()
+    final = workdir / "output" / "program.out.wav"
+    data_offset = 44  # soundfile's canonical PCM_16 WAV header
+    _, offset = locate_chunk_damage(
+        records, final, workdir / "work" / "output.pcm", data_offset)
+    return offset
 
 
 if __name__ == "__main__":

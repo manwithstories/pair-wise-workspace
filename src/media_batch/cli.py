@@ -2,12 +2,15 @@
 
 Exit codes: 0 = clean pass, 1 = input corrupt (error list generated),
 2 = interrupted run, recovery failure or output validation failure.
+
+The JSON output always carries the acceptance metrics:
+``error_source_offset``, ``recovery_seconds``, ``reprocessed_chunks``,
+``output_sha256`` and ``subtitle_errors``.
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import sys
 from pathlib import Path
@@ -15,10 +18,29 @@ from pathlib import Path
 from . import fixtures, pipeline
 from .errors import MediaBatchError
 from .index import CheckpointIndex
+from .output import locate_chunk_damage, sha256_streaming
 
 
 def _emit(obj: dict) -> None:
     print(json.dumps(obj, ensure_ascii=False, indent=2))
+
+
+def _summary(report: dict) -> dict:
+    """Metrics required by acceptance, plus the most useful diagnostics."""
+    errors = report.get("errors", [])
+    first = errors[0] if errors else None
+    return {
+        "status": report.get("status", "ok"),
+        "error_source_offset": first["source_offset"] if first else -1,
+        "recovery_seconds": report.get("recovery_seconds", 0.0),
+        "reprocessed_chunks": report.get("reprocessed_chunks", []),
+        "output_sha256": report.get("output_sha256", ""),
+        "subtitle_errors": report.get("subtitle_errors", []),
+        "chunks_committed": report.get("chunks_committed", 0),
+        "duplicates": report.get("duplicates", {}),
+        "silence_ms": report.get("silence_ms", []),
+        "errors": errors,
+    }
 
 
 def _cmd_demo(args) -> int:
@@ -31,9 +53,9 @@ def _cmd_demo(args) -> int:
                "workdir": str(workdir),
                "next": f"resume --workdir {workdir} --json"})
         return 2
-    report = {"status": "ok", "fixtures": info, **report}
-    _emit(report)
-    return 1 if report["errors"] else 0
+    out = {"status": "ok", "fixtures": info, **_summary(report)}
+    _emit(out)
+    return 1 if out["errors"] else 0
 
 
 def _cmd_run(args) -> int:
@@ -43,66 +65,84 @@ def _cmd_run(args) -> int:
     except pipeline.PipelineInterrupted as exc:
         _emit({"status": "interrupted", "committed_chunks": exc.committed})
         return 2
-    _emit({"status": "ok", **report})
-    return 1 if report["errors"] else 0
+    out = _summary(report)
+    _emit(out)
+    return 1 if out["errors"] else 0
 
 
 def _cmd_resume(args) -> int:
     report = pipeline.run(args.workdir, resume=True)
-    out = {"status": "ok", **report}
-    if args.json:
-        _emit(out)
-    else:
-        _emit({k: out[k] for k in ("status", "recovery_seconds",
-                                   "reprocessed_chunks", "chunks_committed",
-                                   "output_sha256")})
+    out = _summary(report)
+    if not args.json:
+        for key in ("status", "recovery_seconds", "reprocessed_chunks",
+                    "chunks_committed", "error_source_offset",
+                    "output_sha256"):
+            print(f"{key}: {out[key]}")
+        return 0
+    _emit(out)
     return 0
 
 
-def _wav_data_offset(raw: bytes) -> int:
+def _wav_data_offset(path: Path) -> int:
     """Byte offset of the PCM payload inside a RIFF/WAV file."""
-    pos = 12
-    while pos + 8 <= len(raw):
-        fourcc = raw[pos:pos + 4]
-        size = int.from_bytes(raw[pos + 4:pos + 8], "little")
-        if fourcc == b"data":
-            return pos + 8
-        pos += 8 + size + (size & 1)
-    return -1
+    with open(path, "rb") as fh:
+        header = fh.read(12)
+        if len(header) < 12 or header[:4] != b"RIFF":
+            return -1
+        while True:
+            chunk = fh.read(8)
+            if len(chunk) < 8:
+                return -1
+            fourcc = chunk[:4]
+            size = int.from_bytes(chunk[4:], "little")
+            if fourcc == b"data":
+                return fh.tell()
+            fh.seek(size + (size & 1), 1)
 
 
 def _cmd_verify(args) -> int:
     workdir = Path(args.workdir)
     final = workdir / "output" / "program.out.wav"
+    if not final.exists():
+        raise MediaBatchError("io_error", f"output not found: {final}",
+                              str(final), 0)
     if args.corrupt_at is not None:
-        data = bytearray(final.read_bytes())
-        if args.corrupt_at >= len(data):
+        if args.corrupt_at >= final.stat().st_size:
             raise MediaBatchError("io_error", "corrupt offset beyond end of file",
                                   str(final), args.corrupt_at)
-        data[args.corrupt_at] ^= 0xFF
-        final.write_bytes(bytes(data))
+        with open(final, "r+b") as fh:
+            fh.seek(args.corrupt_at)
+            byte = fh.read(1)
+            fh.seek(args.corrupt_at)
+            fh.write(bytes([byte[0] ^ 0xFF]))
+    try:
+        return _verify_output(workdir, final, args.corrupt_at is not None)
+    finally:
+        if args.corrupt_at is not None:
+            # restore the flipped byte so verify stays non-destructive
+            with open(final, "r+b") as fh:
+                fh.seek(args.corrupt_at)
+                byte = fh.read(1)
+                fh.seek(args.corrupt_at)
+                fh.write(bytes([byte[0] ^ 0xFF]))
+
+
+def _verify_output(workdir: Path, final: Path, corrupted: bool) -> int:
     index = CheckpointIndex(workdir / "work" / "index.db")
     expected = index.get_meta("output_sha256")
-    raw = final.read_bytes()
-    actual = hashlib.sha256(raw).hexdigest()
+    records = index.committed_chunks()
+    index.close()
+    actual = sha256_streaming(final)
     if actual == expected:
-        _emit({"status": "ok", "output_sha256": actual})
+        _emit({"status": "ok", "output_sha256": actual,
+               "error_source_offset": -1})
         return 0
-    # locate the first differing payload byte against the checkpointed PCM
-    offset = -1
-    pcm_ref = workdir / "work" / "output.pcm"
-    data_off = _wav_data_offset(raw)
-    if pcm_ref.exists() and data_off >= 0:
-        ref = pcm_ref.read_bytes()
-        payload = raw[data_off:data_off + len(ref)]
-        for i, (a, b) in enumerate(zip(payload, ref)):
-            if a != b:
-                offset = data_off + i
-                break
-        if offset < 0 and len(raw) - data_off != len(ref):
-            offset = data_off + min(len(payload), len(ref))
+    data_offset = _wav_data_offset(final)
+    chunk, offset = locate_chunk_damage(
+        records, final, workdir / "work" / "output.pcm", data_offset)
     _emit({"status": "output_mismatch", "code": "output_mismatch",
            "source": str(final), "error_source_offset": offset,
+           "chunk_seq": chunk.seq if chunk else -1,
            "expected_sha256": expected, "actual_sha256": actual})
     return 2
 
