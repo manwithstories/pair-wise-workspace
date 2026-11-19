@@ -23,6 +23,11 @@ find_package(Catch2 3 QUIET CONFIG)
 
 add_library(media_restore_core STATIC
   src/error.cpp
+  src/json.cpp
+  src/rational.cpp
+  src/hash.cpp
+  src/file_io.cpp
+  src/manifest.cpp
 )
 target_include_directories(media_restore_core PUBLIC include)
 target_link_libraries(media_restore_core PUBLIC PkgConfig::FFMPEG)
