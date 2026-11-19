@@ -48,6 +48,10 @@ class CheckpointStore {
 
   uint64_t total_appends() const { return total_appends_; }
   uint64_t blocks_written() const { return next_block_; }
+  // Number of records already held in durable block files after open().
+  uint64_t durable_records() const { return durable_records_; }
+  // Block index that failed validation and was rolled back during open().
+  uint64_t rolled_back_block() const { return rolled_back_block_; }
 
  private:
   std::string dir_;
@@ -55,6 +59,8 @@ class CheckpointStore {
   std::vector<KeyframeEntry> pending_;
   uint64_t next_block_ = 0;
   uint64_t total_appends_ = 0;
+  uint64_t durable_records_ = 0;
+  uint64_t rolled_back_block_ = UINT64_MAX;
   bool open_ = false;
   bool crashed_ = false;
 

@@ -1,0 +1,5 @@
+if(EXISTS "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests-b12d07c_tests.cmake")
+  include("/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests-b12d07c_tests.cmake")
+else()
+  add_test(recovery-tests_NOT_BUILT-b12d07c recovery-tests_NOT_BUILT-b12d07c)
+endif()

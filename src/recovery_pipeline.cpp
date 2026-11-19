@@ -112,8 +112,13 @@ Diagnostic run_recovery_pipeline(const RecoveryOptions& opt,
   }
   out->checkpoint.resumed = store.blocks_written() > 0;
   rep.checkpoint_resumed = out->checkpoint.resumed;
-  for (const auto& e : entries) {
-    d = store.append(e, opt.crash_after_index_appends);
+  rep.rolled_back_block = store.rolled_back_block();
+  // On resume, records already persisted in earlier blocks are skipped rather
+  // than appended again, keeping the rebuilt index identical to a clean run.
+  const uint64_t already_durable = store.durable_records();
+  for (uint64_t i = 0; i < entries.size(); ++i) {
+    if (i < already_durable) continue;
+    d = store.append(entries[i], opt.crash_after_index_appends);
     if (!d.ok()) {
       out->checkpoint_failure = true;
       return d;
@@ -125,16 +130,7 @@ Diagnostic run_recovery_pipeline(const RecoveryOptions& opt,
     return d;
   }
 
-  // 8. Reopen the checkpoint directory to observe rollback/resume state.
-  d = open_checkpoint_dir(opt.checkpoint_dir, opt.checkpoint,
-                          &out->checkpoint);
-  if (!d.ok()) {
-    out->checkpoint_failure = true;
-    return d;
-  }
-  rep.rolled_back_block = out->checkpoint.rolled_back_block;
-
-  // 9. Publish the standalone index file and verify seek accuracy.
+  // 8. Publish the standalone index file and verify seek accuracy.
   d = write_keyframe_index(opt.index_path, opt.codec, entries, stream.size());
   if (!d.ok()) return d;
   std::vector<uint64_t> seek_samples;

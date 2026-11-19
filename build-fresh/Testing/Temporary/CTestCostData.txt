@@ -1,0 +1,33 @@
+audio: archive round-trip preserves fragments 1 0.0252449
+audio: resample to 48k and align on shared clock 1 0.016663
+audio: truncated archive reports corrupt status 1 0.0169063
+checkpoint: blocks are written and recovered 1 0.0173635
+checkpoint: corrupt tail block rolls back 1 0.0185117
+checkpoint: crash then resume keeps only durable blocks 1 0.0182742
+checkpoint: repeated runs are deterministic 1 0.0188852
+checkpoint: resume after crash completes deterministically 1 0.0182025
+generator: all three codecs encode keyframes 1 0.141061
+generator: full sample bundle is coherent on disk 1 0.162832
+index: only keyframes are indexed with offsets and crc 1 0.0187555
+index: seek lands at or before request with measured error 1 0.0176861
+index: serialization round-trip and corruption detection 1 0.0166595
+pipeline: checkpoint rollback block is reported 1 0.34828
+pipeline: full recovery meets acceptance thresholds 1 0.221568
+pipeline: truncated stream fails with a byte offset 1 0.0734627
+pts: 33-bit wraparound is unwrapped 1 0.0184089
+pts: configured clock drift is removed 1 0.0174029
+pts: jump after a burst gap is marked uncertain 1 0.0168272
+pts: non-monotonic jump without a gap is corrected 1 0.0172115
+reader: garbage stream reports failure with offset 1 0.0167739
+reader: input over the size limit is rejected 1 0.0172123
+reader: manifest round-trips through CSV 1 0.0169791
+report: json contains every acceptance field 1 0.0175586
+report: rollback block and failure offset are surfaced 1 0.0168889
+sequence: 16-bit wraparound differs from replay 1 0.0172997
+sequence: burst loss becomes one gap interval 1 0.0166134
+sequence: duplicates are idempotent 1 0.0171304
+sequence: in-order packets are unchanged 1 0.0164803
+sequence: reordering is repaired 1 0.0170537
+sequence: trace-level recovery rate stays above 90% 1 0.0164906
+trace: deterministic and reproducible 1 0.0169424
+---

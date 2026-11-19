@@ -804,3 +804,44 @@ TEST_CASE("pipeline: truncated stream fails with a byte offset",
   REQUIRE(!d.ok());
   REQUIRE(d.status == Status::MediaCorrupt);
 }
+
+TEST_CASE("pipeline: checkpoint rollback block is reported", "[pipeline]") {
+  namespace fs = std::filesystem;
+  const fs::path base = fs::temp_directory_path() / "ma_pipe_roll";
+  fs::remove_all(base);
+  GeneratedSample sample;
+  REQUIRE(generate_sample(make_pipe_sample(CodecType::H264), &sample).ok());
+  REQUIRE(write_sample_bundle(base.string(), sample).ok());
+
+  RecoveryOptions opt;
+  opt.codec = CodecType::H264;
+  opt.input_path = (base / "stream.h264").string();
+  opt.packets_path = (base / "packets.csv").string();
+  opt.audio_path = (base / "audio.pcm").string();
+  opt.index_path = (base / "keyframes.idx").string();
+  opt.checkpoint_dir = (base / "checkpoint").string();
+  opt.checkpoint.records_per_block = 4;
+
+  PipelineResult r1;
+  REQUIRE(run_recovery_pipeline(opt, &r1).ok());
+
+  // Corrupt the last block file, then reopen through the pipeline.
+  fs::path last = opt.checkpoint_dir;
+  std::error_code ec;
+  fs::path block;
+  for (const auto& de : fs::directory_iterator(last, ec))
+    if (de.path().extension() == ".cp")
+      if (block.empty() || de.path() > block) block = de.path();
+  REQUIRE(!block.empty());
+  {
+    std::fstream f(block.string(),
+                   std::ios::in | std::ios::out | std::ios::binary);
+    f.seekp(20);
+    char flip = 0x5A;
+    f.write(&flip, 1);
+  }
+  PipelineResult r2;
+  REQUIRE(run_recovery_pipeline(opt, &r2).ok());
+  REQUIRE(r2.report.rolled_back_block != UINT64_MAX);
+  REQUIRE(r2.report.checkpoint_resumed);
+}

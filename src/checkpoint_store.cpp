@@ -146,6 +146,8 @@ Diagnostic CheckpointStore::open(const std::string& dir,
   next_block_ = recovered.last_valid_block == UINT64_MAX
                     ? 0
                     : recovered.last_valid_block + 1;
+  durable_records_ = recovered.recovered.size();
+  rolled_back_block_ = recovered.rolled_back_block;
   total_appends_ = recovered.recovered.size();
   open_ = true;
   return {};

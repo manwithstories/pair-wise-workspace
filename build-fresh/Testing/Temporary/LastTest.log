@@ -1,0 +1,756 @@
+Start testing: Nov 20 05:03 CST
+----------------------------------------------------------
+2/32 Testing: audio: resample to 48k and align on shared clock
+2/32 Test: audio: resample to 48k and align on shared clock
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "audio: resample to 48k and align on shared clock" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"audio: resample to 48k and align on shared clock" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "audio: resample to 48k and align on shared clock"
+Randomness seeded to: 1468463483
+===============================================================================
+All tests passed (6 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"audio: resample to 48k and align on shared clock" end time: Nov 20 05:03 CST
+"audio: resample to 48k and align on shared clock" time elapsed: 00:00:00
+----------------------------------------------------------
+
+1/32 Testing: audio: archive round-trip preserves fragments
+1/32 Test: audio: archive round-trip preserves fragments
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "audio: archive round-trip preserves fragments" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"audio: archive round-trip preserves fragments" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "audio: archive round-trip preserves fragments"
+Randomness seeded to: 1788812432
+===============================================================================
+All tests passed (6 assertions in 1 test case)
+
+<end of output>
+Test time =   0.03 sec
+----------------------------------------------------------
+Test Passed.
+"audio: archive round-trip preserves fragments" end time: Nov 20 05:03 CST
+"audio: archive round-trip preserves fragments" time elapsed: 00:00:00
+----------------------------------------------------------
+
+3/32 Testing: audio: truncated archive reports corrupt status
+3/32 Test: audio: truncated archive reports corrupt status
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "audio: truncated archive reports corrupt status" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"audio: truncated archive reports corrupt status" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "audio: truncated archive reports corrupt status"
+Randomness seeded to: 3798734982
+===============================================================================
+All tests passed (4 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"audio: truncated archive reports corrupt status" end time: Nov 20 05:03 CST
+"audio: truncated archive reports corrupt status" time elapsed: 00:00:00
+----------------------------------------------------------
+
+4/32 Testing: checkpoint: blocks are written and recovered
+4/32 Test: checkpoint: blocks are written and recovered
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "checkpoint: blocks are written and recovered" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"checkpoint: blocks are written and recovered" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "checkpoint: blocks are written and recovered"
+Randomness seeded to: 3018294208
+===============================================================================
+All tests passed (32 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"checkpoint: blocks are written and recovered" end time: Nov 20 05:03 CST
+"checkpoint: blocks are written and recovered" time elapsed: 00:00:00
+----------------------------------------------------------
+
+5/32 Testing: checkpoint: corrupt tail block rolls back
+5/32 Test: checkpoint: corrupt tail block rolls back
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "checkpoint: corrupt tail block rolls back" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"checkpoint: corrupt tail block rolls back" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "checkpoint: corrupt tail block rolls back"
+Randomness seeded to: 574627300
+===============================================================================
+All tests passed (37 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"checkpoint: corrupt tail block rolls back" end time: Nov 20 05:03 CST
+"checkpoint: corrupt tail block rolls back" time elapsed: 00:00:00
+----------------------------------------------------------
+
+6/32 Testing: checkpoint: crash then resume keeps only durable blocks
+6/32 Test: checkpoint: crash then resume keeps only durable blocks
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "checkpoint: crash then resume keeps only durable blocks" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"checkpoint: crash then resume keeps only durable blocks" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "checkpoint: crash then resume keeps only durable blocks"
+Randomness seeded to: 1855204644
+===============================================================================
+All tests passed (21 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"checkpoint: crash then resume keeps only durable blocks" end time: Nov 20 05:03 CST
+"checkpoint: crash then resume keeps only durable blocks" time elapsed: 00:00:00
+----------------------------------------------------------
+
+7/32 Testing: checkpoint: repeated runs are deterministic
+7/32 Test: checkpoint: repeated runs are deterministic
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "checkpoint: repeated runs are deterministic" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"checkpoint: repeated runs are deterministic" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "checkpoint: repeated runs are deterministic"
+Randomness seeded to: 2866092751
+===============================================================================
+All tests passed (79 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"checkpoint: repeated runs are deterministic" end time: Nov 20 05:03 CST
+"checkpoint: repeated runs are deterministic" time elapsed: 00:00:00
+----------------------------------------------------------
+
+8/32 Testing: checkpoint: resume after crash completes deterministically
+8/32 Test: checkpoint: resume after crash completes deterministically
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "checkpoint: resume after crash completes deterministically" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"checkpoint: resume after crash completes deterministically" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "checkpoint: resume after crash completes deterministically"
+Randomness seeded to: 4216203389
+===============================================================================
+All tests passed (124 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"checkpoint: resume after crash completes deterministically" end time: Nov 20 05:03 CST
+"checkpoint: resume after crash completes deterministically" time elapsed: 00:00:00
+----------------------------------------------------------
+
+9/32 Testing: generator: all three codecs encode keyframes
+9/32 Test: generator: all three codecs encode keyframes
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "generator: all three codecs encode keyframes" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"generator: all three codecs encode keyframes" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "generator: all three codecs encode keyframes"
+Randomness seeded to: 3211301257
+[libx264 @ 0x7c22c30000] using cpu capabilities: ARMv8 NEON DotProd I8MM
+[libx264 @ 0x7c22c30000] profile High, level 1.1, 4:2:0, 8-bit
+[libx264 @ 0x7c22c30000] frame I:3     Avg QP:20.28  size:  5157
+[libx264 @ 0x7c22c30000] frame P:42    Avg QP:20.41  size:  3017
+[libx264 @ 0x7c22c30000] mb I  I16..4: 55.6% 11.1% 33.3%
+[libx264 @ 0x7c22c30000] mb P  I16..4: 11.8%  0.0%  0.1%  P16..4: 74.6%  8.5%  4.9%  0.0%  0.0%    skip: 0.0%
+[libx264 @ 0x7c22c30000] 8x8 transform intra:4.4% inter:26.1%
+[libx264 @ 0x7c22c30000] coded y,uvDC,uvAC intra: 16.8% 90.2% 63.8% inter: 4.0% 100.0% 56.3%
+[libx264 @ 0x7c22c30000] i16 v,h,dc,p:  0%  0%  0% 100%
+[libx264 @ 0x7c22c30000] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 31%  9%  0%  0%  0%  0%  0% 61%  0%
+[libx264 @ 0x7c22c30000] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 41%  1%  4%  3%  2%  0%  1% 45%  3%
+[libx264 @ 0x7c22c30000] i8c dc,h,v,p: 19%  7%  9% 66%
+[libx264 @ 0x7c22c30000] Weighted P-Frames: Y:19.0% UV:0.0%
+[libx264 @ 0x7c22c30000] kb/s:758.28
+x265 [info]: HEVC encoder version 4.3+1-e9b8812
+x265 [info]: build info [Mac OS X][clang 21.0.0][64 bit] 8bit+10bit+12bit
+x265 [info]: using cpu capabilities: NEON Neon_DotProd Neon_I8MM
+x265 [info]: Main profile, Level-2 (Main tier)
+x265 [info]: Thread pool created using 10 threads
+x265 [warning]: Source height < 720p; disabling lookahead-slices
+x265 [info]: frame threads / pool features       : 1 / wpp(3 rows)
+x265 [info]: Slices                              : 1
+x265 [info]: Coding QT: max CU size, min CU size : 64 / 8
+x265 [info]: Residual QT: max TU size, max depth : 32 / 1 inter / 1 intra
+x265 [info]: ME / range / subpel / merge         : hex / 57 / 1 / 2
+x265 [info]: Lookahead / bframes / badapt        : 0 / 0 / 0
+x265 [info]: b-pyramid / weightp / weightb       : 0 / 1 / 0
+x265 [info]: References / ref-limit  cu / depth  : 2 / on / on
+x265 [info]: AQ: mode / str / qg-size / cu-tree  : 2 / 1.0 / 32 / 0
+x265 [info]: Rate Control / qCompress            : CRF-23.0 / 0.60
+x265 [info]: tools: rd=2 psy-rd=2.00 early-skip rskip mode=1 signhide tmvp
+x265 [info]: tools: fast-intra strong-intra-smoothing deblock sao
+x265 [info]: frame I:      3, Avg QP:17.03  kb/s: 1399.60 
+x265 [info]: frame P:     42, Avg QP:17.10  kb/s: 916.29  
+x265 [info]: Weighted P-Frames: Y:7.1% UV:0.0%
+
+encoded 45 frames in 0.09s (507.40 fps), 948.51 kb/s, Avg QP:17.10
+Svt[info]: -------------------------------------------
+Svt[info]: SVT [version]:	SVT-AV1 Encoder Lib v4.3.0
+Svt[info]: SVT [build]  :	Apple LLVM 21.0.0 (clang-2100.4.1.1)	 64 bit
+Svt[info]: LIB Build date: Nov  2 2026 07:20:12
+Svt[info]: -------------------------------------------
+Svt[info]: Level of Parallelism: 4
+Svt[info]: Number of PPCS 76
+Svt[info]: [asm level on system : up to neon_i8mm]
+Svt[info]: [asm level selected : up to neon_i8mm]
+Svt[info]: -------------------------------------------
+Svt[info]: SVT [config]: main profile	tier Main	level (auto)
+Svt[info]: SVT [config]: width / height / fps numerator / fps denominator 		: 176 / 144 / 30 / 1
+Svt[info]: SVT [config]: bit-depth / color format 					: 8 / YUV420
+Svt[info]: SVT [config]: preset / tune / pred struct 					: 8 / PSNR / random access
+Svt[info]: SVT [config]: gop size / mini-gop size / key-frame type 			: 15 / 16 / key frame
+Svt[info]: SVT [config]: BRC mode / target bitrate (kbps)				: VBR / 400 
+Svt[info]: SVT [config]: AQ mode / Variance Boost 					: 2 / 0
+Svt[info]: SVT [config]: sharpness / luminance-based QP bias 				: 0 / 0
+Svt[info]: SVT [config]: QP scale compress strength 					: 0
+Svt[info]: -------------------------------------------
+===============================================================================
+All tests passed (18 assertions in 1 test case)
+
+<end of output>
+Test time =   0.14 sec
+----------------------------------------------------------
+Test Passed.
+"generator: all three codecs encode keyframes" end time: Nov 20 05:03 CST
+"generator: all three codecs encode keyframes" time elapsed: 00:00:00
+----------------------------------------------------------
+
+11/32 Testing: index: only keyframes are indexed with offsets and crc
+11/32 Test: index: only keyframes are indexed with offsets and crc
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "index: only keyframes are indexed with offsets and crc" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"index: only keyframes are indexed with offsets and crc" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "index: only keyframes are indexed with offsets and crc"
+Randomness seeded to: 3062687845
+===============================================================================
+All tests passed (6 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"index: only keyframes are indexed with offsets and crc" end time: Nov 20 05:03 CST
+"index: only keyframes are indexed with offsets and crc" time elapsed: 00:00:00
+----------------------------------------------------------
+
+10/32 Testing: generator: full sample bundle is coherent on disk
+10/32 Test: generator: full sample bundle is coherent on disk
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "generator: full sample bundle is coherent on disk" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"generator: full sample bundle is coherent on disk" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "generator: full sample bundle is coherent on disk"
+Randomness seeded to: 1471229466
+[libx264 @ 0x7cb3014000] using cpu capabilities: ARMv8 NEON DotProd I8MM
+[libx264 @ 0x7cb3014000] profile High, level 1.1, 4:2:0, 8-bit
+[libx264 @ 0x7cb3014000] frame I:4     Avg QP:17.93  size:  5711
+[libx264 @ 0x7cb3014000] frame P:116   Avg QP:19.16  size:  3132
+[libx264 @ 0x7cb3014000] mb I  I16..4: 54.8%  9.3% 35.9%
+[libx264 @ 0x7cb3014000] mb P  I16..4:  3.4%  0.0%  0.1%  P16..4: 84.2%  7.4%  4.8%  0.0%  0.0%    skip: 0.0%
+[libx264 @ 0x7cb3014000] 8x8 transform intra:4.9% inter:35.8%
+[libx264 @ 0x7cb3014000] coded y,uvDC,uvAC intra: 23.9% 88.8% 64.3% inter: 2.7% 100.0% 57.4%
+[libx264 @ 0x7cb3014000] i16 v,h,dc,p:  0%  0%  0% 100%
+[libx264 @ 0x7cb3014000] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 29%  8%  0%  0%  0%  0%  0% 63%  0%
+[libx264 @ 0x7cb3014000] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 45%  4%  2%  4%  3%  0%  0% 40%  1%
+[libx264 @ 0x7cb3014000] i8c dc,h,v,p: 18%  8%  9% 66%
+[libx264 @ 0x7cb3014000] Weighted P-Frames: Y:12.9% UV:0.0%
+[libx264 @ 0x7cb3014000] kb/s:772.41
+===============================================================================
+All tests passed (13 assertions in 1 test case)
+
+<end of output>
+Test time =   0.16 sec
+----------------------------------------------------------
+Test Passed.
+"generator: full sample bundle is coherent on disk" end time: Nov 20 05:03 CST
+"generator: full sample bundle is coherent on disk" time elapsed: 00:00:00
+----------------------------------------------------------
+
+12/32 Testing: index: seek lands at or before request with measured error
+12/32 Test: index: seek lands at or before request with measured error
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "index: seek lands at or before request with measured error" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"index: seek lands at or before request with measured error" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "index: seek lands at or before request with measured error"
+Randomness seeded to: 4279576969
+===============================================================================
+All tests passed (6 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"index: seek lands at or before request with measured error" end time: Nov 20 05:03 CST
+"index: seek lands at or before request with measured error" time elapsed: 00:00:00
+----------------------------------------------------------
+
+13/32 Testing: index: serialization round-trip and corruption detection
+13/32 Test: index: serialization round-trip and corruption detection
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "index: serialization round-trip and corruption detection" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"index: serialization round-trip and corruption detection" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "index: serialization round-trip and corruption detection"
+Randomness seeded to: 1139837125
+===============================================================================
+All tests passed (7 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"index: serialization round-trip and corruption detection" end time: Nov 20 05:03 CST
+"index: serialization round-trip and corruption detection" time elapsed: 00:00:00
+----------------------------------------------------------
+
+15/32 Testing: pipeline: full recovery meets acceptance thresholds
+15/32 Test: pipeline: full recovery meets acceptance thresholds
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "pipeline: full recovery meets acceptance thresholds" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"pipeline: full recovery meets acceptance thresholds" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "pipeline: full recovery meets acceptance thresholds"
+Randomness seeded to: 1051771668
+[libx264 @ 0x7b8d014000] using cpu capabilities: ARMv8 NEON DotProd I8MM
+[libx264 @ 0x7b8d014000] profile High, level 1.1, 4:2:0, 8-bit
+[libx264 @ 0x7b8d014000] frame I:5     Avg QP:17.46  size:  5704
+[libx264 @ 0x7b8d014000] frame P:145   Avg QP:19.06  size:  3134
+[libx264 @ 0x7b8d014000] mb I  I16..4: 55.4%  9.3% 35.4%
+[libx264 @ 0x7b8d014000] mb P  I16..4:  3.2%  0.0%  0.1%  P16..4: 84.8%  6.9%  5.0%  0.0%  0.0%    skip: 0.0%
+[libx264 @ 0x7b8d014000] 8x8 transform intra:4.9% inter:36.5%
+[libx264 @ 0x7b8d014000] coded y,uvDC,uvAC intra: 24.1% 88.5% 64.5% inter: 2.6% 100.0% 57.6%
+[libx264 @ 0x7b8d014000] i16 v,h,dc,p:  0%  0%  0% 100%
+[libx264 @ 0x7b8d014000] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 29%  7%  1%  0%  0%  0%  0% 64%  0%
+[libx264 @ 0x7b8d014000] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 45%  5%  2%  4%  3%  0%  0% 41%  1%
+[libx264 @ 0x7b8d014000] i8c dc,h,v,p: 17%  9%  9% 65%
+[libx264 @ 0x7b8d014000] Weighted P-Frames: Y:10.3% UV:0.0%
+[libx264 @ 0x7b8d014000] kb/s:772.68
+===============================================================================
+All tests passed (13 assertions in 1 test case)
+
+<end of output>
+Test time =   0.22 sec
+----------------------------------------------------------
+Test Passed.
+"pipeline: full recovery meets acceptance thresholds" end time: Nov 20 05:03 CST
+"pipeline: full recovery meets acceptance thresholds" time elapsed: 00:00:00
+----------------------------------------------------------
+
+16/32 Testing: pipeline: truncated stream fails with a byte offset
+16/32 Test: pipeline: truncated stream fails with a byte offset
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "pipeline: truncated stream fails with a byte offset" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"pipeline: truncated stream fails with a byte offset" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "pipeline: truncated stream fails with a byte offset"
+Randomness seeded to: 2663312554
+[libx264 @ 0x7822c34000] using cpu capabilities: ARMv8 NEON DotProd I8MM
+[libx264 @ 0x7822c34000] profile High, level 1.1, 4:2:0, 8-bit
+[libx264 @ 0x7822c34000] frame I:5     Avg QP:17.46  size:  5704
+[libx264 @ 0x7822c34000] frame P:145   Avg QP:19.06  size:  3134
+[libx264 @ 0x7822c34000] mb I  I16..4: 55.4%  9.3% 35.4%
+[libx264 @ 0x7822c34000] mb P  I16..4:  3.2%  0.0%  0.1%  P16..4: 84.8%  6.9%  5.0%  0.0%  0.0%    skip: 0.0%
+[libx264 @ 0x7822c34000] 8x8 transform intra:4.9% inter:36.5%
+[libx264 @ 0x7822c34000] coded y,uvDC,uvAC intra: 24.1% 88.5% 64.5% inter: 2.6% 100.0% 57.6%
+[libx264 @ 0x7822c34000] i16 v,h,dc,p:  0%  0%  0% 100%
+[libx264 @ 0x7822c34000] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 29%  7%  1%  0%  0%  0%  0% 64%  0%
+[libx264 @ 0x7822c34000] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 45%  5%  2%  4%  3%  0%  0% 41%  1%
+[libx264 @ 0x7822c34000] i8c dc,h,v,p: 17%  9%  9% 65%
+[libx264 @ 0x7822c34000] Weighted P-Frames: Y:10.3% UV:0.0%
+[libx264 @ 0x7822c34000] kb/s:772.68
+===============================================================================
+All tests passed (4 assertions in 1 test case)
+
+<end of output>
+Test time =   0.07 sec
+----------------------------------------------------------
+Test Passed.
+"pipeline: truncated stream fails with a byte offset" end time: Nov 20 05:03 CST
+"pipeline: truncated stream fails with a byte offset" time elapsed: 00:00:00
+----------------------------------------------------------
+
+17/32 Testing: pts: 33-bit wraparound is unwrapped
+17/32 Test: pts: 33-bit wraparound is unwrapped
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "pts: 33-bit wraparound is unwrapped" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"pts: 33-bit wraparound is unwrapped" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "pts: 33-bit wraparound is unwrapped"
+Randomness seeded to: 2502961689
+===============================================================================
+All tests passed (17 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"pts: 33-bit wraparound is unwrapped" end time: Nov 20 05:03 CST
+"pts: 33-bit wraparound is unwrapped" time elapsed: 00:00:00
+----------------------------------------------------------
+
+18/32 Testing: pts: configured clock drift is removed
+18/32 Test: pts: configured clock drift is removed
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "pts: configured clock drift is removed" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"pts: configured clock drift is removed" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "pts: configured clock drift is removed"
+Randomness seeded to: 829134818
+===============================================================================
+All tests passed (1 assertion in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"pts: configured clock drift is removed" end time: Nov 20 05:03 CST
+"pts: configured clock drift is removed" time elapsed: 00:00:00
+----------------------------------------------------------
+
+14/32 Testing: pipeline: checkpoint rollback block is reported
+14/32 Test: pipeline: checkpoint rollback block is reported
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "pipeline: checkpoint rollback block is reported" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"pipeline: checkpoint rollback block is reported" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "pipeline: checkpoint rollback block is reported"
+Randomness seeded to: 2433183526
+[libx264 @ 0x7589018000] using cpu capabilities: ARMv8 NEON DotProd I8MM
+[libx264 @ 0x7589018000] profile High, level 1.1, 4:2:0, 8-bit
+[libx264 @ 0x7589018000] frame I:5     Avg QP:17.46  size:  5704
+[libx264 @ 0x7589018000] frame P:145   Avg QP:19.06  size:  3134
+[libx264 @ 0x7589018000] mb I  I16..4: 55.4%  9.3% 35.4%
+[libx264 @ 0x7589018000] mb P  I16..4:  3.2%  0.0%  0.1%  P16..4: 84.8%  6.9%  5.0%  0.0%  0.0%    skip: 0.0%
+[libx264 @ 0x7589018000] 8x8 transform intra:4.9% inter:36.5%
+[libx264 @ 0x7589018000] coded y,uvDC,uvAC intra: 24.1% 88.5% 64.5% inter: 2.6% 100.0% 57.6%
+[libx264 @ 0x7589018000] i16 v,h,dc,p:  0%  0%  0% 100%
+[libx264 @ 0x7589018000] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 29%  7%  1%  0%  0%  0%  0% 64%  0%
+[libx264 @ 0x7589018000] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 45%  5%  2%  4%  3%  0%  0% 41%  1%
+[libx264 @ 0x7589018000] i8c dc,h,v,p: 17%  9%  9% 65%
+[libx264 @ 0x7589018000] Weighted P-Frames: Y:10.3% UV:0.0%
+[libx264 @ 0x7589018000] kb/s:772.68
+===============================================================================
+All tests passed (7 assertions in 1 test case)
+
+<end of output>
+Test time =   0.35 sec
+----------------------------------------------------------
+Test Passed.
+"pipeline: checkpoint rollback block is reported" end time: Nov 20 05:03 CST
+"pipeline: checkpoint rollback block is reported" time elapsed: 00:00:00
+----------------------------------------------------------
+
+19/32 Testing: pts: jump after a burst gap is marked uncertain
+19/32 Test: pts: jump after a burst gap is marked uncertain
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "pts: jump after a burst gap is marked uncertain" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"pts: jump after a burst gap is marked uncertain" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "pts: jump after a burst gap is marked uncertain"
+Randomness seeded to: 3370979238
+===============================================================================
+All tests passed (3 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"pts: jump after a burst gap is marked uncertain" end time: Nov 20 05:03 CST
+"pts: jump after a burst gap is marked uncertain" time elapsed: 00:00:00
+----------------------------------------------------------
+
+20/32 Testing: pts: non-monotonic jump without a gap is corrected
+20/32 Test: pts: non-monotonic jump without a gap is corrected
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "pts: non-monotonic jump without a gap is corrected" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"pts: non-monotonic jump without a gap is corrected" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "pts: non-monotonic jump without a gap is corrected"
+Randomness seeded to: 167885331
+===============================================================================
+All tests passed (3 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"pts: non-monotonic jump without a gap is corrected" end time: Nov 20 05:03 CST
+"pts: non-monotonic jump without a gap is corrected" time elapsed: 00:00:00
+----------------------------------------------------------
+
+21/32 Testing: reader: garbage stream reports failure with offset
+21/32 Test: reader: garbage stream reports failure with offset
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "reader: garbage stream reports failure with offset" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"reader: garbage stream reports failure with offset" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "reader: garbage stream reports failure with offset"
+Randomness seeded to: 2369428663
+===============================================================================
+All tests passed (6 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"reader: garbage stream reports failure with offset" end time: Nov 20 05:03 CST
+"reader: garbage stream reports failure with offset" time elapsed: 00:00:00
+----------------------------------------------------------
+
+22/32 Testing: reader: input over the size limit is rejected
+22/32 Test: reader: input over the size limit is rejected
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "reader: input over the size limit is rejected" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"reader: input over the size limit is rejected" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "reader: input over the size limit is rejected"
+Randomness seeded to: 3762330684
+===============================================================================
+All tests passed (2 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"reader: input over the size limit is rejected" end time: Nov 20 05:03 CST
+"reader: input over the size limit is rejected" time elapsed: 00:00:00
+----------------------------------------------------------
+
+23/32 Testing: reader: manifest round-trips through CSV
+23/32 Test: reader: manifest round-trips through CSV
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "reader: manifest round-trips through CSV" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"reader: manifest round-trips through CSV" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "reader: manifest round-trips through CSV"
+Randomness seeded to: 1317009530
+===============================================================================
+All tests passed (6 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"reader: manifest round-trips through CSV" end time: Nov 20 05:03 CST
+"reader: manifest round-trips through CSV" time elapsed: 00:00:00
+----------------------------------------------------------
+
+24/32 Testing: report: json contains every acceptance field
+24/32 Test: report: json contains every acceptance field
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "report: json contains every acceptance field" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"report: json contains every acceptance field" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "report: json contains every acceptance field"
+Randomness seeded to: 1752009208
+===============================================================================
+All tests passed (13 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"report: json contains every acceptance field" end time: Nov 20 05:03 CST
+"report: json contains every acceptance field" time elapsed: 00:00:00
+----------------------------------------------------------
+
+25/32 Testing: report: rollback block and failure offset are surfaced
+25/32 Test: report: rollback block and failure offset are surfaced
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "report: rollback block and failure offset are surfaced" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"report: rollback block and failure offset are surfaced" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "report: rollback block and failure offset are surfaced"
+Randomness seeded to: 2040919054
+===============================================================================
+All tests passed (2 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"report: rollback block and failure offset are surfaced" end time: Nov 20 05:03 CST
+"report: rollback block and failure offset are surfaced" time elapsed: 00:00:00
+----------------------------------------------------------
+
+26/32 Testing: sequence: 16-bit wraparound differs from replay
+26/32 Test: sequence: 16-bit wraparound differs from replay
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "sequence: 16-bit wraparound differs from replay" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"sequence: 16-bit wraparound differs from replay" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "sequence: 16-bit wraparound differs from replay"
+Randomness seeded to: 518640629
+===============================================================================
+All tests passed (6 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"sequence: 16-bit wraparound differs from replay" end time: Nov 20 05:03 CST
+"sequence: 16-bit wraparound differs from replay" time elapsed: 00:00:00
+----------------------------------------------------------
+
+27/32 Testing: sequence: burst loss becomes one gap interval
+27/32 Test: sequence: burst loss becomes one gap interval
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "sequence: burst loss becomes one gap interval" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"sequence: burst loss becomes one gap interval" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "sequence: burst loss becomes one gap interval"
+Randomness seeded to: 834176667
+===============================================================================
+All tests passed (7 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"sequence: burst loss becomes one gap interval" end time: Nov 20 05:03 CST
+"sequence: burst loss becomes one gap interval" time elapsed: 00:00:00
+----------------------------------------------------------
+
+28/32 Testing: sequence: duplicates are idempotent
+28/32 Test: sequence: duplicates are idempotent
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "sequence: duplicates are idempotent" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"sequence: duplicates are idempotent" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "sequence: duplicates are idempotent"
+Randomness seeded to: 580097817
+===============================================================================
+All tests passed (4 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"sequence: duplicates are idempotent" end time: Nov 20 05:03 CST
+"sequence: duplicates are idempotent" time elapsed: 00:00:00
+----------------------------------------------------------
+
+29/32 Testing: sequence: in-order packets are unchanged
+29/32 Test: sequence: in-order packets are unchanged
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "sequence: in-order packets are unchanged" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"sequence: in-order packets are unchanged" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "sequence: in-order packets are unchanged"
+Randomness seeded to: 3677282176
+===============================================================================
+All tests passed (5 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"sequence: in-order packets are unchanged" end time: Nov 20 05:03 CST
+"sequence: in-order packets are unchanged" time elapsed: 00:00:00
+----------------------------------------------------------
+
+30/32 Testing: sequence: reordering is repaired
+30/32 Test: sequence: reordering is repaired
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "sequence: reordering is repaired" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"sequence: reordering is repaired" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "sequence: reordering is repaired"
+Randomness seeded to: 2198523210
+===============================================================================
+All tests passed (4 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"sequence: reordering is repaired" end time: Nov 20 05:03 CST
+"sequence: reordering is repaired" time elapsed: 00:00:00
+----------------------------------------------------------
+
+31/32 Testing: sequence: trace-level recovery rate stays above 90%
+31/32 Test: sequence: trace-level recovery rate stays above 90%
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "sequence: trace-level recovery rate stays above 90%" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"sequence: trace-level recovery rate stays above 90%" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "sequence: trace-level recovery rate stays above 90%"
+Randomness seeded to: 1817919450
+===============================================================================
+All tests passed (2 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"sequence: trace-level recovery rate stays above 90%" end time: Nov 20 05:03 CST
+"sequence: trace-level recovery rate stays above 90%" time elapsed: 00:00:00
+----------------------------------------------------------
+
+32/32 Testing: trace: deterministic and reproducible
+32/32 Test: trace: deterministic and reproducible
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh/recovery-tests" "trace: deterministic and reproducible" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12790/build-fresh
+"trace: deterministic and reproducible" start time: Nov 20 05:03 CST
+Output:
+----------------------------------------------------------
+Filters: "trace: deterministic and reproducible"
+Randomness seeded to: 2472862166
+===============================================================================
+All tests passed (369 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"trace: deterministic and reproducible" end time: Nov 20 05:03 CST
+"trace: deterministic and reproducible" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Nov 20 05:03 CST
