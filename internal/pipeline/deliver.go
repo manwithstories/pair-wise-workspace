@@ -15,9 +15,9 @@ import (
 
 // Verification 是验证阶段对单轨道的对账结果。
 type Verification struct {
-	Metrics         report.Metrics
-	AlignmentMS     float64
-	IndexError      *clock.StageError
+	Metrics     report.Metrics
+	AlignmentMS float64
+	IndexError  *clock.StageError
 }
 
 // Deliverables 汇总交付与验证产物，供 CLI 打印。

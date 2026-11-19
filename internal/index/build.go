@@ -74,10 +74,10 @@ type Descriptor struct {
 
 // Builder 先把 PCM 串联写入 mdat，再回填 pidx 索引并闭合容器。
 type Builder struct {
-	w        io.WriteSeeker
-	mw       *mp4.Writer
-	curOff   int64 // 下一块 PCM 在 mdat 负载中的偏移
-	open     bool
+	w      io.WriteSeeker
+	mw     *mp4.Writer
+	curOff int64 // 下一块 PCM 在 mdat 负载中的偏移
+	open   bool
 }
 
 // NewBuilder 写出 ftyp 与打开 moov/mdat 之前的准备结构。

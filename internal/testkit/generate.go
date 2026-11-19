@@ -37,18 +37,18 @@ type BlockRef struct {
 
 // Spec 是夹具的地面真值，供测试断言与 demo 摘要对账。
 type Spec struct {
-	Seed               int64       `json:"seed"`
-	BandwidthTrace     string      `json:"bandwidth_trace"`
+	Seed               int64        `json:"seed"`
+	BandwidthTrace     string       `json:"bandwidth_trace"`
 	Devices            []DeviceSpec `json:"devices"`
-	DuplicatePackets   int         `json:"duplicate_packets"`
-	ConflictPackets    int         `json:"conflict_packets"`
-	ReorderSwaps       int         `json:"reorder_swaps"`
-	BurstLossPerDevice int         `json:"burst_loss_packets_per_device"`
-	LostBlocks         []BlockRef  `json:"lost_blocks"`
-	TruncatedBlocks    []BlockRef  `json:"truncated_blocks"`
-	DriftBlocks        []BlockRef  `json:"drift_blocks"`
-	TSWrapDevices      []string    `json:"ts_wrap_devices"`
-	SeqWrapDevices     []string    `json:"seq_wrap_devices"`
+	DuplicatePackets   int          `json:"duplicate_packets"`
+	ConflictPackets    int          `json:"conflict_packets"`
+	ReorderSwaps       int          `json:"reorder_swaps"`
+	BurstLossPerDevice int          `json:"burst_loss_packets_per_device"`
+	LostBlocks         []BlockRef   `json:"lost_blocks"`
+	TruncatedBlocks    []BlockRef   `json:"truncated_blocks"`
+	DriftBlocks        []BlockRef   `json:"drift_blocks"`
+	TSWrapDevices      []string     `json:"ts_wrap_devices"`
+	SeqWrapDevices     []string     `json:"seq_wrap_devices"`
 }
 
 // DeviceCapture 是一台设备注入网络效应后的采集记录序列。

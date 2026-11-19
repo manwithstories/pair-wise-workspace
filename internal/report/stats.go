@@ -14,17 +14,17 @@ import (
 
 // Metrics 是单轨道的验证报告指标（输出字段名与验收命令保持一致）。
 type Metrics struct {
-	TrackID             uint32   `json:"track_id"`
-	DeviceID            string   `json:"device_id"`
-	TargetBitrateBps    int64    `json:"target_bitrate_bps"`
-	ActualBitrateBps    int64    `json:"actual_bitrate_bps"`
-	BitrateDeviationPct float64  `json:"bitrate_deviation_pct"`
-	ClippedPct          float64  `json:"clipped_pct"`
-	SilentPct           float64  `json:"silent_pct"`
-	MissingSamplePct    float64  `json:"missing_sample_pct"`
-	QualityP50          float64  `json:"quality_p50"`
-	QualityP95          float64  `json:"quality_p95"`
-	ManifestAlignmentMS float64  `json:"manifest_alignment_ms"`
+	TrackID             uint32  `json:"track_id"`
+	DeviceID            string  `json:"device_id"`
+	TargetBitrateBps    int64   `json:"target_bitrate_bps"`
+	ActualBitrateBps    int64   `json:"actual_bitrate_bps"`
+	BitrateDeviationPct float64 `json:"bitrate_deviation_pct"`
+	ClippedPct          float64 `json:"clipped_pct"`
+	SilentPct           float64 `json:"silent_pct"`
+	MissingSamplePct    float64 `json:"missing_sample_pct"`
+	QualityP50          float64 `json:"quality_p50"`
+	QualityP95          float64 `json:"quality_p95"`
+	ManifestAlignmentMS float64 `json:"manifest_alignment_ms"`
 }
 
 // Options 控制指标计算口径。

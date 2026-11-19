@@ -11,22 +11,22 @@ import (
 type ErrorKind string
 
 const (
-	KindTruncatedHeader     ErrorKind = "truncated_header"      // WAV 头截断
-	KindNonIntegralFrame    ErrorKind = "non_integral_frame"    // 数据长度非整帧
-	KindFormatChanged       ErrorKind = "format_changed"        // 采样率/声道数中途变化
-	KindUnsupportedPayload  ErrorKind = "unsupported_payload"   // 非约定 RTP 负载类型
-	KindDuplicateConflict   ErrorKind = "duplicate_conflict"    // 重复序号但内容冲突
-	KindBurstLoss           ErrorKind = "burst_loss"            // 突发丢包形成的缺口
-	KindTimestampWrap       ErrorKind = "timestamp_wrap"        // 32bit 时间戳回绕
-	KindClockDrift          ErrorKind = "clock_drift"           // 设备时钟漂移
-	KindDuplicateTimestamp  ErrorKind = "duplicate_timestamp"   // 重复/倒退时间戳
-	KindIndeterminate       ErrorKind = "indeterminate_gap"     // 不可判定的缺口
-	KindCacheLimit          ErrorKind = "cache_limit"           // 缓存超限触发检查点
-	KindCheckpointMismatch  ErrorKind = "checkpoint_digest_mismatch"
-	KindIndexSeek           ErrorKind = "index_seek_mismatch"   // 随机跳转读回不一致
-	KindManifestAlignment   ErrorKind = "manifest_alignment"    // 清单与索引时间基准不一致
-	KindInputTooLarge       ErrorKind = "input_too_large"
-	KindPathEscape          ErrorKind = "path_escape"
+	KindTruncatedHeader    ErrorKind = "truncated_header"    // WAV 头截断
+	KindNonIntegralFrame   ErrorKind = "non_integral_frame"  // 数据长度非整帧
+	KindFormatChanged      ErrorKind = "format_changed"      // 采样率/声道数中途变化
+	KindUnsupportedPayload ErrorKind = "unsupported_payload" // 非约定 RTP 负载类型
+	KindDuplicateConflict  ErrorKind = "duplicate_conflict"  // 重复序号但内容冲突
+	KindBurstLoss          ErrorKind = "burst_loss"          // 突发丢包形成的缺口
+	KindTimestampWrap      ErrorKind = "timestamp_wrap"      // 32bit 时间戳回绕
+	KindClockDrift         ErrorKind = "clock_drift"         // 设备时钟漂移
+	KindDuplicateTimestamp ErrorKind = "duplicate_timestamp" // 重复/倒退时间戳
+	KindIndeterminate      ErrorKind = "indeterminate_gap"   // 不可判定的缺口
+	KindCacheLimit         ErrorKind = "cache_limit"         // 缓存超限触发检查点
+	KindCheckpointMismatch ErrorKind = "checkpoint_digest_mismatch"
+	KindIndexSeek          ErrorKind = "index_seek_mismatch" // 随机跳转读回不一致
+	KindManifestAlignment  ErrorKind = "manifest_alignment"  // 清单与索引时间基准不一致
+	KindInputTooLarge      ErrorKind = "input_too_large"
+	KindPathEscape         ErrorKind = "path_escape"
 )
 
 const (
@@ -91,10 +91,10 @@ func AsStageError(err error) (*StageError, bool) {
 
 // RFC 3550 A.1 的序号回绕/乱序门限。
 const (
-	maxDropout   = 3000 // 正常正向跳变上限
-	maxMisorder  = 100  // 有界乱序/重复的逆向跳变门限
-	seqModulo    = 1 << 16
-	tsModulo int64 = 1 << 32
+	maxDropout        = 3000 // 正常正向跳变上限
+	maxMisorder       = 100  // 有界乱序/重复的逆向跳变门限
+	seqModulo         = 1 << 16
+	tsModulo    int64 = 1 << 32
 )
 
 // SeqExtender 按 RFC 3550 A.1 思路把 16bit RTP 序号展开为 64bit 单调序号。
@@ -125,7 +125,7 @@ func (s *SeqExtender) Update(seq uint16) (extended uint64, wrapped bool) {
 			wrapped = true
 		}
 		s.maxSeq = seq
-	case (1<<16-fwd) <= maxMisorder:
+	case (1<<16 - fwd) <= maxMisorder:
 		// 有界乱序/迟到包：基准态不变，按当前周期解释。
 	default:
 		// 异常大跳转：不改变基准态，缺口交由重排层处理。
@@ -191,14 +191,14 @@ type Timeline struct {
 	DeviceID   string
 	SampleRate uint32
 
-	unw          TSUnwrapper
-	started      bool
-	first        int64
-	next         int64
-	lastRTPTS    int64
-	Uncertain    []UncertainRange
-	Repaired     int   // 被纠正的时间戳数量（漂移/重复/回绕修正）
-	WrapEvents   int   // 时间戳回绕事件数
+	unw        TSUnwrapper
+	started    bool
+	first      int64
+	next       int64
+	lastRTPTS  int64
+	Uncertain  []UncertainRange
+	Repaired   int // 被纠正的时间戳数量（漂移/重复/回绕修正）
+	WrapEvents int // 时间戳回绕事件数
 }
 
 // NewTimeline 创建一条锚定在采样点 0 的设备时间线。

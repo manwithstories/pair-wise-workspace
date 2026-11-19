@@ -13,10 +13,10 @@ import (
 
 // 退出码：0 完整通过；2 输入/参数错误；3 不可恢复媒体区间；4 索引/清单校验失败。
 const (
-	exitOK            = 0
-	exitInputError    = 2
-	exitMediaError    = 3
-	exitVerifyError   = 4
+	exitOK          = 0
+	exitInputError  = 2
+	exitMediaError  = 3
+	exitVerifyError = 4
 )
 
 func main() {

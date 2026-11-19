@@ -82,19 +82,19 @@ type entry struct {
 
 // Reorderer 对单设备流做有界重排、去重与缺口估算。
 type Reorderer struct {
-	cfg     Config
-	ext     clock.SeqExtender
-	bw      *bwEstimator
-	buf     map[uint64]entry
-	arrival int64
-	maxSeq  uint64 // 已观测到的最大扩展序号
+	cfg      Config
+	ext      clock.SeqExtender
+	bw       *bwEstimator
+	buf      map[uint64]entry
+	arrival  int64
+	maxSeq   uint64 // 已观测到的最大扩展序号
 	haveSeen bool
-	lowest  uint64 // 期望输出的下一个序号
+	lowest   uint64 // 期望输出的下一个序号
 	haveBase bool
-	cached  int64
-	stats   Stats
-	deltas  []int64 // 连续输出包的 RTP 时间戳（用于中位数增量）
-	median  int64
+	cached   int64
+	stats    Stats
+	deltas   []int64 // 连续输出包的 RTP 时间戳（用于中位数增量）
+	median   int64
 }
 
 // NewReorderer 创建单设备重排器。

@@ -13,29 +13,29 @@ import (
 
 // Track 是清单中的单轨道条目。
 type Track struct {
-	TrackID          uint32   `json:"track_id"`
-	DeviceID         string   `json:"device_id"`
-	SampleRate       uint32   `json:"sample_rate"`
-	Channels         uint16   `json:"channels"`
-	BitsPerSample    uint16   `json:"bits_per_sample"`
-	StartSample      int64    `json:"start_sample"`
-	EndSample        int64    `json:"end_sample"`
-	TotalSamples     int64    `json:"total_samples"`
-	MissingSamples   int64    `json:"missing_samples"`
-	EntryCount       int      `json:"entry_count"`
-	TargetBitrateBps int64    `json:"target_bitrate_bps"`
-	ActualBitrateBps int64    `json:"actual_bitrate_bps"`
-	SourceOffsets    []int64  `json:"source_offsets"`
+	TrackID          uint32                 `json:"track_id"`
+	DeviceID         string                 `json:"device_id"`
+	SampleRate       uint32                 `json:"sample_rate"`
+	Channels         uint16                 `json:"channels"`
+	BitsPerSample    uint16                 `json:"bits_per_sample"`
+	StartSample      int64                  `json:"start_sample"`
+	EndSample        int64                  `json:"end_sample"`
+	TotalSamples     int64                  `json:"total_samples"`
+	MissingSamples   int64                  `json:"missing_samples"`
+	EntryCount       int                    `json:"entry_count"`
+	TargetBitrateBps int64                  `json:"target_bitrate_bps"`
+	ActualBitrateBps int64                  `json:"actual_bitrate_bps"`
+	SourceOffsets    []int64                `json:"source_offsets"`
 	UncertainRanges  []clock.UncertainRange `json:"uncertain_ranges,omitempty"`
 }
 
 // Manifest 是完整交付清单，时间范围与索引容器的采样时间线完全同源。
 type Manifest struct {
-	Version         int      `json:"version"`
-	CreatedNano     int64    `json:"created_nano"`
-	InputDigest     string   `json:"input_digest"`
-	TimelineBaseMS  float64  `json:"timeline_base_ms"` // 全清单统一时间基准（采样点 0）
-	Tracks          []Track  `json:"tracks"`
+	Version        int     `json:"version"`
+	CreatedNano    int64   `json:"created_nano"`
+	InputDigest    string  `json:"input_digest"`
+	TimelineBaseMS float64 `json:"timeline_base_ms"` // 全清单统一时间基准（采样点 0）
+	Tracks         []Track `json:"tracks"`
 }
 
 // WriteAtomic 在 outDir 内写临时文件后原子替换为 manifest.json。

@@ -11,8 +11,8 @@ import (
 
 // Format 描述一个 WAV 块声明的 PCM 格式。
 type Format struct {
-	SampleRate   uint32 `json:"sample_rate"`
-	Channels     uint16 `json:"channels"`
+	SampleRate    uint32 `json:"sample_rate"`
+	Channels      uint16 `json:"channels"`
 	BitsPerSample uint16 `json:"bits_per_sample"`
 }
 
@@ -21,25 +21,25 @@ func (f Format) FrameBytes() int { return int(f.Channels) * int(f.BitsPerSample)
 
 // Block 是一个解析后的采样块；即使出现可恢复错误，也尽量填充可用字段。
 type Block struct {
-	DeviceID    string          `json:"device_id"`
-	SourceOffset int64          `json:"source_offset"` // 块在采集文件中的字节偏移
-	RTPSeq      uint64          `json:"rtp_seq"`       // 扩展后的 64bit 序号
-	RTPRawSeq   uint16          `json:"rtp_raw_seq"`   // 原始 16bit 序号
-	RTPTimestamp uint32         `json:"rtp_timestamp"`
-	ArrivalNano int64           `json:"arrival_nano"`
-	Format      *Format         `json:"format,omitempty"`
-	DataOffset  int64           `json:"data_offset"` // data 负载相对源块起点的偏移
-	Data        []byte          `json:"-"`           // 原始 PCM 字节
-	FrameCount  int64           `json:"frame_count"`
-	Recoverable bool            `json:"recoverable"` // 出错但仍可继续后续处理
-	Errors      []*clock.StageError `json:"errors,omitempty"`
+	DeviceID     string              `json:"device_id"`
+	SourceOffset int64               `json:"source_offset"` // 块在采集文件中的字节偏移
+	RTPSeq       uint64              `json:"rtp_seq"`       // 扩展后的 64bit 序号
+	RTPRawSeq    uint16              `json:"rtp_raw_seq"`   // 原始 16bit 序号
+	RTPTimestamp uint32              `json:"rtp_timestamp"`
+	ArrivalNano  int64               `json:"arrival_nano"`
+	Format       *Format             `json:"format,omitempty"`
+	DataOffset   int64               `json:"data_offset"` // data 负载相对源块起点的偏移
+	Data         []byte              `json:"-"`           // 原始 PCM 字节
+	FrameCount   int64               `json:"frame_count"`
+	Recoverable  bool                `json:"recoverable"` // 出错但仍可继续后续处理
+	Errors       []*clock.StageError `json:"errors,omitempty"`
 }
 
 // SampleCount 返回该块包含的每声道采样数（帧数）。
 func (b *Block) SampleCount() int64 { return b.FrameCount }
 
 // Marshal 使 Block 可在检查点中以 JSON 持久化（Data 单独落盘）。
-func (b *Block) Marshal() ([]byte, error)  { return json.Marshal(b) }
+func (b *Block) Marshal() ([]byte, error) { return json.Marshal(b) }
 
 const (
 	riffHeaderLen = 12 // "RIFF" + size(4) + "WAVE"

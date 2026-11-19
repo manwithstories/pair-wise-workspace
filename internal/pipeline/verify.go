@@ -13,10 +13,10 @@ import (
 
 // VerifyReport 是 verify 命令对整个交付目录的对账结果。
 type VerifyReport struct {
-	Metrics        []report.Metrics
-	AlignmentByID  map[uint32]float64
+	Metrics          []report.Metrics
+	AlignmentByID    map[uint32]float64
 	HasUnrecoverable bool
-	StageErrors    []*clock.StageError
+	StageErrors      []*clock.StageError
 }
 
 // VerifyDirectory 复读交付目录中的索引容器与清单，重算全部质量与对齐指标。

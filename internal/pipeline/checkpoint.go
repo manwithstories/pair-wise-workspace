@@ -28,17 +28,17 @@ const (
 
 // DeviceCheckpoint 是单设备的续跑水位。
 type DeviceCheckpoint struct {
-	DeviceID        string     `json:"device_id"`
-	RecordsConsumed int64      `json:"records_consumed"`
-	Stats           rtp.Stats  `json:"stats"`
-	WorkPCMBytes    int64      `json:"work_pcm_bytes"`
-	SidecarEntries  int        `json:"sidecar_entries"`
-	LastSeq         uint64     `json:"last_seq"`
-	HaveSeq         bool       `json:"have_seq"`
-	NextSample      int64      `json:"next_sample"`
-	TotalSamples    int64      `json:"total_samples"`
-	WrapEvents      int        `json:"wrap_events"`
-	Repaired        int        `json:"repaired"`
+	DeviceID        string    `json:"device_id"`
+	RecordsConsumed int64     `json:"records_consumed"`
+	Stats           rtp.Stats `json:"stats"`
+	WorkPCMBytes    int64     `json:"work_pcm_bytes"`
+	SidecarEntries  int       `json:"sidecar_entries"`
+	LastSeq         uint64    `json:"last_seq"`
+	HaveSeq         bool      `json:"have_seq"`
+	NextSample      int64     `json:"next_sample"`
+	TotalSamples    int64     `json:"total_samples"`
+	WrapEvents      int       `json:"wrap_events"`
+	Repaired        int       `json:"repaired"`
 }
 
 // FileWatermark 记录单个采集文件已消费到的字节偏移。
@@ -50,13 +50,13 @@ type FileWatermark struct {
 
 // Checkpoint 是落盘的续跑状态，全部通过临时文件+原子替换写入。
 type Checkpoint struct {
-	Version      int                       `json:"version"`
-	Phase        string                    `json:"phase"`
-	InputDigest  string                    `json:"input_digest"`
-	InputBytes   int64                     `json:"input_bytes"`
-	Watermarks   []FileWatermark           `json:"watermarks"`
-	Devices      []DeviceCheckpoint        `json:"devices"`
-	UpdatedNano  int64                     `json:"updated_nano"`
+	Version     int                `json:"version"`
+	Phase       string             `json:"phase"`
+	InputDigest string             `json:"input_digest"`
+	InputBytes  int64              `json:"input_bytes"`
+	Watermarks  []FileWatermark    `json:"watermarks"`
+	Devices     []DeviceCheckpoint `json:"devices"`
+	UpdatedNano int64              `json:"updated_nano"`
 }
 
 // SafeJoin 把相对路径限定在 root 内，拒绝任何越界写法。
