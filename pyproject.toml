@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stageflow"
+version = "0.1.0"
+description = "Multicamera sync review media pipeline for live-show delivery"
+requires-python = ">=3.12"
+dependencies = [
+    "av==12.3.0",
+    "numpy==2.1.3",
+    "soundfile==0.12.1",
+]
+
+[project.optional-dependencies]
+test = []
+
+[project.scripts]
+stageflow = "stageflow.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,2 @@
+[console_scripts]
+stageflow = stageflow.cli:main
