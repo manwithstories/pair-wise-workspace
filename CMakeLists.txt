@@ -52,6 +52,7 @@ find_package(Catch2 3 QUIET)
 
 # ---- Library -----------------------------------------------------------------
 add_library(media_core STATIC
+  src/checksum.cpp
   src/cli.cpp)
 # Modules are appended to media_core in later, independently compilable batches.
 target_include_directories(media_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
