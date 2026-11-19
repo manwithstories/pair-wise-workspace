@@ -43,7 +43,9 @@ std::array<uint8_t, 32> hash_config(const ProcessConfig& cfg) {
     feed_i64(cfg.silence_split_us); feed_u32(cfg.silence_window_ms);
     feed_u32(cfg.silence_overlap_ms); feed_u32(uint32_t(cfg.silence_threshold_milli));
     feed_i64(cfg.drift_limit_us);
-    uint8_t flags = (cfg.resume ? 1u : 0u) | (cfg.aac ? 2u : 0u);
+    // resume 是运行模式而非影响媒体输出的参数，不纳入指纹；
+    // aac 改变编解码路径，需纳入
+    uint8_t flags = cfg.aac ? 2u : 0u;
     h.update(&flags, 1);
     return h.finish();
 }
@@ -63,9 +65,33 @@ bool save_checkpoint(const std::string& path, const CheckpointData& cp,
     for (const auto& s : cp.segments) {
         put_u32(buf, s.id);
         put_str(buf, s.sha256_hex);
+        put_str(buf, s.sample_summary_hex);
         put_u64(buf, uint64_t(s.begin_us));
         put_u64(buf, uint64_t(s.end_us));
         put_u32(buf, s.packets);
+        put_u32(buf, s.keyframes);
+        buf.push_back(s.keyframe_indexed ? 1u : 0u);
+        buf.push_back(s.disposition);
+        buf.push_back(s.duplicate_of_other ? 1u : 0u);
+        put_u32(buf, s.duplicate_of);
+        put_u32(buf, s.silence_count);
+    }
+    // 运行级指标
+    put_u32(buf, cp.source_packets); put_u32(buf, cp.delivered_packets);
+    put_u32(buf, cp.lost_packets); put_u32(buf, cp.duplicate_packets);
+    put_u32(buf, cp.untrusted_spans); put_u32(buf, cp.peak_queue_items);
+    put_u32(buf, cp.duplicate_count);
+    auto put_dbl = [&](double d) {
+        uint64_t bits; std::memcpy(&bits, &d, 8); put_u64(buf, bits);
+    };
+    put_dbl(cp.roundtrip_rate); put_dbl(cp.keyframe_hit_rate);
+    // 错误数组（类型/阶段/序号/消息）
+    put_u32(buf, uint32_t(cp.errors.size()));
+    for (const auto& e : cp.errors) {
+        buf.push_back(uint8_t(e.type));
+        put_str(buf, e.stage);
+        put_u32(buf, e.seq);
+        put_str(buf, e.message);
     }
     std::string io_err;
     if (!atomic_write(path, buf, io_err)) {
@@ -101,10 +127,54 @@ std::optional<CheckpointData> load_checkpoint(const std::string& path,
         SegmentCheckpoint s;
         s.id = get_u32(p + off); off += 4;
         s.sha256_hex = get_str(p, off, total);
+        s.sample_summary_hex = get_str(p, off, total);
         s.begin_us = int64_t(get_u64(p + off)); off += 8;
         s.end_us = int64_t(get_u64(p + off)); off += 8;
         s.packets = get_u32(p + off); off += 4;
+        s.keyframes = get_u32(p + off); off += 4;
+        s.keyframe_indexed = p[off++] != 0;
+        s.disposition = p[off++];
+        s.duplicate_of_other = p[off++] != 0;
+        s.duplicate_of = get_u32(p + off); off += 4;
+        s.silence_count = get_u32(p + off); off += 4;
         cp.segments.push_back(std::move(s));
+    }
+    auto rd_u32 = [&](uint32_t& v) {
+        if (off + 4 > total) return false;
+        v = get_u32(p + off); off += 4; return true;
+    };
+    if (!rd_u32(cp.source_packets) || !rd_u32(cp.delivered_packets) ||
+        !rd_u32(cp.lost_packets) || !rd_u32(cp.duplicate_packets) ||
+        !rd_u32(cp.untrusted_spans) || !rd_u32(cp.peak_queue_items) ||
+        !rd_u32(cp.duplicate_count)) {
+        err = {ErrType::CheckpointMismatch, stage::Checkpoint, 0,
+               "checkpoint corrupt: metrics truncated"};
+        return std::nullopt;
+    }
+    auto rd_dbl = [&](double& d) {
+        if (off + 8 > total) return false;
+        uint64_t bits = get_u64(p + off); off += 8;
+        std::memcpy(&d, &bits, 8); return true;
+    };
+    if (!rd_dbl(cp.roundtrip_rate) || !rd_dbl(cp.keyframe_hit_rate)) {
+        err = {ErrType::CheckpointMismatch, stage::Checkpoint, 0,
+               "checkpoint corrupt: rates truncated"};
+        return std::nullopt;
+    }
+    uint32_t nerr;
+    if (!rd_u32(nerr)) {
+        err = {ErrType::CheckpointMismatch, stage::Checkpoint, 0,
+               "checkpoint corrupt: error count truncated"};
+        return std::nullopt;
+    }
+    for (uint32_t i = 0; i < nerr; ++i) {
+        if (off + 1 > total) break;
+        PipelineError pe;
+        pe.type = ErrType(p[off++]);
+        pe.stage = get_str(p, off, total);
+        if (!rd_u32(pe.seq)) break;
+        pe.message = get_str(p, off, total);
+        cp.errors.push_back(std::move(pe));
     }
     if (off != total) {
         err = {ErrType::CheckpointMismatch, stage::Checkpoint, 0,

@@ -16,9 +16,16 @@ const char* stage_name(PipelineStage s) noexcept;
 struct SegmentCheckpoint {
     uint32_t id = 0;
     std::string sha256_hex;       // 落盘片段哈希（重启后校验）
+    std::string sample_summary_hex;
     int64_t begin_us = 0;
     int64_t end_us = 0;
     uint32_t packets = 0;
+    uint32_t keyframes = 0;
+    bool keyframe_indexed = false;
+    uint8_t disposition = 0;      // Disposition
+    bool duplicate_of_other = false;
+    uint32_t duplicate_of = 0;
+    uint32_t silence_count = 0;
 };
 
 struct CheckpointData {
@@ -31,6 +38,12 @@ struct CheckpointData {
     uint64_t timeline_cursor = 0;     // 已交付扩展包数（全部 SSRC 合计）
     std::vector<SegmentCheckpoint> segments;
     std::string recovered_stage = "none";
+    // 运行级指标快照（Complete 短路时原样恢复，保证输出字节一致）
+    uint32_t source_packets = 0, delivered_packets = 0;
+    uint32_t lost_packets = 0, duplicate_packets = 0, untrusted_spans = 0;
+    uint32_t peak_queue_items = 0, duplicate_count = 0;
+    double roundtrip_rate = 1.0, keyframe_hit_rate = 1.0;
+    std::vector<PipelineError> errors;
 };
 
 // 由配置计算参数指纹
