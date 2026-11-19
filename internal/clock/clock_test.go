@@ -239,3 +239,29 @@ func TestEstimateRefitsAroundJump(t *testing.T) {
 		t.Fatalf("drift = %.2f ppm, want ~85 after refit", drift)
 	}
 }
+
+func TestRationalJSONRoundTrip(t *testing.T) {
+	for _, r := range []Rational{
+		Zero(), NewRational(1001, 30000), NewRational(-7, 3),
+		NewRational(24*3600+17, 1), NewRational(1, 1_000_000_000),
+	} {
+		data, err := r.MarshalJSON()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var back Rational
+		if err := back.UnmarshalJSON(data); err != nil {
+			t.Fatalf("%s: %v", data, err)
+		}
+		if back != r {
+			t.Fatalf("round trip %s -> %s", r, back)
+		}
+	}
+	var bad Rational
+	if err := bad.UnmarshalJSON([]byte(`{"num":1,"den":0}`)); err == nil {
+		t.Fatal("zero denominator accepted")
+	}
+	if err := bad.UnmarshalJSON([]byte(`{"num":2,"den":4}`)); err == nil {
+		t.Fatal("un-normalised fraction accepted")
+	}
+}

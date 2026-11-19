@@ -7,6 +7,7 @@
 package clock
 
 import (
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"sort"
@@ -202,6 +203,28 @@ func (r Rational) String() string {
 // MarshalJSON emits an exact fraction object {"num":..,"den":..}.
 func (r Rational) MarshalJSON() ([]byte, error) {
 	return []byte(fmt.Sprintf(`{"num":%d,"den":%d}`, r.Num, r.Den)), nil
+}
+
+// UnmarshalJSON reads the exact fraction object back. A denominator of
+// zero is rejected rather than normalised, because it means the document
+// was not written by this package.
+func (r *Rational) UnmarshalJSON(data []byte) error {
+	var v struct {
+		Num int64 `json:"num"`
+		Den int64 `json:"den"`
+	}
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	if v.Den == 0 {
+		return fmt.Errorf("clock: rational with zero denominator")
+	}
+	norm := NewRational(v.Num, v.Den)
+	if norm.Num != v.Num || norm.Den != v.Den {
+		return fmt.Errorf("clock: un-normalised rational %d/%d", v.Num, v.Den)
+	}
+	*r = norm
+	return nil
 }
 
 // Base maps integer ticks to rational seconds. It is the single time
