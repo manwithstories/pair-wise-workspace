@@ -285,19 +285,6 @@ func VerifyFile(path string, opts VerifyOptions) (*VerifyReport, error) {
 	return rep, nil
 }
 
-func chunkCount(t *Table) uint64 {
-	if len(t.Offsets) == 0 {
-		return 0
-	}
-	var n uint64 = 1
-	for i := 1; i < len(t.Offsets); i++ {
-		if t.Offsets[i] != t.Offsets[i-1]+uint64(t.SampleSize[i-1]) {
-			n++
-		}
-	}
-	return n
-}
-
 func findMdat(f *os.File) (int64, int64, error) {
 	bis, err := mp4.ExtractBox(f, nil, mp4.BoxPath{mp4.BoxTypeMdat()})
 	if err != nil {
