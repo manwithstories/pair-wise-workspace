@@ -1,4 +1,5 @@
 add_executable(media_tests
+  frame_transform_tests.cpp
   packet_tests.cpp
   reorder_tests.cpp
   sha256_tests.cpp
