@@ -53,6 +53,7 @@ find_package(Catch2 3 QUIET)
 # ---- Library -----------------------------------------------------------------
 add_library(media_core STATIC
   src/checksum.cpp
+  src/strings.cpp
   src/sample_generator.cpp
   src/sample_fixtures.cpp
   src/stream_codec.cpp
