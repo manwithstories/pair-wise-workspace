@@ -117,6 +117,27 @@ func NewReorderBuffer(track string, limits Limits) (*ReorderBuffer, error) {
 	}, nil
 }
 
+// Rebind changes the buffer bound after a bandwidth re-sample. If the new
+// bound is below what is currently queued, the buffer advances past the hole
+// immediately so an unbound-latency queue is trimmed at the moment capacity
+// drops, not after it overflows.
+func (r *ReorderBuffer) Rebind(maxBuffered int) ([]Packet, int) {
+	if maxBuffered <= 0 {
+		return nil, 0
+	}
+	shrank := maxBuffered < r.limits.MaxBuffered
+	r.limits.MaxBuffered = maxBuffered
+	if !shrank || len(r.buf) <= maxBuffered {
+		return nil, 0
+	}
+	out, skipped := r.Advance()
+	if skipped > 0 {
+		r.stats.Timeouts++
+		r.stats.Skipped += skipped
+	}
+	return out, skipped
+}
+
 // Track returns the buffer's track id.
 func (r *ReorderBuffer) Track() string { return r.track }
 

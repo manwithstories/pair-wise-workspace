@@ -114,7 +114,9 @@ func NewRecoveryEngine(policy RecoveryPolicy, src RecoverySource) *RecoveryEngin
 // Policy returns the active policy.
 func (e *RecoveryEngine) Policy() RecoveryPolicy { return e.policy }
 
-// BufferBound returns the current per-track packet bound implied by bandwidth.
+// BufferBound returns the current per-track packet bound implied by the most
+// recent bandwidth sample. It changes as SetObservedBandwidth is called, which
+// is how the bound tracks a link whose capacity moves during a session.
 func (e *RecoveryEngine) BufferBound() int { return e.ctrl.MaxBuffered(e.policy.BandwidthMBps) }
 
 // SetBandwidth updates the bandwidth sample and therefore the buffer bound.
@@ -122,6 +124,17 @@ func (e *RecoveryEngine) SetBandwidth(mbps float64) {
 	if mbps > 0 {
 		e.policy.BandwidthMBps = mbps
 	}
+}
+
+// SetObservedBandwidth re-samples the uplink and returns the previous and new
+// buffer bounds. The caller uses the shrink/grow transition to decide whether
+// to advance past a hole: a shrinking bound means latency must be capped now,
+// not after the queue has already grown.
+func (e *RecoveryEngine) SetObservedBandwidth(mbps float64) (before, after int) {
+	before = e.BufferBound()
+	e.SetBandwidth(mbps)
+	after = e.BufferBound()
+	return before, after
 }
 
 // report returns (and lazily creates) a track's report.

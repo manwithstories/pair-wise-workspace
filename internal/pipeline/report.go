@@ -24,6 +24,7 @@ func (r *Report) accumulate(results map[string]*TrackResult, engine *transport.R
 		}
 		r.ReorderedPackets += tr.Reordered
 		r.DuplicatePackets += tr.Duplicates
+		r.Timeouts += tr.Timeouts
 		if tr.Status != StatusFailed {
 			latencies = append(latencies, tr.LatencyP95Ms)
 		}

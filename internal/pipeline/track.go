@@ -57,6 +57,11 @@ func runTrack(fx *fixture.Fixture, node *timeline.Node, engine *transport.Recove
 	var delivered []transport.Packet
 	var lostGaps []transport.Gap
 
+	// The buffer bound is re-sampled as arrivals are observed. This is what
+	// makes the buffer track a link whose capacity moves mid-session instead of
+	// fixing a bound from the initial estimate.
+	tuner := newBandwidthTuner(opts.BandwidthMBps)
+
 	for _, d := range deliveries {
 		if d.Dropped {
 			continue
@@ -78,6 +83,15 @@ func runTrack(fx *fixture.Fixture, node *timeline.Node, engine *transport.Recove
 			return res
 		}
 		delivered = append(delivered, pkts...)
+
+		if mbps, changed := tuner.observe(d.ArrivalUs); changed {
+			engine.SetBandwidth(mbps)
+			if trimmed, skipped := buf.Rebind(engine.BufferBound()); skipped > 0 {
+				delivered = append(delivered, trimmed...)
+				lostGaps = append(lostGaps, transport.Gap{Track: node.Track, Count: skipped})
+			}
+		}
+
 		if g, ok := buf.OpenGap(); ok {
 			healed, outcome, _ := engine.RepairGap(buf, d.ArrivalUs)
 			delivered = append(delivered, healed...)
@@ -117,6 +131,7 @@ func runTrack(fx *fixture.Fixture, node *timeline.Node, engine *transport.Recove
 	res.Recovered = rep.Recovered
 	res.Unrecoverable = len(lostGaps)
 	res.SkippedPackets = rep.AbandonedPkts
+	res.Timeouts = rep.Timeouts
 	res.LatencyP95Ms = p95Latency(deliveries, delivered)
 	if len(lostGaps) > 0 {
 		res.Status = StatusDegraded

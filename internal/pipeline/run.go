@@ -39,6 +39,7 @@ type TrackResult struct {
 	Recovered      int                 `json:"recovered_packets"`
 	Unrecoverable  int                 `json:"unrecoverable_gaps"`
 	SkippedPackets int                 `json:"skipped_packets"`
+	Timeouts       int                 `json:"timeouts"`
 	Affected       []timeline.Span     `json:"affected_us,omitempty"`
 	SyncOffsetUs   timeline.Micros     `json:"sync_offset_us"`
 	Audio          *audio.Result       `json:"audio,omitempty"`
@@ -60,6 +61,7 @@ type Report struct {
 	Unrecoverable    []string          `json:"unrecoverable_tracks,omitempty"`
 	ValidationErrors []*core.Error     `json:"validation_errors,omitempty"`
 	BufferBound      int                `json:"buffer_bound"`
+	Timeouts         int                `json:"timeouts"`
 	BandwidthMBps    float64            `json:"bandwidth_mbps"`
 	Container        *mp4.ContainerInfo `json:"container,omitempty"`
 	Tracks           []TrackResult     `json:"tracks"`
