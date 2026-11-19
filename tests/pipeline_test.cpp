@@ -4,6 +4,7 @@
 #include "util.hpp"
 #include "common.hpp"
 #include "packet_source.hpp"
+#include "timeline.hpp"
 
 using namespace md;
 
@@ -113,3 +114,116 @@ TEST_CASE("bad magic is rejected", "[source][corrupt]") {
     REQUIRE(e.type == ErrType::BadMagic);
 }
 
+
+// ---- 时间轴归一化 ----
+namespace {
+MediaPacket mk_pkt(uint32_t ssrc, uint16_t seq, uint32_t ts,
+                   uint32_t clock = 90000, CodecId codec = CodecId::H264) {
+    MediaPacket p;
+    p.ssrc = ssrc; p.seq = seq; p.rtp_ts = ts;
+    p.clock_rate = clock; p.codec = codec;
+    p.payload.push_back(uint8_t(seq & 0xFF));
+    return p;
+}
+} // namespace
+
+TEST_CASE("seq and ts wraparound extend monotonically", "[timeline][wrap]") {
+    ProcessConfig cfg;
+    TimelineNormalizer tn(cfg);
+    std::vector<MediaPacket> out;
+    std::vector<PipelineError> errs;
+    uint32_t ts = 0xFFFFFFF0u;
+    for (uint16_t s = 65532; s != 4u; ++s) { // 65532..65535, 0..3
+        tn.push(mk_pkt(1, s, ts), out, errs);
+        ts += 3000; // 自然越过 32 位边界
+    }
+    tn.flush(out, errs);
+    REQUIRE(out.size() == 8);
+    for (size_t i = 1; i < out.size(); ++i) {
+        REQUIRE(out[i].unified_us > out[i - 1].unified_us);
+        REQUIRE(out[i].untrusted == false);
+    }
+}
+
+TEST_CASE("reordering is restored and duplicates flagged", "[timeline]") {
+    ProcessConfig cfg;
+    TimelineNormalizer tn(cfg);
+    std::vector<MediaPacket> out;
+    std::vector<PipelineError> errs;
+    tn.push(mk_pkt(1, 0, 0), out, errs);
+    tn.push(mk_pkt(1, 2, 6000), out, errs);   // 乱序：2 先到
+    tn.push(mk_pkt(1, 1, 3000), out, errs);   // 1 后到
+    tn.push(mk_pkt(1, 1, 3000), out, errs);   // 重复
+    tn.flush(out, errs);
+    REQUIRE(out.size() == 4);
+    REQUIRE(out[0].seq == 0);
+    REQUIRE(out[1].seq == 1);
+    REQUIRE(out[2].seq == 2);
+    REQUIRE(out[3].duplicate == true);
+    REQUIRE(tn.counters().duplicates == 1);
+    REQUIRE(tn.counters().reordered >= 1);
+}
+
+TEST_CASE("packet loss opens untrusted span that closes on realignment",
+          "[timeline][corrupt]") {
+    ProcessConfig cfg;
+    TimelineNormalizer tn(cfg);
+    std::vector<MediaPacket> out;
+    std::vector<PipelineError> errs;
+    tn.push(mk_pkt(1, 10, 0), out, errs);
+    tn.push(mk_pkt(1, 14, 12000), out, errs); // 缺 11,12,13
+    tn.flush(out, errs);
+    REQUIRE(tn.counters().losses == 3);
+    REQUIRE(tn.counters().untrusted_spans == 1);
+    bool has_untrusted_err = false;
+    for (auto& e : errs) has_untrusted_err |= e.type == ErrType::UntrustedTime;
+    REQUIRE(has_untrusted_err);
+    REQUIRE(out.back().untrusted == true);
+    // 不伪造连续媒体：交付包数仍为 2
+    REQUIRE(out.size() == 2);
+}
+
+TEST_CASE("rtcp drift beyond limit retains raw time and records source",
+          "[timeline]") {
+    ProcessConfig cfg;
+    cfg.drift_limit_us = 1000;
+    TimelineNormalizer tn(cfg);
+    std::vector<MediaPacket> out;
+    std::vector<PipelineError> errs;
+    tn.apply_rtcp({1, 0, 0}, errs);                 // 锚点
+    tn.push(mk_pkt(1, 0, 0), out, errs);
+    // 同一 rtp_ts 却报告晚了 50ms -> 漂移 50000us
+    tn.apply_rtcp({1, 9000, 50'000 + 1'000}, errs);
+    bool drift_err = false;
+    for (auto& e : errs) drift_err |= e.type == ErrType::ClockDrift;
+    REQUIRE(drift_err);
+    REQUIRE(tn.counters().drift_violations == 1);
+}
+
+TEST_CASE("end-to-end capture normalizes with bounded loss accounting",
+          "[timeline][source]") {
+    auto p = tmp_path("e2e");
+    GenerateOptions o; o.seed = 41; o.loss = 0.05; o.reorder = 0.1;
+    PipelineError e;
+    REQUIRE(generate_capture(p, o, e) > 0);
+    PacketSource src;
+    REQUIRE(src.open(p, e));
+    ProcessConfig cfg;
+    TimelineNormalizer tn(cfg);
+    std::vector<MediaPacket> norm;
+    std::vector<PipelineError> errs;
+    MediaPacket pkt;
+    while (src.next_rtp(pkt, [&](const RtcpReport& rr) { tn.apply_rtcp(rr, errs); }, e))
+        tn.push(pkt, norm, errs);
+    tn.flush(norm, errs);
+    REQUIRE(e.type == ErrType::None);
+    REQUIRE(norm.size() > 50);
+    // 统一时间基准：同 SSRC 内非重复包时间单调
+    std::map<uint32_t, int64_t> last;
+    for (auto& q : norm) {
+        if (q.duplicate) continue;
+        auto it = last.find(q.ssrc);
+        if (it != last.end()) REQUIRE(q.unified_us >= it->second);
+        last[q.ssrc] = q.unified_us;
+    }
+}
