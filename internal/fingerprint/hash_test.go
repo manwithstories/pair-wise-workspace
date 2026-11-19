@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"mediasync/internal/fingerprint"
+	"mediasync/internal/media"
 	"mediasync/internal/mp4"
 	"mediasync/internal/segment"
 	"mediasync/internal/testdata"
@@ -175,5 +176,25 @@ func TestNilTimebaseBlocksComparison(t *testing.T) {
 	var a, b fingerprint.Flags
 	if a.Incompatible(b) == "" {
 		t.Error("flags without a timebase must not be comparable")
+	}
+}
+
+func TestCompareRejectsIncompatibleGroup(t *testing.T) {
+	tr, file := track(t, testdata.DefaultSpec(42))
+	seg := wholeSegment(tr)
+	a := fingerprint.Build("cam-a", seg, tr, file, timebase(t, "25", "a"), "", nil)
+	b := fingerprint.Build("cam-b", seg, tr, file, timebase(t, "30000/1001", "b"), "", nil)
+	if a.Hash == "" || b.Hash == "" {
+		t.Fatal("test fixtures failed to hash")
+	}
+	matches, issues := fingerprint.Compare([]fingerprint.Clip{a, b})
+	if len(matches) != 0 {
+		t.Fatalf("incompatible clips were matched: %+v", matches)
+	}
+	if len(issues) != 1 || issues[0].Code != media.CodeIncompatible {
+		t.Fatalf("expected one incompatible issue, got %v", issues)
+	}
+	if issues[0].Offset != 0 && issues[0].HasOffset {
+		t.Errorf("fingerprint issue should not claim a byte offset: %v", issues[0])
 	}
 }

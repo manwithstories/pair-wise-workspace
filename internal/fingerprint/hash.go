@@ -122,7 +122,10 @@ type Match struct {
 }
 
 // Compare groups clips by hash and reports cross-camera duplicates. Clips
-// whose flags are incompatible or incomplete are excluded with an issue.
+// whose data is incomplete are excluded. Hash groups are additionally split by
+// timebase compatibility: a clip that cannot be converted onto the same
+// timeline as the group's first clip is never silently matched, it is reported
+// as incompatible instead.
 func Compare(clips []Clip) ([]Match, []*media.Issue) {
 	var issues []*media.Issue
 	groups := map[string][]Clip{}
@@ -138,6 +141,21 @@ func Compare(clips []Clip) ([]Match, []*media.Issue) {
 			continue
 		}
 		groups[c.Hash] = append(groups[c.Hash], c)
+	}
+	for hash, group := range groups {
+		ref := group[0].Flags
+		kept := []Clip{group[0]}
+		for _, c := range group[1:] {
+			if reason := ref.Incompatible(c.Flags); reason != "" {
+				issues = append(issues, media.New(media.StageFingerprint, media.InputMP4, media.CodeIncompatible,
+					"clip %s#%d (group %s) not compared with %s#%d: %s",
+					c.Camera, c.Index, Short(hash), group[0].Camera, group[0].Index, reason).
+					WithRecord(c.Index+1))
+				continue
+			}
+			kept = append(kept, c)
+		}
+		groups[hash] = kept
 	}
 	hashes := make([]string, 0, len(groups))
 	for h := range groups {
