@@ -419,6 +419,28 @@ def test_cache_reuses_only_identical_input_and_strategy(fixtures, tmp_path):
     assert third.reused is False
 
 
+def test_vfr_holds_are_not_reported_as_gaps():
+    """A held frame changes the interval, not the continuity.
+
+    Two 40 ms frames then a 200 ms hold is legal variable frame rate. The
+    expected end of each packet comes from its own duration, so no gap or
+    overlap may be reported; a genuine hole after them must still be caught.
+    """
+    spans = [
+        PacketSpan(0, Fraction(0), Fraction(0), Fraction(40, 1000), 0, 10, True),
+        PacketSpan(0, Fraction(40, 1000), Fraction(40, 1000), Fraction(40, 1000), 10, 10, False),
+        PacketSpan(0, Fraction(80, 1000), Fraction(80, 1000), Fraction(200, 1000), 20, 10, False),
+    ]
+    timeline = build_stream_timeline(0, "video", Fraction(1, 1000), spans)
+    assert timeline.gaps == [] and timeline.overlaps == []
+    with_hole = spans + [
+        PacketSpan(0, Fraction(1), Fraction(1), Fraction(40, 1000), 30, 10, False)
+    ]
+    holed = build_stream_timeline(0, "video", Fraction(1, 1000), with_hole)
+    assert len(holed.gaps) == 1
+    assert holed.gaps[0].amount > Fraction(1, 5)
+
+
 def test_partial_output_is_non_zero(tmp_path, demo_dir):
     video_only = strip_audio(
         demo_dir / "inputs" / "normal_master.mp4", tmp_path / "video_only.mp4"
