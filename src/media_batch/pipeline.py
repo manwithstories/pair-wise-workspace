@@ -103,13 +103,13 @@ def _split_at_cuts(cues, cuts: list[int],
     the source cue ordinal, used to keep pieces of one cue from being
     deduplicated against each other.
     """
-    out: list[tuple[int, int, str, int]] = []
+    out: list[tuple[int, int, str, int, int]] = []
     for ordinal, cue in enumerate(cues):
         points = [c for c in cuts if cue.start_ms < c < cue.end_ms]
         start = cue.start_ms
         for piece, cut in enumerate(points + [cue.end_ms]):
             label = cue.text if piece == 0 else f"{cue.text} (cut part {piece})"
-            out.append((start, cut, label, ordinal))
+            out.append((start, cut, label, ordinal, cue.source_offset))
             start = cut
     return out
 
@@ -161,8 +161,8 @@ def build_plan(workdir: Path, log: ErrorLog,
             log.add(exc.error.code, exc.error.message, exc.error.source,
                     exc.error.source_offset, -1)
 
-    boundaries: list[tuple[int, int, str, int]] = [
-        (c.start_ms, c.end_ms, c.text, c.index) for c in cues]
+    boundaries: list[tuple[int, int, str, int, int]] = [
+        (c.start_ms, c.end_ms, c.text, c.index, c.source_offset) for c in cues]
     extra = _timecode_cut_ms(workdir, log)
     if extra:
         split = _split_at_cuts(cues, extra, log)
@@ -176,11 +176,11 @@ def build_plan(workdir: Path, log: ErrorLog,
     boundaries.sort(key=lambda b: (b[0], b[1]))
     plan: list[ChunkPlan] = []
     last_end = -1
-    for start, end, text, group in boundaries:
+    for start, end, text, group, source_offset in boundaries:
         if end <= start:
             log.add("empty_chunk", f"chunk at {start}ms..{end}ms has "
                     f"non-positive duration; skipped",
-                    str(inp / "program.srt"), -1, len(plan))
+                    str(inp / "program.srt"), source_offset, len(plan))
             continue
         if start < last_end:
             # Never trim a cue into a partial tail: a surviving tail can be
@@ -188,7 +188,7 @@ def build_plan(workdir: Path, log: ErrorLog,
             # against it. Overlapping cues are kept whole, in source order.
             log.add("overlap", f"chunk {len(plan)} starts at {start}ms before "
                     f"the previous chunk ends at {last_end}ms; kept whole",
-                    str(inp / "program.srt"), -1, len(plan))
+                    str(inp / "program.srt"), source_offset, len(plan))
         snap = _nearest(video_times, end)
         plan.append(ChunkPlan(len(plan), start, end, int(snap),
                               int(snap) - end, text, group))
@@ -208,7 +208,7 @@ def measure_drift(media: str | Path, log: ErrorLog) -> timestamps.DriftReport:
             log.add("untrusted_drift",
                     f"clock drift {float(report.ms_per_minute):.1f} ms/min between "
                     f"samples {start}..{end} exceeds 100 ms/min; interval untrusted",
-                    str(media), -1, start)
+                    str(media), 0, start)
     return report
 
 
