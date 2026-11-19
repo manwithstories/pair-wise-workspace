@@ -35,6 +35,25 @@ PipelineOutcome run_pipeline(const PipelineConfig& cfg) {
   av_log_set_level(AV_LOG_QUIET);  // 完全静默；解码错误经返回码进入报告
   PipelineOutcome po;
   ReportInputs& ri = po.report;
+
+  // ---- 0. 路径安全闸门：所有产物必须位于工作目录之内 ----
+  std::error_code wec;
+  fs::path canon_work = fs::weakly_canonical(cfg.work_dir, wec);
+  if (wec || !ensure_dir(cfg.work_dir, nullptr)) {
+    po.fatal = "invalid or unwritable work directory";
+    po.exit_code = 5;
+    return po;
+  }
+  const fs::path protected_outputs[] = {
+      cfg.work_dir / "remux.mkv", cfg.work_dir / "frames",
+      cfg.work_dir / "checkpoint"};
+  for (const auto& out : protected_outputs) {
+    if (!path_within(cfg.work_dir, out)) {
+      po.fatal = "output path escapes work directory: " + out.string();
+      po.exit_code = 5;
+      return po;
+    }
+  }
   ri.target_bitrate_bps = cfg.target_bitrate_bps;
   ri.queue_capacity = cfg.queue_capacity;
   ErrList errs;
@@ -195,6 +214,13 @@ PipelineOutcome run_pipeline(const PipelineConfig& cfg) {
 
   // ---- 6. FFmpeg 再封装（目标码率/封装），失败区间标记检查点 ----
   std::string out_media = (cfg.work_dir / "remux.mkv").string();
+  // 拒绝覆盖输入：输出与输入同规范化路径即判定为危险操作。
+  if (fs::weakly_canonical(out_media) ==
+      fs::weakly_canonical(fs::path(fx.media_path))) {
+    po.fatal = "refuse to overwrite input media file";
+    po.exit_code = 5;
+    return po;
+  }
   TranscodeResult tr;
   ErrList terrs;
   bool tok = transcode_media(fx.media_path, out_media, fx.media_spec,

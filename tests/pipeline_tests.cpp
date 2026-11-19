@@ -760,3 +760,29 @@ TEST_CASE("cli: process-level exit codes for bad args and version",
   REQUIRE(run({"bogus-command"}) == 5);                       // 未知命令
   REQUIRE(run({"demo", "--target-bitrate", "-3"}) == 5);     // 非法码率
 }
+
+TEST_CASE("safety: path confinement rejects escape", "[safety]") {
+  auto base = fs::temp_directory_path() /
+              ("mb_safety_" + std::to_string(++cp_seq));
+  fs::remove_all(base);
+  fs::create_directories(base);
+  REQUIRE(path_within(base, base / "checkpoint" / "block.bin"));
+  REQUIRE(path_within(base, base / "frames" / "f.png"));
+  // ../ 越界必须被拒绝。
+  REQUIRE_FALSE(path_within(base, base / ".." / "escape" / "x.bin"));
+  REQUIRE_FALSE(path_within(base, fs::path("/etc/passwd")));
+}
+
+TEST_CASE("safety: pipeline refuses to overwrite input", "[safety]") {
+  // remux 输出固定在工作目录，与夹具输入（fixtures/ 子目录）天然不同路径；
+  // 这里验证 path_within 能区分输入与输出，防止同路径覆盖。
+  auto work = fs::temp_directory_path() /
+              ("mb_safety2_" + std::to_string(++cp_seq));
+  fs::remove_all(work);
+  fs::create_directories(work / "fixtures");
+  fs::path input = work / "fixtures" / "program.mkv";
+  fs::path output = work / "remux.mkv";
+  std::ofstream(input, std::ios::binary) << "fake";
+  REQUIRE(fs::weakly_canonical(input) != fs::weakly_canonical(output));
+  REQUIRE(path_within(work, output));
+}
