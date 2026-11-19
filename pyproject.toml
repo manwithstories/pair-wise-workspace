@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "archive-restore"
+version = "0.1.0"
+description = "RTP/RTCP archival stream recovery: parse, repair, index, resume"
+requires-python = ">=3.12"
+dependencies = [
+    "av==12.3.*",
+    "numpy==2.1.*",
+    "soundfile==0.12.1",
+]
+
+[project.optional-dependencies]
+test = []
+
+[project.scripts]
+archive-restore = "archive_restore.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
