@@ -167,7 +167,8 @@ def normalize_timestamps(track: TrackDecl, packets: list[RawPacket]
     rate = track.frame_rate
     wrap = track.pts_wrap_modulus
 
-    prev_raw: int | None = None
+    prev_raw: int | None = None     # 上一个「已还原」的单调帧号
+    wrap_offset = 0                 # 编码器重启累计的回绕补偿
     out_index = 0
     for pkt in packets:
         raw = pkt.raw_pts
@@ -177,62 +178,66 @@ def normalize_timestamps(track: TrackDecl, packets: list[RawPacket]
             # annex-B：按输出顺序赋连续帧号。
             inferred_raw = 0 if prev_raw is None else prev_raw + 1
         elif prev_raw is not None:
-            delta = raw - prev_raw
-            wrapped = (wrap is not None and raw < prev_raw
-                       and (wrap - prev_raw + raw) < wrap // 2)
+            candidate = raw + wrap_offset
+            wrapped = wrap is not None and candidate < prev_raw
             if wrapped:
-                # 回绕优先判定：raw 跳到低值，按模还原单调序列。
-                inferred_raw = prev_raw + (wrap - prev_raw + raw)
+                # 编码器重启：新计数器从低值重新开始。令衔接帧恰好接在
+                # 上一帧之后（prev+1），偏移按实际跳变折算而非固定加模数。
+                wrap_offset = prev_raw + 1 - raw
+                candidate = raw + wrap_offset
+                inferred_raw = candidate
                 issues.append(_issue(
                     track.track_id, ErrorCategory.TIMESTAMP_REPAIRED,
-                    f"PTS 回绕 {prev_raw}->{raw} (mod={wrap}) 已修复",
+                    f"PTS 回绕/重启 raw={raw}，重映射补偿 +{wrap_offset} "
+                    f"(声明 mod={wrap})",
                     pkt.byte_offset, recovered=True))
-            elif raw == prev_raw:
-                # 重复帧：保留首帧，跳过重复，不重复计数。
-                issues.append(_issue(
-                    track.track_id, ErrorCategory.DUPLICATE_FRAME,
-                    f"重复帧 raw_pts={raw}，丢弃重复包",
-                    pkt.byte_offset, recovered=True))
-                continue
-            elif delta < 0:
-                # 回退（非回绕）：时钟跳变，按顺序位置重映射。
-                inferred_raw = prev_raw + 1
-                issues.append(_issue(
-                    track.track_id, ErrorCategory.TIMESTAMP_REPAIRED,
-                    f"时间戳回退 {prev_raw}->{raw}，按顺序重映射",
-                    pkt.byte_offset, recovered=True))
-            elif 1 < delta <= MAX_INFERABLE_SKIP:
-                # 有限丢包：可推断缺失帧号，但不伪造，先补显式缺口。
-                for missing in range(prev_raw + 1, raw):
+            else:
+                delta = candidate - prev_raw
+                if delta == 0:
+                    issues.append(_issue(
+                        track.track_id, ErrorCategory.DUPLICATE_FRAME,
+                        f"重复帧 raw_pts={raw}，丢弃重复包",
+                        pkt.byte_offset, recovered=True))
+                    continue
+                if delta < 0:
+                    # 回退（声明模数无法解释）：时钟跳变，按顺序重映射。
+                    inferred_raw = prev_raw + 1
+                    issues.append(_issue(
+                        track.track_id, ErrorCategory.TIMESTAMP_REPAIRED,
+                        f"时间戳回退 raw={raw}，按顺序重映射为 {inferred_raw}",
+                        pkt.byte_offset, recovered=True))
+                elif 1 < delta <= MAX_INFERABLE_SKIP:
+                    # 有限丢包：可推断缺失帧号，但不伪造，先补显式缺口。
+                    for missing in range(prev_raw + 1, candidate):
+                        frames.append(FrameRecord(
+                            index=out_index, byte_offset=-1, size=0,
+                            is_keyframe=False,
+                            pts_us=frames_to_us(missing, rate),
+                            raw_pts=missing, is_gap=True))
+                        out_index += 1
+                        issues.append(_issue(
+                            track.track_id, ErrorCategory.PACKET_LOSS_RECOVERED,
+                            f"有限丢包：推断缺失帧 {missing}，保留显式缺口",
+                            pts=frames_to_us(missing, rate), recovered=True))
+                    inferred_raw = candidate
+                elif delta > MAX_INFERABLE_SKIP:
+                    # 无法推断的大区间：显式缺口覆盖整个空洞，不插值。
+                    gap_start = frames_to_us(prev_raw + 1, rate)
+                    gap_end = frames_to_us(candidate, rate)
                     frames.append(FrameRecord(
                         index=out_index, byte_offset=-1, size=0,
-                        is_keyframe=False,
-                        pts_us=frames_to_us(missing, rate),
-                        raw_pts=missing, is_gap=True))
+                        is_keyframe=False, pts_us=gap_start,
+                        raw_pts=prev_raw + 1, is_gap=True))
                     out_index += 1
                     issues.append(_issue(
-                        track.track_id, ErrorCategory.PACKET_LOSS_RECOVERED,
-                        f"有限丢包：推断缺失帧 {missing}，保留显式缺口",
-                        pts=frames_to_us(missing, rate), recovered=True))
-                inferred_raw = raw
-            elif delta > MAX_INFERABLE_SKIP:
-                # 无法推断的大区间：显式缺口覆盖整个空洞，不插值。
-                gap_start = frames_to_us(prev_raw + 1, rate)
-                gap_end = frames_to_us(raw, rate)
-                frames.append(FrameRecord(
-                    index=out_index, byte_offset=-1, size=0,
-                    is_keyframe=False, pts_us=gap_start,
-                    raw_pts=prev_raw + 1, is_gap=True))
-                out_index += 1
-                issues.append(_issue(
-                    track.track_id, ErrorCategory.TIMESTAMP_GAP,
-                    f"无法推断的时间戳缺口 {delta} 帧 "
-                    f"({gap_start}..{gap_end}us)，保留显式缺口",
-                    pts=gap_start, recovered=False,
-                    detail={"gap_us": gap_end - gap_start}))
-                inferred_raw = raw
-            else:
-                inferred_raw = raw
+                        track.track_id, ErrorCategory.TIMESTAMP_GAP,
+                        f"无法推断的时间戳缺口 {delta} 帧 "
+                        f"({gap_start}..{gap_end}us)，保留显式缺口",
+                        pts=gap_start, recovered=False,
+                        detail={"gap_us": gap_end - gap_start}))
+                    inferred_raw = candidate
+                else:
+                    inferred_raw = candidate
         else:
             inferred_raw = raw
 
@@ -248,9 +253,8 @@ def normalize_timestamps(track: TrackDecl, packets: list[RawPacket]
 
 # ---------------------------------------------------------------- 入口
 
-def probe_video(track: TrackDecl, root: str) -> ProbeResult:
-    """供调度层调用：先把清单相对路径解析到 root 内再探测。"""
-    track.path = str(resolve_within_root(root, track.path))
+def probe_video_track(track: TrackDecl) -> ProbeResult:
+    """探测已解析为绝对路径的视频轨。"""
     packets, truncated = scan_packets(track.path, track.codec)
     if not packets:
         raise PipelineError(
@@ -270,7 +274,7 @@ def probe_video(track: TrackDecl, root: str) -> ProbeResult:
     width = height = 0
     decoded = 0
     decode_fail = 0
-    fh = open(path, "rb")
+    fh = open(track.path, "rb")
     try:
         container = av.open(fh, format=track.codec.pyav_format)
         stream = container.streams.video[0]
