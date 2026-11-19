@@ -95,9 +95,11 @@ DriftParams ClockRepair::estimateDrift() {
                        "anchor span too short"});
     return d;
   }
+  // 锚点约定 (x=参考时间, y=设备实测时间)，故 fit.a = 实测/参考 = 1+漂移。
+  // 正 ppm 表示设备时钟偏快；校正斜率取倒数，且受安全斜率上限钳制。
   double ppm = clampSlopePpm((fit.a - 1.0) * 1e6);
-  d.slope = 1.0 + ppm / 1e6;
   d.driftPpm = ppm;
+  d.slope = 1.0 / (1.0 + clampSlopePpm(ppm) / 1e6);
   d.r2 = fit.r2;
   d.confidence = std::clamp(fit.r2, 0.0, 1.0);
   // 样本量不足或拟合离散时降级置信度。

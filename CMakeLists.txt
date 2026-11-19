@@ -28,7 +28,8 @@ add_library(md_core STATIC
   src/generator.cpp
   src/gen_patterns.cpp
   src/ffmpeg_util.cpp
-  src/decoder.cpp)
+  src/decoder.cpp
+  src/pipeline.cpp)
 target_include_directories(md_core PUBLIC include)
 target_link_libraries(md_core PUBLIC PkgConfig::FFMPEG)
 find_package(Threads REQUIRED)
