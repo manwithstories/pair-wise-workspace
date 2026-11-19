@@ -1,6 +1,7 @@
 add_executable(media_tests
   frame_transform_tests.cpp
   generator_tests.cpp
+  json_report_tests.cpp
   keyframe_index_tests.cpp
   packet_tests.cpp
   pipeline_failure_tests.cpp
