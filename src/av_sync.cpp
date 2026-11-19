@@ -38,29 +38,27 @@ AVSync::~AVSync() = default;
 std::int64_t AVSync::normalize(std::int64_t raw, std::int64_t last_clock,
                                std::uint64_t index, bool missing,
                                std::int64_t expected_step_us) {
-  // All correction is local to this item: a discontinuity is clamped back to
-  // the expected cadence but never shifts the global offset, which would
-  // otherwise drift every later audio block away from the video clock.
-  std::int64_t corrected = raw;
+  // The jitter buffer hands us source-ordered, monotonic packets, so the raw
+  // timestamp is trusted as the media clock. Correction never rewrites the
+  // running baseline: a jump is only recorded (for the error model) and a
+  // missing timestamp regenerated, which avoids cumulative drift.
   if (missing || raw == std::numeric_limits<std::int64_t>::min()) {
-    corrected = last_clock + expected_step_us;
+    const std::int64_t corrected = last_clock + expected_step_us;
     stats_.events.push_back(
         {ErrorCode::TimestampMissing, index, raw, corrected});
     ++stats_.timestamp_missing;
     return corrected;
   }
   if (index > 0) {
-    const std::int64_t expected = last_clock + expected_step_us;
-    const std::int64_t delta = raw - expected;
+    const std::int64_t delta = raw - (last_clock + expected_step_us);
     if (delta > cfg_.resync_threshold_us ||
         -delta > cfg_.resync_threshold_us) {
-      corrected = expected;
       stats_.events.push_back(
-          {ErrorCode::TimestampJump, index, raw, corrected});
+          {ErrorCode::TimestampJump, index, raw, raw});
       ++stats_.timestamp_jumps;
     }
   }
-  return corrected;
+  return raw;
 }
 
 std::int64_t AVSync::push_video(std::uint64_t frame_index, std::int64_t pts_us,

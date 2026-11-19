@@ -84,8 +84,12 @@ ReplayOutput network_replay(std::vector<Packet> packets,
     ++st.packets_reordered;
   }
 
-  // ---- Stage 5: arrival timestamps incl. bandwidth serialization delay -------
-  std::int64_t clock_us = 0;
+  // ---- Stage 5: arrival timestamps on the shared media clock -----------------
+  // Arrival = source presentation time + a network delay, so arrivals share
+  // the microsecond media scale rather than an independent serialization
+  // clock. The delay has a fixed propagation term plus a bandwidth-driven
+  // serialization term, so a low-bandwidth segment visibly inflates latency.
+  constexpr std::int64_t kPropagationUs = 15'000;
   std::vector<std::int64_t> arrivals;
   arrivals.reserve(with_dups.size());
   for (std::uint32_t i = 0; i < with_dups.size(); ++i) {
@@ -95,8 +99,8 @@ ReplayOutput network_replay(std::vector<Packet> packets,
     const std::int64_t serial_us =
         static_cast<std::int64_t>(bits * 1000 /
                                   std::max<std::uint32_t>(kbps, 1) / 1000);
-    clock_us += std::max<std::int64_t>(serial_us, 1);
-    arrivals.push_back(clock_us);
+    const std::int64_t net_delay = kPropagationUs + serial_us;
+    arrivals.push_back(with_dups[i].pts_us + net_delay);
   }
 
   // ---- Stage 6: de-duplication on the receive path ---------------------------

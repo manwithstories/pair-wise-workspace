@@ -15,8 +15,8 @@
 namespace media {
 
 struct JitterConfig {
-  std::int64_t min_depth_us = 40'000;    // hard lower bound
-  std::int64_t max_depth_us = 200'000;   // hard upper bound
+  std::int64_t min_depth_us = 20'000;    // hard lower bound
+  std::int64_t max_depth_us = 120'000;   // hard upper bound
   std::uint32_t window_size = 32;        // sliding jitter window
   std::uint32_t max_buffered = kMaxBufferedPackets;
 };
