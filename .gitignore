@@ -71,3 +71,12 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 构建产物与本地运行输出 ----
+build/
+demo_out/
+report.json
+*.idx
+*.idx.tmp
+*.idx.done
+diagnostics.jsonl
