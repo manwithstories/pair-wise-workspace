@@ -17,6 +17,7 @@ pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
 add_library(media_core STATIC
   src/byte_io.cpp
   src/media_types.cpp
+  src/metadata_codec.cpp
   src/packet_writer.cpp
   src/sha256.cpp
 )
