@@ -149,14 +149,27 @@ func Generate(p Params) (*Fixture, error) {
 	if len(f.Tracks) > p.Limits.MaxTracks {
 		return nil, &core.Error{Code: core.CodeOverLimit, Detail: "fixture requests too many tracks", Fatal: true}
 	}
+	maxDuration := timeline.Micros(p.Limits.MaxSeconds) * timeline.MicrosPerSecond
 	total := 0
 	for _, spec := range f.Tracks {
+		// Single-track duration is capped separately from the total packet
+		// count: one long track is as much a denial-of-service risk as many.
+		if spec.DurationUs > maxDuration {
+			return nil, &core.Error{Code: core.CodeOverLimit, Track: spec.ID,
+				Detail: "track duration exceeds the per-track limit", Fatal: true}
+		}
 		if err := f.buildTrack(spec, rng); err != nil {
 			return nil, err
 		}
 		total += len(f.Sent[spec.ID])
 		if total > p.Limits.MaxPackets {
 			return nil, &core.Error{Code: core.CodeOverLimit, Detail: "fixture requests too many packets", Fatal: true}
+		}
+		for _, pkt := range f.Sent[spec.ID] {
+			if len(pkt.Payload) > p.Limits.MaxPayload {
+				return nil, &core.Error{Code: core.CodeOverLimit, Track: spec.ID,
+					Detail: "packet payload exceeds the per-packet limit", Fatal: true}
+			}
 		}
 	}
 	if p.TruncateTrack != "" {

@@ -10,15 +10,15 @@ import (
 	"mediamix/internal/timeline"
 )
 
-// Limits bounds a single track's reorder state.
+// Limits bounds a single track's reorder state. The number of tracks is
+// bounded by the timeline graph, which owns graph-wide policy.
 type Limits struct {
 	MaxBuffered int
-	MaxTracks   int
 }
 
 // DefaultLimits are deliberately small: a proxy stream must not pin unbounded
 // memory while a weak uplink is being repaired.
-func DefaultLimits() Limits { return Limits{MaxBuffered: 2048, MaxTracks: 64} }
+func DefaultLimits() Limits { return Limits{MaxBuffered: 2048} }
 
 // Packet is one depacketized RTP packet on the shared media timeline.
 type Packet struct {
