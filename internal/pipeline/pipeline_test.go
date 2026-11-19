@@ -59,6 +59,9 @@ func TestRunDriftBoundaryProfile(t *testing.T) {
 	if !rep.Passed || rep.SyncErrorMs >= 80 {
 		t.Fatalf("boundary failed: sync=%v exit=%d", rep.SyncErrorMs, rep.ExitCode)
 	}
+	if !rep.DriftResolvable {
+		t.Fatalf("a 25000ppm drift must be resolvable (stderr %v)", rep.DriftStdErrPPM)
+	}
 	if math.Abs(rep.DriftEstimatePPM-25000) > 500 {
 		t.Fatalf("drift estimate %v far from 25000", rep.DriftEstimatePPM)
 	}

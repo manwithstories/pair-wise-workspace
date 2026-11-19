@@ -113,6 +113,8 @@ func Run(ctx context.Context, opts Options) *report.Report {
 	rep.SyncErrorMs = align.P95Ms
 	rep.SyncP95BeforeMs = align.P95BeforeMs
 	rep.DriftEstimatePPM = align.DriftEstPPM
+	rep.DriftResolvable = align.DriftResolvable
+	rep.DriftStdErrPPM = align.StdErrPPM
 	profile, th := ProfileFor(opts)
 	rep.Profile = string(profile)
 	rep.Metrics = metricsFor(th, rep)

@@ -69,6 +69,7 @@ func FromError(err error) *ErrorInfo {
 // Report is the JSON document written by run and selftest.
 type Report struct {
 	Command          string        `json:"command"`
+	Profile          string        `json:"profile"`
 	Seed             uint64        `json:"seed"`
 	SampleRate       int           `json:"sample_rate"`
 	Layout           string        `json:"layout"`
@@ -96,6 +97,8 @@ type Report struct {
 	RTPUnrecoverable int           `json:"rtp_unrecoverable"`
 	RTPConflicts     int           `json:"rtp_conflicts"`
 	DriftEstimatePPM float64       `json:"drift_estimate_ppm"`
+	DriftResolvable  bool          `json:"drift_resolvable"`
+	DriftStdErrPPM   float64       `json:"drift_stderr_ppm"`
 	SyncP95BeforeMs  float64       `json:"sync_p95_before_ms"`
 	LatencySamples   int           `json:"latency_samples"`
 	Tracks           []TrackStatus `json:"tracks,omitempty"`
