@@ -1,7 +1,10 @@
 // 损坏定位与流式管线状态/边界路径单测。
 #include "damage_locator.hpp"
+#include "stream_pipeline.hpp"
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
+#include <atomic>
+#include <thread>
 
 using namespace ma;
 using Catch::Approx;
@@ -54,4 +57,51 @@ TEST_CASE("damage: 无损坏时区间为空、恢复率为零分母安全", "[da
     loc.finish(false);
     REQUIRE(loc.ranges().empty());
     REQUIRE(loc.recovery().recoveryRate() == 0.0);
+}
+
+TEST_CASE("pipeline: 有界队列背压与取消", "[pipeline]") {
+    BoundedQueue<int> q(/*maxBytes*/ 128); // 每项 64B → 最多缓存 2 项
+    CancellationToken token;
+    int backpressure = 0; // 仅生产者写；join 后读取，线程安全
+    std::thread producer([&] {
+        for (int i = 0; i < 4; ++i)
+            REQUIRE(q.push(i, 64, token, &backpressure));
+        q.close();
+    });
+    for (int i = 0; i < 4; ++i) {
+        auto v = q.pop(token);
+        REQUIRE(v.has_value());
+        REQUIRE(*v == i);
+    }
+    producer.join();
+    REQUIRE(backpressure >= 1); // 队列满过 → 发生背压
+    REQUIRE(!q.pop(token).has_value());
+}
+
+TEST_CASE("pipeline: 取消立即解除阻塞且传播错误", "[pipeline]") {
+    BoundedQueue<int> q(64);
+    PipelineErrorState err;
+    int backpressure = 0;
+    REQUIRE(q.push(1, 64, err.token(), &backpressure)); // 队列已满
+    std::atomic<bool> returned{false};
+    std::thread blocked([&] {
+        bool ok = q.push(2, 64, err.token(), &backpressure);
+        returned.store(ok);
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    REQUIRE(!returned.load()); // 满队列阻塞中
+    err.fail("上游致命错误");
+    blocked.join();
+    REQUIRE(!returned.load()); // push 返回 false
+    REQUIRE(err.failed());
+    REQUIRE(err.message() == "上游致命错误");
+}
+
+TEST_CASE("pipeline: 延迟 P95 与 RSS 采样可用", "[pipeline]") {
+    PipelineMetrics m;
+    for (double v : {1.0, 2.0, 3.0, 4.0, 100.0}) m.latencyMs.push_back(v);
+    REQUIRE(m.latencyP95Ms() == Approx(80.8));
+    const double rss = currentRssMiB();
+    REQUIRE(rss > 0.0);
+    REQUIRE(rss < 512.0); // 测试进程自身不应超过 512 MiB
 }
