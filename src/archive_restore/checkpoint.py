@@ -14,7 +14,7 @@ import os
 import tempfile
 
 # Stage format versions: bump when a stage's persisted shape changes.
-STAGE_VERSIONS = {"parse": 1, "repair": 1, "index": 1, "verify": 1}
+STAGE_VERSIONS = {"parse": 2, "repair": 2, "index": 2, "verify": 2}
 MANIFEST_NAME = "manifest.json"
 
 
