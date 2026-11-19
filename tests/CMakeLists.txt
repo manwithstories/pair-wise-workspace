@@ -1,4 +1,5 @@
 add_executable(media_tests
+  damage_tests.cpp
   frame_transform_tests.cpp
   generator_tests.cpp
   json_report_tests.cpp
