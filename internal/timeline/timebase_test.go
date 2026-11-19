@@ -90,9 +90,25 @@ func TestCompatible(t *testing.T) {
 	if !a.Compatible(b) {
 		t.Error("identical timebases must be compatible")
 	}
+	// Different frame rates still describe the same instants once mapped onto
+	// the shared timeline, so content can be compared.
 	c, _ := timeline.NewTimebase(timeline.Rate29_97, timeline.Clock{Domain: "cam-a", Ticks: 90000})
-	if a.Compatible(c) {
-		t.Error("different frame rates must not be compatible")
+	if !a.Compatible(c) {
+		t.Error("different frame rates with valid clocks must remain comparable")
+	}
+	bad, _ := timeline.NewTimebase(timeline.Rate25, timeline.Clock{Domain: "x", Ticks: 90000})
+	bad.Rate = timeline.Rate{0, 1}
+	if a.Compatible(bad) {
+		t.Error("a timebase with an invalid rate must not be compatible")
+	}
+	zero, _ := timeline.NewTimebase(timeline.Rate25, timeline.Clock{Domain: "z", Ticks: 90000})
+	zero.Clock.Ticks = 0
+	if a.Compatible(zero) {
+		t.Error("a timebase with zero tick rate must not be compatible")
+	}
+	wrapped, _ := timeline.NewTimebase(timeline.Rate25, timeline.Clock{Domain: "w", Ticks: 90000, Wrap: 1 << 16})
+	if a.Compatible(wrapped) {
+		t.Error("a different wrap modulus must not be compatible")
 	}
 	// A different clock *source* still maps onto the same timeline, so it
 	// must remain comparable across cameras.
@@ -100,9 +116,11 @@ func TestCompatible(t *testing.T) {
 	if !a.Compatible(d) {
 		t.Error("same rate/ticks must stay comparable across clock domains")
 	}
+	// A different tick rate is still convertible onto the timeline; it must
+	// not block comparison by itself.
 	e, _ := timeline.NewTimebase(timeline.Rate25, timeline.Clock{Domain: "cam-a", Ticks: 48000})
-	if a.Compatible(e) {
-		t.Error("different tick rates must not be compatible")
+	if !a.Compatible(e) {
+		t.Error("a valid but different tick rate must remain comparable")
 	}
 }
 

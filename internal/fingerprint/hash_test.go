@@ -141,9 +141,17 @@ func TestIncompatibleTimebaseBlocksComparison(t *testing.T) {
 	trA, fileA := track(t, testdata.DefaultSpec(42))
 	trB, fileB := track(t, testdata.DefaultSpec(42))
 	a := fingerprint.Build("cam-a", wholeSegment(trA), trA, fileA, timebase(t, "25", "a"), "", nil)
-	b := fingerprint.Build("cam-b", wholeSegment(trB), trB, fileB, timebase(t, "30000/1001", "b"), "", nil)
+	broken := timebase(t, "25", "b")
+	broken.Rate = timeline.Rate{}
+	b := fingerprint.Build("cam-b", wholeSegment(trB), trB, fileB, broken, "", nil)
 	if reason := a.Flags.Incompatible(b.Flags); reason == "" {
-		t.Fatal("different frame rates must be reported as incompatible")
+		t.Fatal("an unusable timebase must be reported as incompatible")
+	}
+	// Two cameras at different frame rates are still comparable: content
+	// identity does not depend on the frame grid.
+	cross := fingerprint.Build("cam-d", wholeSegment(trB), trB, fileB, timebase(t, "30000/1001", "d"), "", nil)
+	if reason := a.Flags.Incompatible(cross.Flags); reason != "" {
+		t.Errorf("cross-rate comparison blocked as %q", reason)
 	}
 	// Same conversion factors but a different clock source stays comparable.
 	c := fingerprint.Build("cam-c", wholeSegment(trB), trB, fileB, timebase(t, "25", "elsewhere"), "", nil)
@@ -183,7 +191,9 @@ func TestCompareRejectsIncompatibleGroup(t *testing.T) {
 	tr, file := track(t, testdata.DefaultSpec(42))
 	seg := wholeSegment(tr)
 	a := fingerprint.Build("cam-a", seg, tr, file, timebase(t, "25", "a"), "", nil)
-	b := fingerprint.Build("cam-b", seg, tr, file, timebase(t, "30000/1001", "b"), "", nil)
+	broken := timebase(t, "25", "b")
+	broken.Rate = timeline.Rate{}
+	b := fingerprint.Build("cam-b", seg, tr, file, broken, "", nil)
 	if a.Hash == "" || b.Hash == "" {
 		t.Fatal("test fixtures failed to hash")
 	}

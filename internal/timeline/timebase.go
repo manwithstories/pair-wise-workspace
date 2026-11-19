@@ -155,16 +155,25 @@ func NewTimebase(rate Rate, clock Clock) (Timebase, error) {
 	return Timebase{Rate: rate, Clock: clock}, nil
 }
 
+// Usable reports whether the timebase can place ticks on the timeline at all.
+// A missing or zero tick rate, an invalid frame rate or a mismatched wrap
+// modulus makes conversion impossible.
+func (tb Timebase) Usable() bool {
+	return tb.Rate.Validate() == nil && tb.Clock.Ticks > 0
+}
+
 // Compatible reports whether two timebases may be compared for dedupe.
-// Comparability depends on the conversion factors (frame rate, tick rate,
-// wrap modulus, drop-frame rule); the clock domain label describes where the
-// ticks came from and does not by itself prevent comparison, because every
-// input is mapped onto the same timeline before slicing.
+// Content identity does not depend on the frame rate: two cameras may run at
+// 25 and 29.97 fps and still carry the same material. What must agree is that
+// both timebases can be converted onto the timeline (valid rate and tick rate)
+// and that they share a wrap rule, since a different modulus would place the
+// same ticks at different instants. The clock domain label describes where the
+// ticks came from and does not by itself prevent comparison.
 func (a Timebase) Compatible(b Timebase) bool {
-	return a.Rate.Reduce() == b.Rate.Reduce() &&
-		a.Clock.Ticks == b.Clock.Ticks &&
-		a.Clock.Wrap == b.Clock.Wrap &&
-		a.DropFrame == b.DropFrame
+	if !a.Usable() || !b.Usable() {
+		return false
+	}
+	return a.Clock.Wrap == b.Clock.Wrap && a.DropFrame == b.DropFrame
 }
 
 // FramesToNanos converts a frame count to nanoseconds, half-up. The product
