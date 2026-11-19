@@ -21,6 +21,7 @@ const (
 	ClassCycle       Class = "dependency_cycle"
 	ClassDigest      Class = "digest_mismatch"
 	ClassClock       Class = "clock_discontinuity"
+	ClassAlignment   Class = "alignment"
 	ClassUnsupported Class = "unsupported"
 	ClassUsage       Class = "usage"
 	ClassInternal    Class = "internal"
