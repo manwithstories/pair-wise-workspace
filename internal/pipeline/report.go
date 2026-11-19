@@ -229,8 +229,10 @@ func (r *Report) WriteJSON(path string) error {
 	return nil
 }
 
-// SafeOutputPath rejects traversal, empty paths and directories we must not
-// write into. Relative paths resolve against the working directory.
+// SafeOutputPath resolves an output path and refuses anything that escapes
+// the workspace. Writes are limited to the current project directory and the
+// system temporary directory; ".." components, NUL bytes and directories are
+// rejected outright.
 func SafeOutputPath(path string) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		return "", media.New(media.StagePipeline, media.InputMP4, media.CodeInvalidArgument, "output path is empty")
@@ -238,21 +240,69 @@ func SafeOutputPath(path string) (string, error) {
 	if strings.ContainsRune(path, 0) {
 		return "", media.New(media.StagePipeline, media.InputMP4, media.CodePathRejected, "output path contains NUL")
 	}
+	if len(path) > 4096 {
+		return "", media.New(media.StagePipeline, media.InputMP4, media.CodePathRejected, "output path is too long")
+	}
+	for _, part := range strings.Split(filepath.ToSlash(path), "/") {
+		if part == ".." {
+			return "", media.New(media.StagePipeline, media.InputMP4, media.CodePathRejected,
+				"output path %q contains a '..' component", path)
+		}
+	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return "", media.New(media.StagePipeline, media.InputMP4, media.CodePathRejected, "cannot resolve output path: %v", err)
 	}
 	clean := filepath.Clean(abs)
-	if strings.HasPrefix(filepath.Base(clean), "..") {
-		return "", media.New(media.StagePipeline, media.InputMP4, media.CodePathRejected, "output path escapes its directory")
-	}
 	if info, err := os.Stat(clean); err == nil && info.IsDir() {
 		return "", media.New(media.StagePipeline, media.InputMP4, media.CodeInvalidArgument, "output path %q is a directory", path)
 	}
-	if len(clean) > 4096 {
-		return "", media.New(media.StagePipeline, media.InputMP4, media.CodePathRejected, "output path is too long")
+	if !withinAllowedRoot(clean) {
+		return "", media.New(media.StagePipeline, media.InputMP4, media.CodePathRejected,
+			"output path %q is outside the project and temporary directories", path)
 	}
 	return clean, nil
+}
+
+// withinAllowedRoot reports whether path sits under the project directory or
+// the system temporary directory.
+func withinAllowedRoot(path string) bool {
+	for _, root := range allowedRoots() {
+		if root == "" {
+			continue
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			continue
+		}
+		if rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
+			return true
+		}
+	}
+	return false
+}
+
+func allowedRoots() []string {
+	var roots []string
+	if cwd, err := os.Getwd(); err == nil {
+		roots = append(roots, cwd)
+		if resolved, err := filepath.EvalSymlinks(cwd); err == nil {
+			roots = append(roots, resolved)
+		}
+	}
+	tmp := os.TempDir()
+	roots = append(roots, tmp)
+	if resolved, err := filepath.EvalSymlinks(tmp); err == nil {
+		roots = append(roots, resolved)
+	}
+	// macOS exposes /tmp as a symlink into /private; both spellings are
+	// legitimate temporary locations.
+	for _, extra := range []string{"/tmp", "/private/tmp"} {
+		if info, err := os.Stat(extra); err == nil && info.IsDir() {
+			roots = append(roots, extra)
+		}
+	}
+	return roots
 }
 
 // SortedSegments returns segment reports ordered by camera then index.
