@@ -129,13 +129,22 @@ void parse_tkhd(const uint8_t* p, int64_t len, TrackStructure& t) {
 void parse_stco(const uint8_t* p, int64_t len, bool co64, TrackStructure& t) {
   if (len < 8) return;
   const uint32_t count = rd32(p + 4);
-  const int64_t need = 8 + int64_t(count) * (co64 ? 8 : 4);
-  if (need > len || count > kMaxIndexEntries) return;
+  if (count > kMaxIndexEntries) return;
+  const int64_t width = co64 ? 8 : 4;
+  const int64_t need = 8 + int64_t(count) * width;
   t.has_stco = true;
   t.co64 = co64;
-  t.nb_chunks = count;
-  t.chunk_offsets.reserve(count);
-  for (uint32_t i = 0; i < count; ++i) {
+  // A box that claims more entries than it holds is an incomplete index: keep
+  // the entries that are physically present and record the shortfall so the
+  // scanner reports an out-of-range table rather than silently trusting it.
+  const int64_t present = std::max<int64_t>(0, (len - 8) / width);
+  const bool truncated = need > len;
+  const int64_t usable = truncated ? std::min<int64_t>(present, count) : int64_t(count);
+  t.stco_truncated = truncated;
+  t.stco_missing_entries = truncated ? int64_t(count) - usable : 0;
+  t.nb_chunks = usable;
+  t.chunk_offsets.reserve(static_cast<size_t>(usable));
+  for (int64_t i = 0; i < usable; ++i) {
     t.chunk_offsets.push_back(co64 ? static_cast<int64_t>(rd64(p + 8 + i * 8))
                                    : static_cast<int64_t>(rd32(p + 8 + i * 4)));
   }
@@ -376,6 +385,8 @@ void build_sample_offsets(TrackStructure& track, int64_t file_size) {
   track.first_bad_end = -1;
   track.first_bad_entry_offset = -1;
   track.first_bad_target = -1;
+  track.samples_past_eof = 0;
+  track.first_past_eof_sample = -1;
   if (!track.has_stco || track.runs.empty() || track.sample_sizes.empty()) return;
 
   // Walk chunks in order, advancing the stsc run as chunk numbers pass each
@@ -409,7 +420,12 @@ void build_sample_offsets(TrackStructure& track, int64_t file_size) {
       ref.size = size;
       track.samples.push_back(ref);
       chunk_bytes_used += size;
-      if (ref.offset < 0 || ref.size < 0 || ref.offset + ref.size > file_size) {
+      // A chunk offset that points past EOF *for the whole chunk* (i.e. the
+      // chunk starts at or beyond EOF) is a bad index entry.  A chunk that
+      // starts inside the file but whose samples run past EOF is a tail cut.
+      const bool chunk_starts_after_eof = chunk_offset >= file_size;
+      if (ref.offset < 0 || ref.size < 0 || chunk_starts_after_eof) {
+        // The chunk offset itself is unusable: a corrupt index.
         track.index_entries_out_of_range++;
         if (track.first_bad_sample < 0) {
           track.first_bad_sample = sample;
@@ -418,7 +434,25 @@ void build_sample_offsets(TrackStructure& track, int64_t file_size) {
           track.first_bad_entry_offset = entry_offset;
           track.first_bad_target = chunk_offset;
         }
+      } else if (ref.offset + ref.size > file_size) {
+        // The entry is valid but the file ends inside this sample: a
+        // truncated tail.  The damage is at EOF, not in the index.
+        track.samples_past_eof++;
+        if (track.first_past_eof_sample < 0) track.first_past_eof_sample = sample;
       }
+    }
+  }
+  // Chunk offset entries that the stco box promised but did not hold leave
+  // the tail of the sample table unaddressable; that is index damage too.
+  if (track.stco_missing_entries > 0) {
+    track.index_entries_out_of_range += track.stco_missing_entries;
+    if (track.first_bad_sample < 0) {
+      track.first_bad_sample = sample;
+      track.first_bad_offset = track.stco_offset + 16 + int64_t(track.nb_chunks) *
+                                                        (track.co64 ? 8 : 4);
+      track.first_bad_end = track.first_bad_offset + (track.co64 ? 8 : 4);
+      track.first_bad_entry_offset = track.first_bad_offset;
+      track.first_bad_target = 0;
     }
   }
   // A sample table that promises more samples than stsz provides is damage.

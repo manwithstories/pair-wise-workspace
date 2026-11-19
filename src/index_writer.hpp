@@ -55,6 +55,7 @@ struct UnindexableRange {
 
 struct MuxReport {
   int64_t packets_written = 0;
+  int64_t skipped_packets = 0;  // rejected by the muxer (bad timestamp)
   int64_t index_entries = 0;
   int64_t keyframes = 0;
   int64_t bytes_written = 0;
@@ -73,12 +74,16 @@ class IndexWriter {
   // Opens (creating or appending) `<dir>/<stem>.payload` and `.journal`.
   // When resuming, existing file lengths must match the checkpoint; a
   // mismatch refuses the resume.
+  // `reset` discards any previous partial work (fresh run); otherwise the
+  // files are reopened at their committed length and checked against the
+  // checkpoint's expectations.
   bool open(const std::filesystem::path& dir, const std::string& stem,
-            int64_t expect_payload_bytes, int64_t expect_journal_bytes,
+            int64_t expect_payload_bytes, int64_t expect_journal_bytes, bool reset,
             std::string& err);
 
   bool append(const JournalEntry& entry, const uint8_t* data, std::string& err);
   bool flush(std::string& err);  // fsyncs both files
+  void close_files();
 
   const std::filesystem::path& payload_path() const { return payload_path_; }
   const std::filesystem::path& journal_path() const { return journal_path_; }

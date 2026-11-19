@@ -47,6 +47,8 @@ struct TrackStructure {
   bool has_stbl = false;
   bool has_stco = false;  // stco or co64 present
   bool co64 = false;
+  bool stco_truncated = false;  // entry count exceeds the box payload
+  int64_t stco_missing_entries = 0;
   int64_t stco_offset = -1;
   int64_t stsz_offset = -1;
   int64_t nb_chunks = 0;
@@ -63,6 +65,11 @@ struct TrackStructure {
   int64_t first_bad_end = -1;        // declared end of that sample (exclusive)
   int64_t first_bad_entry_offset = -1;  // position of the stco/co64 entry in moov
   int64_t first_bad_target = -1;     // value stored in that entry
+  // Samples whose declared span crosses EOF but which start before it: the
+  // file is short (truncated tail), not the index.
+  int64_t samples_past_eof = 0;
+  int64_t first_past_eof_sample = -1;
+  bool index_entries_before_eof_confirmed = true;
   bool truncated() const { return first_bad_sample >= 0; }
   bool usable_index() const { return has_stco && !samples.empty() && !truncated(); }
 };

@@ -102,14 +102,11 @@ bool parse_journal_entry(const char* data, JournalEntry& e) {
 
 // ---- IndexWriter ---------------------------------------------------------
 
-IndexWriter::~IndexWriter() {
-  if (payload_fd_ >= 0) ::close(payload_fd_);
-  if (journal_fd_ >= 0) ::close(journal_fd_);
-}
+IndexWriter::~IndexWriter() { close_files(); }
 
 bool IndexWriter::open(const std::filesystem::path& dir, const std::string& stem,
                        int64_t expect_payload_bytes, int64_t expect_journal_bytes,
-                       std::string& err) {
+                       bool reset, std::string& err) {
   std::error_code ec;
   std::filesystem::create_directories(dir, ec);
   if (ec) {
@@ -123,6 +120,12 @@ bool IndexWriter::open(const std::filesystem::path& dir, const std::string& stem
   if (payload_fd_ < 0 || journal_fd_ < 0) {
     err = std::string("cannot open payload/journal: ") + std::strerror(errno);
     return false;
+  }
+  if (reset) {
+    if (::ftruncate(payload_fd_, 0) != 0 || ::ftruncate(journal_fd_, 0) != 0) {
+      err = std::string("cannot reset partial work: ") + std::strerror(errno);
+      return false;
+    }
   }
   struct stat st{};
   if (::fstat(payload_fd_, &st) != 0) return false;
@@ -176,6 +179,17 @@ bool IndexWriter::append(const JournalEntry& entry, const uint8_t* data, std::st
   journal_bytes_ += int64_t(rec.size());
   ++packets_;
   return true;
+}
+
+void IndexWriter::close_files() {
+  if (payload_fd_ >= 0) {
+    ::close(payload_fd_);
+    payload_fd_ = -1;
+  }
+  if (journal_fd_ >= 0) {
+    ::close(journal_fd_);
+    journal_fd_ = -1;
+  }
 }
 
 bool IndexWriter::flush(std::string& err) {
@@ -399,6 +413,14 @@ bool mux_output(const std::filesystem::path& input,
 
     ret = av_interleaved_write_frame(out, pkt);
     av_packet_unref(pkt);
+    if (ret == AVERROR(EINVAL) && static_cast<size_t>(e.stream_index) < in_base.size()) {
+      // A single packet with an out-of-range timestamp is skipped rather than
+      // discarding the whole asset: the journal keeps the rest of the media,
+      // and the verifier will check the result independently.
+      ++report.skipped_packets;
+      ret = 0;
+      continue;
+    }
     if (ret < 0) {
       err.code = Code::OutputWriteFailed;
       err.detail = "write failed at packet " +

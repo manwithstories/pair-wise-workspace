@@ -85,6 +85,8 @@ struct TimelineResult {
   std::vector<TimelineSample> samples;  // only when retain_samples is set
   bool ok = true;
   std::string failure;
+  int64_t failure_offset = -1;      // input byte range of the packet that failed
+  int64_t failure_offset_end = -1;
   int64_t start_shift = 0;  // applied by timeline_align_starts
   int64_t first_out_dts = AV_NOPTS_VALUE;
   int64_t first_out_pts = AV_NOPTS_VALUE;
@@ -123,6 +125,9 @@ bool timeline_push(TimelineOptions& opt, TimelineResult& result, int64_t src_dts
 // shift.  The minimum start across tracks becomes zero, so the relative
 // audio/video start offset is preserved.  Tracks with no packets are ignored.
 void timeline_align_starts(std::vector<TimelineResult*>& tracks);
+
+// Records the input byte range that made a track fail, for reports.
+void timeline_set_failure_range(TimelineResult& r, int64_t offset, int64_t size);
 
 // Maps a repaired stream timestamp into canonical 1/90000 ticks, including the
 // track start shift.  Returns AV_NOPTS_VALUE for AV_NOPTS_VALUE.

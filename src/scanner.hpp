@@ -41,6 +41,8 @@ struct TrackSpec {
   int64_t first_bad_sample = -1;
   int64_t first_bad_offset = -1;
   int64_t samples_out_of_range = 0;
+  int64_t samples_past_eof = 0;
+  int64_t first_past_eof_sample = -1;
   bool decodable = false;
 };
 

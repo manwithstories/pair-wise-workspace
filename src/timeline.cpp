@@ -14,8 +14,10 @@ int64_t default_duration(const TimelineOptions& opt) {
 }
 
 // Largest backwards jump still treated as jitter rather than a discontinuity.
-  int64_t tolerance(const TimelineOptions& opt) {
+// Two packet durations is a reorder; anything larger is a clock event.
+int64_t tolerance(const TimelineOptions& opt, const TimelineState& state) {
   if (opt.ambiguity_tolerance_ticks > 0) return opt.ambiguity_tolerance_ticks;
+  if (state.last_duration > 0) return state.last_duration * 2;
   if (!opt.time_base.valid()) return 2;
   return av_rescale_q(2, AVRational{1, 1}, opt.time_base.av());
 }
@@ -131,7 +133,7 @@ bool timeline_push(TimelineOptions& opt, TimelineResult& r, int64_t src_dts,
       if (wrap_candidate) {
         r.state.wrap_offset += period;
         candidate = raw_dts + r.state.wrap_offset;
-        if (candidate < last) {
+        if (candidate <= last) {
           // Land exactly after the last packet, preserving the packet spacing
           // that a correct writer would have produced across the wrap.
           const int64_t extra = last + s.duration - candidate;
@@ -148,23 +150,36 @@ bool timeline_push(TimelineOptions& opt, TimelineResult& r, int64_t src_dts,
       } else if (!opt.repair_backwards) {
         return fail(r, "DTS moved backwards by " + std::to_string(jump) +
                            " ticks and backwards repair is disabled");
-      } else if (jump > tolerance(opt) && opt.reject_ambiguous) {
+      } else if (jump > tolerance(opt, r.state) && opt.reject_ambiguous) {
         // A large jump backwards that is not a rollover may be a duplicated
         // span or a clock reset.  Retiming it would move media across the
         // timeline, so the asset is failed instead of guessed at.
         return fail(r, "DTS moved backwards by " + std::to_string(jump) +
                            " ticks; neither a 32-bit rollover nor a bounded glitch");
       } else {
-        const int64_t delta = last - candidate;
-        r.state.wrap_offset += delta;
-        candidate = last;
-        kind = jump == 0 ? RepairKind::DuplicateShifted : RepairKind::BackwardsShifted;
-        reason = jump == 0 ? "duplicate DTS clamped to keep the timeline non-decreasing"
-                           : "small backwards DTS clamped to keep the timeline non-decreasing";
-        adjustment = delta;
-        if (kind == RepairKind::DuplicateShifted) {
+        // A bounded glitch.  A DTS that merely repeats the previous value is
+        // harmless and left untouched (codecs that reorder do this).  A DTS
+        // that moves backwards is only repairable when the whole track has
+        // not been shifted before; after the first shift, a second backwards
+        // move would make the accumulated retiming impossible to distinguish
+        // from a genuine discontinuity, so the track fails instead.
+        if (jump == 0) {
+          kind = RepairKind::DuplicateShifted;
+          reason = "duplicate DTS left in place; it is already monotonic";
+          adjustment = 0;
           r.stats.duplicates++;
+        } else if (r.state.shift != 0) {
+          return fail(r, "DTS moved backwards a second time after a repair; the "
+                         "accumulated retiming would be ambiguous");
         } else {
+          const int64_t delta = last - candidate;
+          r.state.wrap_offset += delta;
+          r.state.shift += delta;
+          candidate = last;
+          kind = RepairKind::BackwardsShifted;
+          reason = "backwards DTS clamped by " + std::to_string(delta) +
+                   " ticks; this is the only such repair for the track";
+          adjustment = delta;
           r.stats.backwards_shifted++;
         }
       }
@@ -216,6 +231,12 @@ bool timeline_push(TimelineOptions& opt, TimelineResult& r, int64_t src_dts,
   if (opt.retain_samples) r.samples.push_back(s);
   if (sink) sink(s);
   return true;
+}
+
+void timeline_set_failure_range(TimelineResult& r, int64_t offset, int64_t size) {
+  if (offset < 0) return;
+  r.failure_offset = offset;
+  r.failure_offset_end = offset + std::max<int64_t>(0, size);
 }
 
 void timeline_align_starts(std::vector<TimelineResult*>& tracks) {

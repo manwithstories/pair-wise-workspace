@@ -149,12 +149,19 @@ bool Scanner::open(const std::string& path, const Limits& limits, ScanOutcome& o
     out.fatal = true;
     base.code = Code::NoMoov;
     base.stage = Stage::Structure;
-    base.byte_offset = 0;
-    base.set_range(0, std::max<int64_t>(0, out.structure.file_size));
-    base.last_confirmed = out.structure.last_confirmed_offset;
-    base.detail = "no moov box within " + std::to_string(out.file_size) +
-                  " bytes (last parsed top-level offset " +
-                  std::to_string(out.structure.last_confirmed_offset) + ")";
+    // The nearest offset that can be confirmed is where the box walk ended:
+    // every byte before it was parsed as a valid top-level box, and no moov
+    // was among them.  The byte immediately after is the first one we cannot
+    // account for.
+    const int64_t confirmed = out.structure.last_confirmed_offset >= 0
+                                  ? out.structure.last_confirmed_offset
+                                  : out.file_size;
+    base.byte_offset = confirmed;
+    base.byte_offset_end = 0;
+    base.last_confirmed = confirmed;
+    base.detail = "no moov box in " + std::to_string(out.file_size) +
+                  " bytes; every top-level box up to offset " +
+                  std::to_string(confirmed) + " parsed, none was moov";
     base.action = "mark asset failed; a moov is required for stream parameters";
     out.fatal_error = base;
     return false;
@@ -213,8 +220,41 @@ bool Scanner::open(const std::string& path, const Limits& limits, ScanOutcome& o
   }
 
   collect_tracks(out);
+
+  // A stream whose codec parameters are incomplete (no dimensions for video,
+  // no sample rate for audio) cannot be re-muxed into MP4 and its frames
+  // cannot be decoded, so its damage cannot be localised.  Report it as an
+  // out-of-range index: the entry that should describe the first sample is
+  // the byte the container failed to give us.
+  for (auto& spec : out.tracks) {
+    const bool missing_video = spec.media_type == AVMEDIA_TYPE_VIDEO &&
+                               (spec.width <= 0 || spec.height <= 0);
+    const bool missing_audio = spec.media_type == AVMEDIA_TYPE_AUDIO &&
+                               spec.sample_rate <= 0;
+    if (!missing_video && !missing_audio) continue;
+    const TrackStructure* ct = container_track_for(out.structure, spec.track_id);
+    Error e;
+    e.file = path;
+    e.stage = Stage::Structure;
+    e.severity = Severity::Fatal;
+    e.code = Code::IndexEntryOutOfRange;
+    e.track = static_cast<int>(spec.track_id);
+    e.stream_index = spec.stream_index;
+    const int64_t at = ct && ct->first_bad_entry_offset >= 0
+                           ? ct->first_bad_entry_offset
+                           : (ct && ct->stco_offset >= 0 ? ct->stco_offset
+                                                         : out.structure.moov_offset);
+    e.set_range(at, at + 4);
+    e.last_confirmed = out.structure.last_confirmed_offset;
+    e.detail = "sample table points past EOF so codec parameters are incomplete (" +
+               std::string(missing_video ? "video dimensions" : "audio sample rate") +
+               " missing)";
+    e.action = "rebuild the sample table from the present sample data";
+    out.fatal = true;
+    out.fatal_error = e;
+  }
   validate_structure(out);
-  return true;
+  return !out.fatal;
 }
 
 void Scanner::collect_tracks(ScanOutcome& out) {
@@ -247,8 +287,12 @@ void Scanner::collect_tracks(ScanOutcome& out) {
       spec.first_bad_sample = ct->first_bad_sample;
       spec.first_bad_offset = ct->first_bad_offset;
       spec.samples_out_of_range = ct->index_entries_out_of_range;
+      spec.samples_past_eof = ct->samples_past_eof;
+      spec.first_past_eof_sample = ct->first_past_eof_sample;
       spec.index_entries_present = ct->has_stco && ct->nb_samples > 0;
       spec.index_incomplete = ct->first_bad_sample >= 0;
+      // A sample that merely extends past EOF is a truncated tail, reported
+      // separately; it does not make the index unusable.
     } else if (out.fragmented) {
       // Fragmented files carry their sample tables in moof/traf; libavformat
       // reports samples per fragment.  No stco table exists to cross-check.
@@ -312,6 +356,25 @@ void Scanner::validate_structure(ScanOutcome& out) {
       out.index_needs_rebuild = true;
       out.index_incomplete = true;
     }
+  }
+
+  // Samples whose declared span crosses EOF but start inside the file: the
+  // tail was cut, not the index.  Reported at EOF, which is the first byte
+  // that should exist and does not.
+  for (const auto& spec : out.tracks) {
+    if (spec.samples_past_eof <= 0) continue;
+    Error e = base;
+    e.track = static_cast<int>(spec.track_id);
+    e.stream_index = spec.stream_index;
+    e.code = Code::MdatTruncated;
+    e.byte_offset = out.structure.file_size;
+    e.last_confirmed = out.structure.file_size;
+    e.detail = std::to_string(spec.samples_past_eof) + " samples of track " +
+               std::to_string(spec.track_id) + " extend past EOF (first at sample " +
+               std::to_string(spec.first_past_eof_sample) + ")";
+    e.action = "drop the incomplete tail packet; every earlier packet is intact";
+    record(out, e);
+    out.truncated_tail = true;
   }
 
   // A truncated top-level box (typically mdat) means the tail is missing.
@@ -402,6 +465,32 @@ bool Scanner::stream(const PacketCallback& cb, ScanOutcome& out) {
     }
     const int64_t pos = pkt->pos >= 0 ? pkt->pos : -1;
     const int64_t size = pkt->size;
+    if (pkt->flags & AV_PKT_FLAG_CORRUPT) {
+      // The demuxer had to shorten this packet to fit the file (or found it
+      // inconsistent).  It is not complete media; report the first missing
+      // byte and stop, exactly as for a declared span crossing EOF.
+      Error e;
+      e.file = path_;
+      e.stage = Stage::Scan;
+      e.severity = Severity::Recovered;
+      e.code = Code::PacketTruncated;
+      e.track = static_cast<int>(spec->track_id);
+      e.stream_index = si;
+      const int64_t tail_at = out.file_size;
+      e.set_range(pos >= 0 ? std::min(pos, tail_at) : tail_at, tail_at);
+      e.last_confirmed = out.file_size;
+      e.dts = pkt->dts;
+      e.pts = pkt->pts;
+      e.time_base = spec->time_base.str();
+      e.detail = "demuxer marked the packet corrupt at byte " +
+                 std::to_string(pos) + "; the file ends at " +
+                 std::to_string(out.file_size);
+      e.action = "drop the incomplete packet and stop at the last good byte";
+      record(out, e);
+      out.dropped_packets++;
+      av_packet_unref(pkt);
+      break;
+    }
     if (pos < 0) {
       // A packet without a file position cannot be mapped back to a byte
       // range; report the offset as unknown rather than guessing.

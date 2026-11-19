@@ -257,11 +257,6 @@ bool ResumeStore::load_for(const std::string& input_path, const std::string& inp
                   "checkpoint offset " + std::to_string(cp.input_offset) +
                       " exceeds input size " + std::to_string(cp.input_size));
   }
-  // Estimate time saved from the fraction of the input already committed.
-  const int64_t covered = cp.stage == JobStage::Verified ? cp.input_size : cp.input_offset;
-  if (cp.input_size > 0) {
-    decision.seconds_saved = covered > 0 ? 1 : 0;
-  }
   decision.resume = true;
   decision.reason = "checkpoint matches input, config and output";
   return true;
