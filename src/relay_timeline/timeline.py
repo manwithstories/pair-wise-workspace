@@ -71,7 +71,8 @@ class Timeline:
     def _validate_clip(self, clip: Clip) -> None:
         if clip.track < 0:
             raise TimelineError(f"轨道序号不能为负: {clip.track}")
-        self.tb.require_duration(clip.duration, "剪辑时长")
+        if clip.duration < 0:
+            raise TimelineError(f"剪辑时长不能为负: {clip.duration}")
         if clip.duration == 0:
             raise TimelineError(f"剪辑时长不能为零: {clip.source_id}")
         if clip.start < 0:
@@ -80,8 +81,10 @@ class Timeline:
             raise TimelineError(
                 f"剪辑点越界: [{clip.start},{clip.end}) 超出时间线 {self.duration}"
             )
-        self.tb.require_duration(clip.source_offset, "素材偏移")
-        self.tb.require_duration(clip.transition_in, "转场时长")
+        if clip.source_offset < 0:
+            raise TimelineError(f"素材偏移不能为负: {clip.source_offset}")
+        if clip.transition_in < 0:
+            raise TimelineError(f"转场时长不能为负: {clip.transition_in}")
         if clip.transition_in > clip.duration:
             raise TimelineError(
                 f"转场时长 {clip.transition_in} 超过剪辑时长 {clip.duration}"
