@@ -513,3 +513,72 @@ TEST_CASE("render: gap produces missing frame, dense sample duplicates",
   for (auto& e : errs) missCode |= e.code == kRenderMissing;
   REQUIRE(missCode);
 }
+
+#include "report.hpp"
+
+TEST_CASE("report: metrics, error codes and exit semantics", "[report]") {
+  ReportInputs in;
+  in.target_bitrate_bps = 4'000'000;
+  in.actual_bitrate_bps = 4'100'000;  // 偏差 2.5%
+  in.video_psnr_db = 50.0;
+  in.audio_peak_dbfs = -6.0;
+  in.subtitle_alignment_max_ms = 20;
+  in.frames_exported = 12;
+  in.frame_sha256_count = 12;
+  in.queue_capacity = 8;
+  in.queue_peak_items = 6;
+  in.checkpoint_resumed_blocks = 3;
+  in.errors = {{kMediaDecode, "x", 100}, {kMediaDecode, "y", 200},
+               {kRenderMissing, "z", 300}};
+  in.first_error_offset = 100;
+
+  ReportResult rr = build_report(in, nullptr);
+  REQUIRE(rr.metrics_ok);
+  REQUIRE(rr.errors_by_code.at(kMediaDecode) == 2);
+  REQUIRE(rr.errors_by_code.at(kRenderMissing) == 1);
+  REQUIRE(rr.json.find("target_bitrate_bps") != std::string::npos);
+  REQUIRE(rr.json.find("checkpoint_resumed_blocks") != std::string::npos);
+  // 含可恢复错误、指标合格 -> 退出码 2。
+  REQUIRE(decide_exit_code(rr, nullptr, false) == 2);
+
+  // 指标超限（码率偏差 >5%）-> 退出码 4。
+  ReportInputs bad = in;
+  bad.actual_bitrate_bps = 5'000'000;  // 25% 偏差
+  ReportResult rbad = build_report(bad, nullptr);
+  REQUIRE_FALSE(rbad.metrics_ok);
+  REQUIRE(decide_exit_code(rbad, nullptr, false) == 4);
+
+  // 检查点失败 -> 退出码 3，优先于指标。
+  CpError cpe{kCpIndexCorrupt, "bad", "index.cpi:line 9"};
+  REQUIRE(decide_exit_code(rr, &cpe, false) == 3);
+  // 参数错误 -> 5，最高优先。
+  REQUIRE(decide_exit_code(rr, &cpe, true) == 5);
+  // 无错误且合格 -> 0。
+  ReportInputs clean = in;
+  clean.errors.clear();
+  ReportResult rc = build_report(clean, nullptr);
+  REQUIRE(decide_exit_code(rc, nullptr, false) == 0);
+}
+
+TEST_CASE("report: subtitle alignment error bounded by frame grid",
+          "[report]") {
+  // 25fps 帧间隔 40ms；字幕起点偏移半帧（20ms）时最大对齐误差为 20ms。
+  SubtitleDoc doc;
+  doc.cues.push_back({ms_to_master(1020), ms_to_master(2000), "a", 0, 0});
+  doc.cues.push_back({ms_to_master(3000), ms_to_master(4000), "b", 0, 1});
+  int64_t align = max_subtitle_alignment_ms(doc, Ratio{25, 1});
+  REQUIRE(align == 20);
+  REQUIRE(align <= 40);
+}
+
+TEST_CASE("report: queue over capacity fails metrics", "[report]") {
+  ReportInputs in;
+  in.target_bitrate_bps = 1000;
+  in.actual_bitrate_bps = 1000;
+  in.video_psnr_db = 99;
+  in.queue_capacity = 8;
+  in.queue_peak_items = 9;  // 超过容量上限
+  ReportResult rr = build_report(in, nullptr);
+  REQUIRE_FALSE(rr.metrics_ok);
+  REQUIRE(decide_exit_code(rr, nullptr, false) == 4);
+}

@@ -26,6 +26,7 @@ add_library(mbcore
   src/media_make.cpp
   src/media_proc.cpp
   src/render.cpp
+  src/report.cpp
 )
 target_include_directories(mbcore PUBLIC src)
 target_link_libraries(mbcore PUBLIC PkgConfig::FFMPEG Threads::Threads)
