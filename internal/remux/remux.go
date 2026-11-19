@@ -140,6 +140,10 @@ func (r *Result) Finalize(name string) error {
 	return nil
 }
 
+// TmpPath returns the unverified temporary output path (empty after
+// Finalize or Abandon).
+func (r *Result) TmpPath() string { return r.tmpPath }
+
 // Abandon removes the unverified temporary output.
 func (r *Result) Abandon() {
 	if r.tmpPath != "" {

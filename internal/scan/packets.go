@@ -57,10 +57,17 @@ func BuildPackets(t *TrackInfo, fileSize int64) ([]Packet, fault.List) {
 		}
 	}
 
-	// Byte offset per sample from stsc + stco.
+	// Byte offset per sample from stsc + stco. On truncation the intact
+	// prefix is retained so the remux stage can recover it.
 	offsets, ok := sampleOffsets(t, fileSize, &faults)
-	if !ok {
+	if !ok && len(offsets) == 0 {
 		return nil, faults
+	}
+	if len(offsets) < n {
+		n = len(offsets)
+	}
+	if len(dts) < n {
+		n = len(dts)
 	}
 
 	ts := &clock.TrackState{TrackID: t.ID, Timescale: t.Timescale}

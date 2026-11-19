@@ -71,18 +71,18 @@ func buildTrak(tr *trackOut) []byte {
 	writeMatrix(tkhdPayload[40:76])
 	tkhd := fullbox("tkhd", 0, 0x3, tkhdPayload)
 
-	mdhdPayload := make([]byte, 24)
-	be32(mdhdPayload[12:16], tr.scale())
-	be32(mdhdPayload[16:20], trackDuration(tr.pkts))
+	mdhdPayload := make([]byte, 20)
+	be32(mdhdPayload[8:12], tr.scale())          // timescale
+	be32(mdhdPayload[12:16], trackDuration(tr.pkts)) // duration
 	mdhd := fullbox("mdhd", 0, 0, mdhdPayload)
 
 	handler := "vide"
 	if tr.mediaType == "audio" {
 		handler = "soun"
 	}
-	hdlrPayload := append(make([]byte, 8), []byte(handler)...)
-	hdlrPayload = append(hdlrPayload, make([]byte, 12)...)
-	hdlrPayload = append(hdlrPayload, 0) // empty name
+	hdlrPayload := append(make([]byte, 4), []byte(handler)...) // pre_defined + handler_type
+	hdlrPayload = append(hdlrPayload, make([]byte, 12)...)    // reserved
+	hdlrPayload = append(hdlrPayload, 0)                      // empty name
 	hdlr := fullbox("hdlr", 0, 0, hdlrPayload)
 
 	mediaHeader := fullbox("vmhd", 0, 1, make([]byte, 8))
@@ -119,11 +119,13 @@ func buildStsd(mediaType string) []byte {
 }
 
 // buildStts compresses per-sample DTS deltas into runs (unified base).
+// The final sample reuses the last delta so every sample has a duration.
 func buildStts(pkts []scan.Packet) []byte {
 	payload := u32(0) // version/flags; entry count appended below
 	countPos := len(payload)
 	payload = append(payload, u32(0)...)
 	var count uint32
+	var lastDelta int64
 	for i := 1; i < len(pkts); i++ {
 		delta := pkts[i].DTS - pkts[i-1].DTS
 		if delta < 0 {
@@ -132,10 +134,11 @@ func buildStts(pkts []scan.Packet) []byte {
 		payload = append(payload, u32(1)...)
 		payload = append(payload, u32(uint32(delta))...)
 		count++
+		lastDelta = delta
 	}
-	if len(pkts) == 1 {
+	if len(pkts) > 0 {
 		payload = append(payload, u32(1)...)
-		payload = append(payload, u32(0)...)
+		payload = append(payload, u32(uint32(lastDelta))...)
 		count++
 	}
 	be32(payload[countPos:countPos+4], count)

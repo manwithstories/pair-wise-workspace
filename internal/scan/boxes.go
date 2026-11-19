@@ -69,7 +69,14 @@ func Parse(r io.ReadSeeker, size int64) (*ContainerInfo, error) {
 			return nil, errStop
 		}
 		if int64(bi.Offset)+int64(bi.Size) > size {
-			ci.recordDamage(fault.KindBoxOutOfRange, int64(bi.Offset),
+			// A short mdat tail is a recoverable truncation; any other
+			// out-of-range box is structural damage.
+			recoverable := bi.Type == mp4.BoxTypeMdat()
+			kind := fault.KindBoxOutOfRange
+			if recoverable {
+				kind = fault.KindTruncated
+			}
+			ci.recordDamage(kind, int64(bi.Offset),
 				fmt.Sprintf("box %s [%d,%d) beyond file size %d", bi.Type, bi.Offset, bi.Offset+bi.Size, size))
 			return nil, errStop
 		}

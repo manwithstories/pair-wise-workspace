@@ -103,11 +103,17 @@ type Summary struct {
 }
 
 // Summarize builds the digest from parsed container info and packets.
+// Only tracks that carry retained packets count: a track whose samples
+// were all lost to truncation is absent from the remuxed output by
+// policy, and must not fail verification.
 func Summarize(ci *scan.ContainerInfo, byTrack map[uint32][]scan.Packet) Summary {
 	var s Summary
-	s.Tracks = len(ci.Tracks)
 	for _, t := range ci.Tracks {
 		pkts := byTrack[t.ID]
+		if len(pkts) == 0 {
+			continue
+		}
+		s.Tracks++
 		switch t.MediaType {
 		case "video":
 			s.VideoPackets += len(pkts)
