@@ -56,8 +56,6 @@ build CMakeFiles/md_core.dir/src/time_model.cpp.o: CXX_COMPILER__md_core_unscann
   INCLUDES = -I/Users/clearliu/WorkSpace/pair-wise-workspace/12777/include -isystem /opt/homebrew/Cellar/ffmpeg/8.0.1_2/include
   OBJECT_DIR = CMakeFiles/md_core.dir
   OBJECT_FILE_DIR = CMakeFiles/md_core.dir/src
-  TARGET_COMPILE_PDB = CMakeFiles/md_core.dir/md_core.pdb
-  TARGET_PDB = libmd_core.pdb
   TARGET_SUPPORT_DIR = CMakeFiles/md_core.dir
 
 build CMakeFiles/md_core.dir/src/packet.cpp.o: CXX_COMPILER__md_core_unscanned_Release /Users/clearliu/WorkSpace/pair-wise-workspace/12777/src/packet.cpp || cmake_object_order_depends_target_md_core
@@ -67,8 +65,6 @@ build CMakeFiles/md_core.dir/src/packet.cpp.o: CXX_COMPILER__md_core_unscanned_R
   INCLUDES = -I/Users/clearliu/WorkSpace/pair-wise-workspace/12777/include -isystem /opt/homebrew/Cellar/ffmpeg/8.0.1_2/include
   OBJECT_DIR = CMakeFiles/md_core.dir
   OBJECT_FILE_DIR = CMakeFiles/md_core.dir/src
-  TARGET_COMPILE_PDB = CMakeFiles/md_core.dir/md_core.pdb
-  TARGET_PDB = libmd_core.pdb
   TARGET_SUPPORT_DIR = CMakeFiles/md_core.dir
 
 build CMakeFiles/md_core.dir/src/manifest.cpp.o: CXX_COMPILER__md_core_unscanned_Release /Users/clearliu/WorkSpace/pair-wise-workspace/12777/src/manifest.cpp || cmake_object_order_depends_target_md_core
@@ -78,8 +74,6 @@ build CMakeFiles/md_core.dir/src/manifest.cpp.o: CXX_COMPILER__md_core_unscanned
   INCLUDES = -I/Users/clearliu/WorkSpace/pair-wise-workspace/12777/include -isystem /opt/homebrew/Cellar/ffmpeg/8.0.1_2/include
   OBJECT_DIR = CMakeFiles/md_core.dir
   OBJECT_FILE_DIR = CMakeFiles/md_core.dir/src
-  TARGET_COMPILE_PDB = CMakeFiles/md_core.dir/md_core.pdb
-  TARGET_PDB = libmd_core.pdb
   TARGET_SUPPORT_DIR = CMakeFiles/md_core.dir
 
 build CMakeFiles/md_core.dir/src/clock_repair.cpp.o: CXX_COMPILER__md_core_unscanned_Release /Users/clearliu/WorkSpace/pair-wise-workspace/12777/src/clock_repair.cpp || cmake_object_order_depends_target_md_core
@@ -89,8 +83,6 @@ build CMakeFiles/md_core.dir/src/clock_repair.cpp.o: CXX_COMPILER__md_core_unsca
   INCLUDES = -I/Users/clearliu/WorkSpace/pair-wise-workspace/12777/include -isystem /opt/homebrew/Cellar/ffmpeg/8.0.1_2/include
   OBJECT_DIR = CMakeFiles/md_core.dir
   OBJECT_FILE_DIR = CMakeFiles/md_core.dir/src
-  TARGET_COMPILE_PDB = CMakeFiles/md_core.dir/md_core.pdb
-  TARGET_PDB = libmd_core.pdb
   TARGET_SUPPORT_DIR = CMakeFiles/md_core.dir
 
 build CMakeFiles/md_core.dir/src/stream_pipeline.cpp.o: CXX_COMPILER__md_core_unscanned_Release /Users/clearliu/WorkSpace/pair-wise-workspace/12777/src/stream_pipeline.cpp || cmake_object_order_depends_target_md_core
@@ -100,8 +92,6 @@ build CMakeFiles/md_core.dir/src/stream_pipeline.cpp.o: CXX_COMPILER__md_core_un
   INCLUDES = -I/Users/clearliu/WorkSpace/pair-wise-workspace/12777/include -isystem /opt/homebrew/Cellar/ffmpeg/8.0.1_2/include
   OBJECT_DIR = CMakeFiles/md_core.dir
   OBJECT_FILE_DIR = CMakeFiles/md_core.dir/src
-  TARGET_COMPILE_PDB = CMakeFiles/md_core.dir/md_core.pdb
-  TARGET_PDB = libmd_core.pdb
   TARGET_SUPPORT_DIR = CMakeFiles/md_core.dir
 
 build CMakeFiles/md_core.dir/src/index_builder.cpp.o: CXX_COMPILER__md_core_unscanned_Release /Users/clearliu/WorkSpace/pair-wise-workspace/12777/src/index_builder.cpp || cmake_object_order_depends_target_md_core
@@ -111,8 +101,6 @@ build CMakeFiles/md_core.dir/src/index_builder.cpp.o: CXX_COMPILER__md_core_unsc
   INCLUDES = -I/Users/clearliu/WorkSpace/pair-wise-workspace/12777/include -isystem /opt/homebrew/Cellar/ffmpeg/8.0.1_2/include
   OBJECT_DIR = CMakeFiles/md_core.dir
   OBJECT_FILE_DIR = CMakeFiles/md_core.dir/src
-  TARGET_COMPILE_PDB = CMakeFiles/md_core.dir/md_core.pdb
-  TARGET_PDB = libmd_core.pdb
   TARGET_SUPPORT_DIR = CMakeFiles/md_core.dir
 
 build CMakeFiles/md_core.dir/src/quality_report.cpp.o: CXX_COMPILER__md_core_unscanned_Release /Users/clearliu/WorkSpace/pair-wise-workspace/12777/src/quality_report.cpp || cmake_object_order_depends_target_md_core
@@ -122,8 +110,6 @@ build CMakeFiles/md_core.dir/src/quality_report.cpp.o: CXX_COMPILER__md_core_uns
   INCLUDES = -I/Users/clearliu/WorkSpace/pair-wise-workspace/12777/include -isystem /opt/homebrew/Cellar/ffmpeg/8.0.1_2/include
   OBJECT_DIR = CMakeFiles/md_core.dir
   OBJECT_FILE_DIR = CMakeFiles/md_core.dir/src
-  TARGET_COMPILE_PDB = CMakeFiles/md_core.dir/md_core.pdb
-  TARGET_PDB = libmd_core.pdb
   TARGET_SUPPORT_DIR = CMakeFiles/md_core.dir
 
 build CMakeFiles/md_core.dir/src/demuxer.cpp.o: CXX_COMPILER__md_core_unscanned_Release /Users/clearliu/WorkSpace/pair-wise-workspace/12777/src/demuxer.cpp || cmake_object_order_depends_target_md_core
@@ -133,8 +119,6 @@ build CMakeFiles/md_core.dir/src/demuxer.cpp.o: CXX_COMPILER__md_core_unscanned_
   INCLUDES = -I/Users/clearliu/WorkSpace/pair-wise-workspace/12777/include -isystem /opt/homebrew/Cellar/ffmpeg/8.0.1_2/include
   OBJECT_DIR = CMakeFiles/md_core.dir
   OBJECT_FILE_DIR = CMakeFiles/md_core.dir/src
-  TARGET_COMPILE_PDB = CMakeFiles/md_core.dir/md_core.pdb
-  TARGET_PDB = libmd_core.pdb
   TARGET_SUPPORT_DIR = CMakeFiles/md_core.dir
 
 build CMakeFiles/md_core.dir/src/generator.cpp.o: CXX_COMPILER__md_core_unscanned_Release /Users/clearliu/WorkSpace/pair-wise-workspace/12777/src/generator.cpp || cmake_object_order_depends_target_md_core
@@ -144,8 +128,15 @@ build CMakeFiles/md_core.dir/src/generator.cpp.o: CXX_COMPILER__md_core_unscanne
   INCLUDES = -I/Users/clearliu/WorkSpace/pair-wise-workspace/12777/include -isystem /opt/homebrew/Cellar/ffmpeg/8.0.1_2/include
   OBJECT_DIR = CMakeFiles/md_core.dir
   OBJECT_FILE_DIR = CMakeFiles/md_core.dir/src
-  TARGET_COMPILE_PDB = CMakeFiles/md_core.dir/md_core.pdb
-  TARGET_PDB = libmd_core.pdb
+  TARGET_SUPPORT_DIR = CMakeFiles/md_core.dir
+
+build CMakeFiles/md_core.dir/src/ffmpeg_util.cpp.o: CXX_COMPILER__md_core_unscanned_Release /Users/clearliu/WorkSpace/pair-wise-workspace/12777/src/ffmpeg_util.cpp || cmake_object_order_depends_target_md_core
+  CONFIG = Release
+  DEP_FILE = CMakeFiles/md_core.dir/src/ffmpeg_util.cpp.o.d
+  FLAGS = -O3 -DNDEBUG -std=c++20 -arch arm64 -Wall -Wextra -Wno-deprecated-declarations
+  INCLUDES = -I/Users/clearliu/WorkSpace/pair-wise-workspace/12777/include -isystem /opt/homebrew/Cellar/ffmpeg/8.0.1_2/include
+  OBJECT_DIR = CMakeFiles/md_core.dir
+  OBJECT_FILE_DIR = CMakeFiles/md_core.dir/src
   TARGET_SUPPORT_DIR = CMakeFiles/md_core.dir
 
 
@@ -156,16 +147,15 @@ build CMakeFiles/md_core.dir/src/generator.cpp.o: CXX_COMPILER__md_core_unscanne
 #############################################
 # Link the static library libmd_core.a
 
-build libmd_core.a: CXX_STATIC_LIBRARY_LINKER__md_core_Release CMakeFiles/md_core.dir/src/time_model.cpp.o CMakeFiles/md_core.dir/src/packet.cpp.o CMakeFiles/md_core.dir/src/manifest.cpp.o CMakeFiles/md_core.dir/src/clock_repair.cpp.o CMakeFiles/md_core.dir/src/stream_pipeline.cpp.o CMakeFiles/md_core.dir/src/index_builder.cpp.o CMakeFiles/md_core.dir/src/quality_report.cpp.o CMakeFiles/md_core.dir/src/demuxer.cpp.o CMakeFiles/md_core.dir/src/generator.cpp.o
+build libmd_core.a: CXX_STATIC_LIBRARY_LINKER__md_core_Release CMakeFiles/md_core.dir/src/time_model.cpp.o CMakeFiles/md_core.dir/src/packet.cpp.o CMakeFiles/md_core.dir/src/manifest.cpp.o CMakeFiles/md_core.dir/src/clock_repair.cpp.o CMakeFiles/md_core.dir/src/stream_pipeline.cpp.o CMakeFiles/md_core.dir/src/index_builder.cpp.o CMakeFiles/md_core.dir/src/quality_report.cpp.o CMakeFiles/md_core.dir/src/demuxer.cpp.o CMakeFiles/md_core.dir/src/generator.cpp.o CMakeFiles/md_core.dir/src/ffmpeg_util.cpp.o
   ARCH_FLAGS = -arch arm64
   CONFIG = Release
   LANGUAGE_COMPILE_FLAGS = -O3 -DNDEBUG
   OBJECT_DIR = CMakeFiles/md_core.dir
   POST_BUILD = :
   PRE_LINK = :
-  TARGET_COMPILE_PDB = CMakeFiles/md_core.dir/md_core.pdb
   TARGET_FILE = libmd_core.a
-  TARGET_PDB = libmd_core.pdb
+  TARGET_PDB = md_core.a.dbg
   TARGET_SUPPORT_DIR = CMakeFiles/md_core.dir
 
 # =============================================================================
@@ -184,8 +174,6 @@ build CMakeFiles/media-deliver.dir/src/main.cpp.o: CXX_COMPILER__media-deliver_u
   INCLUDES = -I/Users/clearliu/WorkSpace/pair-wise-workspace/12777/include -isystem /opt/homebrew/Cellar/ffmpeg/8.0.1_2/include
   OBJECT_DIR = CMakeFiles/media-deliver.dir
   OBJECT_FILE_DIR = CMakeFiles/media-deliver.dir/src
-  TARGET_COMPILE_PDB = CMakeFiles/media-deliver.dir/
-  TARGET_PDB = media-deliver.pdb
   TARGET_SUPPORT_DIR = CMakeFiles/media-deliver.dir
 
 
@@ -204,9 +192,8 @@ build media-deliver: CXX_EXECUTABLE_LINKER__media-deliver_Release CMakeFiles/med
   OBJECT_DIR = CMakeFiles/media-deliver.dir
   POST_BUILD = :
   PRE_LINK = :
-  TARGET_COMPILE_PDB = CMakeFiles/media-deliver.dir/
   TARGET_FILE = media-deliver
-  TARGET_PDB = media-deliver.pdb
+  TARGET_PDB = media-deliver.dbg
   TARGET_SUPPORT_DIR = CMakeFiles/media-deliver.dir
 
 # =============================================================================
@@ -225,8 +212,6 @@ build CMakeFiles/repair_tests.dir/tests/repair_tests.cpp.o: CXX_COMPILER__repair
   INCLUDES = -I/Users/clearliu/WorkSpace/pair-wise-workspace/12777/include -isystem /opt/homebrew/Cellar/ffmpeg/8.0.1_2/include -isystem /opt/homebrew/include
   OBJECT_DIR = CMakeFiles/repair_tests.dir
   OBJECT_FILE_DIR = CMakeFiles/repair_tests.dir/tests
-  TARGET_COMPILE_PDB = CMakeFiles/repair_tests.dir/
-  TARGET_PDB = repair_tests.pdb
   TARGET_SUPPORT_DIR = CMakeFiles/repair_tests.dir
 
 
@@ -246,9 +231,8 @@ build repair_tests repair_tests-b12d07c_tests.cmake | ${cmake_ninja_workdir}repa
   POST_BUILD = cd /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build && /opt/homebrew/bin/cmake -D TEST_TARGET=repair_tests -D TEST_EXECUTABLE=/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests -D TEST_EXECUTOR= -D TEST_WORKING_DIR=/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build -D TEST_SPEC= -D TEST_EXTRA_ARGS= -D "TEST_PROPERTIES=SKIP_RETURN_CODE;4" -D "TEST_PREFIX=''" -D "TEST_SUFFIX=''" -D TEST_LIST=repair_tests_TESTS -D TEST_REPORTER= -D TEST_OUTPUT_DIR= -D TEST_OUTPUT_PREFIX= -D TEST_OUTPUT_SUFFIX= -D TEST_DL_PATHS= -D TEST_DL_FRAMEWORK_PATHS= -D CTEST_FILE=/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests-b12d07c_tests.cmake -D ADD_TAGS_AS_LABELS=FALSE -P /opt/homebrew/lib/cmake/Catch2/CatchAddTests.cmake
   PRE_LINK = :
   RESTAT = 1
-  TARGET_COMPILE_PDB = CMakeFiles/repair_tests.dir/
   TARGET_FILE = repair_tests
-  TARGET_PDB = repair_tests.pdb
+  TARGET_PDB = repair_tests.dbg
   TARGET_SUPPORT_DIR = CMakeFiles/repair_tests.dir
 
 
@@ -701,14 +685,14 @@ build all: phony libmd_core.a media-deliver repair_tests
 #############################################
 # Re-run CMake if any of its inputs changed.
 
-build build.ninja /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/cmake_install.cmake /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/CTestTestfile.cmake: RERUN_CMAKE | /Users/clearliu/WorkSpace/pair-wise-workspace/12777/CMakeLists.txt /opt/homebrew/lib/cmake/Catch2/Catch.cmake /opt/homebrew/lib/cmake/Catch2/Catch2Config.cmake /opt/homebrew/lib/cmake/Catch2/Catch2ConfigVersion.cmake /opt/homebrew/lib/cmake/Catch2/Catch2Targets-release.cmake /opt/homebrew/lib/cmake/Catch2/Catch2Targets.cmake /opt/homebrew/share/cmake/Modules/CMakeCXXCompiler.cmake.in /opt/homebrew/share/cmake/Modules/CMakeCXXCompilerABI.cpp /opt/homebrew/share/cmake/Modules/CMakeCXXInformation.cmake /opt/homebrew/share/cmake/Modules/CMakeCommonLanguageInclude.cmake /opt/homebrew/share/cmake/Modules/CMakeCompilerIdDetection.cmake /opt/homebrew/share/cmake/Modules/CMakeDetermineCXXCompiler.cmake /opt/homebrew/share/cmake/Modules/CMakeDetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerABI.cmake /opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerId.cmake /opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerSupport.cmake /opt/homebrew/share/cmake/Modules/CMakeDetermineSystem.cmake /opt/homebrew/share/cmake/Modules/CMakeFindBinUtils.cmake /opt/homebrew/share/cmake/Modules/CMakeGenericSystem.cmake /opt/homebrew/share/cmake/Modules/CMakeInitializeConfigs.cmake /opt/homebrew/share/cmake/Modules/CMakeLanguageInformation.cmake /opt/homebrew/share/cmake/Modules/CMakeNinjaFindMake.cmake /opt/homebrew/share/cmake/Modules/CMakeParseImplicitIncludeInfo.cmake /opt/homebrew/share/cmake/Modules/CMakeParseImplicitLinkInfo.cmake /opt/homebrew/share/cmake/Modules/CMakeParseLibraryArchitecture.cmake /opt/homebrew/share/cmake/Modules/CMakeSystem.cmake.in /opt/homebrew/share/cmake/Modules/CMakeSystemSpecificInformation.cmake /opt/homebrew/share/cmake/Modules/CMakeSystemSpecificInitialize.cmake /opt/homebrew/share/cmake/Modules/CMakeTestCXXCompiler.cmake /opt/homebrew/share/cmake/Modules/CMakeTestCompilerCommon.cmake /opt/homebrew/share/cmake/Modules/CTest.cmake /opt/homebrew/share/cmake/Modules/CTestTargets.cmake /opt/homebrew/share/cmake/Modules/CTestUseLaunchers.cmake /opt/homebrew/share/cmake/Modules/CheckCXXSourceCompiles.cmake /opt/homebrew/share/cmake/Modules/CheckIncludeFileCXX.cmake /opt/homebrew/share/cmake/Modules/CheckLibraryExists.cmake /opt/homebrew/share/cmake/Modules/Compiler/ADSP-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/ARMCC-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/ARMClang-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/AppleClang-CXX.cmake /opt/homebrew/share/cmake/Modules/Compiler/AppleClang-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/Borland-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/CMakeCommonCompilerMacros.cmake /opt/homebrew/share/cmake/Modules/Compiler/Clang-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/Clang-DetermineCompilerInternal.cmake /opt/homebrew/share/cmake/Modules/Compiler/Clang.cmake /opt/homebrew/share/cmake/Modules/Compiler/Compaq-CXX-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/Cray-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/CrayClang-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/Diab-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/Embarcadero-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/Fujitsu-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/FujitsuClang-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/GHS-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/GNU-CXX-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/GNU.cmake /opt/homebrew/share/cmake/Modules/Compiler/HP-CXX-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/IAR-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/IBMCPP-CXX-DetermineVersionInternal.cmake /opt/homebrew/share/cmake/Modules/Compiler/IBMClang-CXX-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/Intel-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/IntelLLVM-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/LCC-CXX-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/MSVC-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/NVHPC-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/NVIDIA-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/OpenWatcom-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/OrangeC-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/PGI-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/PathScale-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/PellesC-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/Renesas-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/SCO-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/SunPro-CXX-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/TI-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/TIClang-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/Tasking-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/VisualAge-CXX-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/Watcom-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/XL-CXX-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/XLClang-CXX-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/zOS-CXX-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/DartConfiguration.tcl.in /opt/homebrew/share/cmake/Modules/FindPackageHandleStandardArgs.cmake /opt/homebrew/share/cmake/Modules/FindPackageMessage.cmake /opt/homebrew/share/cmake/Modules/FindPkgConfig.cmake /opt/homebrew/share/cmake/Modules/FindThreads.cmake /opt/homebrew/share/cmake/Modules/Internal/CMakeCXXLinkerInformation.cmake /opt/homebrew/share/cmake/Modules/Internal/CMakeCommonLinkerInformation.cmake /opt/homebrew/share/cmake/Modules/Internal/CMakeDetermineLinkerId.cmake /opt/homebrew/share/cmake/Modules/Internal/CMakeInspectCXXLinker.cmake /opt/homebrew/share/cmake/Modules/Internal/CheckCommon.cmake /opt/homebrew/share/cmake/Modules/Internal/CheckSourceCompiles.cmake /opt/homebrew/share/cmake/Modules/Internal/FeatureTesting.cmake /opt/homebrew/share/cmake/Modules/Linker/AppleClang-CXX.cmake /opt/homebrew/share/cmake/Modules/Linker/AppleClang.cmake /opt/homebrew/share/cmake/Modules/Platform/Apple-AppleClang-CXX.cmake /opt/homebrew/share/cmake/Modules/Platform/Apple-Clang-CXX.cmake /opt/homebrew/share/cmake/Modules/Platform/Apple-Clang.cmake /opt/homebrew/share/cmake/Modules/Platform/Darwin-Determine-CXX.cmake /opt/homebrew/share/cmake/Modules/Platform/Darwin-Initialize.cmake /opt/homebrew/share/cmake/Modules/Platform/Darwin.cmake /opt/homebrew/share/cmake/Modules/Platform/Linker/Apple-AppleClang-CXX.cmake /opt/homebrew/share/cmake/Modules/Platform/Linker/Apple-AppleClang.cmake /opt/homebrew/share/cmake/Modules/Platform/UnixPaths.cmake /opt/homebrew/share/cmake/Templates/CTestScript.cmake.in CMakeCache.txt CMakeFiles/4.4.5/CMakeCXXCompiler.cmake CMakeFiles/4.4.5/CMakeSystem.cmake
+build build.ninja /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/cmake_install.cmake /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/CTestTestfile.cmake: RERUN_CMAKE | /Users/clearliu/WorkSpace/pair-wise-workspace/12777/CMakeLists.txt /opt/homebrew/lib/cmake/Catch2/Catch.cmake /opt/homebrew/lib/cmake/Catch2/Catch2Config.cmake /opt/homebrew/lib/cmake/Catch2/Catch2ConfigVersion.cmake /opt/homebrew/lib/cmake/Catch2/Catch2Targets-release.cmake /opt/homebrew/lib/cmake/Catch2/Catch2Targets.cmake /opt/homebrew/share/cmake/Modules/CMakeCXXInformation.cmake /opt/homebrew/share/cmake/Modules/CMakeCommonLanguageInclude.cmake /opt/homebrew/share/cmake/Modules/CMakeGenericSystem.cmake /opt/homebrew/share/cmake/Modules/CMakeInitializeConfigs.cmake /opt/homebrew/share/cmake/Modules/CMakeLanguageInformation.cmake /opt/homebrew/share/cmake/Modules/CMakeSystemSpecificInformation.cmake /opt/homebrew/share/cmake/Modules/CMakeSystemSpecificInitialize.cmake /opt/homebrew/share/cmake/Modules/CTest.cmake /opt/homebrew/share/cmake/Modules/CTestTargets.cmake /opt/homebrew/share/cmake/Modules/CTestUseLaunchers.cmake /opt/homebrew/share/cmake/Modules/CheckCXXSourceCompiles.cmake /opt/homebrew/share/cmake/Modules/CheckIncludeFileCXX.cmake /opt/homebrew/share/cmake/Modules/CheckLibraryExists.cmake /opt/homebrew/share/cmake/Modules/Compiler/AppleClang-CXX.cmake /opt/homebrew/share/cmake/Modules/Compiler/CMakeCommonCompilerMacros.cmake /opt/homebrew/share/cmake/Modules/Compiler/Clang.cmake /opt/homebrew/share/cmake/Modules/Compiler/GNU.cmake /opt/homebrew/share/cmake/Modules/DartConfiguration.tcl.in /opt/homebrew/share/cmake/Modules/FindPackageHandleStandardArgs.cmake /opt/homebrew/share/cmake/Modules/FindPackageMessage.cmake /opt/homebrew/share/cmake/Modules/FindPkgConfig.cmake /opt/homebrew/share/cmake/Modules/FindThreads.cmake /opt/homebrew/share/cmake/Modules/Internal/CMakeCXXLinkerInformation.cmake /opt/homebrew/share/cmake/Modules/Internal/CMakeCommonLinkerInformation.cmake /opt/homebrew/share/cmake/Modules/Internal/CheckCommon.cmake /opt/homebrew/share/cmake/Modules/Internal/CheckSourceCompiles.cmake /opt/homebrew/share/cmake/Modules/Linker/AppleClang-CXX.cmake /opt/homebrew/share/cmake/Modules/Linker/AppleClang.cmake /opt/homebrew/share/cmake/Modules/Platform/Apple-AppleClang-CXX.cmake /opt/homebrew/share/cmake/Modules/Platform/Apple-Clang-CXX.cmake /opt/homebrew/share/cmake/Modules/Platform/Apple-Clang.cmake /opt/homebrew/share/cmake/Modules/Platform/Darwin-Initialize.cmake /opt/homebrew/share/cmake/Modules/Platform/Darwin.cmake /opt/homebrew/share/cmake/Modules/Platform/Linker/Apple-AppleClang-CXX.cmake /opt/homebrew/share/cmake/Modules/Platform/Linker/Apple-AppleClang.cmake /opt/homebrew/share/cmake/Modules/Platform/UnixPaths.cmake /opt/homebrew/share/cmake/Templates/CTestScript.cmake.in CMakeCache.txt CMakeFiles/4.4.5/CMakeCXXCompiler.cmake CMakeFiles/4.4.5/CMakeSystem.cmake
   pool = console
 
 
 #############################################
 # A missing CMake input file is not an error.
 
-build /Users/clearliu/WorkSpace/pair-wise-workspace/12777/CMakeLists.txt /opt/homebrew/lib/cmake/Catch2/Catch.cmake /opt/homebrew/lib/cmake/Catch2/Catch2Config.cmake /opt/homebrew/lib/cmake/Catch2/Catch2ConfigVersion.cmake /opt/homebrew/lib/cmake/Catch2/Catch2Targets-release.cmake /opt/homebrew/lib/cmake/Catch2/Catch2Targets.cmake /opt/homebrew/share/cmake/Modules/CMakeCXXCompiler.cmake.in /opt/homebrew/share/cmake/Modules/CMakeCXXCompilerABI.cpp /opt/homebrew/share/cmake/Modules/CMakeCXXInformation.cmake /opt/homebrew/share/cmake/Modules/CMakeCommonLanguageInclude.cmake /opt/homebrew/share/cmake/Modules/CMakeCompilerIdDetection.cmake /opt/homebrew/share/cmake/Modules/CMakeDetermineCXXCompiler.cmake /opt/homebrew/share/cmake/Modules/CMakeDetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerABI.cmake /opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerId.cmake /opt/homebrew/share/cmake/Modules/CMakeDetermineCompilerSupport.cmake /opt/homebrew/share/cmake/Modules/CMakeDetermineSystem.cmake /opt/homebrew/share/cmake/Modules/CMakeFindBinUtils.cmake /opt/homebrew/share/cmake/Modules/CMakeGenericSystem.cmake /opt/homebrew/share/cmake/Modules/CMakeInitializeConfigs.cmake /opt/homebrew/share/cmake/Modules/CMakeLanguageInformation.cmake /opt/homebrew/share/cmake/Modules/CMakeNinjaFindMake.cmake /opt/homebrew/share/cmake/Modules/CMakeParseImplicitIncludeInfo.cmake /opt/homebrew/share/cmake/Modules/CMakeParseImplicitLinkInfo.cmake /opt/homebrew/share/cmake/Modules/CMakeParseLibraryArchitecture.cmake /opt/homebrew/share/cmake/Modules/CMakeSystem.cmake.in /opt/homebrew/share/cmake/Modules/CMakeSystemSpecificInformation.cmake /opt/homebrew/share/cmake/Modules/CMakeSystemSpecificInitialize.cmake /opt/homebrew/share/cmake/Modules/CMakeTestCXXCompiler.cmake /opt/homebrew/share/cmake/Modules/CMakeTestCompilerCommon.cmake /opt/homebrew/share/cmake/Modules/CTest.cmake /opt/homebrew/share/cmake/Modules/CTestTargets.cmake /opt/homebrew/share/cmake/Modules/CTestUseLaunchers.cmake /opt/homebrew/share/cmake/Modules/CheckCXXSourceCompiles.cmake /opt/homebrew/share/cmake/Modules/CheckIncludeFileCXX.cmake /opt/homebrew/share/cmake/Modules/CheckLibraryExists.cmake /opt/homebrew/share/cmake/Modules/Compiler/ADSP-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/ARMCC-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/ARMClang-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/AppleClang-CXX.cmake /opt/homebrew/share/cmake/Modules/Compiler/AppleClang-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/Borland-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/CMakeCommonCompilerMacros.cmake /opt/homebrew/share/cmake/Modules/Compiler/Clang-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/Clang-DetermineCompilerInternal.cmake /opt/homebrew/share/cmake/Modules/Compiler/Clang.cmake /opt/homebrew/share/cmake/Modules/Compiler/Compaq-CXX-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/Cray-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/CrayClang-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/Diab-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/Embarcadero-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/Fujitsu-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/FujitsuClang-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/GHS-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/GNU-CXX-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/GNU.cmake /opt/homebrew/share/cmake/Modules/Compiler/HP-CXX-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/IAR-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/IBMCPP-CXX-DetermineVersionInternal.cmake /opt/homebrew/share/cmake/Modules/Compiler/IBMClang-CXX-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/Intel-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/IntelLLVM-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/LCC-CXX-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/MSVC-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/NVHPC-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/NVIDIA-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/OpenWatcom-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/OrangeC-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/PGI-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/PathScale-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/PellesC-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/Renesas-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/SCO-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/SunPro-CXX-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/TI-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/TIClang-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/Tasking-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/VisualAge-CXX-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/Watcom-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/XL-CXX-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/XLClang-CXX-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/Compiler/zOS-CXX-DetermineCompiler.cmake /opt/homebrew/share/cmake/Modules/DartConfiguration.tcl.in /opt/homebrew/share/cmake/Modules/FindPackageHandleStandardArgs.cmake /opt/homebrew/share/cmake/Modules/FindPackageMessage.cmake /opt/homebrew/share/cmake/Modules/FindPkgConfig.cmake /opt/homebrew/share/cmake/Modules/FindThreads.cmake /opt/homebrew/share/cmake/Modules/Internal/CMakeCXXLinkerInformation.cmake /opt/homebrew/share/cmake/Modules/Internal/CMakeCommonLinkerInformation.cmake /opt/homebrew/share/cmake/Modules/Internal/CMakeDetermineLinkerId.cmake /opt/homebrew/share/cmake/Modules/Internal/CMakeInspectCXXLinker.cmake /opt/homebrew/share/cmake/Modules/Internal/CheckCommon.cmake /opt/homebrew/share/cmake/Modules/Internal/CheckSourceCompiles.cmake /opt/homebrew/share/cmake/Modules/Internal/FeatureTesting.cmake /opt/homebrew/share/cmake/Modules/Linker/AppleClang-CXX.cmake /opt/homebrew/share/cmake/Modules/Linker/AppleClang.cmake /opt/homebrew/share/cmake/Modules/Platform/Apple-AppleClang-CXX.cmake /opt/homebrew/share/cmake/Modules/Platform/Apple-Clang-CXX.cmake /opt/homebrew/share/cmake/Modules/Platform/Apple-Clang.cmake /opt/homebrew/share/cmake/Modules/Platform/Darwin-Determine-CXX.cmake /opt/homebrew/share/cmake/Modules/Platform/Darwin-Initialize.cmake /opt/homebrew/share/cmake/Modules/Platform/Darwin.cmake /opt/homebrew/share/cmake/Modules/Platform/Linker/Apple-AppleClang-CXX.cmake /opt/homebrew/share/cmake/Modules/Platform/Linker/Apple-AppleClang.cmake /opt/homebrew/share/cmake/Modules/Platform/UnixPaths.cmake /opt/homebrew/share/cmake/Templates/CTestScript.cmake.in CMakeCache.txt CMakeFiles/4.4.5/CMakeCXXCompiler.cmake CMakeFiles/4.4.5/CMakeSystem.cmake: phony
+build /Users/clearliu/WorkSpace/pair-wise-workspace/12777/CMakeLists.txt /opt/homebrew/lib/cmake/Catch2/Catch.cmake /opt/homebrew/lib/cmake/Catch2/Catch2Config.cmake /opt/homebrew/lib/cmake/Catch2/Catch2ConfigVersion.cmake /opt/homebrew/lib/cmake/Catch2/Catch2Targets-release.cmake /opt/homebrew/lib/cmake/Catch2/Catch2Targets.cmake /opt/homebrew/share/cmake/Modules/CMakeCXXInformation.cmake /opt/homebrew/share/cmake/Modules/CMakeCommonLanguageInclude.cmake /opt/homebrew/share/cmake/Modules/CMakeGenericSystem.cmake /opt/homebrew/share/cmake/Modules/CMakeInitializeConfigs.cmake /opt/homebrew/share/cmake/Modules/CMakeLanguageInformation.cmake /opt/homebrew/share/cmake/Modules/CMakeSystemSpecificInformation.cmake /opt/homebrew/share/cmake/Modules/CMakeSystemSpecificInitialize.cmake /opt/homebrew/share/cmake/Modules/CTest.cmake /opt/homebrew/share/cmake/Modules/CTestTargets.cmake /opt/homebrew/share/cmake/Modules/CTestUseLaunchers.cmake /opt/homebrew/share/cmake/Modules/CheckCXXSourceCompiles.cmake /opt/homebrew/share/cmake/Modules/CheckIncludeFileCXX.cmake /opt/homebrew/share/cmake/Modules/CheckLibraryExists.cmake /opt/homebrew/share/cmake/Modules/Compiler/AppleClang-CXX.cmake /opt/homebrew/share/cmake/Modules/Compiler/CMakeCommonCompilerMacros.cmake /opt/homebrew/share/cmake/Modules/Compiler/Clang.cmake /opt/homebrew/share/cmake/Modules/Compiler/GNU.cmake /opt/homebrew/share/cmake/Modules/DartConfiguration.tcl.in /opt/homebrew/share/cmake/Modules/FindPackageHandleStandardArgs.cmake /opt/homebrew/share/cmake/Modules/FindPackageMessage.cmake /opt/homebrew/share/cmake/Modules/FindPkgConfig.cmake /opt/homebrew/share/cmake/Modules/FindThreads.cmake /opt/homebrew/share/cmake/Modules/Internal/CMakeCXXLinkerInformation.cmake /opt/homebrew/share/cmake/Modules/Internal/CMakeCommonLinkerInformation.cmake /opt/homebrew/share/cmake/Modules/Internal/CheckCommon.cmake /opt/homebrew/share/cmake/Modules/Internal/CheckSourceCompiles.cmake /opt/homebrew/share/cmake/Modules/Linker/AppleClang-CXX.cmake /opt/homebrew/share/cmake/Modules/Linker/AppleClang.cmake /opt/homebrew/share/cmake/Modules/Platform/Apple-AppleClang-CXX.cmake /opt/homebrew/share/cmake/Modules/Platform/Apple-Clang-CXX.cmake /opt/homebrew/share/cmake/Modules/Platform/Apple-Clang.cmake /opt/homebrew/share/cmake/Modules/Platform/Darwin-Initialize.cmake /opt/homebrew/share/cmake/Modules/Platform/Darwin.cmake /opt/homebrew/share/cmake/Modules/Platform/Linker/Apple-AppleClang-CXX.cmake /opt/homebrew/share/cmake/Modules/Platform/Linker/Apple-AppleClang.cmake /opt/homebrew/share/cmake/Modules/Platform/UnixPaths.cmake /opt/homebrew/share/cmake/Templates/CTestScript.cmake.in CMakeCache.txt CMakeFiles/4.4.5/CMakeCXXCompiler.cmake CMakeFiles/4.4.5/CMakeSystem.cmake: phony
 
 
 #############################################
