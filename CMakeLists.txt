@@ -16,6 +16,7 @@ pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
 
 add_library(media_core STATIC
   src/byte_io.cpp
+  src/cli_options.cpp
   src/frame_pattern.cpp
   src/frame_transform.cpp
   src/gap_estimator.cpp
