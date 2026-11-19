@@ -80,3 +80,13 @@ TEST_CASE("clock: 时间基转换与百分位", "[clock]") {
     REQUIRE(percentileMs(v, 95) == Approx(3.85));
     REQUIRE(percentileMs({}, 50) == 0.0);
 }
+
+TEST_CASE("clock: 短素材 2^31 级合成回绕经启发规则识别", "[clock]") {
+    StreamClock clk(1LL << 33); // 真实模数远大于倒退跨度
+    for (int i = 0; i < 30; ++i) clk.feed(i * 512);       // 典型间隔 512
+    const int64_t prev = 29 * 512;
+    const int64_t back = prev - 2147483647LL;              // 2^31 级倒退
+    const int64_t expanded = clk.feed(back);
+    REQUIRE(clk.events().back().kind == TsKind::Wrap);
+    REQUIRE(expanded > prev);                               // 展开保持单调
+}

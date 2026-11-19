@@ -28,11 +28,12 @@ public:
     void onPacket(bool success, int64_t seq, int64_t filePos, double timeMs) {
         ++total_;
         if (success) {
+            ++goodPackets_;
             lastGoodSeq_ = seq;
             lastGoodPos_ = filePos;
             lastGoodMs_ = timeMs;
+            if (everHadError_) ++recovered_; // 损坏点之后的可解码包
             if (inError_) {
-                ++recovered_;
                 ++recoveredSinceRange_;
                 ++goodRun_;
                 if (goodRun_ >= recoveryWindow_) closeRange();
@@ -41,6 +42,7 @@ public:
         }
         // 失败包计入 errorPackets；连续失败归并到同一损坏区间。
         ++errorPackets_;
+        everHadError_ = true;
         if (!inError_) openRange(seq, filePos, timeMs);
         ++curRangeErrorCount_;
         goodRun_ = 0;
@@ -51,6 +53,7 @@ public:
     void onError(const ErrorEvent& ev) {
         ++total_;
         ++errorPackets_;
+        everHadError_ = true;
         if (!inError_) openRange(ev.packetSeq, ev.filePos, ev.timeMs);
         ++curRangeErrorCount_;
         goodRun_ = 0;
@@ -76,6 +79,7 @@ public:
         RecoveryRecord r;
         r.totalPackets = total_;
         r.errorPackets = errorPackets_;
+        r.goodPackets = goodPackets_;
         r.recoveredPackets = recovered_;
         return r;
     }
@@ -108,11 +112,13 @@ private:
 
     int recoveryWindow_;
     bool inError_ = false;
+    bool everHadError_ = false;
     int curRangeErrorCount_ = 0;
     int goodRun_ = 0;
     int64_t recoveredSinceRange_ = 0;
     int64_t total_ = 0;
     int64_t errorPackets_ = 0;
+    int64_t goodPackets_ = 0;
     int64_t recovered_ = 0;
     int64_t lastGoodSeq_ = -1;
     int64_t lastGoodPos_ = -1;

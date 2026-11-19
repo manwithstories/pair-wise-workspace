@@ -1,6 +1,7 @@
 #pragma once
-// 音视频漂移联合估计：线性回归拟合漂移，记录校正前后同步误差。
-// 原始偏移与异常点全部保留——校正只产生残差序列，不修改原始观测。
+// 音视频漂移联合估计：在公共理想时间轴上配对两条流的实际呈现时间，
+// 线性回归拟合漂移，记录校正前后同步误差。
+// 原始观测全部保留——校正只产生残差序列，不修改原始数据。
 #include <vector>
 
 namespace ma {
@@ -18,25 +19,21 @@ struct SyncReport {
     std::vector<double> residualsMs;   // 去漂移后的残差
 };
 
-// 每条流按自身期望时钟喂点，内部在公共参考时间上配对。
+// 喂入 (理想参考时间 t, 该流实际呈现时间 actual)，单位 ms。
+// 两条流共用同一理想时间轴（帧/样本序号换算），配对在其上完成。
 class SyncRecovery {
 public:
-    // ptsMs：展开后的实际呈现时间；expectedMs：按帧序号/采样数推算的理想时间
-    void addVideo(double ptsMs, double expectedMs) {
-        video_.push_back({expectedMs, ptsMs - expectedMs});
+    void addVideo(double idealMs, double actualMs) {
+        video_.push_back({idealMs, actualMs});
     }
-    void addAudio(double ptsMs, double expectedMs) {
-        audio_.push_back({expectedMs, ptsMs - expectedMs});
+    void addAudio(double idealMs, double actualMs) {
+        audio_.push_back({idealMs, actualMs});
     }
 
     SyncReport estimate() const;
 
 private:
-    struct Point {
-        double t;      // 公共参考时间（ms）
-        double offset; // 相对理想时钟的偏移（ms）
-    };
-    // 在参考时间 t 处线性插值流偏移；失败返回 false。
+    struct Point { double t; double actual; };
     static bool interpolate(const std::vector<Point>& s, double t,
                             double& out);
     static double rms(const std::vector<double>& v);

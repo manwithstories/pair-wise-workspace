@@ -27,8 +27,13 @@ struct TsEvent {
 // modulus 为回绕模数（33 位时间戳默认 2^33）；所有展开值均为单调域 int64。
 class StreamClock {
 public:
-    explicit StreamClock(int64_t modulus = 1LL << 33, double missingFactor = 3.0)
-        : modulus_(modulus), missingFactor_(missingFactor) {}
+    // wrapOnly=true 时仅报告大跨度回绕（2^31 级），忽略 B 帧解码序导致的
+    // 小范围 PTS 重排（Repeat/Backward），用于 PTS 呈现时间回绕检测。
+    explicit StreamClock(int64_t modulus = 1LL << 33,
+                         double missingFactor = 3.0,
+                         bool wrapOnly = false)
+        : modulus_(modulus), missingFactor_(missingFactor),
+          wrapOnly_(wrapOnly) {}
 
     // 向下取整除法（模数恒为正）。
     static int64_t floorDiv(int64_t a, int64_t b) {
@@ -52,18 +57,28 @@ public:
             return raw;
         }
         ev.deltaTicks = raw - prevRaw_;
-        // 回绕判定基于展开域：若不抬升模数就无法保持严格单调，
-        // 且原始域表现为倒退（delta<0），即为回绕。
-        const int64_t monotonicNeed = prevExpanded_ - raw; // >0 表示需要抬升
-        if (monotonicNeed > 0 && ev.deltaTicks < 0 &&
-            monotonicNeed > modulus_ / 2) {
+        // wrapOnly 模式基于原始值跨度判定（展开域不抬升）；
+        // 普通模式基于展开域判定是否需要抬升模数。
+        const int64_t backwardSpan = wrapOnly_
+            ? (raw < prevRaw_ ? prevRaw_ - raw : 0)
+            : (prevExpanded_ - raw);
+        const int64_t monotonicNeed = backwardSpan;
+        // wrapOnly（PTS 回绕检测）：纯绝对阈值，不依赖被 B 帧重排污染的 EWMA。
+        // 普通模式：半模数，或 1000×典型间隔且 >1e6 ticks 的大跨度倒退。
+        const bool isWrap = wrapOnly_
+            ? (monotonicNeed > (1LL << 30))
+            : (monotonicNeed > modulus_ / 2 ||
+               (expectedDelta_ > 0 &&
+                monotonicNeed > 1000 * expectedDelta_ &&
+                monotonicNeed > 1000000));
+        if (monotonicNeed > 0 && ev.deltaTicks < 0 && isWrap) {
             ev.kind = TsKind::Wrap;
             ++wrapCount_;
         } else if (raw == prevRaw_) {
-            ev.kind = TsKind::Repeat;
-        } else if (monotonicNeed > 0) {
+            if (!wrapOnly_) ev.kind = TsKind::Repeat;
+        } else if (!wrapOnly_ && monotonicNeed > 0) {
             ev.kind = TsKind::Backward;
-        } else if (expectedDelta_ > 0 &&
+        } else if (!wrapOnly_ && expectedDelta_ > 0 &&
                    static_cast<double>(ev.deltaTicks) >
                        missingFactor_ * static_cast<double>(expectedDelta_)) {
             ev.kind = TsKind::Missing;
@@ -77,9 +92,14 @@ public:
         }
         // 展开为严格单调域：取满足 expanded > 上一展开值的最小模数倍数。
         // 用向下取整除法（C++ 原生整除向零截断，负数场景会错）。
-        const int64_t numerator = prevExpanded_ - raw;
-        int64_t k = floorDiv(numerator, modulus_) + 1;
-        if (k < 0) k = 0;
+        // wrapOnly 模式仅做回绕检测、不参与毫秒换算，小重排不抬升展开域，
+        // 避免 B 帧倒退污染 prevExpanded_ 后把后续帧误判为巨型回绕。
+        int64_t k = 0;
+        if (!wrapOnly_) {
+            const int64_t numerator = prevExpanded_ - raw;
+            k = floorDiv(numerator, modulus_) + 1;
+            if (k < 0) k = 0;
+        }
         offset_ = k * modulus_;
         prevRaw_ = raw;
         prevExpanded_ = raw + offset_;
@@ -105,6 +125,7 @@ public:
 private:
     int64_t modulus_;
     double missingFactor_;
+    bool wrapOnly_;
     bool started_ = false;
     int64_t prevRaw_ = 0;
     int64_t prevExpanded_ = 0;

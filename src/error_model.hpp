@@ -44,11 +44,15 @@ struct DamageRange {
 
 // 解码恢复记录（错误模型第 4 条能力的量化基础）。
 struct RecoveryRecord {
-    int64_t totalPackets = 0;     // 预期包数
+    int64_t totalPackets = 0;     // 预期包数（分母）
     int64_t errorPackets = 0;     // 损坏/失败包数
-    int64_t recoveredPackets = 0; // 损坏之后仍可解码的包数
+    int64_t goodPackets = 0;      // 成功解码的包总数
+    int64_t recoveredPackets = 0; // 首个损坏点之后恢复成功的包数
+    // 恢复率 = 可解码的损坏后包数 / 预期包数（规格口径）。
+    // 无损坏时视为完全可恢复（100%），避免把健康文件误判为不达标。
     double recoveryRate() const {
         if (totalPackets <= 0) return 0.0;
+        if (errorPackets == 0) return 100.0;
         return 100.0 * static_cast<double>(recoveredPackets) /
                static_cast<double>(totalPackets);
     }
