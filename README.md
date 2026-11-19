@@ -1,0 +1,26 @@
+# fielddeliver
+
+音乐节多机位现场交付流水线：裸码流解析、时间戳修复、随机访问索引重建、
+音频归一、色彩元数据裁决、拓扑调度与可恢复检查点。
+
+## 验收命令（项目根目录，macOS）
+
+```bash
+brew install ffmpeg
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -e '.[test]'
+.venv/bin/python -m fielddeliver demo --seed 37 --out /tmp/fielddeliver-demo
+.venv/bin/python -m pytest -q
+.venv/bin/python -m fielddeliver verify --manifest /tmp/fielddeliver-demo/manifest.json --json
+```
+
+## 退出码
+
+| 码 | 含义 |
+|----|------|
+| 0 | 正常完成（含可恢复丢包） |
+| 1 | 内部错误 |
+| 2 | 输入/清单无效 |
+| 3 | 素材存在不可恢复损坏 |
+
+所有时间戳统一为微秒（us）整数；模块仅通过 `model.py` 共享时间基准与错误模型。

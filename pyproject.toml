@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fielddeliver"
+version = "0.1.0"
+description = "Festival multi-camera proxy, random-access index and A/V sync delivery pipeline"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "av>=13,<14",
+    "numpy>=2,<3",
+    "soundfile>=0.12,<0.14",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[project.scripts]
+fielddeliver = "fielddeliver.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
