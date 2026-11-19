@@ -335,3 +335,102 @@ TEST_CASE("audio: truncated archive reports corrupt status", "[audio]") {
   REQUIRE(d.status == Status::MediaCorrupt);
   REQUIRE(d.offset >= 0);
 }
+
+#include "media_archive/keyframe_index.h"
+
+namespace {
+std::vector<ParsedFrame> make_frames() {
+  std::vector<ParsedFrame> frames;
+  for (uint32_t i = 0; i < 9; ++i) {
+    ParsedFrame f;
+    f.source_offset = i * 100;
+    f.size_bytes = 100;
+    f.keyframe = (i % 3 == 0);
+    f.frame_type = f.keyframe ? 1 : 2;  // AV_PICTURE_TYPE_I / P
+    frames.push_back(f);
+  }
+  return frames;
+}
+std::vector<RepairedPacket> make_repaired() {
+  std::vector<RepairedPacket> out;
+  for (uint32_t i = 0; i < 9; ++i) {
+    RepairedPacket rp;
+    rp.packet.seq = i;
+    rp.packet.source_offset = static_cast<int64_t>(i * 100);
+    rp.repaired_pts = i * 3000;
+    out.push_back(rp);
+  }
+  return out;
+}
+}  // namespace
+
+TEST_CASE("index: only keyframes are indexed with offsets and crc",
+          "[index]") {
+  auto frames = make_frames();
+  auto repaired = make_repaired();
+  std::vector<uint8_t> stream(900);
+  for (size_t i = 0; i < stream.size(); ++i) stream[i] = uint8_t(i * 13);
+  auto entries = build_keyframe_index(frames, repaired, stream, 900);
+  REQUIRE(entries.size() == 3);
+  REQUIRE(entries[0].source_offset == 0);
+  REQUIRE(entries[1].source_offset == 300);
+  REQUIRE(entries[2].source_offset == 600);
+  REQUIRE(entries[0].checksum != 0);
+  const uint32_t expected = crc32_ieee(stream.data(), 100);
+  REQUIRE(entries[0].checksum == expected);
+}
+
+TEST_CASE("index: seek lands at or before request with measured error",
+          "[index]") {
+  auto frames = make_frames();
+  auto repaired = make_repaired();
+  std::vector<uint8_t> stream(900, 0x55);
+  auto entries = build_keyframe_index(frames, repaired, stream, 900);
+  // Keyframes are frames 0,3,6 -> PTS 0,9000,18000 at offsets 0,300,600.
+  SeekCheck c = verify_seek(entries, 4 * 3000);  // 12000, between 9k and 18k
+  REQUIRE(c.landed_pts == 9000);
+  REQUIRE(c.source_offset == 300);
+  REQUIRE(c.error_ms == Catch::Approx(ticks_to_ms(3000)).margin(0.01));
+  SeekCheck early = verify_seek(entries, 100);
+  REQUIRE(early.landed_pts == 0);
+  SeekCheck exact = verify_seek(entries, 9000);
+  REQUIRE(exact.landed_pts == 9000);
+  REQUIRE(exact.error_ms == Catch::Approx(0.0).margin(0.001));
+}
+
+TEST_CASE("index: serialization round-trip and corruption detection",
+          "[index]") {
+  namespace fs = std::filesystem;
+  const fs::path dir = fs::temp_directory_path() / "ma_index";
+  fs::create_directories(dir);
+  const fs::path idx = dir / "keyframes.idx";
+  auto frames = make_frames();
+  auto repaired = make_repaired();
+  std::vector<uint8_t> stream(900, 0x33);
+  auto entries = build_keyframe_index(frames, repaired, stream, 900);
+  REQUIRE(write_keyframe_index(idx.string(), CodecType::H264, entries, 900)
+              .ok());
+
+  std::vector<KeyframeEntry> loaded;
+  IndexFileHeader hdr{};
+  REQUIRE(read_keyframe_index(idx.string(), CodecType::H264, &loaded, &hdr)
+              .ok());
+  REQUIRE(loaded.size() == entries.size());
+  REQUIRE(loaded[2].source_offset == entries[2].source_offset);
+  REQUIRE(hdr.stream_size == 900);
+
+  // Flip a payload byte: the record checksum must fail.
+  const auto size = fs::file_size(idx);
+  {
+    std::fstream f(idx.string(), std::ios::in | std::ios::out |
+                                     std::ios::binary);
+    f.seekp(static_cast<std::streamoff>(size) - 8);
+    char flip = 0x7F;
+    f.write(&flip, 1);
+  }
+  std::vector<KeyframeEntry> bad;
+  Diagnostic d =
+      read_keyframe_index(idx.string(), CodecType::H264, &bad, nullptr);
+  REQUIRE(!d.ok());
+  REQUIRE(d.status == Status::MediaCorrupt);
+}
