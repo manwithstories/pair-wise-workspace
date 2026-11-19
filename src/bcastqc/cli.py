@@ -22,6 +22,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
 
+from concurrent.futures import ProcessPoolExecutor
+
 from . import __version__
 from .errors import EXIT_MEDIA, EXIT_OK, EXIT_THRESHOLD, EXIT_USAGE, QCError, UsageError
 from .fixtures import MARKERS, build_fixtures
@@ -65,6 +67,8 @@ def run_batch(
     sync_markers: tuple[float, ...] = (),
     fps: float = 25.0,
     scenario: str = "process",
+    track_map: list[dict[str, object]] | None = None,
+    jobs: int = 1,
 ) -> BatchReport:
     paths = _paths(workdir)
     paths.outputs.mkdir(parents=True, exist_ok=True)
@@ -88,12 +92,13 @@ def run_batch(
         timeout_s=timeout_s,
         sync_markers=sync_markers,
         fps=fps,
+        track_map=track_map,
     )
     started = _timestamp()
+    outcomes = _run_assets(assets, options, jobs=jobs)
     results = []
     fatal = 0
-    for asset in assets:
-        outcome = process_asset(asset, options)
+    for asset, outcome in zip(assets, outcomes):
         results.append(outcome.result)
         if outcome.exit_fatal or outcome.result.status == STATUS_FAILED:
             fatal += 1
@@ -106,6 +111,21 @@ def run_batch(
         fatal_assets=fatal,
         scenario=scenario,
     )
+
+
+def _run_assets(assets, options, *, jobs: int):
+    """Process assets in order, optionally on a small worker pool.
+
+    Results stay in input order whatever the pool size, so the report and the
+    terminal transcript are reproducible. Each asset writes only inside its own
+    temp directory and the shared cache is content-addressed, so workers do not
+    race each other.
+    """
+    if jobs <= 1 or len(assets) <= 1:
+        return [process_asset(asset, options) for asset in assets]
+    with ProcessPoolExecutor(max_workers=min(jobs, len(assets))) as pool:
+        futures = [pool.submit(process_asset, asset, options) for asset in assets]
+        return [future.result() for future in futures]
 
 
 def _print_asset(result, *, reused: bool) -> None:
@@ -185,6 +205,7 @@ def cmd_demo(args: argparse.Namespace) -> int:
         timeout_s=args.timeout,
         sync_markers=MARKERS,
         scenario="demo",
+        jobs=args.jobs,
     )
     _print_summary(report)
     json_path = Path(args.json).expanduser().resolve()
@@ -203,6 +224,8 @@ def cmd_process(args: argparse.Namespace) -> int:
         types=args.types,
         reuse=not args.no_reuse,
         timeout_s=args.timeout,
+        track_map=_load_track_map(args.track_map),
+        jobs=args.jobs,
     )
     _print_summary(report)
     if args.json:
@@ -210,6 +233,23 @@ def cmd_process(args: argparse.Namespace) -> int:
         report.write(json_path)
         print(f"report: {json_path}")
     return report.exit_code()
+
+
+def _load_track_map(path: str | None) -> list[dict[str, object]] | None:
+    """Read an explicit mapping file: either a list of rules or {"tracks": [...]}."""
+    if not path:
+        return None
+    map_path = Path(path).expanduser().resolve()
+    if not map_path.exists():
+        raise UsageError(f"track map not found: {map_path}")
+    try:
+        payload = json.loads(map_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise UsageError(f"cannot read track map {map_path}: {exc}") from exc
+    rules = payload.get("tracks") if isinstance(payload, dict) else payload
+    if not isinstance(rules, list):
+        raise UsageError("track map must be a list of rules or {\"tracks\": [...]}")
+    return rules
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
@@ -256,6 +296,7 @@ def build_parser() -> argparse.ArgumentParser:
     demo.add_argument("--no-reuse", action="store_true", help="ignore the resume cache")
     demo.add_argument("--timeout", type=float, default=60.0, help="per-asset timeout in seconds")
     demo.add_argument("--types", nargs="*", help="only process these extensions (mp4, mov)")
+    demo.add_argument("--jobs", type=int, default=1, help="assets to process concurrently")
     demo.set_defaults(func=cmd_demo)
 
     process = sub.add_parser("process", help="process an existing delivery directory")
@@ -265,6 +306,11 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument("--no-reuse", action="store_true", help="ignore the resume cache")
     process.add_argument("--timeout", type=float, default=60.0, help="per-asset timeout in seconds")
     process.add_argument("--types", nargs="*", help="only process these extensions (mp4, mov)")
+    process.add_argument(
+        "--track-map",
+        help="JSON file with explicit rules; defaults to deterministic auto mapping",
+    )
+    process.add_argument("--jobs", type=int, default=1, help="assets to process concurrently")
     process.set_defaults(func=cmd_process)
 
     verify = sub.add_parser("verify", help="re-check a written report against the thresholds")

@@ -500,6 +500,95 @@ def test_process_without_markers_skips_sync_threshold(fixtures, tmp_path):
     assert payload["passed"] is True
 
 
+def test_parallel_batch_matches_serial(tmp_path):
+    def run(workdir: Path, jobs: int) -> dict:
+        report = workdir / "report.json"
+        code = main(
+            [
+                "demo",
+                "--workdir",
+                str(workdir),
+                "--json",
+                str(report),
+                "--fresh",
+                "--jobs",
+                str(jobs),
+            ]
+        )
+        assert code == 0
+        payload = json.loads(report.read_text())
+        return {
+            "order": [a["asset"].split("/")[-1] for a in payload["assets"]],
+            "statuses": [a["status"] for a in payload["assets"]],
+            "rates": [a["recovery_rate"] for a in payload["assets"]],
+            "passed": payload["passed"],
+        }
+
+    assert run(tmp_path / "serial", 1) == run(tmp_path / "parallel", 4)
+
+
+def test_track_map_file_is_used_and_errors_are_located(fixtures, tmp_path):
+    delivery = tmp_path / "delivery"
+    delivery.mkdir()
+    import shutil
+
+    shutil.copyfile(fixtures.normal, delivery / fixtures.normal.name)
+    good = tmp_path / "map.json"
+    good.write_text(
+        json.dumps(
+            [
+                {"output": 0, "source": 0, "kind": "video"},
+                {"output": 1, "source": 1, "kind": "audio"},
+            ]
+        )
+    )
+    assert (
+        main(
+            [
+                "process",
+                "--inputs",
+                str(delivery),
+                "--workdir",
+                str(tmp_path / "w1"),
+                "--track-map",
+                str(good),
+                "--json",
+                str(tmp_path / "w1" / "r.json"),
+            ]
+        )
+        == 0
+    )
+
+    bad = tmp_path / "bad.json"
+    bad.write_text(
+        json.dumps(
+            [
+                {"output": 0, "source": 0, "kind": "video"},
+                {"output": 0, "source": 1, "kind": "audio"},
+            ]
+        )
+    )
+    report = tmp_path / "w2" / "r.json"
+    code = main(
+        [
+            "process",
+            "--inputs",
+            str(delivery),
+            "--workdir",
+            str(tmp_path / "w2"),
+            "--track-map",
+            str(bad),
+            "--json",
+            str(report),
+        ]
+    )
+    assert code == 3, "nothing could be written"
+    payload = json.loads(report.read_text())
+    error = payload["assets"][0]["errors"][0]
+    assert error["code"] == "duplicate_mapping"
+    assert error["location"]["rule"] == 0
+
+
 def test_cli_usage_errors_use_exit_two(tmp_path):
     assert main(["process", "--inputs", str(tmp_path / "nope"), "--workdir", str(tmp_path)]) == 2
     assert main(["verify", "--report", str(tmp_path / "missing.json")]) == 2
