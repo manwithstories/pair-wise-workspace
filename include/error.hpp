@@ -20,6 +20,7 @@ enum class ErrorCode {
   index_out_of_range,
   index_duplicate,
   index_order,
+  index_not_keyframe,
   index_too_large,
   segment_overlap,
   segment_empty,
@@ -37,6 +38,10 @@ enum class ErrorCode {
   internal,
 };
 
+// Errors determine the process exit code; warnings are reported but do not
+// fail a run (for example a negative audio offset that is compensated).
+enum class Severity { error, warning };
+
 // Where a diagnostic happened.  Media time is expressed in integer ticks of
 // the manifest time base; byte offsets always refer to the named file.
 struct Location {
@@ -50,12 +55,19 @@ struct Location {
 
 struct Diagnostic {
   ErrorCode code = ErrorCode::ok;
+  Severity severity = Severity::error;
   std::string message;
   Location location;
+
+  bool is_error() const { return severity == Severity::error && code != ErrorCode::ok; }
 };
+
+// Highest exit code among error diagnostics (0 when there are none).
+int exit_code_for(const std::vector<Diagnostic>& diagnostics);
 
 const char* error_code_name(ErrorCode code);
 int exit_code_for(ErrorCode code);
+const char* severity_name(Severity severity);
 
 bool is_fatal(ErrorCode code);
 std::string format_diagnostic(const Diagnostic& diagnostic);

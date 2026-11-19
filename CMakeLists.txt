@@ -28,6 +28,8 @@ add_library(media_restore_core STATIC
   src/hash.cpp
   src/file_io.cpp
   src/manifest.cpp
+  src/bitstream.cpp
+  src/timeline.cpp
 )
 target_include_directories(media_restore_core PUBLIC include)
 target_link_libraries(media_restore_core PUBLIC PkgConfig::FFMPEG)

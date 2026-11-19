@@ -26,6 +26,7 @@ constexpr CodeInfo kCodes[] = {
     {ErrorCode::index_out_of_range, "E_INDEX_OUT_OF_RANGE", 2},
     {ErrorCode::index_duplicate, "E_INDEX_DUPLICATE", 2},
     {ErrorCode::index_order, "E_INDEX_ORDER", 2},
+    {ErrorCode::index_not_keyframe, "E_INDEX_NOT_KEYFRAME", 2},
     {ErrorCode::index_too_large, "E_INDEX_TOO_LARGE", 2},
     {ErrorCode::segment_overlap, "E_SEGMENT_OVERLAP", 2},
     {ErrorCode::segment_empty, "E_SEGMENT_EMPTY", 2},
@@ -57,9 +58,23 @@ const char* error_code_name(ErrorCode code) {
   return info ? info->name : "E_UNKNOWN";
 }
 
+const char* severity_name(Severity severity) {
+  return severity == Severity::error ? "error" : "warning";
+}
+
 int exit_code_for(ErrorCode code) {
   const CodeInfo* info = find(code);
   return info ? info->exit_code : 3;
+}
+
+int exit_code_for(const std::vector<Diagnostic>& diagnostics) {
+  int code = 0;
+  for (const auto& diagnostic : diagnostics) {
+    if (!diagnostic.is_error()) continue;
+    const int candidate = exit_code_for(diagnostic.code);
+    if (candidate > code) code = candidate;
+  }
+  return code;
 }
 
 bool is_fatal(ErrorCode code) {
@@ -68,7 +83,8 @@ bool is_fatal(ErrorCode code) {
 
 std::string format_diagnostic(const Diagnostic& diagnostic) {
   std::ostringstream out;
-  out << "error code=" << error_code_name(diagnostic.code);
+  out << severity_name(diagnostic.severity) << " code="
+      << error_code_name(diagnostic.code);
   const Location& loc = diagnostic.location;
   if (!loc.track.empty()) out << " track=" << loc.track;
   if (!loc.segment.empty()) out << " segment=" << loc.segment;
