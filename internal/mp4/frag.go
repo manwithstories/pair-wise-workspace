@@ -59,37 +59,48 @@ func (m *Muxer) writeMinf(t MuxTrack) func() error {
 }
 
 func (m *Muxer) writeStsd(t MuxTrack) error {
-	return m.with(mp4.BoxTypeStsd(), func() error {
-		if _, err := mp4.Marshal(m.w, &mp4.Stsd{EntryCount: 1}, mp4.Context{}); err != nil {
-			return err
+	if _, err := m.w.StartBox(&mp4.BoxInfo{Type: mp4.BoxTypeStsd()}); err != nil {
+		return err
+	}
+	if err := writeStsd(m.w, t); err != nil {
+		return err
+	}
+	_, err := m.w.EndBox()
+	return err
+}
+
+// writeStsd writes the stsd payload (entry count plus sample entry) to w.
+// The caller opens and closes the stsd box itself.
+func writeStsd(w *mp4.Writer, t MuxTrack) error {
+	if _, err := mp4.Marshal(w, &mp4.Stsd{EntryCount: 1}, mp4.Context{}); err != nil {
+		return err
+	}
+	switch t.Codec {
+	case "avc1":
+		e := &mp4.VisualSampleEntry{
+			SampleEntry:     mp4.SampleEntry{DataReferenceIndex: 1},
+			Width:           t.Width,
+			Height:          t.Height,
+			Horizresolution: 0x480000, Vertresolution: 0x480000,
+			FrameCount: 1, Depth: 0x18, PreDefined3: -1,
 		}
-		switch t.Codec {
-		case "avc1":
-			e := &mp4.VisualSampleEntry{
-				SampleEntry:     mp4.SampleEntry{DataReferenceIndex: 1},
-				Width:           t.Width,
-				Height:          t.Height,
-				Horizresolution: 0x480000, Vertresolution: 0x480000,
-				FrameCount: 1, Depth: 0x18, PreDefined3: -1,
-			}
-			e.SetType(mp4.BoxTypeAvc1())
-			return m.box(mp4.BoxTypeAvc1(), e)
-		case "mp4a":
-			e := &mp4.AudioSampleEntry{
-				SampleEntry:  mp4.SampleEntry{DataReferenceIndex: 1},
-				ChannelCount: 2, SampleSize: 16,
-				SampleRate: t.Timescale << 16,
-			}
-			e.SetType(mp4.BoxTypeMp4a())
-			return m.box(mp4.BoxTypeMp4a(), e)
-		default: // wvtt and anything else: opaque subtitle entry
-			e := &WvttSampleEntry{
-				SampleEntry: mp4.SampleEntry{DataReferenceIndex: 1},
-			}
-			e.SetType(BoxTypeWvtt())
-			return m.box(BoxTypeWvtt(), e)
+		e.SetType(mp4.BoxTypeAvc1())
+		return marshalBox(w, mp4.BoxTypeAvc1(), e)
+	case "mp4a":
+		e := &mp4.AudioSampleEntry{
+			SampleEntry:  mp4.SampleEntry{DataReferenceIndex: 1},
+			ChannelCount: 2, SampleSize: 16,
+			SampleRate: t.Timescale << 16,
 		}
-	})
+		e.SetType(mp4.BoxTypeMp4a())
+		return marshalBox(w, mp4.BoxTypeMp4a(), e)
+	default: // wvtt and anything else: opaque subtitle entry
+		e := &WvttSampleEntry{
+			SampleEntry: mp4.SampleEntry{DataReferenceIndex: 1},
+		}
+		e.SetType(BoxTypeWvtt())
+		return marshalBox(w, BoxTypeWvtt(), e)
+	}
 }
 
 // AddFragment appends one moof+mdat containing frags[i] for tracks[i].
@@ -176,7 +187,7 @@ func (m *Muxer) marshalTraf(w *mp4.Writer, t MuxTrack, f FragTrack, dataOffset i
 		SampleCount: uint32(len(f.Samples)),
 		DataOffset:  int32(dataOffset),
 	}
-	trun.Version = 1 // signed composition offsets
+	trun.Version = 1                          // signed composition offsets
 	trun.Flags[1], trun.Flags[2] = 0x0f, 0x01 // data-offset|duration|size|flags|cto
 	for _, s := range f.Samples {
 		var flags uint32 = 0x02000000 // sample_depends_on=2 (sync)
