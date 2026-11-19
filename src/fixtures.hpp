@@ -77,6 +77,5 @@ bool corrupt_sample(const std::filesystem::path& path, int64_t sample_index,
                     std::string& err);
 bool patch_fragment_tfdt(const std::filesystem::path& path,
                          const std::vector<int64_t>& per_tfdt_values, std::string& err);
-int64_t count_top_level_box(const std::filesystem::path& path, const std::string& type);
 
 }  // namespace mediaqc

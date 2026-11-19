@@ -42,7 +42,6 @@ target_compile_options(mediaqc PRIVATE -Wall -Wextra -Wpedantic)
 include(CTest)
 if(BUILD_TESTING)
   find_package(Catch2 3 REQUIRED)
-  list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
   include(Catch)
 
   set(MEDIAQC_TEST_TARGETS)

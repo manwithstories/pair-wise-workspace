@@ -189,8 +189,6 @@ bool ResumeStore::save(const Checkpoint& cp, std::string& err) {
   return write_file_atomic(path, serialize_checkpoint(cp), err);
 }
 
-const char* checkpoint_refusal_code(Code c) { return code_name(c); }
-
 bool ResumeStore::load_for(const std::string& input_path, const std::string& input_sha256,
                            const std::string& cfg_digest, const std::string& output_path,
                            ResumeDecision& decision, Error& err) {

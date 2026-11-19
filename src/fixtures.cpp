@@ -352,17 +352,6 @@ bool patch_fragment_tfdt(const std::filesystem::path& path,
   return write_all(path, data, err);
 }
 
-int64_t count_top_level_box(const std::filesystem::path& path, const std::string& type) {
-  FileStructure fs;
-  Error e;
-  if (!read_mp4_structure(path.string(), fs, e)) return -1;
-  int64_t n = 0;
-  for (const auto& b : fs.boxes) {
-    if (b.type_str() == type) ++n;
-  }
-  return n;
-}
-
 // ---- fixture set --------------------------------------------------------
 
 namespace {

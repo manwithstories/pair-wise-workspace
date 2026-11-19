@@ -67,8 +67,6 @@ struct ResumeDecision {
   int64_t seconds_saved = 0;  // estimated from committed bytes
 };
 
-const char* checkpoint_refusal_code(Code c);
-
 class ResumeStore {
  public:
   // Directory holding checkpoints; one file per input key.
