@@ -54,6 +54,8 @@ ctest --test-dir build --output-on-failure
 - `--loudness` 目标整体响度 LUFS（-70–0）
 - `--true-peak` 真峰值上限 dBTP（默认 -1.0）
 - `--color preserve|archive` 色彩冲突策略（默认 `archive`）
+- `--archive-primaries` / `--archive-transfer` / `--archive-range` 归档色彩值，
+  仅在 `--color archive` 下用于冲突或缺失字段
 - `--out` 恢复产物目录（默认清单同级 `restored/`）
 - `--json` 结果文档路径
 
