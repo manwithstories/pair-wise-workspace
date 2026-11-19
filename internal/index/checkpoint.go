@@ -30,10 +30,10 @@ type Chunk struct {
 
 // Checkpoint is the persistent index of one asset's output.
 type Checkpoint struct {
-	Version    int    `json:"version"`
-	Asset      string `json:"asset"`
-	InputHash  string `json:"input_hash"` // over manifest + segment content hashes
-	ChunkBytes int64  `json:"chunk_bytes"`
+	Version    int     `json:"version"`
+	Asset      string  `json:"asset"`
+	InputHash  string  `json:"input_hash"` // over manifest + segment content hashes
+	ChunkBytes int64   `json:"chunk_bytes"`
 	Chunks     []Chunk `json:"chunks"`
 }
 
@@ -122,12 +122,21 @@ func (cp *Checkpoint) FirstInvalidChunk(r io.ReaderAt, size int64) int {
 
 // ResumePoint derives where processing resumes after n valid chunks:
 // the output truncation boundary and the input position to continue from.
+// n == len(Chunks) means the whole committed file is valid.
 func (cp *Checkpoint) ResumePoint(validChunks int) (truncateTo int64, inputPos int) {
 	if validChunks <= 0 || validChunks > len(cp.Chunks) {
 		return 0, 0
 	}
 	c := cp.Chunks[validChunks-1]
 	return c.ByteEnd, c.InputPos
+}
+
+// CoveredBytes is the output size the committed chunks vouch for.
+func (cp *Checkpoint) CoveredBytes() int64 {
+	if len(cp.Chunks) == 0 {
+		return 0
+	}
+	return cp.Chunks[len(cp.Chunks)-1].ByteEnd
 }
 
 // HashRange hashes output bytes (prevEnd, end] for a new chunk record.
