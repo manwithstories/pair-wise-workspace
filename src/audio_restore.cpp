@@ -764,6 +764,18 @@ bool encode_wav(const PcmBuffer& buffer, std::string* out,
 
 bool decode_audio_file(const std::filesystem::path& path, const Limits& limits,
                        PcmBuffer* out, std::vector<Diagnostic>* diagnostics) {
+  int64_t file_bytes = 0;
+  Diagnostic size_error;
+  if (file_size(path, &file_bytes, &size_error)) {
+    if (file_bytes > limits.max_audio_bytes) {
+      diagnostics->push_back(make(ErrorCode::audio_too_large,
+                                  "audio file exceeds the archive limit of " +
+                                      std::to_string(limits.max_audio_bytes) +
+                                      " bytes",
+                                  {.file = path.string()}));
+      return false;
+    }
+  }
   AVFormatContext* format = nullptr;
   int error = avformat_open_input(&format, path.c_str(), nullptr, nullptr);
   if (error < 0) {
