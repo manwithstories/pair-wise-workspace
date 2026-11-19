@@ -1,5 +1,6 @@
 // pipeline_test.cpp — 覆盖恢复、损坏和边界路径
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
 #include "sha256.hpp"
 #include "util.hpp"
 #include "common.hpp"
@@ -484,8 +485,12 @@ TEST_CASE("checkpoint roundtrip preserves cursors and segments",
     cp.source_cursor = 123;
     cp.timeline_cursor = 456789;
     cp.recovered_stage = "timeline";
-    cp.segments.push_back({1, std::string(64, 'a'), 100, 200, 9});
-    cp.segments.push_back({2, std::string(64, 'b'), 300, 400, 7});
+    SegmentCheckpoint s1; s1.id = 1; s1.sha256_hex = std::string(64, 'a');
+    s1.begin_us = 100; s1.end_us = 200; s1.packets = 9;
+    SegmentCheckpoint s2; s2.id = 2; s2.sha256_hex = std::string(64, 'b');
+    s2.begin_us = 300; s2.end_us = 400; s2.packets = 7;
+    cp.segments.push_back(s1);
+    cp.segments.push_back(s2);
     PipelineError err;
     REQUIRE(save_checkpoint(path, cp, err));
     auto loaded = load_checkpoint(path, err);
@@ -532,4 +537,136 @@ TEST_CASE("corrupt checkpoint file is detected", "[checkpoint][corrupt]") {
     auto loaded = load_checkpoint(path, err);
     REQUIRE_FALSE(loaded.has_value());
     REQUIRE(err.type == ErrType::CheckpointMismatch);
+}
+
+// ---- 端到端流水线 ----
+#include "pipeline.hpp"
+#include "pipeline_io.hpp"
+#include <filesystem>
+namespace {
+std::string work_dir(const char* tag) {
+    auto d = std::string("/tmp/mdpipe_") + tag + "_" +
+             std::to_string(uintptr_t(&tag));
+    std::filesystem::create_directories(d);
+    return d;
+}
+ProcessConfig base_cfg(const std::string& d, const std::string& in,
+                       bool resume = false) {
+    ProcessConfig c;
+    c.input_path = in;
+    c.checkpoint_path = d + "/cap.state";
+    c.out_path = d + "/delivery.json";
+    c.work_dir = d + "/segs";
+    c.queue_capacity = 8;
+    c.resume = resume;
+    return c;
+}
+} // namespace
+
+TEST_CASE("pipeline clean run yields bounded queue and valid metrics",
+          "[pipeline]") {
+    auto d = work_dir("clean");
+    std::string in = d + "/cap.rtp";
+    PipelineError e;
+    GenerateOptions o; o.seed = 41; o.loss = 0.02; o.reorder = 0.08;
+    REQUIRE(generate_capture(in, o, e) > 0);
+    auto cfg = base_cfg(d, in);
+    PipelineHooks hooks;
+    PipelineResult r;
+    REQUIRE(run_pipeline(cfg, hooks, r) == ExitCode::Ok);
+    REQUIRE(r.roundtrip_rate == Catch::Approx(1.0));
+    REQUIRE(r.keyframe_hit_rate >= 0.99);
+    REQUIRE(r.segment_count >= 1);
+    REQUIRE(r.peak_queue_items <= cfg.queue_capacity); // 背压上限
+    for (auto& s : r.segments) REQUIRE(s.sha256.size() == 64);
+}
+
+TEST_CASE("pipeline truncated input returns code 3 with traceable result",
+          "[pipeline][corrupt]") {
+    auto d = work_dir("trunc");
+    std::string in = d + "/cap.rtp";
+    PipelineError e;
+    GenerateOptions o; o.seed = 41; o.truncated = true;
+    REQUIRE(generate_capture(in, o, e) > 0);
+    auto cfg = base_cfg(d, in);
+    PipelineResult r;
+    ExitCode code = run_pipeline(cfg, PipelineHooks{}, r);
+    REQUIRE(code == ExitCode::CorruptInput);
+    REQUIRE(r.roundtrip_rate < 1.0);
+    bool traced = false;
+    for (auto& x : r.errors)
+        traced |= x.type == ErrType::TruncatedRecord && x.stage == stage::Source;
+    REQUIRE(traced);
+}
+
+TEST_CASE("pipeline resumes after crash and keeps segment hashes",
+          "[pipeline][resume]") {
+    auto d = work_dir("resume");
+    std::string in = d + "/cap.rtp";
+    PipelineError e;
+    GenerateOptions o; o.seed = 41;
+    REQUIRE(generate_capture(in, o, e) > 0);
+    auto cfg1 = base_cfg(d, in);
+    PipelineHooks crash; crash.crash_after_segment = 2;
+    PipelineResult r1;
+    REQUIRE(run_pipeline(cfg1, crash, r1) == ExitCode::IoError); // 中断
+
+    auto cfg2 = base_cfg(d, in, true);
+    PipelineResult r2;
+    REQUIRE(run_pipeline(cfg2, PipelineHooks{}, r2) == ExitCode::Ok);
+    REQUIRE(r2.recovered_stage != "none");
+
+    // 全新完整运行作对照
+    auto d2 = work_dir("resume_ref");
+    auto cfg3 = base_cfg(d2, in);
+    PipelineResult r3;
+    REQUIRE(run_pipeline(cfg3, PipelineHooks{}, r3) == ExitCode::Ok);
+    REQUIRE(r2.segments.size() == r3.segments.size());
+    for (size_t i = 0; i < r3.segments.size(); ++i)
+        REQUIRE(r2.segments[i].sha256 == r3.segments[i].sha256);
+}
+
+TEST_CASE("pipeline rejects checkpoint when input changes",
+          "[pipeline][resume][corrupt]") {
+    auto d = work_dir("reject");
+    std::string in = d + "/cap.rtp";
+    PipelineError e;
+    GenerateOptions o; o.seed = 41;
+    REQUIRE(generate_capture(in, o, e) > 0);
+    auto cfg1 = base_cfg(d, in);
+    PipelineResult r1;
+    REQUIRE(run_pipeline(cfg1, PipelineHooks{}, r1) == ExitCode::Ok);
+    // 生成不同输入（不同 seed），同名文件
+    GenerateOptions o2 = o; o2.seed = 99;
+    REQUIRE(generate_capture(in, o2, e) > 0);
+    auto cfg2 = base_cfg(d, in, true);
+    PipelineResult r2;
+    REQUIRE(run_pipeline(cfg2, PipelineHooks{}, r2) ==
+            ExitCode::IncompatibleCheckpoint);
+}
+
+TEST_CASE("pipeline io failure carries stage and segment", "[pipeline][corrupt]") {
+    auto d = work_dir("iofail");
+    std::string in = d + "/cap.rtp";
+    PipelineError e;
+    GenerateOptions o; o.seed = 41;
+    REQUIRE(generate_capture(in, o, e) > 0);
+    auto cfg = base_cfg(d, in);
+    PipelineHooks hooks; hooks.io_fail_path = "segment_000001.bin";
+    PipelineResult r;
+    REQUIRE(run_pipeline(cfg, hooks, r) == ExitCode::IoError);
+    bool found = false;
+    for (auto& x : r.errors)
+        found |= x.type == ErrType::DiskWriteFailed && x.stage == stage::Segment;
+    REQUIRE(found);
+}
+
+TEST_CASE("bounded queue enforces capacity and exposes peak", "[pipeline]") {
+    BoundedQueue<int> q(3);
+    REQUIRE(q.try_push(1)); REQUIRE(q.try_push(2)); REQUIRE(q.try_push(3));
+    REQUIRE_FALSE(q.try_push(4)); // 背压：满
+    REQUIRE(q.peak() == 3);
+    int v; REQUIRE(q.try_pop(v)); REQUIRE(v == 1);
+    REQUIRE(q.try_push(4));       // 腾出后可写
+    REQUIRE(q.peak() == 3);       // 峰值不超过容量
 }
