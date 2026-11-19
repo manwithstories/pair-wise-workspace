@@ -17,7 +17,7 @@ func TestConfigValidation(t *testing.T) {
 	if merr := (Config{}).Validate(); merr == nil || merr.Kind != mediaerr.KindInvalidInput {
 		t.Fatalf("zero config must error, got %v", merr)
 	}
-	good := Config{MaxBufferBytes: 100, MaxBufferPackets: 10}
+	good := Config{MaxBufferBytes: 100, MaxBufferPackets: 10, ReorderWindow: 8}
 	if merr := good.Validate(); merr != nil {
 		t.Fatalf("valid config rejected: %v", merr)
 	}

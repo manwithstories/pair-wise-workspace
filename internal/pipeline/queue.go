@@ -24,6 +24,9 @@ type Config struct {
 	// ConsumerTimeoutNS bounds how long a stage may wait for a slow consumer
 	// before the run is canceled with a timeout error. Zero disables it.
 	ConsumerTimeoutNS int64
+	// ReorderWindow is the extended-sequence window handed to each track's
+	// reorder buffer.
+	ReorderWindow int
 }
 
 // Validate enforces positive bounds.
@@ -39,6 +42,10 @@ func (c Config) Validate() *mediaerr.Error {
 	if c.ConsumerTimeoutNS < 0 {
 		return mediaerr.New(mediaerr.StagePipeline, mediaerr.KindInvalidInput,
 			"ConsumerTimeoutNS must be zero or positive")
+	}
+	if c.ReorderWindow <= 0 {
+		return mediaerr.New(mediaerr.StagePipeline, mediaerr.KindInvalidInput,
+			"ReorderWindow must be positive")
 	}
 	return nil
 }
