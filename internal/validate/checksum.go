@@ -115,6 +115,9 @@ func ParseMetadata(meta []byte, seq uint64, offset int64) (*Metadata, *model.Fau
 }
 
 func parseSummary(b []byte) (*Metadata, error) {
+	if len(b) > 4096 {
+		return nil, fmt.Errorf("metadata payload too long: %d bytes", len(b))
+	}
 	fields := map[string]string{}
 	for _, part := range strings.Split(string(b), ";") {
 		k, v, ok := strings.Cut(part, "=")
