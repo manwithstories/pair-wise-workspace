@@ -15,6 +15,7 @@ pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
 
 add_library(media_core STATIC
   src/error_model.cpp
+  src/jitter_buffer.cpp
   src/packet_reorder.cpp
 )
 target_include_directories(media_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
