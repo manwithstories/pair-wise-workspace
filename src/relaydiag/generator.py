@@ -272,15 +272,23 @@ def _plan(kind: str, track: str, frame0: int, frame1: int,
 
 
 def build_anchors(cfg: GenerationConfig) -> list[dict]:
-    """Reference anchors; the second half switches to a faster node clock."""
+    """Reference anchors spanning the drift break at the one-second mark.
+
+    Anchors are placed one second apart with extra points flanking the break,
+    so the fitter sees several consistent points on each side of the slope
+    change instead of all anchors falling inside one regime.
+    """
     anchors = []
     fps = cfg.fps_num / cfg.fps_den
-    for i in range(0, cfg.frame_count, 10):
-        node_s = i / fps
-        # First second nominal 1.0; afterwards node runs 0.5% slow.
-        ref_s = node_s if node_s <= 1.0 else 1.0 + (node_s - 1.0) * 1.005
+    seconds = cfg.frame_count / cfg.fps_num
+    # 0.5 s spacing gives >=3 anchors on either side of the 1.0 s break.
+    steps = [round(i * 0.5, 3) for i in range(int(seconds / 0.5) + 1)]
+    for node_s in steps:
+        # First second nominal 1.0; afterwards the node clock runs 2% slow,
+        # i.e. reference time advances faster, producing a clear slope break.
+        ref_s = node_s if node_s <= 1.0 else 1.0 + (node_s - 1.0) * 1.02
         anchors.append({
-            "node_ticks": int(node_s * VIDEO_RATE),
+            "node_ticks": int(round(node_s * VIDEO_RATE)),
             "node_rate": VIDEO_RATE,
             "ref_seconds": round(ref_s, 6),
         })
@@ -315,6 +323,46 @@ def generate_fixture(out_dir: str, cfg: GenerationConfig | None = None) -> dict:
                         "wav": len(wav_bytes)},
     }
     stream_path = os.path.join(out_dir, "stream.rlyd")
+    # Three-pass layout keeps ground-truth byte windows self-consistent:
+    # pass 1 fixes the header shape with placeholder offsets; pass 2 measures
+    # packet positions for that shape; pass 3 writes the final file, whose
+    # identical header length leaves every packet at the measured position.
+    for row in header["damage_plan"]:
+        row["byte_offset_start"] = 0
+        row["byte_offset_end"] = 0
     write_container(stream_path, header, records)
+    _backfill_plan_offsets(stream_path, header, cfg)
+    write_container(stream_path, header, records)
+    _backfill_plan_offsets(stream_path, header, cfg)
     return {"stream_path": stream_path, "header": header,
             "packet_count": len(records), "out_dir": out_dir}
+
+
+def _backfill_plan_offsets(stream_path: str, header: dict,
+                           cfg: GenerationConfig) -> None:
+    """Attach real source byte windows to each ground-truth damage row."""
+    from .container import iter_packets
+    tick = VIDEO_RATE // cfg.fps_num
+    packets = list(iter_packets(stream_path))
+    by_pts: dict[int, tuple[int, int]] = {}
+    for _h, parsed in packets:
+        rec = parsed.record
+        if rec.track == "video":
+            # Use the payload/body start (after the 4-byte length prefix) so
+            # the ground truth matches the locator's reviewable offset.
+            by_pts.setdefault(rec.pts, (parsed.packet_range[0] + 4,
+                                        parsed.packet_range[1]))
+    for row in header["damage_plan"]:
+        f0, f1 = row["frame_start"], row["frame_end"]
+        if row["type"] == DAMAGE_TRUNCATED:
+            anchor = by_pts.get((f1 + 1) * tick)
+            if anchor:
+                row["byte_offset_start"] = anchor[0]
+                row["byte_offset_end"] = anchor[0]
+            continue
+        window = by_pts.get(f0 * tick)
+        if window is None and packets:
+            window = packets[0][1].packet_range
+        if window:
+            row["byte_offset_start"] = window[0]
+            row["byte_offset_end"] = window[1]

@@ -56,6 +56,7 @@ class DamageLocator:
         }
         self._last: dict[str, ParsedPacket] = {}
         self._seen_pts: dict[str, set[int]] = {}
+        self._packet_by_pts: dict[str, dict[int, ParsedPacket]] = {}
         self.records: list[DamageRecord] = []
 
     def base_for(self, track: str) -> TimeBase:
@@ -72,8 +73,12 @@ class DamageLocator:
             emitted.append(self._record(
                 CAT_DECODE, parsed, "payload fails decode checksum expectation"))
         if rec.kind == "duplicate" or rec.pts in self._seen_pts.get(rec.track, set()):
+            # Attribute the duplicate to the original packet sharing the PTS,
+            # so its byte window matches the generator's ground-truth frame.
+            original = self._packet_by_pts.get(rec.track, {}).get(rec.pts)
+            target = original or parsed
             emitted.append(self._record(
-                CAT_DUPLICATE, parsed, "repeated PTS on the same track"))
+                CAT_DUPLICATE, target, "repeated PTS on the same track"))
         previous = self._last.get(rec.track)
         if previous is not None and rec.kind == "media" \
                 and rec.pts < previous.record.pts \
@@ -82,6 +87,7 @@ class DamageLocator:
                 CAT_REVERSED, parsed,
                 f"PTS {rec.pts} precedes prior {previous.record.pts}"))
         self._seen_pts.setdefault(rec.track, set()).add(rec.pts)
+        self._packet_by_pts.setdefault(rec.track, {})[rec.pts] = parsed
         self._last[rec.track] = parsed
         self.records.extend(emitted)
         return emitted
@@ -98,8 +104,11 @@ class DamageLocator:
         base = self.base_for(rec.track)
         start = base.ticks_to_seconds(rec.pts)
         end = start + base.ticks_to_seconds(max(1, _nominal_tick(base)))
+        # Body start skips the 4-byte length prefix, matching the generator's
+        # ground-truth windows and pointing at the first reviewable content byte.
         return DamageRecord(
-            category, rec.track, parsed.packet_range,
+            category, rec.track,
+            (parsed.packet_range[0] + 4, parsed.packet_range[1]),
             TimeRange(start, end, rec.track), detail)
 
     def check_continuity(self, transitions: list[dict],

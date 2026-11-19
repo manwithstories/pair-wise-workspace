@@ -111,9 +111,12 @@ def _frame_gaps(events: list[FrameEvent], base: TimeBase,
                 nominal_tick: int) -> tuple[list[IntervalAnomaly], list[int]]:
     anomalies: list[IntervalAnomaly] = []
     vfr: list[int] = []
-    # Restrict gap analysis to the main media timeline; VFR/duplicate side
-    # packets are handled explicitly by their kind.
-    main = [e for e in events if e.kind == "media"]
+    # Main media timeline only; side packets (vfr/duplicate/corrupt) are
+    # classified explicitly.  Sort by unwrapped PTS so transmission-order
+    # reversals (reported separately by the damage layer) cannot fabricate
+    # missing-frame gaps in the presentation timeline.
+    main = sorted((e for e in events if e.kind == "media"),
+                  key=lambda e: e.pts)
     for prev, cur in zip(main, main[1:]):
         delta = cur.pts - prev.pts
         if delta == nominal_tick:
@@ -122,25 +125,21 @@ def _frame_gaps(events: list[FrameEvent], base: TimeBase,
                     "bad_packet", cur.pts, prev.pts + nominal_tick, delta,
                     float(base.ticks_to_seconds(delta)), "corrupt payload"))
             continue
-        if delta >= nominal_tick * 2:
-            # A timeline gap dominates: the skipped tick(s) are missing frame(s).
-            missing = round(delta / nominal_tick) - 1
-            anomalies.append(IntervalAnomaly(
-                "missing_frame", cur.pts, prev.pts + nominal_tick, delta,
-                float(base.ticks_to_seconds(delta)),
-                f"~{missing} frame(s) not observed"))
-            continue
         if delta <= 0:
             anomalies.append(IntervalAnomaly(
                 "bad_packet", cur.pts, prev.pts + nominal_tick, delta,
                 float(base.ticks_to_seconds(delta)),
                 "duplicate or reversed timestamp"))
-        elif not cur.payload_ok:
+            continue
+        ratio = delta / nominal_tick
+        if ratio == int(ratio) and ratio >= 2:
+            # An exact whole-tick hole means one or more frames never arrived.
             anomalies.append(IntervalAnomaly(
-                "bad_packet", cur.pts, prev.pts + nominal_tick, delta,
-                float(base.ticks_to_seconds(delta)), "corrupt payload"))
+                "missing_frame", cur.pts, prev.pts + nominal_tick, delta,
+                float(base.ticks_to_seconds(delta)),
+                f"~{int(ratio) - 1} frame(s) not observed"))
         else:
-            # Sub-tick or clean fractional/half-tick spacing = VFR.
+            # Half-tick / fractional spacing is legal VFR presentation.
             vfr.append(cur.pts)
             anomalies.append(IntervalAnomaly(
                 "vfr", cur.pts, prev.pts + nominal_tick, delta,

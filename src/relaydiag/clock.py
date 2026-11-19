@@ -22,7 +22,7 @@ DEFAULT_MODULUS = 1 << 32
 #: Pessimistic free-running drift assumed when only one anchor is available.
 NOMINAL_DRIFT_PPM = 1000.0
 #: Residual (seconds) above which a drift break is declared even on tiny data.
-BREAK_TOLERANCE_S = 0.020
+BREAK_TOLERANCE_S = 0.005
 
 
 @dataclass(slots=True)
