@@ -431,6 +431,8 @@ FixtureSet generate_fixtures(const std::filesystem::path& work_dir,
                           "tail cut inside the last mdat; complete packets are kept");
     info.damage_offset = keep;
     info.damage_size = size - keep;
+    // The file ends at `keep`; the first byte that should exist is there.
+    info.expected_first_error_offset = keep;
     set.files.push_back(info);
   }
   // 3. Corrupt packet inside a video sample.
@@ -447,6 +449,9 @@ FixtureSet generate_fixtures(const std::filesystem::path& work_dir,
                           "byte pattern overwritten inside one video sample");
     info.damage_offset = off;
     info.damage_size = len;
+    // The decoder can only name the packet, so the report must fall inside
+    // the damaged sample.
+    info.expected_first_error_offset = off;
     set.files.push_back(info);
   }
   // 4. Index entry out of range.
@@ -460,6 +465,20 @@ FixtureSet generate_fixtures(const std::filesystem::path& work_dir,
     }
     auto info = make_info(p, FixtureKind::IndexOutOfRange, true,
                           "chunk 6 offset points past EOF; index must be rebuilt from present samples");
+    // The report must point at the stco field that holds the bad value.
+    {
+      FileStructure fs2;
+      Error e2;
+      if (read_mp4_structure(p.string(), fs2, e2)) {
+        for (const auto& t : fs2.tracks) {
+          if (t.first_bad_entry_offset >= 0) {
+            info.expected_first_error_offset = t.first_bad_entry_offset;
+            info.damage_size = 4;
+            break;
+          }
+        }
+      }
+    }
     set.files.push_back(info);
   }
   // 5. Incomplete index: stco claims more entries than the box holds.
@@ -484,8 +503,22 @@ FixtureSet generate_fixtures(const std::filesystem::path& work_dir,
         return set;
       }
     }
-    set.files.push_back(make_info(p, FixtureKind::IncompleteIndex, true,
-                                  "stco entry count exceeds the box; only the present entries are used"));
+    auto info = make_info(p, FixtureKind::IncompleteIndex, true,
+                          "stco entry count exceeds the box; only the present entries are used");
+    {
+      FileStructure fs2;
+      Error e2;
+      if (read_mp4_structure(p.string(), fs2, e2)) {
+        for (const auto& t : fs2.tracks) {
+          if (t.first_bad_entry_offset >= 0) {
+            info.expected_first_error_offset = t.first_bad_entry_offset;
+            info.damage_size = 4;
+            break;
+          }
+        }
+      }
+    }
+    set.files.push_back(info);
   }
   // 6. moov at the end (no faststart) and 7. no moov at all.
   {

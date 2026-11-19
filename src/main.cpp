@@ -29,7 +29,7 @@ void print_usage() {
       "usage: mediaqc <command> [options]\n"
       "\n"
       "commands:\n"
-      "  selftest --generate-fixtures --work DIR [--json]\n"
+      "  selftest --generate-fixtures --work DIR [--json] [--generate-only]\n"
       "           Generate boundary fixtures (via ffmpeg) and run the batch\n"
       "           over them.  Exit 0 means every fixture behaved as designed.\n"
       "  batch --input DIR --output DIR [--resume] [--json] [--stop-after-packets N]\n"
@@ -62,6 +62,7 @@ bool parse_args(int argc, char** argv, Args& args, std::string& err) {
   };
   static const std::map<std::string, bool> kFlags = {
       {"--resume", true}, {"--json", true}, {"--generate-fixtures", true},
+      {"--generate-only", true},
       {"--verbose", true}, {"--help", true},
   };
   for (int i = 2; i < argc; ++i) {
@@ -139,6 +140,7 @@ int run(int argc, char** argv) {
     opt.work_dir = it->second;
     opt.json = json;
     if (args.values.count("--ffmpeg")) opt.ffmpeg_binary = args.values["--ffmpeg"];
+    opt.generate_only = args.flags["--generate-only"] != 0;
     mediaqc::BatchResult result = mediaqc::run_selftest(opt);
     if (json) {
       std::printf("%s\n", mediaqc::render_json(result, false).c_str());

@@ -122,6 +122,8 @@ struct SelftestOptions {
   std::filesystem::path work_dir;
   std::string ffmpeg_binary = "ffmpeg";
   bool json = false;
+  // Generate the fixtures and stop; used by scripts/make_fixtures.sh.
+  bool generate_only = false;
 };
 BatchResult run_selftest(const SelftestOptions& options);
 

@@ -36,6 +36,9 @@ struct FixtureInfo {
   bool expect_ok = true;   // pipeline should still produce a verified output
   int64_t damage_offset = -1;  // where the fixture was damaged (if applicable)
   int64_t damage_size = 0;
+  // Independent expectation of the pipeline's first damaged byte, used by
+  // selftest to check localisation without trusting the pipeline's report.
+  int64_t expected_first_error_offset = -1;
   int64_t input_size = 0;
   std::string description;
 };

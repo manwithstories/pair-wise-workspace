@@ -848,6 +848,21 @@ BatchResult run_selftest(const SelftestOptions& options) {
     batch.error = set.error;
     return batch;
   }
+  if (options.generate_only) {
+    // Report the generated set without running the pipeline over it.
+    for (const auto& f : set.files) {
+      FileResult r;
+      r.input_path = f.path;
+      r.input_bytes = f.input_size;
+      r.status = FileStatus::Ok;
+      r.failure_reason = f.description;
+      batch.files.push_back(r);
+    }
+    batch.totals.files_total = static_cast<int64_t>(set.files.size());
+    batch.totals.files_ok = static_cast<int64_t>(set.files.size());
+    batch.exit_code = 0;
+    return batch;
+  }
   BatchOptions bo;
   bo.config = options.config;
   bo.input_dir = set.input_dir;
@@ -858,18 +873,43 @@ BatchResult run_selftest(const SelftestOptions& options) {
   bo.checkpoint_dir = set.checkpoint_dir;
   batch = run_batch(bo);
   // Compare against the fixture expectations: an asset designed to succeed
-  // must be ok, and one designed to fail must fail with a localised error.
-  std::map<std::string, bool> expect_ok;
-  for (const auto& f : set.files) expect_ok[f.name] = f.expect_ok;
+  // must be ok, one designed to fail must fail with a localised error, and a
+  // fixture with a known damage byte must report an offset at or after it and
+  // within one packet (or the damage span for a tail cut).
+  std::map<std::string, const FixtureInfo*> expected;
+  for (const auto& f : set.files) expected[f.name] = &f;
   int64_t deviations = 0;
   for (const auto& f : batch.files) {
     const std::string name = std::filesystem::path(f.input_path).filename().string();
-    const auto it = expect_ok.find(name);
-    if (it == expect_ok.end()) continue;
+    const auto it = expected.find(name);
+    if (it == expected.end()) continue;
+    const FixtureInfo& want = *it->second;
     const bool ok = f.status == FileStatus::Ok || f.status == FileStatus::Resumed;
-    if (ok != it->second) {
+    if (ok != want.expect_ok) {
       ++deviations;
       batch.error += (batch.error.empty() ? "" : "; ") + name + " behaved unexpectedly";
+      continue;
+    }
+    if (!want.expect_ok) {
+      if (f.first_error_offset < 0 && f.errors.empty()) {
+        ++deviations;
+        batch.error += (batch.error.empty() ? "" : "; ") + name +
+                       " failed without a localised error";
+      }
+      continue;
+    }
+    if (want.expected_first_error_offset >= 0) {
+      const int64_t window = std::max<int64_t>(1, want.damage_size);
+      const bool localised = f.first_error_offset >= want.expected_first_error_offset &&
+                             f.first_error_offset <=
+                                 want.expected_first_error_offset + window;
+      if (!localised) {
+        ++deviations;
+        batch.error += (batch.error.empty() ? "" : "; ") + name +
+                       " reported offset " + std::to_string(f.first_error_offset) +
+                       " outside the damaged span at " +
+                       std::to_string(want.expected_first_error_offset);
+      }
     }
   }
   batch.totals.files_ok = 0;

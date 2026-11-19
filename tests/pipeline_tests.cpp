@@ -208,6 +208,23 @@ TEST_CASE("corrupt packet is repaired and its input range reported") {
   REQUIRE(f.first_error_offset <= it->damage_offset + it->damage_size);
 }
 
+TEST_CASE("selftest localisation expectations match the reports") {
+  // The selftest compares every fixture against an independently computed
+  // expected offset; a mismatch fails the run, so an exit code of 0 means
+  // every damaged span was localised within its tolerance.
+  SelftestOptions opt;
+  opt.work_dir = fresh_dir("selftest_local");
+  BatchResult r = run_selftest(opt);
+  REQUIRE(r.exit_code == 0);
+  REQUIRE(r.error.empty());
+  for (const auto& f : r.files) {
+    if (f.status == FileStatus::Failed) {
+      INFO(f.input_path);
+      REQUIRE_FALSE(f.errors.empty());
+    }
+  }
+}
+
 TEST_CASE("out-of-range and incomplete indexes are rebuilt") {
   const FixtureSet& set = shared_fixtures();
   for (const char* name : {"04_index_out_of_range.mp4", "05_incomplete_index.mp4"}) {
