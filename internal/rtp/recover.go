@@ -3,6 +3,7 @@ package rtp
 import (
 	"avpipe/internal/clock"
 	"avpipe/internal/fault"
+	"avpipe/internal/rng"
 )
 
 // Config controls the simulated loss and jitter of the receive path.
@@ -54,29 +55,6 @@ type Recovery struct {
 	Ordered       []Packet
 }
 
-// splitMix64 is a tiny deterministic generator: no global state, identical
-// output for identical seeds on every platform.
-type splitMix64 struct{ state uint64 }
-
-func (r *splitMix64) next() uint64 {
-	r.state += 0x9E3779B97F4A7C15
-	z := r.state
-	z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9
-	z = (z ^ (z >> 27)) * 0x94D049BB133111EB
-	return z ^ (z >> 31)
-}
-
-func (r *splitMix64) float() float64 {
-	return float64(r.next()>>11) / float64(uint64(1)<<53)
-}
-
-func (r *splitMix64) intn(n int) int {
-	if n <= 1 {
-		return 0
-	}
-	return int(r.next() % uint64(n))
-}
-
 // SimulateReceive runs packets through loss, jitter and duplication, then
 // reconstructs the stream: sort by extended sequence, drop duplicates, flag
 // conflicting duplicates and classify gaps by whether the window could have
@@ -94,25 +72,25 @@ func SimulateReceive(sent []Packet, cfg Config) (Recovery, error) {
 	if window <= 0 {
 		window = 64
 	}
-	rng := &splitMix64{state: cfg.Seed ^ 0x5DEECE66D}
+	r := rng.New(cfg.Seed)
 
 	deliveries := make([]Delivery, 0, len(sent)+cfg.LatePackets+cfg.ConflictCopy)
 	for _, p := range sent {
-		if rng.float() < cfg.LossRate {
+		if r.Float() < cfg.LossRate {
 			deliveries = append(deliveries, Delivery{Pkt: p, Dropped: true})
 			continue
 		}
-		arrival := clock.FromMillis(rng.float() * cfg.JitterMs)
+		arrival := clock.FromMillis(r.Float() * cfg.JitterMs)
 		deliveries = append(deliveries, Delivery{Pkt: p, Arrival: arrival})
 	}
 	// Late copies arrive as duplicates after the original stream.
 	for i := 0; i < cfg.LatePackets && len(sent) > 0; i++ {
-		p := sent[rng.intn(len(sent))]
-		arrival := clock.FromMillis(float64(window) + rng.float()*cfg.JitterMs)
+		p := sent[r.Intn(len(sent))]
+		arrival := clock.FromMillis(float64(window) + r.Float()*cfg.JitterMs)
 		deliveries = append(deliveries, Delivery{Pkt: p, Arrival: arrival, Late: true})
 	}
 	for i := 0; i < cfg.ConflictCopy && len(sent) > 0; i++ {
-		p := sent[rng.intn(len(sent))]
+		p := sent[r.Intn(len(sent))]
 		mutated := p
 		mutated.Payload = append([]byte(nil), p.Payload...)
 		if len(mutated.Payload) > 0 {
