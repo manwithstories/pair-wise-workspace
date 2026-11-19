@@ -19,6 +19,7 @@ add_library(media_core STATIC
   src/frame_pattern.cpp
   src/frame_transform.cpp
   src/gap_estimator.cpp
+  src/json_report.cpp
   src/json_writer.cpp
   src/keyframe_index.cpp
   src/media_types.cpp
