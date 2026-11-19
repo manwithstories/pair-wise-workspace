@@ -23,6 +23,8 @@ add_library(mbcore
   src/stream.cpp
   src/timeline.cpp
   src/checkpoint.cpp
+  src/media_make.cpp
+  src/media_proc.cpp
 )
 target_include_directories(mbcore PUBLIC src)
 target_link_libraries(mbcore PUBLIC PkgConfig::FFMPEG Threads::Threads)
@@ -34,7 +36,8 @@ enable_testing()
 find_package(Catch2 3 QUIET)
 if(Catch2_FOUND)
   add_executable(pipeline_tests tests/pipeline_tests.cpp)
-  target_link_libraries(pipeline_tests PRIVATE mbcore Catch2::Catch2WithMain)
+  target_link_libraries(pipeline_tests PRIVATE mbcore PkgConfig::FFMPEG
+                          Catch2::Catch2WithMain)
   include(Catch)
   catch_discover_tests(pipeline_tests)
 else()

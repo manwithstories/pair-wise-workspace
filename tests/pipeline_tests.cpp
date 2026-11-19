@@ -343,3 +343,92 @@ TEST_CASE("checkpoint: failed block retained and reported on resume",
   REQUIRE(rr.complete_blocks == std::vector<int>{0});
   REQUIRE(rr.failed_blocks == std::vector<int>{1});
 }
+
+extern "C" {
+#include <libavutil/log.h>
+}
+
+#include "media.hpp"
+
+TEST_CASE("media: synthesize, probe and transcode within bitrate tolerance",
+          "[media]") {
+  av_log_set_level(AV_LOG_QUIET);
+  auto dir = fs::temp_directory_path() /
+             ("mb_media_" + std::to_string(++cp_seq));
+  fs::remove_all(dir);
+  fs::create_directories(dir);
+  MediaSpec spec;
+  spec.path = (dir / "src.mkv").string();
+  spec.fps = {25, 1};
+  spec.duration_ms = 2000;
+  spec.video_bitrate = 1'500'000;
+  std::string err;
+  REQUIRE(make_test_media(spec, &err));
+  REQUIRE(fs::exists(spec.path));
+
+  MediaStats st;
+  ErrList errs;
+  REQUIRE(probe_media(spec.path, spec, &st, true, &errs));
+  REQUIRE(st.video_frames == 50);
+  REQUIRE(st.audio_frames > 0);
+  REQUIRE(st.video_psnr_db > 40.0);       // 无损常量亮度，PSNR 很高
+  REQUIRE(st.audio_peak_dbfs < -3.0);     // 0.5 振幅约 -6 dBFS
+  REQUIRE(st.decode_errors == 0);
+
+  const int64_t target = 4'000'000;
+  TranscodeResult tr;
+  ErrList terrs;
+  std::string outp = (dir / "out.mkv").string();
+  REQUIRE(transcode_media(spec.path, outp, spec, target, "matroska",
+                          &tr, &terrs));
+  REQUIRE(tr.ok);
+  double dev = 100.0 * std::fabs(tr.stats.actual_video_bitrate_bps -
+                                 double(target)) / double(target);
+  REQUIRE(dev <= 5.0);  // 码率偏差绝对值不超过 5%
+  REQUIRE(tr.stats.video_frames == 50);
+  REQUIRE(tr.failed_ranges.empty());
+}
+
+TEST_CASE("media: corruption yields decode errors but continues", "[media]") {
+  av_log_set_level(AV_LOG_QUIET);
+  auto dir = fs::temp_directory_path() /
+             ("mb_media_bad_" + std::to_string(++cp_seq));
+  fs::remove_all(dir);
+  fs::create_directories(dir);
+  MediaSpec spec;
+  spec.path = (dir / "bad.mkv").string();
+  spec.fps = {25, 1};
+  spec.duration_ms = 2000;
+  spec.inject_corruption = true;
+  REQUIRE(make_test_media(spec, nullptr));
+
+  MediaStats st;
+  ErrList errs;
+  // 容忍模式：返回 true 但解码错误被记录，后续帧继续。
+  REQUIRE(probe_media(spec.path, spec, &st, true, &errs));
+  REQUIRE(st.decode_errors > 0);
+  REQUIRE_FALSE(errs.empty());
+  REQUIRE(errs.front().code == kMediaDecode);
+}
+
+TEST_CASE("media: missing audio track is reported, not fatal", "[media]") {
+  av_log_set_level(AV_LOG_QUIET);
+  auto dir = fs::temp_directory_path() /
+             ("mb_media_noa_" + std::to_string(++cp_seq));
+  fs::remove_all(dir);
+  fs::create_directories(dir);
+  MediaSpec spec;
+  spec.path = (dir / "vonly.mkv").string();
+  spec.include_audio = false;   // 素材实际不含音轨
+  REQUIRE(make_test_media(spec, nullptr));
+  // 探测时仍声明期望音轨，因此缺失应被统计。
+  MediaSpec expect = spec;
+  expect.include_audio = true;
+  MediaStats st;
+  ErrList errs;
+  REQUIRE(probe_media(spec.path, expect, &st, true, &errs));
+  REQUIRE(st.missing_tracks == 1);
+  bool missing = false;
+  for (auto& e : errs) missing |= e.code == kMediaMissing;
+  REQUIRE(missing);
+}
