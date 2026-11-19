@@ -54,6 +54,9 @@ class DemuxedPacket:
     payload: bytes
     pts_raw: int | None = None
     dts_raw: int | None = None
+    # Container-family duration hint.  The MP4 muxer needs every sample to have
+    # a duration, otherwise it silently drops the final packet of a video track.
+    duration_raw: int | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -63,6 +66,7 @@ class DemuxedPacket:
             "dts_ticks": self.dts_ticks,
             "pts_raw": self.pts_raw,
             "dts_raw": self.dts_raw,
+            "duration_raw": self.duration_raw,
             "time_base": list(self.time_base),
             "is_keyframe": self.is_keyframe,
             "size": self.size,
@@ -232,6 +236,7 @@ class Demuxer:
                     payload=bytes(packet),
                     pts_raw=packet.pts,
                     dts_raw=packet.dts,
+                    duration_raw=packet.duration,
                 )
             if with_boundaries:
                 for ready in self._drain_all():

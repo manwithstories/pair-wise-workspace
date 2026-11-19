@@ -158,6 +158,11 @@ class RemuxWriter:
         # produced.
         rebuilt.pts = packet.pts_raw
         rebuilt.dts = packet.dts_raw
+        # Duration is not presentational fluff: the MP4 muxer drops the final
+        # sample of a track when it has no duration, which would lose a packet
+        # in an otherwise byte-exact copy.
+        if packet.duration_raw is not None:
+            rebuilt.duration = packet.duration_raw
         rebuilt.is_keyframe = packet.is_keyframe
         try:
             self._container.mux(rebuilt)

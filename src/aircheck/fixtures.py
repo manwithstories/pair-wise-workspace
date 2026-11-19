@@ -37,7 +37,9 @@ from .mkvwrite import (
 #: preserve raw samples; MP4/MKV get AAC to exercise the compressed path.
 FORMAT_PRESETS: dict[str, dict[str, str]] = {
     "mp4": {"format": "mp4", "video": "libx264", "audio": "aac", "extension": "mp4"},
-    "mov": {"format": "mov", "video": "mpeg4", "audio": "pcm_s16le", "extension": "mov"},
+    # ALAC keeps numerically *identical* samples across every container, which
+    # makes the cross-format payload hashes comparable; MP4/MKV both carry it.
+    "mov": {"format": "mov", "video": "mpeg4", "audio": "alac", "extension": "mov"},
     "mkv": {"format": "matroska", "video": "libx264", "audio": "aac", "extension": "mkv"},
 }
 

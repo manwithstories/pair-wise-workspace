@@ -100,6 +100,30 @@ class TestRoundTrip:
         assert output.read_bytes() == b"sentinel"
 
 
+    def test_cross_container_copy_keeps_every_video_packet(self, multi_mkv, workdir):
+        # Regression: a rebuilt packet without ``duration`` makes the MP4 muxer
+        # silently drop a track's final sample, so an "exact" copy loses one
+        # packet.  Every video packet must survive MKV -> MP4.
+        source_probe = probe(multi_mkv.path)
+        mapping = resolve_mapping(source_probe)
+        output = workdir / "count_check.mp4"
+        stage = Pipeline(
+            source_probe, mapping, output, PipelineConfig(segment_ticks=SEGMENT,
+                                                          target_format="mp4")
+        ).run()
+        assert stage.ok, stage.errors
+        source_video = [
+            packet for packet in _demux_all(multi_mkv.path) if packet.stream_index == 0
+        ]
+        output_video = [
+            packet for packet in _demux_all(stage.output) if packet.stream_index == 0
+        ]
+        assert len(output_video) == len(source_video)
+        assert [packet.payload for packet in output_video] == [
+            packet.payload for packet in source_video
+        ]
+
+
 class TestBackpressure:
     def test_peak_queue_depth_never_exceeds_capacity(self, multi_mp4, workdir):
         source_probe = probe(multi_mp4.path)
@@ -207,10 +231,10 @@ class TestCancellation:
             segment_labels.extend(
                 sorted({packet.segment for packet in part_packets})
             )
+        # Equal length plus an equal multiset means every payload appears
+        # exactly as often as in the source: no packet lost, none duplicated.
         assert len(assembled) == len(source_payloads)
         assert Counter(assembled) == Counter(source_payloads)
-        # No packet is emitted twice: the multiset comparison above would still
-        # pass with duplicates only if source also had them, so assert counts.
 
     def test_resume_without_checkpoint_starts_from_zero(self, multi_mkv, workdir):
         source_probe = probe(multi_mkv.path)
