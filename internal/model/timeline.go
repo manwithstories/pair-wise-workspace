@@ -54,6 +54,7 @@ type Transition struct {
 	TrackID      uint32
 	FromClipID   string
 	ToClipID     string
+	StartTick    uint64 // 轨道时钟起点
 	DurationTick uint64 // 轨道时钟长度
 }
 
