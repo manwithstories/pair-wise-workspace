@@ -248,3 +248,52 @@ func TestErrorStructureIsShared(t *testing.T) {
 		}
 	}
 }
+
+// TestEverySupportedRate runs the analysis pipeline at each broadcast
+// rate and asserts the recovered timeline is exact.
+func TestEverySupportedRate(t *testing.T) {
+	for _, r := range []fixture.Rate{
+		fixture.Rate24, fixture.Rate25, fixture.Rate30,
+		fixture.RateDrop2997, fixture.Rate2398,
+	} {
+		cfg := acceptanceConfig(t)
+		cfg.Render = false
+		cfg.FrameRate = r
+		sum, err := Run(cfg)
+		if err != nil {
+			t.Fatalf("%s: %v", r, err)
+		}
+		if !sum.Passed {
+			t.Errorf("%s: %v", r, sum.Failures)
+		}
+		if sum.RoundtripRate != clock.NewRational(1, 1) {
+			t.Errorf("%s: roundtrip = %s", r, sum.RoundtripRate)
+		}
+		if sum.Timecode == "" {
+			t.Errorf("%s: no start timecode", r)
+		}
+		if r.DropFrame() != sum.DropFrame {
+			t.Errorf("%s: drop-frame flag = %v", r, sum.DropFrame)
+		}
+	}
+}
+
+// TestWrapBiasVariants checks that the unwrapper still crosses the
+// boundary with different starting biases.
+func TestWrapBiasVariants(t *testing.T) {
+	for _, bias := range []uint32{1, 1000, 0xFFFFF000, 4294967000} {
+		cfg := acceptanceConfig(t)
+		cfg.Render = false
+		cfg.WrapAt = bias
+		sum, err := Run(cfg)
+		if err != nil {
+			t.Fatalf("bias %d: %v", bias, err)
+		}
+		if bias > 0xFFFF0000 && sum.RTPWraps == 0 {
+			t.Errorf("bias %d: no wrap detected", bias)
+		}
+		if sum.RTPJumps != 1 {
+			t.Errorf("bias %d: jumps = %d", bias, sum.RTPJumps)
+		}
+	}
+}

@@ -36,6 +36,8 @@ func (r Rate) FramesPerSecond() int64 {
 	switch {
 	case r.Num == 30000 && r.Den == 1001:
 		return 30
+	case r.Num == 24000 && r.Den == 1001:
+		return 24
 	case r.Den == 1 && r.Num > 0:
 		return r.Num
 	}
@@ -55,21 +57,26 @@ func (r Rate) FrameAt(n int64) clock.Rational {
 	return clock.NewRational(n*r.Den, r.Num)
 }
 
-// ParseRate accepts the four supported rates, spelled either as a
-// decimal ("24") or as a fraction ("30000/1001").
+// Rate2398 is 24000/1001, the film-rate NTSC cousin of 24 fps. It uses
+// integer SMPTE counting at nominal 24 fps and no drop-frame rule,
+// which matches how 23.976 material is labelled in practice.
+var Rate2398 = Rate{24000, 1001}
+
+// ParseRate accepts the supported rates, spelled either as an integer,
+// a common decimal alias or an exact fraction.
 func ParseRate(s string) (Rate, error) {
-	for _, r := range []Rate{Rate24, Rate25, Rate30, RateDrop2997} {
+	for _, r := range []Rate{Rate24, Rate25, Rate30, RateDrop2997, Rate2398} {
 		if s == r.String() {
 			return r, nil
 		}
 	}
 	switch s {
-	case "23.976", "24000/1001":
-		return Rate{24000, 1001}, nil
+	case "23.976", "23.98":
+		return Rate2398, nil
 	case "29.97":
 		return RateDrop2997, nil
 	}
-	return Rate{}, fmt.Errorf("unsupported frame rate %q (want 24, 25, 30 or 30000/1001)", s)
+	return Rate{}, fmt.Errorf("unsupported frame rate %q (want 24, 25, 30, 30000/1001 or 24000/1001)", s)
 }
 
 // Timecode is a SMPTE non-drop or drop-frame label.

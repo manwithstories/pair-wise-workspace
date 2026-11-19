@@ -119,3 +119,26 @@ func TestFrameDurationExact(t *testing.T) {
 }
 
 func clockFromInt(v int64) clock.Rational { return clock.NewRational(v, 1) }
+
+func TestRate2398Counting(t *testing.T) {
+	rate := Rate2398
+	if rate.FramesPerSecond() != 24 {
+		t.Fatalf("nominal fps = %d, want 24", rate.FramesPerSecond())
+	}
+	if rate.DropFrame() {
+		t.Fatal("23.976 must not use drop-frame counting")
+	}
+	// 24 labelled frames span exactly 1001/1000 seconds at 24000/1001.
+	sum := clock.Zero()
+	for i := 0; i < 24; i++ {
+		sum = sum.Add(rate.FrameDuration())
+	}
+	if sum != clock.NewRational(1001, 1000) {
+		t.Fatalf("24 frames = %s, want 1001/1000", sum)
+	}
+	// One hour of labels is 3600*24 frames, and its real time is
+	// 3600*1001/1000 seconds exactly.
+	if _, err := (Timecode{Hours: 1}).FrameNumber(rate); err != nil {
+		t.Fatalf("hour timecode rejected: %v", err)
+	}
+}
