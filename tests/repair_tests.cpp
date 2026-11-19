@@ -1,3 +1,5 @@
+#include <fstream>
+#include <unistd.h>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 #include "media/time_model.hpp"
@@ -150,4 +152,69 @@ TEST_CASE("漂移估计：缺锚点低置信度，充足锚点恢复斜率", "[r
   CHECK_FALSE(d.lowConfidence);
   CHECK(d.driftPpm == Approx(180.0).margin(1.0));
   CHECK(std::abs(d.confidence - 1.0) < 0.01);
+}
+
+#include "media/demuxer.hpp"
+#include <filesystem>
+
+TEST_CASE("侧车解析、截断与零时长", "[demuxer]") {
+  auto dir = std::filesystem::temp_directory_path() /
+             ("md_demux_" + std::to_string(::getpid()));
+  std::filesystem::create_directories(dir);
+  auto scPath = (dir / "cam1.sidecar").string();
+  {
+    std::ofstream f(scPath);
+    f << "META 1 90000 0 5\n";
+    for (int i = 0; i < 5; ++i)
+      f << "PKT " << i << " cam1 video " << i * 3000 << " 3000 "
+        << (i % 3 == 0 ? 1 : 0) << " " << (i == 2 ? 1 : 0) << " "
+        << i * 1024 << "\n";
+  }
+  Sidecar sc;
+  std::string err;
+  REQUIRE(loadSidecar(scPath, sc, err));
+  CHECK(sc.timeBase.den == 90000);
+  CHECK(sc.entries.size() == 5);
+  CHECK(sc.entries[2].corrupt);
+
+  auto full = demuxTrack("cam1", sc, 0);
+  CHECK(full.packets.size() == 5);
+  CHECK(full.fatal == TimeError::None);
+
+  auto cut = demuxTrack("cam1", sc, 3);
+  CHECK(cut.packets.size() == 3);
+  CHECK(cut.fatal == TimeError::TruncatedInput);
+  CHECK(cut.firstBadPacket == 3);
+
+  Sidecar empty;
+  empty.timeBase = {1, 90000};
+  auto zero = demuxTrack("ghost", empty, 0);
+  CHECK(zero.fatal == TimeError::ZeroDuration);
+  std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("流水线背压峰值受限且下游致命错误取消生产者", "[pipeline]") {
+  std::vector<MediaPacket> src(200);
+  for (size_t i = 0; i < src.size(); ++i) {
+    src[i].globalIndex = i;
+    src[i].index = i;
+  }
+  PacketQueue q(8);
+  size_t seen = 0;
+  auto stats = runPipeline(q, src, [&](MediaPacket& p) {
+    ++seen;
+    if (p.globalIndex == 50) return TimeError::BackwardIllegal;
+    return TimeError::None;
+  });
+  CHECK(stats.error == TimeError::BackwardIllegal);
+  CHECK(stats.firstBadPacket == 50);
+  CHECK(seen == 51);
+  CHECK(stats.peak <= 8);
+  CHECK(q.cancelled());
+
+  PacketQueue q2(4);
+  auto ok = runPipeline(q2, src, [](MediaPacket&) { return TimeError::None; });
+  CHECK(ok.error == TimeError::None);
+  CHECK(ok.consumed == 200);
+  CHECK(ok.peak <= 4);
 }

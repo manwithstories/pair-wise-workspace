@@ -3,6 +3,7 @@
 #include <condition_variable>
 #include <cstddef>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include "media/packet.hpp"
@@ -47,7 +48,7 @@ public:
 
   std::pair<PopResult, std::optional<T>> pop() {
     std::unique_lock lock(mu_);
-    notEmpty_.wait(lock, [&] { return cancelled_ || !q_.empty(); });
+    notEmpty_.wait(lock, [&] { return cancelled_ || closed_ || !q_.empty(); });
     if (cancelled_) return {PopResult::Cancelled, std::nullopt};
     if (q_.empty()) return {PopResult::Closed, std::nullopt};
     T item = std::move(q_.front());
@@ -82,4 +83,18 @@ private:
 };
 
 using PacketQueue = BoundedQueue<MediaPacket>;
+
+struct PipelineStats {
+  size_t produced = 0;
+  size_t consumed = 0;
+  size_t peak = 0;
+  TimeError error = TimeError::None;
+  size_t firstBadPacket = 0;
+};
+
+// 单轨流式管线：生产者逐包推入有界队列（队满背压），消费者逐包处理；
+// 消费者返回致命错误时取消队列并释放阻塞中的生产者。
+PipelineStats runPipeline(PacketQueue& q,
+                          const std::vector<MediaPacket>& source,
+                          const std::function<TimeError(MediaPacket&)>& consume);
 } // namespace media
