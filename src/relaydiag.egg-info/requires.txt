@@ -1,6 +1,0 @@
-av==12.3.0
-numpy==2.1.0
-soundfile==0.12.1
-
-[dev]
-pytest>=8
