@@ -180,8 +180,10 @@ The chunk log (`ckpt.chunks`) is append-only, so checkpoint cost does not grow
 with job length. On resume the tool re-checks the input size and prefix digest,
 truncates the index part file and tables to exactly the committed sizes,
 re-verifies the committed payload CRC and the chunk-log chain digest, and
-refuses (exit code 4) on any mismatch. A checkpoint whose job already completed
-is also refused, so a stale one can never mask a rerun.
+refuses (exit code 4) on any mismatch. A checkpoint claiming the job already
+completed is likewise refused, so a stale one can never mask a rerun. A
+successful publish removes the checkpoint and chunk log: a finished delivery
+leaves no resumable state behind.
 
 ## Resources
 
