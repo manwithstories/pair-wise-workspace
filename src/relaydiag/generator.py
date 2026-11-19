@@ -209,6 +209,7 @@ def build_relay_records(cfg: GenerationConfig) -> tuple[list[PacketRecord], list
         if i == corrupt_frame:
             # Flip payload bytes: decode-side corruption at a known offset.
             record.payload = bytes(b ^ 0xFF for b in record.payload)
+            record.kind = "corrupt"
             plan.append(_plan(DAMAGE_DECODE, "video", i, i, cfg))
         records.append(record)
         if i in vfr:
