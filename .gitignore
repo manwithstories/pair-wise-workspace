@@ -89,6 +89,7 @@ dist/
 .demo/
 .damaged/
 .demo_*/
+.accept_*/
 scratch/
 *.sqlite3
 *.sqlite3-wal
