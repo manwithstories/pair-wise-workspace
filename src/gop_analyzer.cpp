@@ -1,4 +1,6 @@
-// GOP 分析模块骨架（第 4 批实现）。
+// GOP 分析器为头文件模板式实现；本翻译单元保留模块边界与编译锚点。
+#include "gop_analyzer.hpp"
+
 namespace ma {
-int gop_analyzer_placeholder() { return 0; }
+//  intentionally empty
 } // namespace ma
