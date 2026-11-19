@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"mediasync/internal/media"
 	"mediasync/internal/mp4"
 	"mediasync/internal/segment"
 	"mediasync/internal/timeline"
@@ -90,10 +89,4 @@ func sampleBody(file []byte, s mp4.Sample) []byte {
 		return nil
 	}
 	return file[s.Offset:end]
-}
-
-// IssueFor builds a fingerprint issue for an excluded clip.
-func IssueFor(clip Clip, format string, args ...any) *media.Issue {
-	return media.New(media.StageFingerprint, media.InputMP4, media.CodeIncomplete, format, args...).
-		WithRecord(clip.Index + 1)
 }

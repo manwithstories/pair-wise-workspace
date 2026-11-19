@@ -183,7 +183,3 @@ func Compare(clips []Clip) ([]Match, []*media.Issue) {
 	}
 	return matches, issues
 }
-
-// HashCompatibility reports whether two clips may be compared, returning a
-// reason when they may not.
-func HashCompatibility(a, b Flags) string { return a.Incompatible(b) }

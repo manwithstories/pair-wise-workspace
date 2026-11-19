@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"mediasync/internal/media"
@@ -116,18 +115,6 @@ func (r *Report) ExitCode() int {
 		return 2
 	}
 	return 0
-}
-
-// IssueList rebuilds lightweight issues for exit-code checks.
-func (r *Report) IssueList() []*media.Issue {
-	out := make([]*media.Issue, 0, len(r.Issues))
-	for _, is := range r.Issues {
-		issue := &media.Issue{Stage: media.Stage(is.Stage), Input: media.InputType(is.Input),
-			Code: media.Code(is.Code), Message: is.Message, Fatal: is.Fatal,
-			Offset: is.Offset, HasOffset: is.HasOffset}
-		out = append(out, issue)
-	}
-	return out
 }
 
 // Gate is a validation threshold applied to the report.
@@ -314,26 +301,11 @@ func allowedRoots() []string {
 	return roots
 }
 
-// SortedSegments returns segment reports ordered by camera then index.
-func (r *Report) SortedSegments() []SegmentReport {
-	out := append([]SegmentReport(nil), r.Segments...)
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Camera != out[j].Camera {
-			return out[i].Camera < out[j].Camera
-		}
-		return out[i].Index < out[j].Index
-	})
-	return out
-}
-
 // joinInts renders a slice of ints as a comma-separated list.
 func joinInts(vals []int) string {
-	out := ""
+	parts := make([]string, len(vals))
 	for i, v := range vals {
-		if i > 0 {
-			out += ","
-		}
-		out += fmt.Sprint(v)
+		parts[i] = fmt.Sprint(v)
 	}
-	return out
+	return strings.Join(parts, ",")
 }
