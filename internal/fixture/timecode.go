@@ -152,18 +152,20 @@ func TimecodeAt(frame int64, rate Rate) Timecode {
 }
 
 // TimecodeFromSeconds converts an exact presentation time to its frame
-// index and label, optionally wrapping at the 24-hour day boundary.
+// index and label. With wrapDay set, media time is reduced modulo 24
+// hours first, so a session crossing midnight restarts at 00:00:00:00;
+// without it the label continues into the next day (e.g. 24:00:17).
 func TimecodeFromSeconds(t clock.Rational, rate Rate, wrapDay bool) (int64, Timecode, error) {
 	if t.Num < 0 {
 		return 0, Timecode{}, fmt.Errorf("negative presentation time %s", t)
 	}
-	frame := rateFrameIndex(t, rate)
 	if wrapDay {
-		framesPerDay := int64(24*3600) * rate.FramesPerSecond()
-		if framesPerDay > 0 && frame >= framesPerDay {
-			frame %= framesPerDay
+		day := clock.NewRational(24*3600, 1)
+		for t.Cmp(day) >= 0 {
+			t = t.Sub(day)
 		}
 	}
+	frame := rateFrameIndex(t, rate)
 	return frame, TimecodeAt(frame, rate), nil
 }
 

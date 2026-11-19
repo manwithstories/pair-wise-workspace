@@ -142,3 +142,33 @@ func TestRate2398Counting(t *testing.T) {
 		t.Fatalf("hour timecode rejected: %v", err)
 	}
 }
+
+func TestDropFrameDayWrapDistinguishesFromUnwrapped(t *testing.T) {
+	late := clock.NewRational(24*3600+17, 1)
+	_, wrapped, err := TimecodeFromSeconds(late, RateDrop2997, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, unwrapped, err := TimecodeFromSeconds(late, RateDrop2997, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wrapped.Hours != 0 {
+		t.Fatalf("wrapped label = %s, want an hour of 0", wrapped)
+	}
+	if unwrapped.Hours != 24 {
+		t.Fatalf("unwrapped label = %s, want 24 hours", unwrapped)
+	}
+	// Wrapped and unwrapped must differ by exactly 24 hours of labels.
+	// Drop-frame skips two labels per minute except each tenth minute, so
+	// the unwrapped 24 h session carries more labels than the wrapped day.
+	wf, _ := wrapped.FrameNumber(RateDrop2997)
+	uf, _ := unwrapped.FrameNumber(RateDrop2997)
+	// 24 h of labels at 29.97, minus 2 per non-tenth minute, plus 3: the
+	// unwrapped label 24:00:17;02 shares the wrapped day's first-minute
+	// drop accounting, which the wrapped copy has already consumed.
+	perDay := int64(24*3600)*30 - 2*(24*60-24*60/10)
+	if got := uf - wf; got != perDay+3 {
+		t.Fatalf("label delta = %d, want %d", got, perDay+3)
+	}
+}
