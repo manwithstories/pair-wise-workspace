@@ -196,22 +196,28 @@ func newSource(fx *fixture.Fixture, opts Options) transport.RecoverySource {
 	return &fxSource{
 		sender:    fixture.SenderFromDeliveries(all),
 		bandwidth: opts.BandwidthMBps,
+		lossBurst: float64(opts.LossBurst),
 	}
 }
 
-// fxSource adapts the fixture sender to transport.RecoverySource. It also
-// implements transport.GapViability: a retransmit burst larger than what the
-// current uplink can carry cannot be repaired, which is what produces genuine
-// unrecoverable spans on a degraded link.
+// fxSource adapts the fixture sender to transport.RecoverySource. It
+// implements transport.GapViability so a starved link reports genuine loss
+// instead of pretending every burst heals.
 type fxSource struct {
 	sender    *fixture.Sender
 	bandwidth float64
+	lossBurst float64
 }
 
 // Fetch returns a retransmitted copy for a sequence at its original position.
+// On a congested link some retransmissions never survive; those packets are
+// reported as absent so recovery can count them as unrecoverable.
 func (s *fxSource) Fetch(track string, ext uint64) (transport.Packet, bool) {
 	p, ok := s.sender.Fetch(track, ext)
 	if !ok {
+		return transport.Packet{}, false
+	}
+	if !fixture.RetransmitSurvives(track, ext, s.bandwidth, s.lossBurst) {
 		return transport.Packet{}, false
 	}
 	return transport.Packet{
@@ -220,14 +226,15 @@ func (s *fxSource) Fetch(track string, ext uint64) (transport.Packet, bool) {
 	}, true
 }
 
-// GapViable reports whether a burst of the given size can be retransmitted at
-// the current bandwidth. Two packets per Mbps plus a small floor; a 7-packet
-// burst needs at least 2.5 Mbps to heal.
+// GapViable rejects bursts so large they cannot physically fit on the observed
+// uplink: at one Mbps the retransmit budget is a few packets, and a 40-packet
+// burst would stall live media for seconds. Below that ceiling, per-packet
+// survival (RetransmitSurvives) does the finer-grained modelling.
 func (s *fxSource) GapViable(track string, startExt uint64, count int) bool {
 	if s.bandwidth <= 0 {
 		return true
 	}
-	maxBurst := int(s.bandwidth*2) + 2
+	maxBurst := int(s.bandwidth*4) + 8
 	return count <= maxBurst
 }
 

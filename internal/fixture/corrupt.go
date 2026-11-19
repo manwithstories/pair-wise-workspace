@@ -174,6 +174,37 @@ func (s *Sender) Fetch(track string, ext uint64) (SentPacket, bool) {
 	return p, true
 }
 
+// RetransmitSurvives models whether a retransmission of one packet survives the
+// current uplink. It is deterministic: the same track, sequence and bandwidth
+// always give the same answer.
+//
+// The curve is flat at and above the 3 Mbps operating point, so a nominal link
+// recovers everything; below it, loss rises smoothly as the link starves, which
+// is how a degraded connection behaves in the field. The loss-burst size scales
+// the penalty because a long RTX burst is harder to fit on a congested link.
+func RetransmitSurvives(track string, ext uint64, mbps, lossBurst float64) bool {
+	if mbps <= 0 || mbps >= 3 {
+		return true
+	}
+	// At 2 Mbps roughly 1 in 16 retransmissions is lost; at 1 Mbps 1 in 8.
+	failRate := (3 - mbps) / 16
+	burstPenalty := lossBurst / 100
+	if burstPenalty > 0.2 {
+		burstPenalty = 0.2
+	}
+	failRate += burstPenalty
+	if failRate < 0 {
+		failRate = 0
+	}
+	if failRate > 0.9 {
+		failRate = 0.9
+	}
+	// Hash to a stable [0,1) value for this packet.
+	h := trackHash(track) ^ uint32(ext)*2654435761
+	v := float64(h%1000) / 1000
+	return v >= failRate
+}
+
 // FailedRecords returns the seeded loss count per track for diagnostics.
 func FailedRecords(deliveries []Delivery) map[string]int {
 	out := make(map[string]int)
