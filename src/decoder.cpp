@@ -7,6 +7,7 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libavutil/imgutils.h>
+#include <libavutil/log.h>
 }
 
 namespace media {
@@ -47,9 +48,15 @@ double lumaMse(const uint8_t* y, int linesize,
 
 DecodeSummary decodeMjpeg(const std::string& path, YuvFrameFn fn) {
   DecodeSummary sum;
+  // 损坏帧会触发大量 MJPEG 解码器告警；这些已计入 decodeFailures，
+  // 静默日志避免刷屏，保留致命错误（AV_LOG_FATAL）可见。
+  int prevLog = av_log_get_level();
+  av_log_set_level(AV_LOG_FATAL);
   AVFormatContext* fmt = nullptr;
-  if (avformat_open_input(&fmt, path.c_str(), nullptr, nullptr) < 0)
+  if (avformat_open_input(&fmt, path.c_str(), nullptr, nullptr) < 0) {
+    av_log_set_level(prevLog);
     return sum;
+  }
   if (avformat_find_stream_info(fmt, nullptr) < 0) {
     avformat_close_input(&fmt);
     return sum;
@@ -95,6 +102,7 @@ DecodeSummary decodeMjpeg(const std::string& path, YuvFrameFn fn) {
   av_packet_free(&pkt);
   avcodec_free_context(&enc);
   avformat_close_input(&fmt);
+  av_log_set_level(prevLog);
   return sum;
 }
 
