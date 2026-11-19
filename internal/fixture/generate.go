@@ -188,7 +188,9 @@ func planSequence(cfg Config, step uint32) []planned {
 			// The capture clock wraps to zero although real time advanced.
 			raw = 0
 		}
-		base = append(base, planned{ordinal: i, seq: uint64(i - 1), timestamp: raw})
+		// Sequence numbers are 1-based so --corrupt N, --duplicate N and
+		// --wrap-at N refer to the same frame the terminal reports.
+		base = append(base, planned{ordinal: i, seq: uint64(i), timestamp: raw})
 		ts += uint64(step)
 	}
 	out := make([]planned, 0, len(base)+1)
@@ -294,8 +296,9 @@ func truncateCopy(src, dst string, n int, cfg Config) (int64, error) {
 	if n >= len(offsets) {
 		n = len(offsets) - 1
 	}
-	// Keep every record except the last n, then append a partial final record.
-	keepEnd := offsets[len(offsets)-n-1]
+	// Cut the final record's body in half and drop the n-1 records after it, so
+	// --truncate-tail 1 leaves exactly one incomplete record.
+	keepEnd := offsets[len(offsets)-n]
 	if _, err := in.Seek(0, io.SeekStart); err != nil {
 		return 0, err
 	}

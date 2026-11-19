@@ -278,10 +278,14 @@ func (j *job) noteFault(f *model.Fault) {
 		model.CodeUnrepairableTime, model.CodeTimestampWrap, model.CodeBadTimebase:
 		j.stats.QuarantineReasons[f.Code]++
 	}
-	if f.Code == model.CodeHashMismatch && !j.stats.HasCorrupt {
-		j.stats.HasCorrupt = true
-		j.stats.FirstCorruptFrame = f.Seq
-		j.stats.FirstCorruptOffset = f.Offset
+	if !j.stats.HasCorrupt {
+		switch f.Code {
+		case model.CodeHashMismatch, model.CodeTruncatedHeader, model.CodeTruncatedPayload,
+			model.CodeMetadataMismatch, model.CodeOversizeFrame:
+			j.stats.HasCorrupt = true
+			j.stats.FirstCorruptFrame = f.Seq
+			j.stats.FirstCorruptOffset = f.Offset
+		}
 	}
 	j.runner.log("fault: %s", f.Error())
 }

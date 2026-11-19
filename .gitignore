@@ -71,3 +71,13 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- mediq 运行产物（样例夹具、索引、检查点、临时二进制）----
+/tmp/
+*.mp4
+*.mp4.part
+*.ckpt
+*.ckpt.part
+*.ckpt.prev
+*.seq
+*.tables/

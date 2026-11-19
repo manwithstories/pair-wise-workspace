@@ -41,13 +41,16 @@ func init() {
 // State is the committed position of a writer. A checkpoint persists it and
 // a resumed run must reproduce it exactly.
 type State struct {
-	Samples      uint64
-	Chunks       uint64
-	PayloadLen   int64
-	PayloadCRC   uint32
-	FirstMedia   int64
-	LastMedia    int64
-	LastDelta    int64
+	Samples    uint64
+	Chunks     uint64
+	PayloadLen int64
+	PayloadCRC uint32
+	FirstMedia int64
+	LastMedia  int64
+	LastDelta  int64
+	// LastSeq is the frame sequence number of the most recent sample, so a
+	// resumed writer can continue the chunk summary correctly.
+	LastSeq      uint64
 	TableSizes   TableSizes
 	CurrentChunk uint64 // chunk index carrying an open partial chunk
 	ChunkSamples uint64 // samples in the open partial chunk
@@ -83,10 +86,12 @@ type Writer struct {
 	firstMedia  int64
 	lastMedia   int64
 	lastDelta   int64
+	lastSeq     uint64
 
-	runCount uint32
-	runDelta uint32
-	runOpen  bool
+	runCount      uint32
+	runDelta      uint32
+	runOpen       bool
+	firstDeltaSet bool
 
 	lastSPC              uint32
 	haveSPC              bool
@@ -155,8 +160,10 @@ func Resume(path, tblDir string, chunkFrames int, st State) (*Writer, error) {
 	w.firstMedia = st.FirstMedia
 	w.lastMedia = st.LastMedia
 	w.lastDelta = st.LastDelta
+	w.lastSeq = st.LastSeq
 	w.curChunk = st.CurrentChunk
 	w.chunkLens = st.ChunkSamples
+	w.firstDeltaSet = st.Samples > 1
 	if w.chunkLens != 0 {
 		// A committed state always closes its chunk; opening one would mean
 		// the checkpoint was written inconsistently.
@@ -255,9 +262,11 @@ func (w *Writer) reloadTableState(st State) error {
 		if _, err := w.stts.ReadAt(tail[:], st.TableSizes.Stts-8); err != nil {
 			return err
 		}
-		w.runCount = binary.BigEndian.Uint32(tail[0:4])
+		// Keep the last run's delta for heuristic continuity but leave the run
+		// closed: it is already on disk and appending a fresh run keeps the
+		// resulting stts identical to an uninterrupted run.
 		w.runDelta = binary.BigEndian.Uint32(tail[4:8])
-		w.runOpen = true
+		w.runOpen = false
 	}
 	if st.TableSizes.Stsc > 0 {
 		var tail [12]byte
@@ -419,6 +428,15 @@ func (w *Writer) Append(seq uint64, media int64, payload []byte) error {
 		if delta > int64(^uint32(0)) {
 			return fmt.Errorf("sample delta %d does not fit stts", delta)
 		}
+		if !w.firstDeltaSet {
+			// The first sample has no predecessor; give it the same duration
+			// as the second so stts covers every sample exactly once and the
+			// reported duration is sensible.
+			if err := w.addDelta(uint32(delta)); err != nil {
+				return err
+			}
+			w.firstDeltaSet = true
+		}
 		if err := w.addDelta(uint32(delta)); err != nil {
 			return err
 		}
@@ -450,6 +468,7 @@ func (w *Writer) Append(seq uint64, media int64, payload []byte) error {
 	w.sampleCount++
 	w.chunkLens++
 	w.lastMedia = media
+	w.lastSeq = seq
 	return nil
 }
 
@@ -556,10 +575,37 @@ func (w *Writer) Commit() (State, error) {
 		FirstMedia:   w.firstMedia,
 		LastMedia:    w.lastMedia,
 		LastDelta:    w.lastDelta,
+		LastSeq:      w.lastSeq,
 		TableSizes:   sizes,
 		CurrentChunk: w.curChunk,
 		ChunkSamples: w.chunkLens,
 	}, nil
+}
+
+// CloseWithoutPublishing releases file handles and removes the temporary table
+// spool while leaving the part file and committed checkpoint state intact, so
+// an interrupted job can resume. It is the correct teardown for cancellation.
+func (w *Writer) CloseWithoutPublishing() error {
+	if w.data != nil {
+		if err := w.data.Sync(); err != nil {
+			return err
+		}
+		if err := w.data.Close(); err != nil {
+			return err
+		}
+		w.data = nil
+	}
+	// Tables are deliberately kept: Resume truncates them to the sizes the
+	// checkpoint recorded, dropping any uncommitted tail.
+	for _, f := range []*os.File{w.stsz, w.stts, w.stsc, w.stco} {
+		if f != nil {
+			if err := f.Close(); err != nil {
+				return err
+			}
+		}
+	}
+	w.stsz, w.stts, w.stsc, w.stco = nil, nil, nil, nil
+	return nil
 }
 
 // Abort discards the part file and tables. It is safe to call after Close.
@@ -580,26 +626,35 @@ func (w *Writer) Abort() {
 
 // Finish writes the movie box and patches the mdat size, making the part file
 // a complete, self-contained MP4. It does not rename it; call Publish.
+//
+// If a previous interrupted run already appended a moov to this part file,
+// Finish truncates it before writing the new one. The moov always starts at
+// headerEnd+PayloadLen, so the committed payload checksum stays valid.
 func (w *Writer) Finish() error {
 	if w.finished {
 		return nil
+	}
+	if err := w.data.Truncate(w.headerEnd + w.payloadLen); err != nil {
+		return err
 	}
 	st, err := w.Commit()
 	if err != nil {
 		return err
 	}
+	// The mdat payload ends where the moov begins; capture it before appending
+	// the movie box, otherwise the patched size would swallow the moov.
+	mdatEnd := w.headerEnd + st.PayloadLen
 	if err := w.writeMoov(st); err != nil {
 		return err
 	}
-	end, err := w.data.Seek(0, io.SeekEnd)
-	if err != nil {
+	mdatStart := w.headerEnd - int64(mp4.LargeHeaderSize)
+	if _, err := w.data.Seek(mdatStart+8, io.SeekStart); err != nil {
 		return err
 	}
-	mdatStart := w.headerEnd
-	if _, err := w.data.Seek(int64(mdatStart)-8, io.SeekStart); err != nil {
+	if err := w.writeU64(w.data, uint64(mdatEnd-mdatStart)); err != nil {
 		return err
 	}
-	if err := w.writeU64(w.data, uint64(end-int64(mdatStart)+8)); err != nil {
+	if _, err := w.data.Seek(0, io.SeekEnd); err != nil {
 		return err
 	}
 	if err := w.data.Sync(); err != nil {

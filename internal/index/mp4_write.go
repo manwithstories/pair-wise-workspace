@@ -284,7 +284,8 @@ func (w *Writer) copyTable(mw io.Writer, t mp4.BoxType, f *os.File, stats tableS
 }
 
 func (w *Writer) writeStsz(mw io.Writer, stats tableStats) error {
-	size := uint64(8 + 16 + stats.size)
+	// header 8 + version/flags 4 + sample_size 4 + sample_count 4 + entries.
+	size := uint64(8 + 12 + stats.size)
 	if err := writeBoxHeader(mw, mp4.BoxTypeStsz(), size); err != nil {
 		return err
 	}

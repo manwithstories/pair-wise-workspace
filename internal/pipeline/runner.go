@@ -71,6 +71,7 @@ type Stats struct {
 	RecoveredChunks    uint64
 	ResumeMs           int64
 	PeakQueueDepth     int
+	ResumeUsable       bool
 	OutputSHA256       string
 	IndexValid         bool
 	Resumed            bool
@@ -119,9 +120,12 @@ func (r *Runner) Run(ctx context.Context) (*Stats, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The teardown action depends on why Run returns: a failure discards the
+	// part file, while cancellation keeps it so the checkpoint can resume.
+	var teardown func()
 	defer func() {
-		if idx != nil {
-			idx.Abort()
+		if teardown != nil {
+			teardown()
 		}
 	}()
 
@@ -180,8 +184,12 @@ func (r *Runner) Run(ctx context.Context) (*Stats, error) {
 	stats.PeakQueueDepth = int(peak.Load())
 
 	if runErr != nil {
-		idx.Abort()
+		idx.CloseWithoutPublishing()
 		idx = nil
+		if errors.Is(runErr, context.Canceled) {
+			// The last committed chunk is on disk and the checkpoint names it.
+			stats.ResumeUsable = true
+		}
 		return stats, runErr
 	}
 	if !job.sourceDone {
@@ -189,12 +197,12 @@ func (r *Runner) Run(ctx context.Context) (*Stats, error) {
 		idx = nil
 		return stats, errors.New("index incomplete: source was not fully consumed")
 	}
+	teardown = idx.Abort // used only if finish fails
 	if err := job.finishOnDisk(idx); err != nil {
-		idx.Abort()
-		idx = nil
 		return stats, err
 	}
-	idx = nil // Finish/Publish released the part file and tables
+	teardown = nil // Finish/Publish released the part file and tables
+	idx = nil
 	stats.ResumeMs = time.Since(started).Milliseconds()
 	return stats, nil
 }
