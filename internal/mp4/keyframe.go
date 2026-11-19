@@ -13,7 +13,7 @@ import (
 // video tracks are expected to carry one; a missing or out-of-range stss entry
 // triggers a scan-and-rebuild pass so damaged indexes degrade instead of
 // silently dropping keyframes.
-func buildKeyframeIndex(tr *Track, stss *mp4.Stss, data []byte) {
+func buildKeyframeIndex(tr *Track, stss *mp4.Stss, data []byte, stssOff int64) {
 	if len(tr.Samples) == 0 {
 		return
 	}
@@ -26,7 +26,7 @@ func buildKeyframeIndex(tr *Track, stss *mp4.Stss, data []byte) {
 		for i := range tr.Samples {
 			tr.Keyframes = append(tr.Keyframes, i)
 		}
-		tr.issue(media.CodeMissingEntry, 0, 0,
+		tr.issue(media.CodeMissingEntry, stssOff, 0,
 			"track %d has no stss box; every sample treated as sync", tr.TrackID)
 		markKeyframeFlags(tr)
 		return
@@ -35,20 +35,20 @@ func buildKeyframeIndex(tr *Track, stss *mp4.Stss, data []byte) {
 	bad := false
 	for i, num := range stss.SampleNumber {
 		if num == 0 || int(num) > len(tr.Samples) {
-			tr.issue(media.CodeOutOfRange, 0, i+1,
+			tr.issue(media.CodeOutOfRange, stssOff, i+1,
 				"stss entry %d points at sample %d of %d", i+1, num, len(tr.Samples))
 			bad = true
 			continue
 		}
 		if seen[num-1] {
-			tr.issue(media.CodeDuplicate, 0, i+1, "stss entry %d repeats sample %d", i+1, num)
+			tr.issue(media.CodeDuplicate, stssOff, i+1, "stss entry %d repeats sample %d", i+1, num)
 			continue
 		}
 		seen[num-1] = true
 		tr.Keyframes = append(tr.Keyframes, int(num-1))
 	}
 	if uint32(len(tr.Keyframes)) != stss.EntryCount {
-		tr.issue(media.CodeMissingEntry, 0, 0,
+		tr.issue(media.CodeMissingEntry, stssOff, 0,
 			"stss declares %d entries but %d are usable", stss.EntryCount, len(tr.Keyframes))
 		bad = true
 	}
@@ -56,13 +56,13 @@ func buildKeyframeIndex(tr *Track, stss *mp4.Stss, data []byte) {
 	if bad {
 		rebuilt := scanKeyframeCandidates(tr, seen)
 		if len(rebuilt) == 0 {
-			tr.issue(media.CodeNoKeyframe, 0, 0,
+			tr.issue(media.CodeNoKeyframe, stssOff, 0,
 				"track %d has no usable keyframe entry and no rebuild candidates", tr.TrackID)
 			return
 		}
 		tr.Keyframes = rebuilt
 		tr.RebuiltKeys = true
-		tr.issue(media.CodeMissingEntry, 0, 0,
+		tr.issue(media.CodeMissingEntry, stssOff, 0,
 			"rebuilt %d keyframe candidates by scanning the sample table", len(rebuilt))
 	}
 	markKeyframeFlags(tr)

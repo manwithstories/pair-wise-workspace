@@ -95,8 +95,11 @@ func (p *parser) cueFromBlock(b block, allowIdentifier bool) (Cue, bool) {
 	rec := p.res.Recovered + len(p.res.Cues) + 1
 	idx := 0
 	pos := b.first
-	if allowIdentifier && pos+1 <= b.last && isNumericIdentifier(p.lines[pos].text) {
-		idx, _ = strconv.Atoi(strings.TrimSpace(p.lines[pos].text))
+	if allowIdentifier && pos+1 <= b.last && !strings.Contains(p.lines[pos].text, "-->") &&
+		(p.input == media.InputWebVTT || isNumericIdentifier(p.lines[pos].text)) {
+		if isNumericIdentifier(p.lines[pos].text) {
+			idx, _ = strconv.Atoi(strings.TrimSpace(p.lines[pos].text))
+		}
 		pos++
 	}
 	timingIdx := -1
@@ -113,9 +116,11 @@ func (p *parser) cueFromBlock(b block, allowIdentifier bool) (Cue, bool) {
 	}
 	line := p.lines[timingIdx]
 	if timingIdx > pos {
-		// Text before the timing line is not part of any valid cue.
+		// More than one non-timing line before the timing line: the record is
+		// too damaged to trust.
 		p.issue(media.CodeMalformed, p.lines[pos].off, rec,
 			"unexpected content before timing line at line %d", line.num)
+		return Cue{}, false
 	}
 	start, end, ok := p.parseTiming(line, rec)
 	if !ok {

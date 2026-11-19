@@ -140,7 +140,7 @@ func Cut(tr *mp4.Track, req Request) *Result {
 		}
 		lastSample := sampleEndingAt(tr, segEnd)
 		if lastSample < sampleStart {
-			lastSample = len(tr.Samples) - 1
+			lastSample = sampleStart
 		}
 		actualEnd := tr.Samples[lastSample].EndNS()
 		for _, g := range gaps {
@@ -218,10 +218,15 @@ func snapStart(tr *mp4.Track, cursor int64, gaps []Gap) (int, []DegradeReason, [
 		}
 	}
 	if best < 0 {
-		// Past the last keyframe: use the covering sample if there is one.
+		// Past the last keyframe: pull the start back to the preceding
+		// keyframe so the tail clip stays decodable on its own.
+		if k := tr.KeyframeAtOrBefore(cursor); k >= 0 {
+			return k, []DegradeReason{DegradeSnappedStart},
+				[]string{fmt.Sprintf("start %dns pulled back to keyframe at %dns", cursor, tr.Samples[k].DTSNS)}
+		}
 		if i := tr.SampleForTime(cursor); i >= 0 {
 			return i, []DegradeReason{DegradeNoKeyframe},
-				[]string{fmt.Sprintf("no keyframe at or after %dns", cursor)}
+				[]string{fmt.Sprintf("no keyframe at or before %dns", cursor)}
 		}
 		return -1, nil, nil
 	}

@@ -11,22 +11,25 @@ import (
 func indexTrackSamples(tr *Track, tb *trackBoxes, data []byte) {
 	size := int64(len(data))
 	if tb.stts == nil || tb.stsz == nil || tb.stsc == nil {
-		tr.issue(media.CodeMissingEntry, 0, 0, "track %d is missing stts/stsz/stsc", tr.TrackID)
+		tr.issue(media.CodeMissingEntry, boxOffset(tb, mp4.BoxTypeStbl()), 0,
+			"track %d is missing stts/stsz/stsc", tr.TrackID)
 		return
 	}
 	offsets := tb.offsets()
 	if len(offsets) == 0 {
-		tr.issue(media.CodeMissingEntry, 0, 0, "track %d has no stco/co64 box", tr.TrackID)
+		tr.issue(media.CodeMissingEntry, boxOffset(tb, mp4.BoxTypeStbl()), 0, "track %d has no stco/co64 box", tr.TrackID)
 		return
 	}
 	if tr.Timescale == 0 {
-		tr.issue(media.CodeIncompatible, 0, 0, "track %d has zero media timescale", tr.TrackID).AsFatal()
+		tr.issue(media.CodeIncompatible, boxOffset(tb, mp4.BoxTypeMdhd()), 0,
+			"track %d has zero media timescale", tr.TrackID).AsFatal()
 		return
 	}
 
 	count := int(tb.stsz.SampleCount)
 	if count > MaxSamples {
-		tr.issue(media.CodeLimitExceeded, 0, 0, "track %d declares %d samples, limit is %d", tr.TrackID, count, MaxSamples)
+		tr.issue(media.CodeLimitExceeded, boxOffset(tb, mp4.BoxTypeStsz()), 0,
+			"track %d declares %d samples, limit is %d", tr.TrackID, count, MaxSamples)
 		count = MaxSamples
 	}
 	durations := expandDurations(tb.stts, count)
@@ -56,12 +59,13 @@ func indexTrackSamples(tr *Track, tb *trackBoxes, data []byte) {
 		dts += dur
 	}
 	if declared := int(tb.stsz.SampleCount); declared > len(tr.Samples) {
-		tr.issue(media.CodeMissingEntry, int64(stszOffset(tb)), len(tr.Samples)+1,
+		tr.issue(media.CodeMissingEntry, boxOffset(tb, mp4.BoxTypeStsz()), len(tr.Samples)+1,
 			"stsz declares %d samples but only %d could be laid out", declared, len(tr.Samples))
 	}
-	buildKeyframeIndex(tr, tb.stss, data)
+	buildKeyframeIndex(tr, tb.stss, data, boxOffset(tb, mp4.BoxTypeStss()))
 	if len(tr.Samples) == 0 {
-		tr.issue(media.CodeMissingEntry, 0, 0, "track %d produced an empty sample table", tr.TrackID)
+		tr.issue(media.CodeMissingEntry, boxOffset(tb, mp4.BoxTypeStbl()), 0,
+			"track %d produced an empty sample table", tr.TrackID)
 	}
 }
 
@@ -164,4 +168,10 @@ func offAt(data []byte, off int64) int64 {
 	return off
 }
 
-func stszOffset(tb *trackBoxes) uint64 { return tb.stszOff }
+// boxOffset returns the file offset of an optional box, or 0 when absent.
+func boxOffset(tb *trackBoxes, t mp4.BoxType) int64 {
+	if tb == nil || tb.boxPos == nil {
+		return 0
+	}
+	return int64(tb.boxPos[t])
+}

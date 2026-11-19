@@ -21,10 +21,18 @@ func ParseSRT(data []byte, file string) *Result {
 	p := &parser{res: res, lines: lines, input: media.InputSRT, file: file, stage: media.StageSubtitle}
 	for _, b := range splitBlocks(lines) {
 		if isNumericIdentifier(lines[b.first].text) && !hasArrow(lines, b) {
+			code, msg := media.CodeTruncated, "has no timing line"
+			if k := malformedArrow(lines, b); k >= 0 {
+				code, msg = media.CodeMalformed, "uses '->' instead of '-->'"
+				res.Issues = append(res.Issues, newIssue(media.StageSubtitle, media.InputSRT, code,
+					file, lines[k].off, len(res.Cues)+1,
+					"subtitle index %q at line %d %s", strings.TrimSpace(lines[b.first].text), lines[b.first].num, msg))
+				continue
+			}
 			// An index line with no timing line: the record is truncated.
-			res.Issues = append(res.Issues, newIssue(media.StageSubtitle, media.InputSRT, media.CodeTruncated,
+			res.Issues = append(res.Issues, newIssue(media.StageSubtitle, media.InputSRT, code,
 				file, lines[b.first].off, len(res.Cues)+1,
-				"subtitle index %q at line %d has no timing line", strings.TrimSpace(lines[b.first].text), lines[b.first].num))
+				"subtitle index %q at line %d %s", strings.TrimSpace(lines[b.first].text), lines[b.first].num, msg))
 			continue
 		}
 		if p.tooMany() {
@@ -40,6 +48,17 @@ func ParseSRT(data []byte, file string) *Result {
 			media.CodeMalformed, file, 0, 0, "no subtitle cues found"))
 	}
 	return res
+}
+
+// malformedArrow finds a line that looks like a timing line but uses the
+// wrong arrow, so the record is reported as malformed rather than truncated.
+func malformedArrow(lines []rawLine, b block) int {
+	for k := b.first; k <= b.last; k++ {
+		if strings.Contains(lines[k].text, "->") && !strings.Contains(lines[k].text, "-->") {
+			return k
+		}
+	}
+	return -1
 }
 
 func hasArrow(lines []rawLine, b block) bool {

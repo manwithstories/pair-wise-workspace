@@ -32,16 +32,16 @@ func Index(data []byte, file string) []*Track {
 
 // trackBoxes collects the leaf boxes we need from one trak.
 type trackBoxes struct {
-	mdhd    *mp4.Mdhd
-	hdlr    *mp4.Hdlr
-	tkhd    *mp4.Tkhd
-	stts    *mp4.Stts
-	stss    *mp4.Stss
-	stsz    *mp4.Stsz
-	stsc    *mp4.Stsc
-	stco    *mp4.Stco
-	co64    *mp4.Co64
-	stszOff uint64
+	mdhd   *mp4.Mdhd
+	hdlr   *mp4.Hdlr
+	tkhd   *mp4.Tkhd
+	stts   *mp4.Stts
+	stss   *mp4.Stss
+	stsz   *mp4.Stsz
+	stsc   *mp4.Stsc
+	stco   *mp4.Stco
+	co64   *mp4.Co64
+	boxPos map[mp4.BoxType]uint64
 }
 
 var leafPaths = []mp4.BoxPath{
@@ -94,14 +94,12 @@ func readTrackBoxes(rs io.ReadSeeker, trak *mp4.BoxInfo) (*trackBoxes, error) {
 	if err != nil {
 		return nil, err
 	}
-	tb := &trackBoxes{}
+	tb := &trackBoxes{boxPos: map[mp4.BoxType]uint64{}}
 	for _, b := range bs {
-		if v, ok := b.Payload.(*mp4.Stsz); ok {
-			tb.stszOff = b.Info.Offset
-			tb.stsz = v
-			continue
-		}
+		tb.boxPos[b.Info.Type] = b.Info.Offset
 		switch v := b.Payload.(type) {
+		case *mp4.Stsz:
+			tb.stsz = v
 		case *mp4.Mdhd:
 			tb.mdhd = v
 		case *mp4.Hdlr:
@@ -155,6 +153,11 @@ func (tb *trackBoxes) durationNS() int64 {
 		d = uint64(tb.mdhd.DurationV0)
 	}
 	return translate(int64(d), tb.mdhd.Timescale)
+}
+
+// boxOffset returns the file offset of a box in this track, or 0.
+func (tb *trackBoxes) boxOffset(t mp4.BoxType) int64 {
+	return int64(tb.boxPos[t])
 }
 
 // offsets returns the per-chunk file offsets, whichever table is present.
