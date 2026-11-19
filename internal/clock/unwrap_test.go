@@ -164,3 +164,45 @@ func monotonic(v []int64) bool {
 	}
 	return true
 }
+
+func TestUnwrapCounterNotReBASEDOnSmallBackwardStep(t *testing.T) {
+	// A small backward step must be repaired, not mistaken for a rollover.
+	raw := []int64{100_000, 200_000, 150_000, 300_000}
+	r, err := Unwrap(Input{TrackID: 1, Kind: model.KindVideo, Timescale: 90000, RawPTS: raw})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Wraps != 0 {
+		t.Fatalf("small backward step treated as wrap: %d", r.Wraps)
+	}
+	if r.Backward != 1 {
+		t.Fatalf("backward=%d want 1", r.Backward)
+	}
+	if !monotonic(r.Track.PTS) || len(r.Track.PTS) != len(raw) {
+		t.Fatalf("repair broke timeline: %v", r.Track.PTS)
+	}
+}
+
+func TestUnwrapZeroTimescaleRejected(t *testing.T) {
+	// A zero timescale would map every sample to 0; instead it must be
+	// surfaced by validate, not silently produce a degenerate timeline.
+	r, err := Unwrap(Input{TrackID: 1, Timescale: 0, RawPTS: []int64{1, 2, 3}})
+	if err != nil {
+		return // rejection is acceptable
+	}
+	if !r.Issues.Has(errs.CodeClockRepeat) && !r.Issues.Has(errs.CodeClockBackward) {
+		t.Fatalf("degenerate timeline not flagged: %v", r.Issues)
+	}
+}
+
+func TestUnwrapAnchorOutOfRangeReported(t *testing.T) {
+	raw := ts(10, 3000)
+	r, err := Unwrap(Input{TrackID: 1, Kind: model.KindVideo, Timescale: 90000, RawPTS: raw,
+		Anchors: []Anchor{{Sample: 99, ProgramNs: 1}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.Issues.Has(errs.CodeClockAnchorBad) {
+		t.Fatalf("bad anchor not reported: %v", r.Issues)
+	}
+}

@@ -135,3 +135,25 @@ func TestBuildVFRSegmentsStillTile(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildDuplicateKeyframesSafe(t *testing.T) {
+	tr, kf := track(1, 120, 10)
+	dup := append(append([]int{}, kf...), kf...)
+	res := Build(tr, dup, Config{TargetNs: 1_000_000_000})
+	for i := 1; i < len(res.Cuts); i++ {
+		if res.Cuts[i].StartNs <= res.Cuts[i-1].StartNs {
+			t.Fatalf("duplicate keyframes produced non-increasing starts: %+v", res.Cuts)
+		}
+	}
+}
+
+func TestBuildTinyTrackStillTiles(t *testing.T) {
+	tr, kf := track(1, 2, 1)
+	res := Build(tr, kf, Config{TargetNs: 4_000_000_000})
+	if res.SegmentCount != 1 {
+		t.Fatalf("segments=%d want 1", res.SegmentCount)
+	}
+	if res.Cuts[0].EndNs <= res.Cuts[0].StartNs {
+		t.Fatalf("degenerate cut: %+v", res.Cuts[0])
+	}
+}
