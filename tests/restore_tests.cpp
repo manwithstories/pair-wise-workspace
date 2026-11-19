@@ -10,6 +10,7 @@
 #include "bitstream.hpp"
 #include "color_metadata.hpp"
 #include "error.hpp"
+#include "file_io.hpp"
 #include "hash.hpp"
 #include "json.hpp"
 #include "manifest.hpp"
@@ -751,4 +752,111 @@ TEST_CASE("missing color fields are counted and filled only by archive policy", 
       &diagnostics));
   CHECK(report.segments[0].primaries.value.value() == "bt709");
   CHECK(report.segments[0].range.value.value() == "tv");
+}
+
+TEST_CASE("true-peak limiting counts clipped samples", "[audio]") {
+  // A quiet tone normalised up to a hot target: the required gain pushes the
+  // peak past the ceiling, so the limiter engages and is counted.
+  auto buffer = make_tone(48000, "stereo", 48000 * 2, 997.0, 0.2);
+  media_restore::AudioRestoreConfig config;
+  config.output_rate = 48000;
+  config.target_lufs = -3.0;  // ~+10 dB gain on a -13 LUFS tone
+  config.true_peak_dbtp = -6.0;
+  REQUIRE(media_restore::parse_layout("stereo", &config.output_layout));
+  media_restore::AudioStats stats;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  REQUIRE(media_restore::normalize_loudness(config, &buffer, &stats, &diagnostics));
+  CHECK(stats.peak_limited);
+  CHECK(stats.limited_samples > 0);
+  CHECK(stats.output_true_peak_dbtp <= -2.9);
+}
+
+TEST_CASE("quarantine expectations must be media validation errors", "[manifest]") {
+  // A dependency failure (exit 3) is not something a manifest segment can
+  // declare as expected damage.
+  std::string text = manifest_with_tracks(
+      R"({"id":"a","kind":"video","depends_on":[],"segments":[
+          {"id":"s1","start":"0/1","duration":"1/1","media":"m.h264",
+           "codec":"h264","quarantine":{"expected_code":"E_DEPENDENCY_CYCLE"}}]})");
+  media_restore::Manifest manifest;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  CHECK_FALSE(media_restore::parse_manifest(text, &manifest, &diagnostics));
+  REQUIRE_FALSE(diagnostics.empty());
+  CHECK(diagnostics.back().code == media_restore::ErrorCode::manifest_schema);
+}
+
+TEST_CASE("quarantine survives a manifest round trip", "[manifest]") {
+  const std::string text = manifest_with_tracks(
+      R"({"id":"a","kind":"video","depends_on":[],"segments":[
+          {"id":"s1","start":"0/1","duration":"1/1","media":"m.h264",
+           "codec":"h264","quarantine":{"expected_code":"E_INDEX_ORDER"}}]})");
+  media_restore::Manifest manifest;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  REQUIRE(media_restore::parse_manifest(text, &manifest, &diagnostics));
+  REQUIRE(manifest.tracks.front().segments.front().expected_code.has_value());
+  CHECK(*manifest.tracks.front().segments.front().expected_code ==
+        media_restore::ErrorCode::index_order);
+  media_restore::Manifest again;
+  const std::string serialized = media_restore::serialize_manifest(manifest);
+  REQUIRE(media_restore::parse_manifest(serialized, &again, &diagnostics));
+  CHECK(media_restore::serialize_manifest(again) == serialized);
+}
+
+TEST_CASE("media limits reject oversized bitstreams and indexes", "[limits]") {
+  const std::string bytes = synthetic_h264();
+  media_restore::StreamScan scan;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  media_restore::Limits tiny;
+  tiny.max_media_bytes = 16;
+  CHECK_FALSE(media_restore::scan_raw_stream_bytes(
+      bytes, media_restore::Codec::h264, tiny, &scan, &diagnostics));
+  REQUIRE_FALSE(diagnostics.empty());
+  CHECK(diagnostics.back().code == media_restore::ErrorCode::limit_exceeded);
+
+  diagnostics.clear();
+  media_restore::Limits few_entries;
+  few_entries.max_index_entries = 1;
+  CHECK_FALSE(media_restore::scan_raw_stream_bytes(
+      bytes, media_restore::Codec::h264, few_entries, &scan, &diagnostics));
+  REQUIRE_FALSE(diagnostics.empty());
+  CHECK(diagnostics.back().code == media_restore::ErrorCode::index_too_large);
+}
+
+TEST_CASE("archive paths cannot escape the manifest directory", "[io]") {
+  media_restore::Diagnostic error;
+  std::filesystem::path resolved;
+  CHECK_FALSE(media_restore::resolve_archive_path("/tmp/archive/archive.json",
+                                                  "../../etc/passwd", &resolved,
+                                                  &error));
+  CHECK(error.code == media_restore::ErrorCode::io);
+  CHECK_FALSE(media_restore::resolve_archive_path("/tmp/archive/archive.json",
+                                                  "/etc/passwd", &resolved,
+                                                  &error));
+  REQUIRE(media_restore::resolve_archive_path(
+      "/tmp/archive/archive.json", "media/reel.h264", &resolved, &error));
+  CHECK(resolved == std::filesystem::path("/tmp/archive/media/reel.h264"));
+}
+
+TEST_CASE("index entries recovered from a scan keep their origin", "[bitstream]") {
+  const std::string bytes = synthetic_h264();
+  media_restore::StreamScan scan;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  REQUIRE(media_restore::scan_raw_stream_bytes(bytes, media_restore::Codec::h264,
+                                               media_restore::Limits{}, &scan,
+                                               &diagnostics));
+  // An empty but present index is legal: every keyframe is generated.
+  media_restore::KeyframeIndex empty;
+  empty.present = true;
+  empty.version = 1;
+  media_restore::IndexReport report;
+  REQUIRE(media_restore::validate_keyframe_index(empty, scan,
+                                                 media_restore::Limits{}, &report,
+                                                 &diagnostics));
+  CHECK(report.index_entries == 0);
+  CHECK(report.hits == 0);
+  CHECK(report.generated == scan.keyframes.size());
+  for (const auto& candidate : report.candidates) {
+    CHECK(candidate.origin == media_restore::EntryOrigin::scan);
+    CHECK_FALSE(candidate.tick.has_value());
+  }
 }

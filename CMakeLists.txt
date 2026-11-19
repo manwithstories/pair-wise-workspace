@@ -50,4 +50,12 @@ if(Catch2_FOUND)
   target_link_libraries(restore_tests PRIVATE media_restore_core Catch2::Catch2WithMain)
   target_compile_options(restore_tests PRIVATE -Wall -Wextra -Wpedantic)
   add_test(NAME restore_tests COMMAND restore_tests)
+
+  # End-to-end coverage: generate a fixture archive, restore it and verify the
+  # result through the real CLI, exactly as the acceptance run does.
+  add_test(NAME cli_acceptance
+           COMMAND ${CMAKE_COMMAND}
+                   -DBINARY=$<TARGET_FILE:media-restore>
+                   -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/acceptance
+                   -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/acceptance.cmake)
 endif()

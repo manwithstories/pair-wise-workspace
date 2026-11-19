@@ -76,6 +76,13 @@ struct Args {
     return true;
   }
 
+  bool has_option(const std::string& name) const {
+    for (const auto& option : options) {
+      if (option.first == name) return true;
+    }
+    return false;
+  }
+
   bool get_double(const std::string& name, double* value) const {
     std::string text;
     if (!get(name, &text)) return false;
@@ -200,102 +207,160 @@ struct InspectReport {
 };
 
 // Validates every segment's bitstream and index without writing media.
+// Structural diagnostics are attributed to the segment they name, so a
+// quarantined segment can confirm its declared defect instead of failing the
+// whole inspection.
 bool inspect_archive(const Manifest& manifest, const Limits& limits,
                      InspectReport* report) {
-  const bool timeline_ok = build_timeline(manifest, &report->diagnostics,
-                                          &report->timeline);
+  Timeline timeline;
+  std::vector<Diagnostic> structural;
+  build_timeline(manifest, &structural, &timeline);
+  report->timeline = std::move(timeline);
+  std::map<std::pair<std::string, std::string>, std::vector<Diagnostic>>
+      by_segment;
+  for (auto& diagnostic : structural) {
+    if (!diagnostic.location.segment.empty()) {
+      by_segment[{diagnostic.location.track, diagnostic.location.segment}]
+          .push_back(std::move(diagnostic));
+    } else {
+      report->diagnostics.push_back(std::move(diagnostic));
+    }
+  }
+
   std::map<std::string, StreamScan> cache;
   for (const auto& track : manifest.tracks) {
     ++report->tracks;
     for (const auto& segment : track.segments) {
       ++report->segments;
       if (segment.expected_code) ++report->quarantined;
+      std::vector<Diagnostic> segment_diagnostics;
+      auto held = by_segment.find({track.id, segment.id});
+      if (held != by_segment.end()) segment_diagnostics = std::move(held->second);
+      const bool audio_only =
+          track.kind == TrackKind::audio && segment.audio.has_value();
+
       std::filesystem::path media_path;
       Diagnostic error;
+      bool segment_ok = true;
       if (!resolve_archive_path(manifest.source_path, segment.media,
                                 &media_path, &error)) {
-        report->diagnostics.push_back(std::move(error));
-        ++report->problems;
-        continue;
+        segment_diagnostics.push_back(std::move(error));
+        segment_ok = false;
       }
-      const std::string key = media_path.string() + "/" + std::to_string(int(segment.codec));
-      auto found = cache.find(key);
-      if (found == cache.end()) {
-        StreamScan scan;
-        std::vector<Diagnostic> scan_diagnostics;
-        if (!scan_raw_stream(media_path, segment.codec, limits, &scan,
-                             &scan_diagnostics)) {
-          for (auto& diagnostic : scan_diagnostics) {
-            diagnostic.location.track = track.id;
-            diagnostic.location.segment = segment.id;
-            report->diagnostics.push_back(std::move(diagnostic));
-          }
-          ++report->problems;
-          continue;
-        }
-        found = cache.emplace(key, std::move(scan)).first;
-      }
-      KeyframeIndex index = segment.index;
-      if (index.present && index.entries.empty() && !index.path.empty()) {
-        std::filesystem::path index_path;
-        if (!resolve_archive_path(manifest.source_path, index.path, &index_path,
-                                  &error)) {
-          report->diagnostics.push_back(std::move(error));
-          ++report->problems;
-          continue;
-        }
-        KeyframeIndex loaded;
-        std::vector<Diagnostic> index_diagnostics;
-        if (!load_keyframe_index(index_path, limits, &loaded, &index_diagnostics)) {
-          for (auto& diagnostic : index_diagnostics) {
-            diagnostic.location.track = track.id;
-            diagnostic.location.segment = segment.id;
-            report->diagnostics.push_back(std::move(diagnostic));
-          }
-          ++report->problems;
-          continue;
-        }
-        index.entries = std::move(loaded.entries);
-        index.version = index.version == 0 ? loaded.version : index.version;
-      }
-      IndexReport index_report;
-      std::vector<Diagnostic> index_diagnostics;
-      const bool valid = validate_keyframe_index(index, found->second, limits,
-                                                 &index_report, &index_diagnostics);
-      if (segment.expected_code) {
-        report->quarantined_hits += index_report.hits;
-        report->quarantined_total += index_report.index_entries;
-      } else {
-        report->keyframe_hits += index_report.hits;
-        report->keyframe_total += index_report.index_entries;
-      }
-      report->keyframe_generated += index_report.generated;
-      for (auto& diagnostic : index_diagnostics) {
-        diagnostic.location.track = track.id;
-        diagnostic.location.segment = segment.id;
-        report->diagnostics.push_back(std::move(diagnostic));
-      }
-      if (!valid) {
-        if (segment.expected_code) {
-          // A quarantined segment is expected to fail; count it as confirmed
-          // when the failure matches, otherwise as a problem.
-          bool matched = false;
-          for (const auto& diagnostic : index_diagnostics) {
-            matched |= diagnostic.code == *segment.expected_code;
-          }
-          if (!matched) ++report->problems;
+      if (segment_ok && !audio_only) {
+        std::string prefix;
+        if (!read_prefix(media_path, 0, 64, &prefix, &error)) {
+          segment_diagnostics.push_back(std::move(error));
+          segment_ok = false;
         } else {
-          ++report->problems;
+          Codec sniffed = segment.codec;
+          if (!sniff_codec(prefix, &sniffed) || sniffed != segment.codec) {
+            Location where;
+            where.track = track.id;
+            where.segment = segment.id;
+            where.file = media_path.string();
+            where.byte_offset = 0;
+            Diagnostic diagnostic;
+            diagnostic.code = ErrorCode::unknown_codec;
+            diagnostic.message = "content does not match the declared codec";
+            diagnostic.location = where;
+            segment_diagnostics.push_back(std::move(diagnostic));
+            segment_ok = false;
+          }
         }
-      } else if (segment.expected_code) {
-        ++report->problems;  // expected damage but the segment validated
+      }
+      if (segment_ok) {
+        const std::string key =
+            media_path.string() + "/" + std::to_string(static_cast<int>(segment.codec));
+        auto found = cache.find(key);
+        if (found == cache.end()) {
+          StreamScan scan;
+          std::vector<Diagnostic> scan_diagnostics;
+          if (!scan_raw_stream(media_path, segment.codec, limits, &scan,
+                               &scan_diagnostics)) {
+            for (auto& diagnostic : scan_diagnostics) {
+              diagnostic.location.track = track.id;
+              diagnostic.location.segment = segment.id;
+              segment_diagnostics.push_back(std::move(diagnostic));
+            }
+            segment_ok = false;
+          } else {
+            found = cache.emplace(key, std::move(scan)).first;
+          }
+        }
+        if (segment_ok) {
+          KeyframeIndex index = segment.index;
+          if (index.present && index.entries.empty() && !index.path.empty()) {
+            std::filesystem::path index_path;
+            if (!resolve_archive_path(manifest.source_path, index.path,
+                                      &index_path, &error)) {
+              segment_diagnostics.push_back(std::move(error));
+              segment_ok = false;
+            } else {
+              KeyframeIndex loaded;
+              std::vector<Diagnostic> index_diagnostics;
+              if (!load_keyframe_index(index_path, limits, &loaded,
+                                       &index_diagnostics)) {
+                for (auto& diagnostic : index_diagnostics) {
+                  diagnostic.location.track = track.id;
+                  diagnostic.location.segment = segment.id;
+                  segment_diagnostics.push_back(std::move(diagnostic));
+                }
+                segment_ok = false;
+              } else {
+                index.entries = std::move(loaded.entries);
+                if (index.version == 0) index.version = loaded.version;
+              }
+            }
+          }
+          if (segment_ok) {
+            IndexReport index_report;
+            std::vector<Diagnostic> index_diagnostics;
+            if (!validate_keyframe_index(index, found->second, limits,
+                                         &index_report, &index_diagnostics)) {
+              for (auto& diagnostic : index_diagnostics) {
+                diagnostic.location.track = track.id;
+                diagnostic.location.segment = segment.id;
+                segment_diagnostics.push_back(std::move(diagnostic));
+              }
+              segment_ok = false;
+            }
+            if (segment.expected_code) {
+              report->quarantined_hits += index_report.hits;
+              report->quarantined_total += index_report.index_entries;
+            } else {
+              report->keyframe_hits += index_report.hits;
+              report->keyframe_total += index_report.index_entries;
+            }
+            report->keyframe_generated += index_report.generated;
+          }
+        }
+      }
+
+      // Decide whether this segment is a problem.  A quarantined segment is
+      // fine when one of its diagnostics carries the declared error code;
+      // anything else is a real problem and its diagnostics are reported.
+      if (segment.expected_code) {
+        // The declared defect may be structural (an overlap) or per-segment
+        // (an index defect), so the expectation is satisfied by any matching
+        // error diagnostic regardless of which check produced it.
+        bool matched = false;
+        for (const auto& diagnostic : segment_diagnostics) {
+          matched |= diagnostic.severity == Severity::error &&
+                     diagnostic.code == *segment.expected_code;
+        }
+        if (!matched) ++report->problems;
+      } else if (!segment_ok) {
+        ++report->problems;
+      }
+      for (auto& diagnostic : segment_diagnostics) {
+        if (diagnostic.severity == Severity::error) {
+          report->diagnostics.push_back(std::move(diagnostic));
+        }
       }
     }
   }
-  for (const auto& diagnostic : report->diagnostics) {
-    if (diagnostic.is_error()) return false;
-  }
-  return timeline_ok;
+  return report->problems == 0;
 }
 
 int command_inspect(const Args& args) {
@@ -383,7 +448,7 @@ int command_restore(const Args& args) {
     return fail(usage_error("restore requires --manifest FILE"));
   }
   RestoreOptions options;
-  if (args.has("--rate")) {
+  if (args.has_option("--rate")) {
     int64_t rate = 0;
     if (!args.get_int("--rate", &rate) || rate < 8000 || rate > 768000) {
       return fail(usage_error("--rate must be an integer between 8000 and 768000"));
@@ -391,7 +456,7 @@ int command_restore(const Args& args) {
     options.rate = static_cast<int>(rate);
   }
   std::string layout;
-  if (args.has("--layout") && !args.get("--layout", &layout)) {
+  if (args.has_option("--layout") && !args.get("--layout", &layout)) {
     return fail(usage_error("--layout requires a value"));
   }
   if (!layout.empty()) {
@@ -402,7 +467,7 @@ int command_restore(const Args& args) {
     av_channel_layout_uninit(&parsed);
     options.layout = layout;
   }
-  if (args.has("--loudness")) {
+  if (args.has_option("--loudness")) {
     double loudness = 0.0;
     if (!args.get_double("--loudness", &loudness) || loudness < -70.0 || loudness > 0.0) {
       return fail(usage_error("--loudness must be between -70 and 0 LUFS"));
@@ -410,7 +475,7 @@ int command_restore(const Args& args) {
     options.loudness = loudness;
   }
   double true_peak = -1.0;
-  if (args.has("--true-peak")) {
+  if (args.has_option("--true-peak")) {
     if (!args.get_double("--true-peak", &true_peak) || true_peak > 0.0 ||
         true_peak < -20.0) {
       return fail(usage_error("--true-peak must be between -20 and 0 dBTP"));

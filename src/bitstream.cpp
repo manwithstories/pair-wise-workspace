@@ -148,6 +148,7 @@ bool scan_annexb(std::istream& stream, int64_t size, Codec codec,
   state.codec = codec;
   state.limits = limits;
   state.out = out;
+  state.diagnostics = diagnostics;
 
   // Keep the trailing 4 bytes between chunks: a start code may straddle a
   // chunk boundary and its type byte may be the first byte of the next chunk.
