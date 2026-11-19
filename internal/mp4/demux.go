@@ -65,9 +65,6 @@ func Demux(asset, name string, data []byte) ([]Track, error) {
 	return tracks, nil
 }
 
-// buildSamples is implemented in samples.go (fMP4) and stbl.go (plain MP4).
-func (d *demuxer) buildSamples() error { return nil }
-
 type trafState struct {
 	trackID       uint32
 	baseDTS       uint64
@@ -180,6 +177,13 @@ func (d *demuxer) handle(h *mp4.ReadHandle) (interface{}, error) {
 		d.cur.Codec = typ.String()
 		return nil, nil
 	}
+	switch typ {
+	case mp4.BoxTypeTkhd(), mp4.BoxTypeMdhd(), mp4.BoxTypeHdlr(),
+		mp4.BoxTypeTfhd(), mp4.BoxTypeTfdt(), mp4.BoxTypeTrun():
+		// payload read below
+	default:
+		return nil, nil // unknown or unneeded box: skip payload
+	}
 	payload, _, err := h.ReadPayload()
 	if err != nil {
 		return nil, errs.New(errs.KindDemux, d.asset,
@@ -244,11 +248,13 @@ func flags32(f mp4.FullBox) uint32 {
 	return uint32(f.Flags[0])<<16 | uint32(f.Flags[1])<<8 | uint32(f.Flags[2])
 }
 
+// langString decodes go-mp4's 5-bit packed ISO-639-2/T bytes back to
+// ASCII; returns "" when no valid language is present.
 func langString(l [3]byte) string {
 	s := make([]byte, 0, 3)
 	for _, c := range l {
-		if c >= 'a' && c <= 'z' {
-			s = append(s, c)
+		if c >= 1 && c <= 26 {
+			s = append(s, c+0x60)
 		}
 	}
 	return string(s)
