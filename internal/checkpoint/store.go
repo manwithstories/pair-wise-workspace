@@ -61,7 +61,12 @@ type State struct {
 	// CommittedOffset is the first byte not yet consumed; a resumed run scans
 	// from here, after proving the prefix still matches InputCRC.
 	CommittedOffset int64 `json:"committed_offset"`
-	SourceDone      bool  `json:"source_done"` // source fully scanned
+	// ScannedOffset is the byte offset through which the frame statistics
+	// below were counted. It can be ahead of CommittedOffset when the reorder
+	// window still held frames at commit time; a resumed run replays that tail
+	// into the repairer without counting it twice.
+	ScannedOffset int64 `json:"scanned_offset"`
+	SourceDone    bool  `json:"source_done"` // source fully scanned
 	// ChunkHead is the most recent committed chunk. The full chunk log lives
 	// beside the checkpoint (see ChunkLog) so the checkpoint stays O(1) in the
 	// number of chunks.
@@ -256,6 +261,9 @@ func (st *State) validate() error {
 	}
 	if st.CommittedOffset < 0 || st.CommittedOffset > st.InputSize {
 		return fmt.Errorf("committed offset %d outside input size %d", st.CommittedOffset, st.InputSize)
+	}
+	if st.ScannedOffset < st.CommittedOffset || st.ScannedOffset > st.InputSize {
+		return fmt.Errorf("scanned offset %d outside [%d, %d]", st.ScannedOffset, st.CommittedOffset, st.InputSize)
 	}
 	return nil
 }

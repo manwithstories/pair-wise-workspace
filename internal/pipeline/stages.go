@@ -188,6 +188,9 @@ func (j *job) handleRecord(ctx context.Context, rec source.Record, chunk *[]*mod
 		j.scanned = fr.EndOffset
 		j.scannedCRC = rec.CRC
 	}
+	// Records before the checkpoint's scan frontier were already counted by
+	// the previous run, even though some of them still belong to the pending
+	// reorder window and must be replayed.
 	replay := j.stats.Resumed && fr.StartOffset < j.replayLimit
 	if !replay {
 		j.stats.FramesRead++
@@ -306,6 +309,7 @@ func (j *job) writeCheckpoint(idxState index.State, done bool) error {
 		InputSize:         j.stats.InputSize,
 		InputCRC:          crc,
 		CommittedOffset:   offset,
+		ScannedOffset:     j.scanned,
 		SourceDone:        done,
 		ChunkHead:         j.chunkHead,
 		ChunkDigest:       j.chunkDigest,

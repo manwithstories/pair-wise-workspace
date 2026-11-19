@@ -18,6 +18,7 @@ func sampleState() *State {
 		InputSize:       1000,
 		InputCRC:        0xdeadbeef,
 		CommittedOffset: 512,
+		ScannedOffset:   900,
 		ChunkHead:       ChunkRecord{Index: 1, FirstFrame: 5, LastFrame: 8, Samples: 4, Checksum: 0x22},
 		Index:           index.State{Samples: 8, Chunks: 2, PayloadLen: 128, LastMedia: 21000, FirstMedia: 3000},
 		Timeline:        timeline.Snapshot{Started: true, NextSeq: 9, HaveMedia: true, LastMedia: 21000},
