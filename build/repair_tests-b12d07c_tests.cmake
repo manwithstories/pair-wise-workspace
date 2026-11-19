@@ -4,6 +4,8 @@ add_test( [==[33 位掩码常量]==] /Users/clearliu/WorkSpace/pair-wise-workspa
 set_tests_properties( [==[33 位掩码常量]==] PROPERTIES WORKING_DIRECTORY /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build SKIP_RETURN_CODE 4)
 add_test( [==[JSONL 诊断与报告字段]==] /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests [==[JSONL 诊断与报告字段]==]   [==[--order decl]==] )
 set_tests_properties( [==[JSONL 诊断与报告字段]==] PROPERTIES WORKING_DIRECTORY /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build SKIP_RETURN_CODE 4)
+add_test( [==[MJPEG 解码与 PSNR 质量度量]==] /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests [==[MJPEG 解码与 PSNR 质量度量]==]   [==[--order decl]==] )
+set_tests_properties( [==[MJPEG 解码与 PSNR 质量度量]==] PROPERTIES WORKING_DIRECTORY /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build SKIP_RETURN_CODE 4)
 add_test( [==[PSNR 与码率偏差计算]==] /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests [==[PSNR 与码率偏差计算]==]   [==[--order decl]==] )
 set_tests_properties( [==[PSNR 与码率偏差计算]==] PROPERTIES WORKING_DIRECTORY /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build SKIP_RETURN_CODE 4)
 add_test( [==[ticks 与统一微秒时间基互转]==] /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests [==[ticks 与统一微秒时间基互转]==]   [==[--order decl]==] )

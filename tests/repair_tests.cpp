@@ -393,3 +393,42 @@ TEST_CASE("端到端合成：媒体/侧车/清单生成且确定性可复现", "
   CHECK_FALSE(m.transitions.empty());
   std::filesystem::remove_all(base);
 }
+
+#include "media/decoder.hpp"
+
+TEST_CASE("MJPEG 解码与 PSNR 质量度量", "[decoder]") {
+  auto base = std::filesystem::temp_directory_path() /
+              ("md_dec_" + std::to_string(::getpid()));
+  GenConfig cfg;
+  cfg.outDir = (base / "g").string();
+  cfg.seconds = 3;
+  cfg.wrapPts = true;
+  cfg.vfr = true;
+  cfg.corruptEvery = 11;
+  GenResult r;
+  REQUIRE(generateSynthetic(cfg, r).empty());
+
+  Sidecar sc;
+  std::string err;
+  REQUIRE(loadSidecar(r.sidecars[0], sc, err));
+  std::vector<bool> corrupt(sc.entries.size(), false);
+  for (const auto& e : sc.entries)
+    if (e.corrupt) corrupt[e.ordinal] = true;
+
+  auto out = measureVideo(r.files[0], corrupt);
+  CHECK(out.framesDecoded > 0);
+  CHECK(out.framesCorrupt >= 1);
+  CHECK(out.psnr.psnrDb() > 25.0);
+  CHECK(out.psnr.psnrDb() < 45.0);
+
+  // 无损坏参考：纯正常素材 PSNR 应更高。
+  GenConfig clean = cfg;
+  clean.corruptEvery = 0;
+  clean.outDir = (base / "clean").string();
+  GenResult rc2;
+  REQUIRE(generateSynthetic(clean, rc2).empty());
+  std::vector<bool> none(90, false);
+  auto good = measureVideo(rc2.files[0], none);
+  CHECK(good.psnr.psnrDb() >= out.psnr.psnrDb());
+  std::filesystem::remove_all(base);
+}
