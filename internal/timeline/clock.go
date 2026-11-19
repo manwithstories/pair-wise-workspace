@@ -140,3 +140,14 @@ func (c *Clock) toNs(ext uint64) int64 {
 func (c *Clock) ticksToNs(ticks int64) int64 {
 	return ticks * 1_000_000_000 / int64(c.Rate)
 }
+
+// Export returns the clock state for checkpointing.
+func (c *Clock) Export() (init bool, lastExt uint64, adjust, anchorRTP, anchorNs int64, estimated bool) {
+	return c.init, c.lastExt, c.adjust, c.anchorRTP, c.anchorNs, c.Estimated
+}
+
+// Import restores a previously exported clock state.
+func (c *Clock) Import(init bool, lastExt uint64, adjust, anchorRTP, anchorNs int64, estimated bool) {
+	c.init, c.lastExt, c.adjust = init, lastExt, adjust
+	c.anchorRTP, c.anchorNs, c.Estimated = anchorRTP, anchorNs, estimated
+}
