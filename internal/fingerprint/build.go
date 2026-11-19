@@ -36,8 +36,12 @@ func (f Flags) IncompleteReason() string {
 // Build hashes a segment from a track. The hash covers sample digests (the
 // first bytes of each sample, truncated to a stable digest), the transcript
 // text and the silence mask, so the same content from any camera matches.
+// Completeness is judged from the MP4 index only: packet-stream gaps are
+// reported by the segment stage and do not change the content of a sample. A
+// clip whose samples fall outside the file can never be hashed, which is what
+// keeps dedupe from silently matching on missing data.
 func Build(camera string, seg segment.Segment, tr *mp4.Track, fileBytes []byte,
-	tb timeline.Timebase, transcript string, silenceNS []int64, missingNS int64) Clip {
+	tb timeline.Timebase, transcript string, silenceNS []int64) Clip {
 	clip := Clip{Camera: camera, Index: seg.Index, StartNS: seg.StartNS, EndNS: seg.EndNS, Segment: seg}
 	clip.Flags = Flags{Timebase: &tb, SampleCount: 0, ExpectedCount: seg.EndSample - seg.StartSample + 1}
 	desc := Description{StartNS: seg.StartNS, EndNS: seg.EndNS, Transcript: transcript, SilenceMask: silenceNS}
@@ -61,10 +65,6 @@ func Build(camera string, seg segment.Segment, tr *mp4.Track, fileBytes []byte,
 	}
 	if clip.Flags.SampleCount < clip.Flags.ExpectedCount {
 		clip.Flags.Incomplete = true
-	}
-	if missingNS > 0 {
-		clip.Flags.Incomplete = true
-		clip.Flags.MissingRanges = append(clip.Flags.MissingRanges, fmt.Sprintf("%dms gap", missingNS/1_000_000))
 	}
 	if clip.Flags.Incomplete {
 		return clip

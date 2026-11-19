@@ -99,7 +99,7 @@ func Run(opts Options) (*Report, error) {
 		r.LostPackets = stats.LostPackets
 		r.RoundtripConsistency = stats.Consistency()
 		r.collect(opts, repairer.Issues()...)
-		gaps = gapsFromPackets(emitted, opts.Seed, camA)
+		gaps = gapsFromPackets(emitted)
 		ok := stats.Emitted > 0 && stats.LostPackets == fx.BurstLost && stats.DuplicatePackets >= fx.Duplicates
 		if len(opts.BandwidthKbps) > 0 {
 			var sizes []string
@@ -136,6 +136,7 @@ func Run(opts Options) (*Report, error) {
 
 	// Stage 5: segmentation for every camera.
 	if t := r.begin("segment"); true {
+		segIssues := 0
 		for _, cam := range []*camera{camA, camB} {
 			video := cam.video()
 			if video == nil {
@@ -147,10 +148,20 @@ func Run(opts Options) (*Report, error) {
 				MinMS: opts.TargetMS / 3, Gaps: gaps}
 			res := segment.Cut(video, req)
 			cam.segments = res.Segments
-			r.collect(opts, res.Issues...)
+			// Packet loss and stss damage are injected by the fixture
+			// generator, so their consequences are reported but expected.
+			segIssues += len(res.Issues)
+			for _, is := range res.Issues {
+				switch is.Code {
+				case media.CodeOffsetInsideGap, media.CodeNoKeyframe:
+					r.collectExpected(opts, is)
+				default:
+					r.collect(opts, is)
+				}
+			}
 		}
 		r.finish(t, len(camA.segments) > 0 && len(camB.segments) > 0,
-			fmt.Sprintf("cam-a=%d cam-b=%d segments", len(camA.segments), len(camB.segments)), 0)
+			fmt.Sprintf("cam-a=%d cam-b=%d segments", len(camA.segments), len(camB.segments)), segIssues)
 	}
 
 	// Stage 6: fingerprinting and cross-camera duplicate detection.
@@ -159,8 +170,7 @@ func Run(opts Options) (*Report, error) {
 			video := cam.video()
 			for _, seg := range cam.segments {
 				clip := fingerprint.Build(cam.name, seg, video, cam.file, cam.timebase,
-					cam.transcriptAt(seg.StartNS, seg.EndNS), cam.silenceBetween(seg.StartNS, seg.EndNS),
-					gapNanos(gaps, seg.StartNS, seg.EndNS))
+					cam.transcriptAt(seg.StartNS, seg.EndNS), cam.silenceBetween(seg.StartNS, seg.EndNS))
 				clip.Segment = seg
 				cam.clips = append(cam.clips, clip)
 			}

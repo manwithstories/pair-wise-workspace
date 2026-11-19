@@ -116,22 +116,36 @@ func Cut(tr *mp4.Track, req Request) *Result {
 	sort.Slice(gaps, func(i, j int) bool { return gaps[i].StartNS < gaps[j].StartNS })
 
 	idx := 0
+	floor := -1 // start sample of the previous clip; pull-backs may not revisit it
 	for cursor := start; cursor < endNS; {
 		if idx >= MaxSegments {
 			res.issue(0, idx, media.CodeLimitExceeded, "more than %d segments requested", MaxSegments)
 			break
 		}
-		sampleStart, degrades, details := snapStart(tr, cursor, gaps)
+		sampleStart, degrades, details := snapStart(tr, cursor, gaps, floor, overlapNS > 0)
 		if sampleStart < 0 {
 			// No sample covers the cursor: advance to the next sample.
 			next := nextSampleAtOrAfter(tr, cursor)
-			if next < 0 || tr.Samples[next].DTSNS >= endNS {
+			if next < 0 || tr.Samples[next].DTSNS >= endNS || next <= floor {
 				break
 			}
 			res.issue(tr.Samples[next].Offset, idx+1, media.CodeOffsetInsideGap,
 				"cursor %dns fell between samples; advanced to %dns", cursor, tr.Samples[next].DTSNS)
 			cursor = tr.Samples[next].DTSNS
 			continue
+		}
+		if idx > 0 && sampleStart <= floor {
+			// The only reachable start is the previous clip's own start, e.g.
+			// when no keyframe exists beyond it. Extend the previous clip to
+			// the track end rather than emitting duplicates.
+			last := &res.Segments[len(res.Segments)-1]
+			if end := sampleEndingAt(tr, endNS); end > last.EndSample {
+				last.EndSample = end
+				last.EndNS = tr.Samples[end].EndNS()
+				last.DegradeDetail = append(last.DegradeDetail,
+					fmt.Sprintf("extended to %dns: no later keyframe to start from", last.EndNS))
+			}
+			break
 		}
 		segStart := tr.Samples[sampleStart].DTSNS
 		segEnd := segStart + targetNS
@@ -143,6 +157,7 @@ func Cut(tr *mp4.Track, req Request) *Result {
 			lastSample = sampleStart
 		}
 		actualEnd := tr.Samples[lastSample].EndNS()
+		spanReported := false
 		for _, g := range gaps {
 			if g.Contains(actualEnd) {
 				degrades = appendUnique(degrades, DegradeGap)
@@ -152,8 +167,14 @@ func Cut(tr *mp4.Track, req Request) *Result {
 				degrades = appendUnique(degrades, DegradeGap)
 			}
 			if g.StartNS < actualEnd && g.EndNS > segStart {
-				res.issue(tr.Samples[sampleStart].Offset, idx+1, media.CodeOffsetInsideGap,
-					"segment %d [%d,%d) spans packet gap [%d,%d)", idx, segStart, actualEnd, g.StartNS, g.EndNS)
+				// Report once per segment even when several gaps overlap.
+				if !spanReported {
+					res.issue(tr.Samples[sampleStart].Offset, idx+1, media.CodeOffsetInsideGap,
+						"segment %d [%d,%d) spans packet gap [%d,%d)", idx, segStart, actualEnd, g.StartNS, g.EndNS)
+					spanReported = true
+				}
+				degrades = appendUnique(degrades, DegradeGap)
+				details = append(details, fmt.Sprintf("clip spans packet gap [%d,%d)", g.StartNS, g.EndNS))
 			}
 		}
 		if minNS > 0 && actualEnd-segStart < minNS {
@@ -178,6 +199,7 @@ func Cut(tr *mp4.Track, req Request) *Result {
 			SourceFile:    tr.File,
 		})
 		idx++
+		floor = sampleStart
 		next := segStart + targetNS - overlapNS
 		if next <= cursor {
 			next = actualEnd
@@ -189,6 +211,17 @@ func Cut(tr *mp4.Track, req Request) *Result {
 	}
 	if len(res.Segments) == 0 {
 		res.issue(0, 0, media.CodeOutOfRange, "no segments could be produced for %q", req.Name)
+		return res
+	}
+	// The loop can stop inside the overlap of the last clip, leaving a short
+	// uncovered tail. Extend the final clip instead of emitting a duplicate.
+	if last := &res.Segments[len(res.Segments)-1]; last.EndNS < endNS {
+		if idx := sampleEndingAt(tr, endNS); idx > last.EndSample {
+			last.EndSample = idx
+			last.EndNS = tr.Samples[idx].EndNS()
+			last.DegradeDetail = append(last.DegradeDetail,
+				fmt.Sprintf("tail extended to %dns to cover the track end", last.EndNS))
+		}
 	}
 	return res
 }
@@ -204,8 +237,11 @@ func trackEnd(tr *mp4.Track) int64 {
 }
 
 // snapStart returns the sample whose keyframe covers cursor, snapping forward
-// when the cursor sits between keyframes.
-func snapStart(tr *mp4.Track, cursor int64, gaps []Gap) (int, []DegradeReason, []string) {
+// when the cursor sits between keyframes. Past the last keyframe the start is
+// pulled back to the preceding keyframe, unless that would revisit the clip
+// already emitted; in that case the covering sample is used and the clip is
+// marked as having no keyframe.
+func snapStart(tr *mp4.Track, cursor int64, gaps []Gap, floor int, mayPullBack bool) (int, []DegradeReason, []string) {
 	exact := tr.KeyframeAt(cursor)
 	if exact >= 0 {
 		return exact, nil, nil
@@ -220,7 +256,7 @@ func snapStart(tr *mp4.Track, cursor int64, gaps []Gap) (int, []DegradeReason, [
 	if best < 0 {
 		// Past the last keyframe: pull the start back to the preceding
 		// keyframe so the tail clip stays decodable on its own.
-		if k := tr.KeyframeAtOrBefore(cursor); k >= 0 {
+		if k := tr.KeyframeAtOrBefore(cursor); k >= 0 && k > floor && mayPullBack {
 			return k, []DegradeReason{DegradeSnappedStart},
 				[]string{fmt.Sprintf("start %dns pulled back to keyframe at %dns", cursor, tr.Samples[k].DTSNS)}
 		}

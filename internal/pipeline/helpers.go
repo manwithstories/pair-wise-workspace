@@ -1,50 +1,104 @@
 package pipeline
 
 import (
+	"sort"
+
 	"mediasync/internal/audio"
 	"mediasync/internal/rtprepair"
 	"mediasync/internal/segment"
+	"mediasync/internal/timeline"
 )
 
-// gapsFromPackets derives timeline gaps from the repaired packet stream. Each
-// emitted packet advances the timeline by its payload duration; a hole in the
-// extended sequence numbers becomes a gap interval starting where the missing
-// payload would have begun.
-func gapsFromPackets(emitted []*rtprepair.Packet, seed int64, cam *camera) []segment.Gap {
-	if len(emitted) == 0 || cam == nil {
+// rtpClockHz is the RTP timestamp rate used by the generated stream.
+const rtpClockHz int64 = 90000
+
+// gapsFromPackets derives timeline gaps from the repaired packet stream. The
+// position of every packet comes from its (wrap-expanded) RTP timestamp, so a
+// hole in the sequence numbers becomes the exact interval where the missing
+// payloads would have been. An empty result means the stream is contiguous.
+func gapsFromPackets(emitted []*rtprepair.Packet) []segment.Gap {
+	if len(emitted) < 2 {
 		return nil
 	}
-	tb := cam.timebase
-	var gaps []segment.Gap
-	prev := int64(emitted[0].Seq)
-	prevNS := int64(0)
+	unwrap := timelineTickUnwrapper()
+	positions := make([]int64, len(emitted))
+	seqs := make([]int64, len(emitted))
+	base := int64(0)
 	for i, p := range emitted {
-		seq := int64(p.Seq)
-		if i > 0 && seq != prev+1 {
-			missing := seq - prev - 1
-			gapNS := missing * tickSpan(emitted[i-1], emitted[i])
-			gaps = append(gaps, segment.Gap{StartNS: prevNS, EndNS: prevNS + gapNS})
-			prevNS += gapNS
+		ticks := unwrap(p.Header.Timestamp)
+		if i == 0 {
+			base = ticks
 		}
-		_ = tb
-		prev = seq
-		prevNS += tickSpan(p, p)
+		positions[i] = (ticks - base) * 1_000_000_000 / rtpClockHz
+		seqs[i] = int64(p.Seq)
 	}
-	return gaps
+	step := nominalStep(positions, seqs)
+	if step <= 0 {
+		return nil
+	}
+	type interval struct{ start, end int64 }
+	var raw []interval
+	for i := 1; i < len(emitted); i++ {
+		missing := seqs[i] - seqs[i-1] - 1
+		if missing <= 0 {
+			continue
+		}
+		// Trust the timestamp delta, but never let clock jitter shrink a
+		// known hole below the missing packet count.
+		span := positions[i] - positions[i-1] - step
+		if span < missing*step {
+			span = missing * step
+		}
+		raw = append(raw, interval{positions[i-1] + step, positions[i-1] + step + span})
+	}
+	if len(raw) == 0 {
+		return nil
+	}
+	sort.Slice(raw, func(i, j int) bool { return raw[i].start < raw[j].start })
+	merged := make([]segment.Gap, 0, len(raw))
+	for _, in := range raw {
+		if in.end <= in.start {
+			continue
+		}
+		if n := len(merged); n > 0 && in.start <= merged[n-1].EndNS {
+			if in.end > merged[n-1].EndNS {
+				merged[n-1].EndNS = in.end
+			}
+			continue
+		}
+		merged = append(merged, segment.Gap{StartNS: in.start, EndNS: in.end})
+	}
+	return merged
 }
 
-// tickSpan converts the RTP timestamp delta between two packets into
-// nanoseconds on the shared timeline.
-func tickSpan(a, b *rtprepair.Packet) int64 {
-	const ticksPerSecond = 90000
-	var delta uint32
-	if b != nil && a != nil {
-		delta = b.Header.Timestamp - a.Header.Timestamp
+// nominalStep returns the most common per-packet advance in nanoseconds.
+func nominalStep(positions, seqs []int64) int64 {
+	counts := map[int64]int{}
+	for i := 1; i < len(positions); i++ {
+		if seqs[i] != seqs[i-1]+1 {
+			continue
+		}
+		if d := positions[i] - positions[i-1]; d > 0 {
+			counts[d]++
+		}
 	}
-	if delta == 0 {
-		delta = 3000
+	if len(counts) == 0 {
+		return 0
 	}
-	return int64(delta) * 1_000_000_000 / ticksPerSecond
+	best, bestN := int64(0), 0
+	for step, n := range counts {
+		if n > bestN || (n == bestN && step < best) {
+			best, bestN = step, n
+		}
+	}
+	return best
+}
+
+// timelineTickUnwrapper expands a 32-bit RTP timestamp into a monotonically
+// increasing tick counter.
+func timelineTickUnwrapper() func(uint32) int64 {
+	u := timeline.NewTickUnwrapper(0)
+	return func(v uint32) int64 { return u.Expand(uint64(v)) }
 }
 
 // silenceRunsBetween returns silence runs overlapping the window.

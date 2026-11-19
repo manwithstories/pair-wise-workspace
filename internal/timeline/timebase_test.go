@@ -94,9 +94,15 @@ func TestCompatible(t *testing.T) {
 	if a.Compatible(c) {
 		t.Error("different frame rates must not be compatible")
 	}
+	// A different clock *source* still maps onto the same timeline, so it
+	// must remain comparable across cameras.
 	d, _ := timeline.NewTimebase(timeline.Rate25, timeline.Clock{Domain: "cam-b", Ticks: 90000})
-	if a.Compatible(d) {
-		t.Error("different clock domains must not be compatible")
+	if !a.Compatible(d) {
+		t.Error("same rate/ticks must stay comparable across clock domains")
+	}
+	e, _ := timeline.NewTimebase(timeline.Rate25, timeline.Clock{Domain: "cam-a", Ticks: 48000})
+	if a.Compatible(e) {
+		t.Error("different tick rates must not be compatible")
 	}
 }
 

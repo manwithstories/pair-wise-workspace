@@ -190,24 +190,6 @@ func (c *camera) silenceBetween(startNS, endNS int64) []int64 {
 	return out
 }
 
-// gapNanos sums the packet gaps overlapping a clip.
-func gapNanos(gaps []segment.Gap, startNS, endNS int64) int64 {
-	var total int64
-	for _, g := range gaps {
-		lo, hi := g.StartNS, g.EndNS
-		if lo < startNS {
-			lo = startNS
-		}
-		if hi > endNS {
-			hi = endNS
-		}
-		if hi > lo {
-			total += hi - lo
-		}
-	}
-	return total
-}
-
 func fixtureSubs(seed int64) *subtitle.Result {
 	srt := testdata.GenerateSRT(testdata.SubtitleClean, seed)
 	return subtitle.ParseSRT(srt, "cam-a.srt")

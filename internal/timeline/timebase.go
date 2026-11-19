@@ -156,12 +156,14 @@ func NewTimebase(rate Rate, clock Clock) (Timebase, error) {
 }
 
 // Compatible reports whether two timebases may be compared for dedupe.
-// Different frame rates, tick domains or wrap rules are not comparable.
+// Comparability depends on the conversion factors (frame rate, tick rate,
+// wrap modulus, drop-frame rule); the clock domain label describes where the
+// ticks came from and does not by itself prevent comparison, because every
+// input is mapped onto the same timeline before slicing.
 func (a Timebase) Compatible(b Timebase) bool {
 	return a.Rate.Reduce() == b.Rate.Reduce() &&
 		a.Clock.Ticks == b.Clock.Ticks &&
 		a.Clock.Wrap == b.Clock.Wrap &&
-		a.Clock.Domain == b.Clock.Domain &&
 		a.DropFrame == b.DropFrame
 }
 
