@@ -5,6 +5,7 @@ package report
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 
@@ -149,8 +150,32 @@ func (r *Report) Finalize() {
 	}
 }
 
+// Sanitize replaces non-finite float values with 0 so a degenerate run
+// (for example a silent stream whose LUFS is -Inf) still produces a valid
+// JSON document instead of failing at encode time.
+func (r *Report) Sanitize() {
+	finite := func(v *float64) {
+		if math.IsNaN(*v) || math.IsInf(*v, 0) {
+			*v = 0
+		}
+	}
+	for _, f := range []*float64{
+		&r.TargetLUFS, &r.SyncErrorMs, &r.LatencyP95Ms, &r.PacketRecovery,
+		&r.RMSBefore, &r.RMSAfter, &r.PeakBefore, &r.PeakAfter, &r.GainDB,
+		&r.RoundingError, &r.DriftEstimatePPM, &r.DriftStdErrPPM,
+		&r.SyncP95BeforeMs,
+	} {
+		finite(f)
+	}
+	for i := range r.Metrics {
+		finite(&r.Metrics[i].Value)
+		finite(&r.Metrics[i].Limit)
+	}
+}
+
 // Encode renders the report as indented JSON.
 func (r *Report) Encode() ([]byte, error) {
+	r.Sanitize()
 	buf, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
 		return nil, fault.Wrap(fault.CodeInternal, "report.encode", err, "marshal report")

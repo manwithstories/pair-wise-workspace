@@ -2,6 +2,7 @@ package report
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -104,6 +105,22 @@ func TestWriteEncodeCreatesDirectoryAndReplacesAtomically(t *testing.T) {
 	var back map[string]any
 	if err := json.Unmarshal(raw, &back); err != nil {
 		t.Fatalf("rewritten report invalid: %v", err)
+	}
+}
+
+func TestEncodeSanitizesNonFiniteFloats(t *testing.T) {
+	r := &Report{Command: "run", RMSBefore: math.Inf(-1), RMSAfter: math.NaN(),
+		GainDB: math.Inf(1), Metrics: []Metric{{Name: "x", Value: math.Inf(1)}}}
+	buf, err := r.Encode()
+	if err != nil {
+		t.Fatalf("non-finite values broke encoding: %v", err)
+	}
+	var back map[string]any
+	if err := json.Unmarshal(buf, &back); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if back["rms_before"] != 0.0 || back["gain_db"] != 0.0 {
+		t.Fatalf("non-finite values not sanitized: %v %v", back["rms_before"], back["gain_db"])
 	}
 }
 

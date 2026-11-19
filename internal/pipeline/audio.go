@@ -16,6 +16,8 @@ import (
 
 // audioResult is the outcome of the audio chain.
 type audioResult struct {
+	dropped     int64
+	evicted     int64
 	before      []audio.Block
 	after       []audio.Block
 	stats       audio.LoudnessStats
@@ -119,6 +121,9 @@ func runAudio(ctx context.Context, opts Options) (audioResult, stream.Stats, []f
 		}
 		if !ok {
 			if opts.Policy == string(stream.Drop) {
+				// The producer gave up on this block because the queue was
+				// full; count it as a drop so the policy is observable.
+				res.dropped++
 				continue
 			}
 			if q.Policy() == stream.DropOldest {
@@ -127,9 +132,11 @@ func runAudio(ctx context.Context, opts Options) (audioResult, stream.Stats, []f
 					return res, q.Stats(), nil, fault.New(fault.CodeInternal, "pipeline.audio",
 						"queue closed while evicting")
 				}
+				res.evicted++
 				if ok2, perr := q.TryPush(item); perr != nil {
 					return res, q.Stats(), nil, perr
 				} else if !ok2 {
+					res.dropped++
 					continue
 				}
 				arrivals = append(arrivals, float64(i)*blockMs+src.Float()*opts.JitterMs)

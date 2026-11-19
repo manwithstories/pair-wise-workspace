@@ -93,8 +93,8 @@ func Run(ctx context.Context, opts Options) *report.Report {
 	rep.Blocks = len(audioRes.before)
 	rep.Frames = len(audioRes.before)
 	rep.Consumed = qstats.Dequeued
-	rep.Dropped = int64(dropped) + qstats.Dropped
-	rep.Evicted = qstats.Evicted
+	rep.Dropped = int64(dropped) + qstats.Dropped + audioRes.dropped
+	rep.Evicted = qstats.Evicted + audioRes.evicted
 	rep.SilenceFills = len(audioRes.plan.SilenceFills)
 	rep.RMSBefore = audioRes.stats.RMSBefore
 	rep.RMSAfter = audioRes.stats.RMSAfter

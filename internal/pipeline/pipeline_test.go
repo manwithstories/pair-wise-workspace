@@ -177,6 +177,20 @@ func TestTrackOutcomeCancelsDependentsAndKeepsRoot(t *testing.T) {
 	}
 }
 
+func TestRunDropPolicyCountsDroppedBlocks(t *testing.T) {
+	opts := Options{Seed: 1, Policy: "drop", QueueBytes: 60000, QueueTicks: 3600}
+	rep := Run(context.Background(), opts)
+	if rep.ExitCode != 0 {
+		t.Fatalf("exit=%d root=%+v", rep.ExitCode, rep.RootError)
+	}
+	if rep.Dropped == 0 {
+		t.Fatal("drop policy dropped nothing under a tight duration ceiling")
+	}
+	if rep.Dropped >= int64(rep.Blocks+int(rep.Dropped)) {
+		t.Fatalf("dropped %d of %d accepted", rep.Dropped, rep.Blocks)
+	}
+}
+
 func TestProfileSelection(t *testing.T) {
 	cases := []struct {
 		opts Options
