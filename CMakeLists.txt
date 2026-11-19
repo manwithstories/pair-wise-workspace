@@ -17,6 +17,7 @@ add_library(media_core STATIC
   src/checkpoint_index.cpp
   src/error_model.cpp
   src/jitter_buffer.cpp
+  src/manifest.cpp
   src/packet_reorder.cpp
   src/av_sync.cpp
   src/recovery.cpp
