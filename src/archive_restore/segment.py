@@ -66,14 +66,16 @@ def probe_keyframes(path: Path, kind: str) -> list[int]:
         for stream in container.streams:
             if stream.type != kind:
                 continue
+            # MPEG-TS muxers add a constant container offset; subtract the
+            # stream start so stamps are relative to the segment origin.
+            base_us = int((stream.start_time or 0) * 1_000_000 * stream.time_base)
             for packet in container.demux(stream):
                 if packet.dts is None:
                     continue
                 if kind == "video" and not packet.is_keyframe:
                     continue
-                ts = int(packet.pts * 1_000_000 * packet.time_base) if packet.pts is not None else \
-                    int(packet.dts * 1_000_000 * packet.time_base)
-                stamps.append(ts)
+                raw = packet.pts if packet.pts is not None else packet.dts
+                stamps.append(int(raw * 1_000_000 * packet.time_base) - base_us)
     finally:
         container.close()
     return sorted(set(stamps))
