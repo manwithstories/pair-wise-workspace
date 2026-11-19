@@ -19,7 +19,7 @@ func AVSyncErrors(videoPTS, audioPTS []int64) []float64 {
 		for j+1 < len(audioPTS) && absDiff(audioPTS[j+1], v) <= absDiff(audioPTS[j], v) {
 			j++
 		}
-		errs = append(errs, math.Abs(clock.ToMilliseconds(v - audioPTS[j])))
+		errs = append(errs, math.Abs(clock.ToMilliseconds(v-audioPTS[j])))
 	}
 	return errs
 }

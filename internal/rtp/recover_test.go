@@ -43,7 +43,7 @@ func TestInOrder(t *testing.T) {
 }
 
 func TestReorderAndDuplicate(t *testing.T) {
-	r := NewRecoverer(1) // window 16
+	r := NewRecoverer(1)               // window 16
 	feedAll(t, r, 0, 2, 3, 1, 2, 4, 5) // 1 delayed, 2 duplicated
 	st := r.Stats()
 	if st.Emitted != 6 || st.Duplicates != 1 || st.Lost != 0 {
@@ -102,5 +102,84 @@ func TestWindowAdaptsToBandwidth(t *testing.T) {
 	r.SetBandwidth(0.1)
 	if r.Window() != 8 {
 		t.Fatalf("window %d", r.Window())
+	}
+}
+
+// A late leading packet inside the warm-up window moves the stream origin
+// back instead of being dropped or inflating the loss count.
+func TestLateLeadingPacket(t *testing.T) {
+	r := NewRecoverer(1) // window 16
+	feedAll(t, r, 5, 7, 3, 4, 6, 8)
+	st := r.Stats()
+	if st.Emitted != 6 || st.Lost != 0 || st.Late != 0 {
+		t.Fatalf("stats %+v", st)
+	}
+	got := outSeqs(r)
+	for i, want := range []uint16{3, 4, 5, 6, 7, 8} {
+		if got[i] != want {
+			t.Fatalf("out %v", got)
+		}
+	}
+}
+
+// A stream that starts just before a 16-bit wrap and continues through it
+// must not report a 64k-packet hole.
+func TestStartNearWrap(t *testing.T) {
+	r := NewRecoverer(1)
+	seqs := make([]uint16, 0, 12)
+	for s := uint16(0xfffa); ; s++ {
+		seqs = append(seqs, s)
+		if s == 0x0005 {
+			break
+		}
+	}
+	feedAll(t, r, seqs...)
+	st := r.Stats()
+	if st.Emitted != 12 || st.Lost != 0 {
+		t.Fatalf("stats %+v", st)
+	}
+	got := outSeqs(r)
+	if got[0] != 0xfffa || got[11] != 0x0005 {
+		t.Fatalf("out %v", got)
+	}
+}
+
+// A declared reorder depth raises the window floor even at low bandwidth.
+func TestReorderDepthFloor(t *testing.T) {
+	r := NewRecoverer(0.5) // window 8
+	r.SetReorderDepth(40)
+	if r.Window() != 40 {
+		t.Fatalf("window %d", r.Window())
+	}
+	r.SetBandwidth(8) // 64 > floor: bandwidth wins
+	if r.Window() != 64 {
+		t.Fatalf("window %d", r.Window())
+	}
+	r.SetBandwidth(1) // 16 < floor: floor wins
+	if r.Window() != 40 {
+		t.Fatalf("window %d", r.Window())
+	}
+}
+
+// A packet far behind the emission cursor (history already pruned) is
+// counted as late, and does not disturb the emitted stream.
+func TestLateAfterClose(t *testing.T) {
+	r := NewRecoverer(1) // window 16, prune keeps 32 seqs of history
+	for s := 0; s <= 200; s++ {
+		if err := r.Feed("a", packet(uint16(s))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := r.stats.Emitted
+	if err := r.Feed("a", packet(0)); err != nil {
+		t.Fatal(err)
+	}
+	r.Flush()
+	st := r.Stats()
+	if st.Emitted != before || st.Late != 1 || st.Lost != 0 {
+		t.Fatalf("stats %+v", st)
+	}
+	if st.Received != 202 {
+		t.Fatalf("received %d", st.Received)
 	}
 }

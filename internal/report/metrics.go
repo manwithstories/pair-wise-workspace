@@ -47,18 +47,18 @@ func Summarize(values []float64) Percentiles {
 
 // AssetReport is the per-asset processing record.
 type AssetReport struct {
-	Name         string   `json:"name"`
-	Kind         string   `json:"kind"` // "hls", "dash", "rtp"
-	Status       string   `json:"status"`
-	Error        string   `json:"error,omitempty"`
-	Segments     int      `json:"segments,omitempty"`
-	Duplicates   int      `json:"duplicates,omitempty"`
-	Conflicts    int      `json:"conflicts,omitempty"`
-	Gaps         []int    `json:"gaps,omitempty"`
-	Tracks       int      `json:"tracks,omitempty"`
-	Samples      int      `json:"samples,omitempty"`
-	AVSyncP95Ms  float64  `json:"av_sync_p95_ms,omitempty"`
-	ProcessingMs float64  `json:"processing_ms"`
+	Name         string  `json:"name"`
+	Kind         string  `json:"kind"` // "hls", "dash", "rtp"
+	Status       string  `json:"status"`
+	Error        string  `json:"error,omitempty"`
+	Segments     int     `json:"segments,omitempty"`
+	Duplicates   int     `json:"duplicates,omitempty"`
+	Conflicts    int     `json:"conflicts,omitempty"`
+	Gaps         []int   `json:"gaps,omitempty"`
+	Tracks       int     `json:"tracks,omitempty"`
+	Samples      int     `json:"samples,omitempty"`
+	AVSyncP95Ms  float64 `json:"av_sync_p95_ms,omitempty"`
+	ProcessingMs float64 `json:"processing_ms"`
 }
 
 // Summary is the batch-level JSON report.
@@ -80,15 +80,17 @@ type PacketStats struct {
 	Duplicates int      `json:"duplicates"`
 	Emitted    int      `json:"emitted"`
 	Reordered  int      `json:"reordered"`
+	Late       int      `json:"late,omitempty"`
 	Lost       int      `json:"lost"`
 	Gaps       []GapRef `json:"retryable_gaps,omitempty"`
+	Origin     int64    `json:"origin"`
 }
 
-// GapRef is one retryable burst-loss gap.
+// GapRef is one retryable burst-loss gap, relative to the stream origin.
 type GapRef struct {
-	Start uint32 `json:"start"`
-	End   uint32 `json:"end"`
-	Len   int    `json:"len"`
+	Start int64 `json:"start"`
+	End   int64 `json:"end"`
+	Len   int   `json:"len"`
 }
 
 // WriteJSON renders the summary.
