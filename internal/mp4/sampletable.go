@@ -18,9 +18,15 @@ const zeroRunDamage = 512
 const corruptionProbeBytes = 8192
 
 // flagCorruption marks samples whose bytes fall outside the file or contain a
-// long zero run. Fixture payloads are pseudo-random, so a run of zeroRunDamage
-// zero bytes (or half a small sample) is damage rather than media.
+// run of zero bytes long enough to be damage rather than media.
+//
+// The zero-run check is only meaningful for tracks expected to hold
+// high-entropy payloads. A silent audio passage is legitimately all zeros, so
+// audio tracks are checked against out-of-range bytes only and never for zero
+// fill; the damage heuristic would otherwise turn silence into corruption and
+// cascade into a false "no decodable keyframe" verdict.
 func flagCorruption(r io.ReaderAt, tr *Track, size int64) {
+	entropyExpected := tr.Kind == "vide"
 	for i := range tr.Samples {
 		s := &tr.Samples[i]
 		if s.Size == 0 {
@@ -37,6 +43,9 @@ func flagCorruption(r io.ReaderAt, tr *Track, size int64) {
 		buf := make([]byte, probe)
 		if _, err := r.ReadAt(buf, s.Offset); err != nil {
 			s.Corrupt = true
+			continue
+		}
+		if !entropyExpected {
 			continue
 		}
 		limit := zeroRunDamage

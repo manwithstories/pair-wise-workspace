@@ -221,3 +221,27 @@ func TestHugeDeclaredSampleDoesNotAllocate(t *testing.T) {
 		t.Fatalf("corrupt range not reported")
 	}
 }
+
+// TestSilentAudioIsNotCorruption ensures a legitimate all-zero audio frame is
+// not reported as damage, which would otherwise cascade into a false
+// unrecoverable verdict.
+func TestSilentAudioIsNotCorruption(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "a.mp4")
+	samples := []testkit.SampleSpec{
+		{Duration: 1024, Keyframe: true, Size: 600, ZeroBytes: 600},
+		{Duration: 1024, Keyframe: true, Size: 600},
+	}
+	if _, err := testkit.WriteMP4(path, testkit.TrackSpec{
+		TrackID: 2, Kind: "audio", Codec: "mp4a", Timescale: 48000,
+		Channels: 2, SampleRate: 48000, Seed: 3, Samples: samples,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sc, err := mp4.ScanFile(path, "A1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sc.CorruptRanges) != 0 {
+		t.Fatalf("silent audio flagged corrupt: %v", sc.CorruptRanges)
+	}
+}
