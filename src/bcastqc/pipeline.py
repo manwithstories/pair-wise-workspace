@@ -333,7 +333,7 @@ def process_asset(
                         "source sync could not be measured: "
                         f"{source_sync.error or 'no markers found'}",
                         location=MediaLocation(asset=str(path)),
-                        code="sync_unmeasured",
+                        code="source_sync_unmeasured",
                     )
                 )
 
@@ -369,7 +369,8 @@ def process_asset(
                 if not measurement.measured:
                     result.warnings.append(
                         RecoverableError(
-                            f"sync could not be measured: {measurement.error or 'no markers'}",
+                            "output sync could not be measured: "
+                            f"{measurement.error or 'no markers'}",
                             location=MediaLocation(asset=str(path)),
                             code="sync_unmeasured",
                         )
