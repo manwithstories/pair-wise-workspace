@@ -349,6 +349,7 @@ class TrackResult:
             "video": asdict(self.video) if self.video else None,
             "audio": asdict(self.audio) if self.audio else None,
             "outputs": self.outputs,
+            "latency_ms": [round(x, 4) for x in self.latency_ms],
             "checkpoints": self.checkpoints,
         }
 

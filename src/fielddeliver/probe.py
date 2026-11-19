@@ -306,6 +306,7 @@ def probe_video_track(track: TrackDecl) -> ProbeResult:
     width = height = 0
     decoded = 0
     decode_fail = 0
+    first_fail_offset: int | None = None
     fh = open(track.path, "rb")
     try:
         container = av.open(fh, format=track.codec.pyav_format)
@@ -318,6 +319,8 @@ def probe_video_track(track: TrackDecl) -> ProbeResult:
                         decoded += 1
                 except av.FFmpegError:
                     decode_fail += 1
+                    if first_fail_offset is None and pkt.pos is not None:
+                        first_fail_offset = int(pkt.pos)
         finally:
             container.close()
     finally:
@@ -326,7 +329,7 @@ def probe_video_track(track: TrackDecl) -> ProbeResult:
         issues.append(_issue(
             track.track_id, ErrorCategory.DECODE_FAILURE,
             f"{decode_fail} 个包解码失败（解码器错误隐藏/丢帧）",
-            recovered=False))
+            offset=first_fail_offset, recovered=False))
 
     key_count = sum(1 for f in frames if f.is_keyframe and not f.is_gap)
     gaps = sum(1 for f in frames if f.is_gap)
