@@ -285,5 +285,17 @@ func (r *Runner) validatePaths() error {
 	if abs(r.opts.Output) == abs(r.opts.CheckpointPath) {
 		return fmt.Errorf("output and checkpoint paths must differ")
 	}
+	// The index's own scratch paths are written during the run.
+	for _, p := range []string{
+		r.opts.Output + ".part",
+		r.opts.Output + ".tables",
+		r.opts.CheckpointPath + ".part",
+		r.opts.CheckpointPath + ".prev",
+		r.opts.CheckpointPath + ".chunks",
+	} {
+		if abs(p) == input {
+			return fmt.Errorf("scratch path %s collides with the input; refusing to overwrite it", p)
+		}
+	}
 	return nil
 }
