@@ -122,6 +122,24 @@ func Run(cfg Config) (*Result, error) {
 				Pending: repair.Pending, Dropped: repair.Dropped, Missing: repair.Missing,
 			}
 		}
+		// Keyframes as *sample* indexes, resolved through the video track's
+		// sample sizes. The scanner reports byte offsets, and an access unit is
+		// not necessarily one NAL, so unit index and sample index are not
+		// interchangeable.
+		videoSamples := findTrack(pf, 1)
+		if videoSamples == nil {
+			rep.Issues.AddFatal(errs.ClassDependency, errs.CodeDependencyMissing,
+				fmt.Sprintf("%s: video track 1 not found in master", masterName),
+				errs.Location{File: masterName, TrackID: 1, Sample: -1, Offset: -1})
+			continue
+		}
+		kfSamples := keyframeSamples(videoSamples, scan)
+		if len(kfSamples) == 0 {
+			rep.Issues.AddFatal(errs.ClassDependency, errs.CodeDependencyMissing,
+				fmt.Sprintf("%s: no keyframes resolved to samples", masterName),
+				errs.Location{File: masterName, TrackID: 1, Sample: -1, Offset: -1})
+			continue
+		}
 
 		// Stage 3: dependency plan for this rendition's two tracks.
 		g, err := graph.New([]graph.Node{
@@ -142,7 +160,7 @@ func Run(cfg Config) (*Result, error) {
 		// Stage 4: recover the video timeline.
 		video := recoverTrack(clock.Input{
 			TrackID: 1, Kind: model.KindVideo, Timescale: rd.VideoTimescale,
-			RawPTS: rd.Clock, Keyframes: sampleKeyframes(scan), Anchors: rd.Anchors,
+			RawPTS: rd.Clock, Keyframes: kfSamples, Anchors: rd.Anchors,
 			WrapBits: cfg.WrapBits, BreakNs: cfg.BreakNs, File: masterName,
 		}, rep, masterName)
 		if video == nil {
@@ -158,9 +176,9 @@ func Run(cfg Config) (*Result, error) {
 		}
 
 		// Recovered keyframe positions, cross-checked against the scan.
-		kf := intersectKeyframes(video.Keyframes, sampleKeyframes(scan))
+		kf := intersectKeyframes(video.Keyframes, kfSamples)
 		if len(kf) == 0 {
-			kf = sampleKeyframes(scan)
+			kf = kfSamples
 		}
 
 		// Stage 5: segment on keyframe boundaries.
@@ -247,13 +265,46 @@ func recoverTrack(in clock.Input, rep *report.Report, file string) *model.TrackT
 	return r.Track
 }
 
-func sampleKeyframes(scan *stream.Result) []int {
-	out := make([]int, 0, len(scan.Keyframes))
-	for _, u := range scan.Keyframes {
-		out = append(out, u)
+// findTrack returns the parsed track with the given ID, or nil.
+func findTrack(pf *media.ParsedFile, id uint32) *media.ParsedTrack {
+	for i := range pf.Tracks {
+		if pf.Tracks[i].ID == id {
+			return &pf.Tracks[i]
+		}
+	}
+	return nil
+}
+
+// keyframeSamples maps the scanner's keyframe byte offsets onto sample
+// indexes using the video track's sample sizes. A keyframe unit belongs to the
+// access unit that contains it, so a sample is a legal switch point when any
+// of its NAL units is a keyframe, even if that unit is not the sample's first
+// byte (a SEI before the IDR is the common case). Offsets outside every
+// sample are skipped rather than guessed.
+func keyframeSamples(tr *media.ParsedTrack, scan *stream.Result) []int {
+	// Sample boundaries: starts[i] <= off < starts[i+1].
+	starts := make([]int64, len(tr.Sizes)+1)
+	for i, size := range tr.Sizes {
+		starts[i+1] = starts[i] + int64(size)
+	}
+	var out []int
+	for _, o := range scan.KeyframeOffsets() {
+		// The last sample whose start is <= o.
+		i := sort.Search(len(tr.Sizes), func(k int) bool { return starts[k] > o }) - 1
+		if i < 0 || o >= starts[len(tr.Sizes)] {
+			continue
+		}
+		out = append(out, i)
 	}
 	sort.Ints(out)
-	return out
+	// De-duplicate: several keyframe units can fall inside one access unit.
+	dedup := out[:0]
+	for _, s := range out {
+		if len(dedup) == 0 || dedup[len(dedup)-1] != s {
+			dedup = append(dedup, s)
+		}
+	}
+	return dedup
 }
 
 func allSamples(n int) []int {
