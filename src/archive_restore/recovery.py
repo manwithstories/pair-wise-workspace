@@ -52,6 +52,7 @@ class RecoveryOutcome:
 
     @property
     def expected_count(self) -> int:
+        # Ordered healthy segments plus every gap that could not be peer-filled.
         return len(self.ordered) + len(self.gaps)
 
 
@@ -82,7 +83,23 @@ def recover_representation(tl: RepresentationTimeline, peers: list[Representatio
     same_kind_peers = [p for p in peers if p.kind == tl.kind and p.rep_id != tl.rep_id]
     explicit: list[ExplicitGap] = []
     recovered_keys: list[str] = []
-    for gap in tl.gaps:
+
+    # Physical integrity: a missing or undecodable segment is treated as a gap
+    # before peer recovery is attempted, never silently counted as recovered.
+    healthy: list[TimelineSegment] = []
+    integrity_gaps: list[Gap] = list(tl.gaps)
+    for seg in ordered:
+        if _segment_decodable(seg):
+            healthy.append(seg)
+            continue
+        reason = "segment missing on disk" if not Path(seg.path).exists() else "corrupt segment"
+        integrity_gaps.append(Gap(seg.start_us, seg.end_us, reason))
+        errors.add(skippable(ErrorStage.RECOVERY, tl.rep_id,
+                             f"{reason} at {seg.start_us}-{seg.end_us}us",
+                             segment_index=seg.index, path=str(seg.path)))
+    ordered = healthy
+
+    for gap in integrity_gaps:
         cover = _find_covering_segment(gap, same_kind_peers)
         if cover is not None:
             recovered_keys.append(cover.key)
@@ -99,6 +116,33 @@ def recover_representation(tl: RepresentationTimeline, peers: list[Representatio
     return RecoveryOutcome(tl.rep_id, ordered, duplicates, reordered, recovered_keys, explicit, errors)
 
 
+def _segment_decodable(seg: TimelineSegment) -> bool:
+    """Cheap existence + container-open probe used by integrity recovery."""
+    path = Path(seg.path)
+    if not path.exists() or path.stat().st_size == 0:
+        return False
+    try:
+        if path.suffix.lower() in (".wav", ".m4a", ".aac", ".flac", ".ogg", ".mp3"):
+            import soundfile as sf
+            info = sf.info(str(path))
+            return info.frames > 0 and info.samplerate > 0
+        import av
+        container = av.open(str(path))
+        frame_count = 0
+        for stream in container.streams:
+            frame_count += sum(1 for _ in container.decode(stream))
+        container.close()
+        # A truncated container still decodes its surviving head; require a
+        # meaningful payload (>= half of the nominal ~2s of frames) so a torn
+        # tail with only a few remnant frames is treated as corrupt.
+        return frame_count >= _MIN_HEALTHY_FRAMES
+    except Exception:
+        return False
+
+
+_MIN_HEALTHY_FRAMES = 20
+
+
 def _find_covering_segment(gap: Gap, peers: list[RepresentationTimeline]) -> TimelineSegment | None:
     gap_dur = gap.duration_us
     for peer in peers:
@@ -107,7 +151,9 @@ def _find_covering_segment(gap: Gap, peers: list[RepresentationTimeline]) -> Tim
                 continue
             covers = seg.start_us <= gap.start_us and seg.end_us >= gap.end_us
             close_duration = abs(seg.duration_us - gap_dur) <= RECOVERY_TOLERANCE_US
-            if covers and close_duration and Path(seg.path).exists():
+            # The peer copy must itself be intact; a similarly corrupt peer
+            # cannot be used to paper over an unrecoverable gap.
+            if covers and close_duration and _segment_decodable(seg):
                 return seg
     return None
 

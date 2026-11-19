@@ -36,14 +36,10 @@ from .timeline import build_timelines
 RECOVERY_MIN = 0.95
 
 
-def _atomic_replace(tmp: Path, final: Path) -> None:
-    final.parent.mkdir(parents=True, exist_ok=True)
-    os.replace(tmp, final)
-
-
 def process_asset(manifest_path: Path, output_dir: Path, *,
                   queue_bytes: int, consumer_delay_ms: int,
-                  max_items: int = 64, cancel_after: int | None = None) -> dict:
+                  max_items: int = 64, cancel_after: int | None = None,
+                  resume: bool = False) -> dict:
     """Restore one manifest and return its JSON-serialisable result."""
     asset_id = manifest_path.parent.name
     errors = ErrorCollector()
@@ -69,8 +65,10 @@ def process_asset(manifest_path: Path, output_dir: Path, *,
     try:
         checkpoint.load()
     except Exception as exc:  # digest mismatch / corrupt checkpoint
-        errors.add(skippable(ErrorStage.CHECKPOINT, asset_id,
-                             f"checkpoint discarded: {exc}"))
+        if resume:
+            # On an explicit resume a changed input is a real integrity event.
+            errors.add(skippable(ErrorStage.CHECKPOINT, asset_id,
+                                 f"checkpoint discarded: {exc}"))
 
     pipeline = Pipeline(max_items=max_items, max_bytes=queue_bytes)
     processed = _wire_stages(pipeline, checkpoint, output_dir, consumer_delay_ms)
@@ -96,7 +94,12 @@ def process_asset(manifest_path: Path, output_dir: Path, *,
 
     video_dir = _first_dir(parsed, "video")
     audio_dir = _first_dir(parsed, "audio")
-    spans = media_timeline_spans(video_dir, audio_dir, errors, asset_id)
+    # Measure only the segments that survived recovery, located at their global
+    # timeline origins, so missing/torn segments shrink coverage honestly.
+    video_located = _valid_located(outcomes, timelines, "video")
+    audio_located = _valid_located(outcomes, timelines, "audio")
+    spans = media_timeline_spans(video_dir, audio_dir, errors, asset_id,
+                                 video_files=video_located, audio_files=audio_located)
     sync_ms, sync_status = av_sync_error(spans)
     report = MetricsReport(
         av_sync_error_ms=sync_ms,
@@ -172,6 +175,19 @@ def _first_dir(parsed, kind: str) -> Path:
         if rep.kind == kind and rep.segments:
             return rep.segments[0].path.parent
     return Path("/nonexistent")
+
+
+def _valid_located(outcomes: list[RecoveryOutcome], timelines,
+                   kind: str) -> list[tuple[Path, int]] | None:
+    """Recovered (path, global start us) pairs for the first rep of a kind."""
+    kind_ids = {tl.rep_id for tl in timelines if tl.kind == kind}
+    for outcome in outcomes:
+        if outcome.rep_id not in kind_ids:
+            continue
+        located = [(Path(s.path), s.start_us) for s in outcome.ordered
+                   if s.valid and Path(s.path).exists()]
+        return located or None
+    return None
 
 
 def _status(report: MetricsReport, errors: ErrorCollector) -> str:

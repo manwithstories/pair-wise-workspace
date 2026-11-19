@@ -159,13 +159,15 @@ def _build_outoforder(root: Path) -> None:
 
 def _build_truncated(root: Path) -> None:
     dst = _clone_normal(root, "truncated")
-    playlist = dst / "v0" / "media.m3u8"
-    lines = playlist.read_text().splitlines()
-    keep = [ln for ln in lines if ln != "#EXT-X-ENDLIST"][:-1]
-    playlist.write_text("\n".join(keep) + "\n")
-    torn = sorted((dst / "v0").glob("seg*.ts"))[-1]
-    data = torn.read_bytes()
-    torn.write_bytes(data[: max(1, len(data) // 3)])
+    # Keep every segment URI (including the torn final one) but strip the
+    # ENDLIST marker, so the manifest reads as truncated while the damaged
+    # last segment is still referenced and must fail integrity recovery.
+    for label in ("v0", "v1"):
+        pl = dst / label / "media.m3u8"
+        pl.write_text(pl.read_text().replace("#EXT-X-ENDLIST\n", ""))
+        torn = sorted((dst / label).glob("seg*.ts"))[-1]
+        data = torn.read_bytes()
+        torn.write_bytes(data[: max(1, len(data) // 6)])
 
 
 def _build_rollback(root: Path) -> None:

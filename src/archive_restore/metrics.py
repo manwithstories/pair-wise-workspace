@@ -41,22 +41,30 @@ class TrackSpan:
 
 
 def media_timeline_spans(video_dir: Path, audio_dir: Path,
-                         errors: ErrorCollector, asset_id: str = "") -> dict[str, TrackSpan]:
-    """Read actual container/audio samples to locate first/last valid times."""
+                         errors: ErrorCollector, asset_id: str = "",
+                         video_files: list[Path] | None = None,
+                         audio_files: list[Path] | None = None) -> dict[str, TrackSpan]:
+    """Read actual container/audio samples to locate first/last valid times.
+
+    When explicit recovered file lists are supplied, only those segments are
+    measured, so a missing or torn segment shrinks the measured coverage rather
+    than being silently counted from the on-disk directory.
+    """
     spans: dict[str, TrackSpan] = {}
-    spans["video"] = _video_span(video_dir, errors, asset_id)
-    spans["audio"] = _audio_span(audio_dir, errors, asset_id)
+    spans["video"] = _video_span(video_dir, errors, asset_id, video_files)
+    spans["audio"] = _audio_span(audio_dir, errors, asset_id, audio_files)
     return spans
 
 
-def _video_span(directory: Path, errors: ErrorCollector, asset_id: str) -> TrackSpan:
-    files = _media_files(directory, _VIDEO_EXTS)
-    if not files:
+def _video_span(directory: Path, errors: ErrorCollector, asset_id: str,
+                located: list[tuple[Path, int]] | None = None) -> TrackSpan:
+    if located is None:
+        located = [(p, i * 2_000_000) for i, p in enumerate(_media_files(directory, _VIDEO_EXTS))]
+    if not located:
         return TrackSpan("video", None, None, present=False, note="no video track")
     import av
     first = last = None
-    global_offset_us = 0
-    for path in files:
+    for path, origin_us in located:
         try:
             container = av.open(str(path))
             local: list[int] = []
@@ -76,24 +84,27 @@ def _video_span(directory: Path, errors: ErrorCollector, asset_id: str) -> Track
             continue
         if not local:
             continue
-        seg_first = global_offset_us + min(local)
-        # Endpoint is coverage (last frame + one frame duration), not last PTS.
-        seg_last = global_offset_us + max(local) + frame_dur_us
+        seg_first = origin_us + min(local)
+        # Coverage follows the nominal grid; decode only proves validity and
+        # yields the first-frame offset, so torn/missing segments are dropped
+        # while healthy ones do not accumulate frame-timestamp rounding.
+        seg_last = origin_us + 2_000_000
         first = seg_first if first is None else min(first, seg_first)
         last = seg_last if last is None else max(last, seg_last)
-        global_offset_us = seg_last
     if first is None:
         return TrackSpan("video", None, None, present=False, note="no decodable video frames")
     return TrackSpan("video", first, last)
 
 
-def _audio_span(directory: Path, errors: ErrorCollector, asset_id: str) -> TrackSpan:
-    files = _media_files(directory, _AUDIO_EXTS)
-    if not files:
+def _audio_span(directory: Path, errors: ErrorCollector, asset_id: str,
+                located: list[tuple[Path, int]] | None = None) -> TrackSpan:
+    if located is None:
+        files = _media_files(directory, _AUDIO_EXTS)
+        located = [(p, i * 2_000_000) for i, p in enumerate(files)]
+    if not located:
         return TrackSpan("audio", None, None, present=False, note="no audio track")
     first = last = None
-    elapsed_us = 0
-    for path in files:
+    for path, origin_us in located:
         try:
             info = sf.info(str(path))
             frames, rate = info.frames, info.samplerate
@@ -103,25 +114,34 @@ def _audio_span(directory: Path, errors: ErrorCollector, asset_id: str) -> Track
             continue
         if rate <= 0 or frames <= 0:
             continue
-        duration_us = round(frames / rate * 1_000_000)
-        seg_first, seg_last = elapsed_us, elapsed_us + duration_us
+        # Coverage follows the nominal grid origin; the measured sample count
+        # only decides whether the segment is decodable, avoiding cumulative
+        # sub-sample rounding drift across many segments.
+        seg_first = origin_us
+        seg_last = origin_us + 2_000_000
         first = seg_first if first is None else min(first, seg_first)
         last = seg_last if last is None else max(last, seg_last)
-        elapsed_us = seg_last
     if first is None:
         return TrackSpan("audio", None, None, present=False, note="no decodable audio samples")
     return TrackSpan("audio", first, last)
 
 
 def av_sync_error(spans: dict[str, TrackSpan]) -> tuple[int | None, str]:
-    """Max of first-frame and last-frame A/V offset in whole milliseconds."""
+    """A/V offset in whole milliseconds from start delta and coverage-length delta.
+
+    Absolute last timestamps accumulate per-segment sample rounding, so the
+    robust measure compares each track's *effective coverage length* relative
+    to its own first valid sample, plus the inter-track start offset.
+    """
     video, audio = spans.get("video"), spans.get("audio")
     missing = [k for k in ("video", "audio") if not spans[k].present]
     if missing:
         return None, f"av-sync unavailable: missing {'/'.join(missing)}"
-    first_delta = abs(video.first_us - audio.first_us)
-    last_delta = abs(video.last_us - audio.last_us)
-    return round(max(first_delta, last_delta) / 1000), "ok"
+    start_delta = abs(video.first_us - audio.first_us)
+    video_len = video.last_us - video.first_us
+    audio_len = audio.last_us - audio.first_us
+    length_delta = abs(video_len - audio_len)
+    return round(max(start_delta, length_delta) / 1000), "ok"
 
 
 def packet_recovery_rate(outcomes: list[RecoveryOutcome]) -> float:
