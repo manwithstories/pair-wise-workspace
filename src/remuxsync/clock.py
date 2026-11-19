@@ -105,12 +105,14 @@ def _fit_line(xs: list[int], ys: list[int]) -> tuple[Fraction, Fraction]:
 def fit_drift(
     capture_ticks: list[int],
     ref_ticks: list[int],
-    jump_threshold_ticks: int = 50 * TICKS_PER_MS,
+    jump_threshold_ticks: int = 10 * TICKS_PER_MS,
 ) -> tuple[DriftModel, list[int]]:
     """Fit piecewise-linear drift; returns (model, segment_break_indices).
 
     A new segment starts when the residual against the running fit exceeds
-    ``jump_threshold_ticks`` (a capture-clock step, not smooth drift).
+    ``jump_threshold_ticks`` (a capture-clock step, not smooth drift). The
+    residual must stay elevated on the following point too, so a single noisy
+    VFR sample cannot split the model; a genuine step satisfies both.
     """
     if len(capture_ticks) != len(ref_ticks):
         raise ValueError("capture/ref length mismatch")
@@ -124,11 +126,15 @@ def fit_drift(
     while i < n:
         a, b = _fit_line(capture_ticks[seg_start:i], ref_ticks[seg_start:i])
         residual = abs(a * capture_ticks[i] + b - ref_ticks[i])
-        if residual > jump_threshold_ticks and i - seg_start >= 2:
-            a, b = _fit_line(capture_ticks[seg_start:i], ref_ticks[seg_start:i])
-            model.segments.append(DriftSegment(a, b, seg_start, i))
-            breaks.append(i)
-            seg_start = i
+        if residual > jump_threshold_ticks:
+            persistent = i + 1 >= n or abs(
+                a * capture_ticks[i + 1] + b - ref_ticks[i + 1]
+            ) > jump_threshold_ticks
+            if persistent:
+                model.segments.append(
+                    DriftSegment(a, b, seg_start, i))
+                breaks.append(i)
+                seg_start = i
         i += 1
     a, b = _fit_line(capture_ticks[seg_start:n], ref_ticks[seg_start:n])
     model.segments.append(DriftSegment(a, b, seg_start, n))

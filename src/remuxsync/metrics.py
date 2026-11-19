@@ -15,7 +15,7 @@ def _percentile(values: list[float], q: float) -> float:
         return 0.0
     ordered = sorted(values)
     rank = max(1, min(len(ordered), int(round(q / 100 * len(ordered)))))
-    return ordered[rank - 1]
+    return float(ordered[rank - 1])
 
 
 def ticks_to_ms_float(ticks: int | Fraction) -> float:
@@ -43,11 +43,16 @@ def packet_recovery_rate(streams: list[PacketStream]) -> float:
 
 
 def latency_ms_p95(streams: list[PacketStream]) -> float:
-    """p95 time packets spent inside the bounded reorder buffer."""
+    """p95 holding time of packets that actually entered the reorder buffer.
+
+    Straight-through packets (zero hold) are excluded so the metric reflects
+    buffering latency rather than being diluted toward zero by in-order traffic.
+    """
     holds: list[float] = []
     for s in streams:
         for p in s.packets:
-            holds.append(ticks_to_ms_float(p.hold_ticks))
+            if p.hold_ticks > 0:
+                holds.append(ticks_to_ms_float(p.hold_ticks))
     return round(_percentile(holds, 95), 3)
 
 

@@ -179,11 +179,14 @@ def parse_stream(
     result = PacketStream(expected_seq_max=max(seen_seq))
     released: dict[int, Packet] = {}          # seq -> chosen packet
     order: list[int] = []                     # release order (seqs)
+    reordered_seqs: set[int] = set()
     high_water = -1                          # highest ts seen so far
-    buffer: list[Packet] = []
+    released_water: int | None = None        # highest ts released so far
+    buffer: list[Packet] = []                # not-yet-released arrivals
     late_packets: list[Packet] = []
 
     def emit(pkt: Packet) -> None:
+        nonlocal released_water
         prev = released.get(pkt.seq)
         if prev is not None:
             if pkt.flags & FLAG_RETX and not (prev.flags & FLAG_RETX):
@@ -193,25 +196,45 @@ def parse_stream(
                     byte_offset=pkt.offset, recovery=Recovery.DEDUPLICATED,
                     packet_seq=pkt.seq)
             return
+        # a packet whose timestamp is older than what was already released
+        # was genuinely held for reordering rather than passing straight through
+        if released_water is not None and pkt.ts_unwrapped < released_water:
+            reordered_seqs.add(pkt.seq)
         pkt.hold_ticks = max(0, high_water - pkt.ts_unwrapped)
         released[pkt.seq] = pkt
         order.append(pkt.seq)
+        released_water = pkt.ts_unwrapped if released_water is None \
+            else max(released_water, pkt.ts_unwrapped)
         if pkt.flags & FLAG_RETX:
             log.add(Stage.TRANSFORM, track,
                     f"packet seq={pkt.seq} restored by retransmission",
                     byte_offset=pkt.offset, recovery=Recovery.RETRANSMITTED,
                     packet_seq=pkt.seq)
 
+    def flush_ready() -> None:
+        """Release buffered packets at or beyond the release watermark.
+
+        An in-order packet (ts >= everything released) leaves immediately with
+        zero added latency; a packet older than the watermark stays buffered
+        until its predecessor arrives or the window forces it out.
+        """
+        buffer.sort(key=lambda q: (q.ts_unwrapped, q.seq))
+        while buffer and (released_water is None
+                          or buffer[0].ts_unwrapped >= released_water):
+            emit(buffer.pop(0))
+
     for p in raw:
         high_water = max(high_water, p.ts_unwrapped)
-        # anything buffered older than the sliding window must flush now
-        buffer.sort(key=lambda q: (q.ts_unwrapped, q.seq))
-        while buffer and high_water - buffer[0].ts_unwrapped > window_ticks:
-            emit(buffer.pop(0))
+        stale = [q for q in buffer
+                 if high_water - q.ts_unwrapped > window_ticks]
+        for q in stale:  # window expired: release despite the remaining gap
+            buffer.remove(q)
+            emit(q)
         if high_water - p.ts_unwrapped > window_ticks and p.seq not in released:
-            late_packets.append(p)
+            late_packets.append(p)  # arrived too late to join the window
             continue
         buffer.append(p)
+        flush_ready()
     buffer.sort(key=lambda q: (q.ts_unwrapped, q.seq))
     while buffer:
         emit(buffer.pop(0))
@@ -240,18 +263,12 @@ def parse_stream(
                     packet_seq=seq)
             result.unrecovered_seqs.add(seq)
 
-    # record reordering events (seq released in an order different from arrival)
-    arrival_rank = {p.seq: i for i, p in enumerate(raw)}
-    last_rank = -1
-    for seq in order:
-        rank = arrival_rank[seq]
-        if rank < last_rank:
-            pkt = released[seq]
-            log.add(Stage.TRANSFORM, track,
-                    f"packet seq={seq} reordered within window",
-                    byte_offset=pkt.offset, recovery=Recovery.REORDERED,
-                    packet_seq=seq)
-        last_rank = max(last_rank, rank)
+    for seq in reordered_seqs:
+        pkt = released[seq]
+        log.add(Stage.TRANSFORM, track,
+                f"packet seq={seq} reordered within window",
+                byte_offset=pkt.offset, recovery=Recovery.REORDERED,
+                packet_seq=seq)
 
     result.packets.sort(key=lambda p: (p.ts_unwrapped, p.seq))
     return result

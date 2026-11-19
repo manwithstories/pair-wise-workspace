@@ -145,7 +145,7 @@ def packetize_video(units: list[bytes], keyframes: list[int],
     lost_frame = 7        # original delivery missing; healed by retransmission
     trunc_frame = 13      # first delivery truncated; full retransmission follows
     dup_frame = 31        # delivered twice
-    reorder_frames = (40, 41)  # two arrivals swapped, well inside 120 ms
+    reorder_frames = (40, 43)  # arrivals moved 3 slots, still inside 120 ms
     indexed: list[tuple[int, tuple]] = []
     for i, payload in enumerate(units):
         ts = ts_list[i] & (WRAP_MODULUS - 1)

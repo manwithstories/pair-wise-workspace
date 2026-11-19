@@ -1,0 +1,10 @@
+Metadata-Version: 2.4
+Name: remuxsync
+Version: 0.1.0
+Summary: Multi-track raw-stream repair, timestamp alignment and index rebuild for remote production ingest
+Requires-Python: >=3.12
+Requires-Dist: av<14,>=13
+Requires-Dist: numpy<3,>=2
+Requires-Dist: soundfile<0.13,>=0.12
+Provides-Extra: test
+Requires-Dist: pytest<9,>=8; extra == "test"

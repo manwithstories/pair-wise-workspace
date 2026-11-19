@@ -15,9 +15,11 @@ from fractions import Fraction
 import numpy as np
 
 from .clock import (
+    TICKS_PER_MS,
     TICKS_PER_SECOND,
     DriftModel,
-    fit_drift,
+    DriftSegment,
+    _fit_line,
 )
 from .errors import ErrorLog, Recovery, Stage
 from .packets import PacketStream
@@ -118,21 +120,32 @@ def build_video_timeline(
     frame_packets.sort(key=lambda s: (s[3], s[0]))
 
     capture = [s[3] for s in frame_packets]
+    model = None
+    median_delta = 0
     if len(capture) >= 2:
         deltas = [b - a for a, b in zip(capture, capture[1:])]
         median_delta = int(np.median(deltas)) if deltas else 0
-        # Reference clock: uniform median cadence anchored at first sample.
-        # VFR jitter appears as fit residual, not as shifted frame boundaries.
-        reference = [capture[0] + median_delta * i for i in range(len(capture))]
-        model, breaks = fit_drift(capture, reference)
-        tl.drift, tl.segment_breaks = model, breaks
+        # A capture-clock step shows up as a frame interval that deviates from
+        # the running cadence by far more than VFR jitter. Detect it directly
+        # on the capture axis, then fit one drift line per resulting segment
+        # against a uniform reference clock.
+        step_ticks = 10 * TICKS_PER_MS
+        breaks = [i + 1 for i, d in enumerate(deltas)
+                  if abs(d - median_delta) > step_ticks]
+        boundaries = [0] + breaks + [len(capture)]
+        reference = [capture[0] + median_delta * i
+                     for i in range(len(capture))]
+        tl.drift = DriftModel()
+        for lo, hi in zip(boundaries, boundaries[1:]):
+            slope, icept = _fit_line(capture[lo:hi], reference[lo:hi])
+            tl.drift.segments.append(DriftSegment(slope, icept, lo, hi))
+        tl.segment_breaks = breaks
+        model = tl.drift
         for b in breaks:
             log.add(Stage.TRANSFORM, track,
-                    f"capture-clock step detected at frame {b}; new drift segment",
+                    f"capture-clock step detected at frame {b}; "
+                    "new drift segment",
                     recovery=Recovery.SEGMENTED)
-    else:
-        model = None
-        median_delta = 0
 
     key_offsets = {u.offset for u in units if u.is_keyframe and u.complete}
     prev_ts = None
