@@ -123,14 +123,38 @@ def _origin_ticks(
             origins.append((start, index, node.source.type))
     if not origins:
         return Fraction(0), {node.source.index: 0 for node in graph.nodes}, Fraction(0)
-    # Picture defines where the programme begins.  Anchoring on the earliest
-    # declared start would let an audio priming packet (legitimately ~21 ms
-    # early) drag the whole programme later without any visible sync error.
-    # Only an asset with no video falls back to its earliest declared start.
-    video_origins = [start for start, _, kind in origins if kind == "video"]
-    origin_seconds = min(video_origins) if video_origins else min(
-        start for start, _, _ in origins
-    )
+    origin_seconds: Fraction | None = None
+    if declared:
+        # Anchor on the declared start so encoder priming does not displace the
+        # programme.  Prefer picture, then audio, then anything else: an
+        # operator judges a master against its first frame, and a tiny audio
+        # priming lead must not drag the timeline.
+        for kind in ("video", "audio"):
+            starts = [start for start, _, stream_kind in origins if stream_kind == kind]
+            if starts:
+                origin_seconds = min(starts)
+                break
+    if origin_seconds is None:
+        # No declared start anywhere: fall back to the earliest first packet,
+        # which is always the safe choice because nothing can then go negative.
+        origin_seconds = min(start for start, _, _ in origins)
+
+    # A single early stream (say audio 1 s before picture) must not push the
+    # other stream's packets to deeply negative timestamps: the muxer then
+    # silently drops them, losing real media behind a perfect-looking sync
+    # score.  Lower the origin so no stream's first packet is more than one
+    # frame negative -- the same small negative offset an AAC priming packet
+    # already carries, which the muxer preserves via an edit list.
+    for node in graph.nodes:
+        stream_packets = packets_by_stream.get(node.source.index)
+        first = next((p for p in (stream_packets or ()) if p.pts is not None), None)
+        if first is None:
+            continue
+        first_seconds = Fraction(first.pts) * first.time_base
+        frame = (Fraction(first.duration) * first.time_base) if first.duration else Fraction(0)
+        allowed = first_seconds + frame
+        if origin_seconds > allowed:
+            origin_seconds = allowed
 
     shifts: dict[int, int] = {}
     snapped: dict[int, Fraction] = {}

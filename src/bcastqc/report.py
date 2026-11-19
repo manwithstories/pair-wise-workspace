@@ -31,6 +31,11 @@ THRESHOLDS: dict[str, float] = {
     "recovery_rate": 0.80,
     "p95_latency_ms": 3000.0,
     "remux_packet_match_rate": 0.99,
+    # Strict complement to the rate above: a lossless copy means *every*
+    # packet, so one dropped packet out of 600 (0.9983, above the rate gate)
+    # must still fail. This is what catches a muxer silently discarding a
+    # negative-timestamp packet.
+    "packet_copy_exact": 1.0,
     "damaged_samples": 3.0,
 }
 
@@ -48,6 +53,7 @@ class AssetResult:
     expected_packets: int = 0
     recovery_rate: float | None = None
     remux_packet_match_rate: float | None = None
+    packet_copy_exact: bool | None = None
     sync_error_ms: float | None = None
     latency_ms: float = 0.0
     codec_pairs: list[str] = field(default_factory=list)
@@ -80,6 +86,7 @@ class AssetResult:
             "expected_packets": self.expected_packets,
             "recovery_rate": _round(self.recovery_rate),
             "remux_packet_match_rate": _round(self.remux_packet_match_rate),
+            "packet_copy_exact": self.packet_copy_exact,
             "sync_error_ms": _round(self.sync_error_ms),
             "latency_ms": _round(self.latency_ms),
             "codec_pairs": list(self.codec_pairs),
@@ -152,6 +159,11 @@ class BatchReport:
             return 0.0
         return min(values)
 
+    def packet_copy_exact(self) -> bool:
+        """True only when every copied packet survived byte-identically."""
+        values = [r.packet_copy_exact for r in self.results if r.packet_copy_exact is not None]
+        return all(values) if values else True
+
     def p95_latency_ms(self) -> float:
         values = sorted(r.latency_ms for r in self.results)
         if not values:
@@ -180,6 +192,14 @@ class BatchReport:
                 THRESHOLDS["remux_packet_match_rate"],
                 "min",
             ),
+            "packet_copy_exact": _check(
+                1.0 if self.packet_copy_exact() else 0.0,
+                THRESHOLDS["packet_copy_exact"],
+                "min",
+                applicable=bool(
+                    [r for r in self.results if r.packet_copy_exact is not None]
+                ),
+            ),
             "damaged_samples": _check(
                 float(len(self.damaged_samples)),
                 THRESHOLDS["damaged_samples"],
@@ -192,14 +212,21 @@ class BatchReport:
         }
 
     def all_passed(self) -> bool:
+        if self.failed_samples or self.partial_samples:
+            # A delivery that could not be read at all, or one written with a
+            # required track missing, is never "passed", however healthy the
+            # rest of the batch looks: the batch verdict must surface the deck
+            # the operator still has to chase.
+            return False
         return all(item["passed"] for item in self.thresholds().values())
 
     def exit_code(self) -> int:
-        """0 all thresholds met, 1 a threshold missed, 3 nothing usable at all."""
+        """0 all thresholds met, 1 anything failed or a threshold missed, 3 nothing usable."""
         if self.results and self.fatal_assets == len(self.results):
             return EXIT_MEDIA
-        if self.partial_samples:
-            # Partial output is written and useful, but the status is non-zero.
+        if self.failed_samples or self.partial_samples:
+            # Failed assets and partial outputs are both written-and-reported
+            # outcomes, but neither is a clean batch.
             return EXIT_THRESHOLD
         return EXIT_OK if self.all_passed() else EXIT_THRESHOLD
 
@@ -225,6 +252,7 @@ class BatchReport:
                 "recovery_rate": _round(self.recovery_rate()),
                 "p95_latency_ms": _round(self.p95_latency_ms()),
                 "remux_packet_match_rate": _round(self.remux_packet_match_rate()),
+                "packet_copy_exact": self.packet_copy_exact(),
                 "total_latency_ms": _round(sum(r.latency_ms for r in self.results)),
             },
             "thresholds": self.thresholds(),

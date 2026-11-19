@@ -154,12 +154,19 @@ def store_cache(
 
 
 def _compare_packets(
-    source: list[RawPacket], output_path: Path
+    source: list[RawPacket],
+    output_path: Path,
+    stream_map: dict[int, int],
 ) -> tuple[int, int, list[dict[str, Any]]]:
     """Count byte-identical packets between the kept list and the written file.
 
-    Comparison is per stream, in order, so an interleaving change by the muxer
-    cannot count as a mismatch -- while any payload difference can.
+    ``stream_map`` maps a source stream index to the *output* stream index the
+    remuxer gave it.  The two differ whenever the graph reorders tracks (video
+    first is the normal case), so comparing by source index would pit AAC
+    payloads against H.264 ones and report a perfect copy as zero matches.
+
+    Comparison is per stream, in order: an interleaving change by the muxer is
+    not a mismatch, any payload difference is.
     """
     expected: dict[int, list[bytes]] = {}
     for packet in source:
@@ -177,8 +184,11 @@ def _compare_packets(
     matched = 0
     total = 0
     mismatches: list[dict[str, Any]] = []
-    for stream, expected_packets in expected.items():
-        actual_packets = actual.get(stream, [])
+    consumed: set[int] = set()
+    for source_stream, expected_packets in expected.items():
+        output_stream = stream_map.get(source_stream, source_stream)
+        consumed.add(output_stream)
+        actual_packets = actual.get(output_stream, [])
         total += len(expected_packets)
         for index, payload in enumerate(expected_packets):
             if index < len(actual_packets) and actual_packets[index] == payload:
@@ -186,7 +196,8 @@ def _compare_packets(
             elif len(mismatches) < 8:
                 mismatches.append(
                     {
-                        "stream": stream,
+                        "source_stream": source_stream,
+                        "output_stream": output_stream,
                         "packet": index,
                         "expected_size": len(payload),
                         "actual_size": (
@@ -194,7 +205,7 @@ def _compare_packets(
                         ),
                     }
                 )
-    extra = sum(len(v) for k, v in actual.items() if k not in expected)
+    extra = sum(len(v) for k, v in actual.items() if k not in consumed)
     if extra and len(mismatches) < 8:
         mismatches.append({"extra_packets": extra})
     return matched, total, mismatches
@@ -350,10 +361,13 @@ def process_asset(
         sink = atomic_output(options.output_dir, output_name)
         try:
             remux = remux_asset(probe, graph, outcome.packets, sink.temp_path)
-            matched, total, mismatches = _compare_packets(outcome.packets, sink.temp_path)
+            matched, total, mismatches = _compare_packets(
+                outcome.packets, sink.temp_path, remux.stream_map
+            )
             match_rate = (matched / total) if total else 0.0
             result.copied_packets = remux.packets_written
             result.remux_packet_match_rate = match_rate
+            result.packet_copy_exact = matched == total
             result.extra["remux"] = remux.to_dict()
             result.extra["packet_digest"] = packet_digest(outcome.packets)
             if mismatches:
@@ -395,10 +409,26 @@ def process_asset(
 
         if graph.partial:
             result.status = STATUS_PARTIAL
-        elif outcome.recovery_rate < 1.0 or outcome.plan.repair_index or outcome.plan.truncated:
+        elif (
+            outcome.over_recovered
+            or outcome.recovery_rate < 1.0
+            or outcome.plan.repair_index
+            or outcome.plan.truncated
+        ):
+            # Anything other than an exact, fully-explained recovery is a
+            # recovered delivery, including an over-count we cannot explain.
             result.status = STATUS_RECOVERED
         else:
             result.status = STATUS_OK
+        if outcome.over_recovered:
+            result.warnings.append(
+                RecoverableError(
+                    f"recovered {outcome.recovered_packets} packets but the declared media "
+                    f"implies {outcome.expected_packets}",
+                    location=MediaLocation(asset=str(path)),
+                    code="recovery_expectation_mismatch",
+                )
+            )
         if outcome.plan.truncated and result.status == STATUS_RECOVERED:
             result.reasons.append("tail truncated; boundary scan kept the surviving packets")
         if outcome.plan.corrupt_packets:
@@ -478,6 +508,7 @@ def _result_from_cache(payload: dict[str, Any], path: Path, media: Path) -> Asse
         expected_packets=int(stored.get("expected_packets") or 0),
         recovery_rate=stored.get("recovery_rate"),
         remux_packet_match_rate=stored.get("remux_packet_match_rate"),
+        packet_copy_exact=stored.get("packet_copy_exact"),
         sync_error_ms=stored.get("sync_error_ms"),
         codec_pairs=list(stored.get("codec_pairs") or []),
         strategies=list(stored.get("strategies") or []),

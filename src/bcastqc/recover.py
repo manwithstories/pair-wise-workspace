@@ -59,6 +59,12 @@ class BoundaryScan:
 
     @property
     def missing_bytes(self) -> int:
+        """Bytes the index references beyond what actually survived.
+
+        Measured from the last usable sample to the *declared* end, so a file
+        cut from 113 KB to 97 KB reports the ~16 KB that are gone rather than
+        the handful of bytes between the last sample and the cut.
+        """
         if self.usable_until is None or self.declared_end is None:
             return 0
         return max(0, self.declared_end - self.usable_until)
@@ -80,7 +86,10 @@ class BoundaryScan:
 def boundary_scan(index: container.IndexReport) -> BoundaryScan:
     """Determine how much of the declared media actually exists."""
     scan = BoundaryScan(
-        declared_end=index.mdat_end,
+        # The declared end is what the mdat *header* promises, not the clipped
+        # length of the file: subtracting the surviving end would under-report
+        # the missing tail by the whole truncated span.
+        declared_end=index.mdat_declared_end,
         truncated=index.truncated_tail,
         unindexed_bytes=index.unindexed_bytes(),
     )
@@ -136,6 +145,7 @@ class RecoveryPlan:
             "repair_index": self.repair_index,
             "expected_packets": self.expected_packets,
             "notes": list(self.notes),
+            "note": "expected_packets is derived from declared durations vs covered span",
             "issues": [issue.to_dict() for issue in self.issues],
         }
 
@@ -153,9 +163,20 @@ class RecoveryOutcome:
 
     @property
     def recovery_rate(self) -> float:
+        """Recovered packets over the declared expectation, unclamped.
+
+        The value is deliberately *not* capped at 1.0: if recovery somehow
+        yields more packets than the declared media implies, the estimate is
+        wrong and a report reading 1.0 would hide it.  Callers treat >1.0 as
+        "expectation unexplained" rather than as a perfect score.
+        """
         if self.expected_packets <= 0:
             return 0.0
-        return min(1.0, self.recovered_packets / self.expected_packets)
+        return self.recovered_packets / self.expected_packets
+
+    @property
+    def over_recovered(self) -> bool:
+        return self.expected_packets > 0 and self.recovered_packets > self.expected_packets
 
     @property
     def skipped_count(self) -> int:
@@ -168,6 +189,7 @@ class RecoveryOutcome:
             "total_packets": self.total_packets,
             "expected_packets": self.expected_packets,
             "recovery_rate": round(self.recovery_rate, 6),
+            "over_recovered": self.over_recovered,
             "boundary_scan": self.scan.to_dict(),
             "per_stream": {str(k): v for k, v in sorted(self.per_stream.items())},
             "skipped": [
@@ -357,38 +379,72 @@ def expected_packet_count(
 ) -> int:
     """How many packets the *declared* media should contain.
 
-    Derived per stream from the declared duration and the span the demuxer
-    actually covered, so an 85 %-truncated asset reports ~0.85 recovery rather
-    than 1.0.  This is codec-agnostic: it never assumes one packet per sample
-    (PCM MOV packets group many indexed samples).  A complete asset yields the
-    observed packet count exactly.
+    Derived per stream from the declared duration and the span that stream's
+    packets actually cover, so an 85 %-truncated asset reports ~0.85 recovery
+    rather than 1.0.
+
+    Declared durations are paired with streams *one stream to one index track*
+    of the same kind, never by a per-kind maximum: an asset with a 10 s main
+    programme plus a 2 s commentary track must not predict a 10 s commentary,
+    or a perfectly healthy file would score well under 1.0.  This is
+    codec-agnostic -- it never assumes one packet per sample (PCM MOV packets
+    group many indexed samples) -- and a complete asset yields the observed
+    packet count exactly.
     """
     handler_kind = {"vide": "video", "soun": "audio", "text": "subtitle"}
-    declared: dict[str, list[Fraction]] = {}
+    declared_by_kind: dict[str, list[Fraction]] = {}
     for track in index.tracks:
         seconds_declared = track.declared_seconds
         if seconds_declared and seconds_declared > 0:
             kind = handler_kind.get(track.handler, track.handler)
-            declared.setdefault(kind, []).append(seconds_declared)
+            declared_by_kind.setdefault(kind, []).append(seconds_declared)
 
     per_stream: dict[int, list[RawPacket]] = {}
     for packet in packets:
         per_stream.setdefault(packet.stream, []).append(packet)
 
-    expected = 0.0
+    # Pair declared durations with streams of the same kind by *rank of length*:
+    # the longest stream gets the longest declared duration, and so on.  Pairing
+    # by list order is wrong whenever the index writes the short commentary
+    # track before the main programme, which would scale the main track by the
+    # commentary's duration (or the reverse) and report phantom loss on a
+    # healthy asset.
+    covered_by_stream: dict[int, Fraction | None] = {}
+    kind_of_stream: dict[int, str] = {}
     for info in probe.streams:
         observed = per_stream.get(info.index)
         if not observed:
             continue
-        spans = [p.to_span() for p in observed]
         timeline = build_stream_timeline(
-            info.index, info.type, info.time_base_raw, spans
+            info.index,
+            info.type,
+            info.time_base_raw,
+            [p.to_span() for p in observed],
         )
-        covered = timeline.duration
-        declared_seconds = None
-        candidates = declared.get(info.type, ())
-        if candidates:
-            declared_seconds = max(candidates)
+        covered_by_stream[info.index] = timeline.duration
+        kind_of_stream[info.index] = info.type
+
+    declared_for: dict[int, Fraction] = {}
+    for kind, pool in declared_by_kind.items():
+        streams = sorted(
+            (index for index, stream_kind in kind_of_stream.items() if stream_kind == kind),
+            key=lambda index: (
+                covered_by_stream[index] or Fraction(0),
+                -index,
+            ),
+            reverse=True,
+        )
+        for index, declared in zip(streams, sorted(pool, reverse=True)):
+            declared_for[index] = declared
+
+    expected = 0.0
+    for index, observed in per_stream.items():
+        covered = covered_by_stream.get(index)
+        declared_seconds = declared_for.get(index)
+        # An asset whose *declared* span is longer than what its packets cover
+        # has lost media.  Never scale up: a healthy stream with an extra
+        # container-level packet must stay at 1.0 rather than drive the rate
+        # above it.
         if covered and covered > 0 and declared_seconds and declared_seconds > covered:
             expected += len(observed) * float(declared_seconds / covered)
         else:

@@ -455,6 +455,175 @@ def test_partial_output_is_non_zero(tmp_path, demo_dir):
     assert result.result.output is not None
     assert "partial_output" in [warning.code for warning in result.result.warnings]
 
+    # The batch verdict must be non-zero, not just the per-asset status.
+    delivery = tmp_path / "delivery"
+    delivery.mkdir()
+    import shutil
+
+    shutil.copyfile(video_only, delivery / "video_only.mp4")
+    track_map = tmp_path / "map.json"
+    track_map.write_text(json.dumps(options.track_map))
+    report = tmp_path / "partial.json"
+    code = main(
+        [
+            "process",
+            "--inputs",
+            str(delivery),
+            "--workdir",
+            str(tmp_path / "batch"),
+            "--track-map",
+            str(track_map),
+            "--json",
+            str(report),
+        ]
+    )
+    assert code == 1
+    payload = json.loads(report.read_text())
+    assert payload["summary"]["partial"] == 1
+    assert payload["passed"] is False
+
+
+def test_packet_comparison_follows_the_output_stream_map(fixtures, tmp_path):
+    """A copy is judged against the *output* stream, not the input index.
+
+    Audio-first assets are ordinary MOV files; the remuxer writes video first,
+    so source and output indices differ. Comparing by source index would pit
+    AAC against H.264 and score a perfect copy as zero.
+    """
+    import av as _av
+    import numpy as _np
+
+    source = fixtures.normal
+    reordered = tmp_path / "audio_first.mov"
+    with _av.open(str(source)) as inp:
+        audio_src = next(s for s in inp.streams if s.type == "audio")
+        video_src = next(s for s in inp.streams if s.type == "video")
+        with _av.open(
+            str(reordered), mode="w", format="mov", options={"movflags": "+faststart"}
+        ) as out:
+            audio_out = out.add_stream(template=audio_src)
+            video_out = out.add_stream(template=video_src)
+            for packet in inp.demux():
+                if packet.size == 0:
+                    continue
+                packet.stream = (
+                    audio_out if packet.stream.index == audio_src.index else video_out
+                )
+                out.mux(packet)
+    probe = probe_asset(reordered)
+    assert [s.type for s in probe.streams][:2] == ["audio", "video"]
+    result = process_asset(reordered, _options(tmp_path / "work"))
+    assert result.result.status == "ok"
+    assert result.result.remux_packet_match_rate == 1.0
+    assert result.result.packet_copy_exact is True
+
+
+def test_healthy_multi_track_asset_reports_full_recovery(fixtures, tmp_path):
+    """A short commentary track must not depress recovery of the main programme."""
+    import av as _av
+    import numpy as _np
+
+    source = fixtures.normal
+    multi = tmp_path / "two_audio.mp4"
+    with _av.open(str(source)) as inp:
+        video_src = next(s for s in inp.streams if s.type == "video")
+        audio_src = next(s for s in inp.streams if s.type == "audio")
+        with _av.open(
+            str(multi), mode="w", format="mp4", options={"movflags": "+faststart"}
+        ) as out:
+            video_out = out.add_stream(template=video_src)
+            audio_out = out.add_stream(template=audio_src)
+            extra = out.add_stream("aac", rate=48000)
+            extra.layout, extra.bit_rate = "stereo", 64000
+            for packet in inp.demux():
+                if packet.size == 0:
+                    continue
+                packet.stream = (
+                    video_out if packet.stream.index == video_src.index else audio_out
+                )
+                out.mux(packet)
+            for offset in range(0, 48000 * 2, 1024):
+                frame = _av.AudioFrame.from_ndarray(
+                    _np.zeros((2, 1024), dtype=_np.float32), format="fltp", layout="stereo"
+                )
+                frame.sample_rate, frame.pts = 48000, offset
+                for packet in extra.encode(frame):
+                    out.mux(packet)
+            for packet in extra.encode():
+                out.mux(packet)
+
+    outcome = recover_asset(probe_asset(multi))
+    assert outcome.recovered_packets == outcome.expected_packets
+    assert outcome.recovery_rate == 1.0
+    assert outcome.plan.strategies == ["none"]
+
+
+def test_audio_leading_picture_loses_no_packets(fixtures, tmp_path):
+    """An audio lead-in must not push packets to a timestamp the muxer drops."""
+    import av as _av
+
+    shifted = tmp_path / "audio_leads.mp4"
+    with _av.open(str(fixtures.normal)) as inp:
+        with _av.open(
+            str(shifted), mode="w", format="mp4", options={"movflags": "+faststart"}
+        ) as out:
+            maps = {s.index: out.add_stream(template=s) for s in inp.streams}
+            for packet in inp.demux():
+                if packet.size == 0:
+                    continue
+                if packet.stream.type == "video":
+                    step = int(1 / packet.time_base)
+                    if packet.pts is not None:
+                        packet.pts += step
+                    if packet.dts is not None:
+                        packet.dts += step
+                packet.stream = maps[packet.stream.index]
+                out.mux(packet)
+
+    source_counts = {k: len(v) for k, v in _packets(shifted).items()}
+    result = process_asset(shifted, _options(tmp_path / "work"))
+    assert result.result.status == "ok"
+    assert result.result.packet_copy_exact is True
+    output_counts = {k: len(v) for k, v in _packets(result.result.output).items()}
+    assert output_counts == source_counts
+
+
+def test_one_bad_asset_fails_the_batch(fixtures, tmp_path):
+    delivery = tmp_path / "delivery"
+    delivery.mkdir()
+    import shutil
+
+    shutil.copyfile(fixtures.normal, delivery / "good.mp4")
+    (delivery / "broken.mp4").write_bytes(b"not a container" * 20)
+    report = tmp_path / "mixed.json"
+    code = main(
+        [
+            "process",
+            "--inputs",
+            str(delivery),
+            "--workdir",
+            str(tmp_path / "work"),
+            "--json",
+            str(report),
+        ]
+    )
+    assert code == 1, "a failed asset must not be reported as a clean batch"
+    payload = json.loads(report.read_text())
+    assert payload["summary"]["failed"] == 1
+    assert payload["passed"] is False
+    assert payload["exit_code"] == 1
+
+
+def test_truncation_reports_the_bytes_actually_missing(fixtures):
+    outcome = recover_asset(probe_asset(fixtures.truncated))
+    scan = outcome.scan
+    assert scan.declared_end is not None and scan.usable_until is not None
+    missing = scan.missing_bytes
+    # The demo cut is ~15 % of a ~113 KB mdat: thousands of bytes, not the
+    # handful between the last sample and the cut.
+    assert missing > 10_000
+    assert missing == scan.declared_end - scan.usable_until
+
 
 def test_cli_demo_and_verify_pass(tmp_path):
     workdir = tmp_path / "demo"
