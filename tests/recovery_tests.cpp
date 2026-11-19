@@ -176,3 +176,81 @@ TEST_CASE("reader: garbage stream reports failure with offset", "[reader]") {
   REQUIRE(d.offset >= 0);
   REQUIRE(frames.empty());
 }
+
+#include "media_archive/timestamp_repair.h"
+
+namespace {
+TransportPacket tp(uint32_t seq, uint64_t pts) {
+  TransportPacket p;
+  p.seq = seq;
+  p.pts_ticks = pts;
+  p.size_bytes = 100;
+  p.source_offset = seq * 100;
+  p.flag = PacketFlag::Ok;
+  return p;
+}
+}  // namespace
+
+TEST_CASE("pts: 33-bit wraparound is unwrapped", "[pts]") {
+  const uint64_t mod = 1ull << 33;
+  const uint64_t step = 3000;
+  std::vector<TransportPacket> in;
+  // Place the last frames just before and after the wrap boundary.
+  for (uint64_t i = 0; i < 8; ++i)
+    in.push_back(tp(static_cast<uint32_t>(i),
+                    (mod - 3 * step + i * step) % mod));
+  TimestampResult r = repair_timestamps(in, {});
+  REQUIRE(r.wrap_count == 1);
+  for (size_t i = 1; i < r.packets.size(); ++i) {
+    REQUIRE(r.packets[i].repaired_pts > r.packets[i - 1].repaired_pts);
+    REQUIRE(r.packets[i].repaired_pts -
+                r.packets[i - 1].repaired_pts ==
+            Catch::Approx(step).margin(1));
+  }
+  REQUIRE(r.packets[3].pts_wrapped);
+  REQUIRE_FALSE(r.packets[4].pts_wrapped);
+}
+
+TEST_CASE("pts: configured clock drift is removed", "[pts]") {
+  std::vector<TransportPacket> in;
+  const uint64_t step = 3000;
+  const double ppm = 500.0;  // 0.05% fast
+  for (uint64_t i = 0; i < 20; ++i) {
+    uint64_t pts = static_cast<uint64_t>(
+        std::llround(i * step * (1.0 + ppm / 1'000'000.0)));
+    in.push_back(tp(static_cast<uint32_t>(i), pts));
+  }
+  TimestampConfig cfg;
+  cfg.drift_ppm = ppm;
+  TimestampResult r = repair_timestamps(in, {}, cfg);
+  // After correction the tail delta must be back near the nominal step.
+  const uint64_t tail =
+      r.packets.back().repaired_pts - r.packets.front().repaired_pts;
+  REQUIRE(tail == Catch::Approx(19 * step).margin(2));
+}
+
+TEST_CASE("pts: non-monotonic jump without a gap is corrected", "[pts]") {
+  std::vector<TransportPacket> in;
+  for (uint64_t i = 0; i < 6; ++i)
+    in.push_back(tp(static_cast<uint32_t>(i), i * 3000));
+  in[4].pts_ticks = in[3].pts_ticks - 500;  // backwards jump
+  std::vector<uint32_t> gaps(6, 0);
+  TimestampResult r = repair_timestamps(in, gaps);
+  REQUIRE(r.corrected_jump_count >= 1);
+  REQUIRE(r.uncertain_count == 0);
+  REQUIRE(r.packets[4].repaired_pts > r.packets[3].repaired_pts);
+}
+
+TEST_CASE("pts: jump after a burst gap is marked uncertain", "[pts]") {
+  std::vector<TransportPacket> in;
+  for (uint64_t i = 0; i < 6; ++i)
+    in.push_back(tp(static_cast<uint32_t>(i), i * 3000));
+  in[4].pts_ticks = in[3].pts_ticks + 20 * 3000;  // unexplained large jump
+  std::vector<uint32_t> gaps(6, 0);
+  gaps[4] = 3;  // three missing packets precede this arrival
+  TimestampResult r = repair_timestamps(in, gaps);
+  REQUIRE(r.uncertain_count >= 1);
+  REQUIRE(r.packets[4].pts_uncertain);
+  // The observed value is preserved rather than silently rewritten.
+  REQUIRE(r.packets[4].repaired_pts == in[4].pts_ticks);
+}
