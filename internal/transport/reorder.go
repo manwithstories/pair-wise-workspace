@@ -62,11 +62,13 @@ type Stats struct {
 	Conflicts    int `json:"conflicts"`
 	Late         int `json:"late"`
 	Reordered    int `json:"reordered"`
-	Recovered    int `json:"recovered"`
+	Timeouts     int `json:"timeouts"`
+	Skipped      int `json:"skipped_packets"`
 	PeakBuffered int `json:"peak_buffered"`
 }
 
-// Gap describes a contiguous run of missing extended sequence numbers.
+// Gap describes the single contiguous run of missing extended sequence numbers
+// currently blocking delivery.
 type Gap struct {
 	Track    string          `json:"track"`
 	StartExt uint64          `json:"start_ext"`
@@ -75,8 +77,13 @@ type Gap struct {
 	SinceUs  timeline.Micros `json:"since_us"`
 }
 
-// ReorderBuffer reorders one track's packets and reports gaps instead of
-// blocking indefinitely.
+// ReorderBuffer reorders one track's packets and reports the blocking gap
+// instead of blocking indefinitely.
+//
+// Invariant: drain() always leaves expected pointing at a sequence that is not
+// buffered. Therefore there is at most one open gap at a time: the run from
+// expected up to the lowest buffered sequence. That makes recovery exact — a
+// gap is either fully repaired or abandoned, never partially consumed.
 type ReorderBuffer struct {
 	track    string
 	limits   Limits
@@ -86,7 +93,8 @@ type ReorderBuffer struct {
 	buf      map[uint64]Packet
 	digests  map[uint64]uint64
 	maxSeen  uint64
-	gaps     map[uint64]Gap
+	gapSince timeline.Micros
+	haveGap  bool
 	stats    Stats
 	closed   bool
 }
@@ -105,7 +113,6 @@ func NewReorderBuffer(track string, limits Limits) (*ReorderBuffer, error) {
 		ext:     NewExtender(),
 		buf:     make(map[uint64]Packet),
 		digests: make(map[uint64]uint64),
-		gaps:    make(map[uint64]Gap),
 	}, nil
 }
 
@@ -115,20 +122,44 @@ func (r *ReorderBuffer) Track() string { return r.track }
 // Stats returns a snapshot of counters.
 func (r *ReorderBuffer) Stats() Stats { return r.stats }
 
-// Expected returns the next extended sequence number that will be delivered.
+// Expected returns the next extended sequence number to be delivered.
 func (r *ReorderBuffer) Expected() uint64 { return r.expected }
 
-// Buffered returns the number of packets held back by a gap.
+// Buffered returns the number of packets held back by the gap.
 func (r *ReorderBuffer) Buffered() int { return len(r.buf) }
 
-// OpenGaps returns gaps sorted by sequence number.
-func (r *ReorderBuffer) OpenGaps() []Gap {
-	out := make([]Gap, 0, len(r.gaps))
-	for _, g := range r.gaps {
-		out = append(out, g)
+// OpenGap returns the current blocking gap, if any.
+func (r *ReorderBuffer) OpenGap() (Gap, bool) {
+	if len(r.buf) == 0 {
+		return Gap{}, false
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].StartExt < out[j].StartExt })
-	return out
+	next := r.lowestBuffered()
+	if next <= r.expected {
+		return Gap{}, false
+	}
+	return Gap{
+		Track:    r.track,
+		StartExt: r.expected,
+		EndExt:   next - 1,
+		Count:    int(next - r.expected),
+		SinceUs:  r.gapSince,
+	}, true
+}
+
+// lowestBuffered returns the smallest buffered sequence strictly after expected.
+func (r *ReorderBuffer) lowestBuffered() uint64 {
+	first := uint64(0)
+	found := false
+	for ext := range r.buf {
+		if ext >= r.expected && (!found || ext < first) {
+			first = ext
+			found = true
+		}
+	}
+	if !found {
+		return r.expected
+	}
+	return first
 }
 
 // Push accepts a packet and returns, in order, every packet that became
@@ -178,42 +209,46 @@ func (r *ReorderBuffer) Push(p Packet, now timeline.Micros) ([]Packet, error) {
 	} else {
 		r.stats.Reordered++
 	}
-	if _, defeated := r.gaps[ext]; defeated {
-		delete(r.gaps, ext)
-	}
 	r.buf[ext] = p
 	r.digests[ext] = p.digest()
 	r.pruneDigests()
 	if len(r.buf) > r.limits.MaxBuffered {
-		return nil, &core.Error{Code: core.CodeOverLimit, Track: r.track,
-			Detail: "reorder buffer limit exceeded", Fatal: false}
+		// The queue outgrew its latency budget: advance past the hole instead
+		// of letting delay grow without bound.
+		out, skipped := r.Advance()
+		if skipped > 0 {
+			r.stats.Timeouts++
+			r.stats.Skipped += skipped
+		}
+		r.stats.PeakBuffered = maxInt(r.stats.PeakBuffered, len(r.buf))
+		return out, nil
 	}
 	r.stats.PeakBuffered = maxInt(r.stats.PeakBuffered, len(r.buf))
 	out := r.drain()
-	r.trackGap(now)
+	r.noteGap(now)
 	return out, nil
 }
 
-// drain emits the contiguous run starting at expected.
-func (r *ReorderBuffer) drain() []Packet {
-	var out []Packet
-	for {
-		p, ok := r.buf[r.expected]
-		if !ok {
-			break
-		}
-		delete(r.buf, r.expected)
-		out = append(out, p)
-		r.expected++
+// Insert places a retransmitted packet and drains whatever is now contiguous.
+// It is the recovery path and is validated by the caller's recovery source.
+func (r *ReorderBuffer) Insert(p Packet) []Packet {
+	if p.Ext < r.expected {
+		return nil
 	}
-	r.stats.Delivered += len(out)
-	return out
+	if _, dup := r.buf[p.Ext]; dup {
+		return nil
+	}
+	r.buf[p.Ext] = p
+	r.digests[p.Ext] = p.digest()
+	if p.Ext > r.maxSeen {
+		r.maxSeen = p.Ext
+	}
+	return r.drain()
 }
 
-// pruneDigests bounds duplicate-detection memory: once a packet is safely
-// behind the cursor by more than the buffer limit, a duplicate of it can only
-// be a late retransmission, which is still counted as late rather than
-// reordered. Keeping recent history is enough to catch common dupes.
+// pruneDigests bounds duplicate-detection memory: once a packet is far behind
+// the cursor, keeping its digest costs memory for little value, since a very
+// late duplicate is treated as late rather than reordered.
 func (r *ReorderBuffer) pruneDigests() {
 	limit := r.limits.MaxBuffered * 4
 	if len(r.digests) <= limit {
@@ -230,71 +265,70 @@ func (r *ReorderBuffer) pruneDigests() {
 	}
 }
 
-// trackGap records the hole revealed once packets are buffered beyond the
-// cursor. The gap start stays stable until the hole is filled or flushed.
-func (r *ReorderBuffer) trackGap(now timeline.Micros) {
-	if len(r.buf) == 0 {
-		return
-	}
-	first := uint64(0)
-	found := false
-	for ext := range r.buf {
-		if ext > r.expected && (!found || ext < first) {
-			first = ext
-			found = true
+// drain emits the contiguous run starting at expected.
+func (r *ReorderBuffer) drain() []Packet {
+	var out []Packet
+	for {
+		p, ok := r.buf[r.expected]
+		if !ok {
+			break
 		}
+		delete(r.buf, r.expected)
+		out = append(out, p)
+		r.expected++
 	}
-	if !found {
+	r.stats.Delivered += len(out)
+	if len(r.buf) == 0 {
+		r.haveGap = false
+	}
+	return out
+}
+
+// noteGap stamps the moment the current gap first appeared.
+func (r *ReorderBuffer) noteGap(now timeline.Micros) {
+	_, open := r.OpenGap()
+	if !open {
+		r.haveGap = false
 		return
 	}
-	if g, ok := r.gaps[r.expected]; ok {
-		g.EndExt = first - 1
-		g.Count = int(first - r.expected)
-		r.gaps[r.expected] = g
-		return
-	}
-	r.gaps[r.expected] = Gap{
-		Track:    r.track,
-		StartExt: r.expected,
-		EndExt:   first - 1,
-		Count:    int(first - r.expected),
-		SinceUs:  now,
+	if !r.haveGap {
+		r.haveGap = true
+		r.gapSince = now
 	}
 }
 
-// Flush forces delivery of every buffered packet in sequence order, skipping
-// remaining holes, and returns the packets plus the gaps that were skipped.
-// This is how a deadline is enforced: buffering never grows without bound.
-func (r *ReorderBuffer) Flush() ([]Packet, []Gap) {
-	out := r.drain()
-	skipped := r.OpenGaps()
-	for _, g := range skipped {
-		delete(r.gaps, g.StartExt)
+// GapAgeMs returns how long the current gap has been waiting.
+func (r *ReorderBuffer) GapAgeMs(now timeline.Micros) float64 {
+	if _, ok := r.OpenGap(); !ok {
+		return 0
 	}
+	return float64(now-r.gapSince) / 1000
+}
+
+// Advance skips the current gap and delivers everything buffered. It returns
+// the delivered packets and the number of skipped sequence numbers. It leaves
+// the buffer open, so a track can continue after a deadline.
+func (r *ReorderBuffer) Advance() ([]Packet, int) {
+	out := r.drain()
+	skipped := 0
 	if len(r.buf) > 0 {
-		exts := make([]uint64, 0, len(r.buf))
-		for ext := range r.buf {
-			exts = append(exts, ext)
+		next := r.lowestBuffered()
+		if next > r.expected {
+			skipped = int(next - r.expected)
+			r.expected = next
 		}
-		sort.Slice(exts, func(i, j int) bool { return exts[i] < exts[j] })
-		r.expected = exts[0]
 		out = append(out, r.drain()...)
 	}
-	r.closed = true
+	r.haveGap = false
 	return out, skipped
 }
 
-// Recovered marks a retransmitted packet as delivered at its position. The
-// caller has already validated the recovery source.
-func (r *ReorderBuffer) Recovered(p Packet) []Packet {
-	if p.Ext == 0 {
-		p.Ext = r.expected
-	}
-	r.stats.Delivered++
-	r.stats.Reordered++
-	r.digests[p.Ext] = p.digest()
-	delete(r.gaps, p.Ext)
-	return []Packet{p}
+// Flush delivers every remaining buffered packet in sequence order, skipping
+// any final hole, and closes the buffer.
+func (r *ReorderBuffer) Flush() ([]Packet, int) {
+	out, skipped := r.Advance()
+	r.closed = true
+	return out, skipped
 }
 
 func maxInt(a, b int) int {
@@ -302,4 +336,14 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// sortedExts is a helper for deterministic diagnostics.
+func sortedExts(m map[uint64]Packet) []uint64 {
+	out := make([]uint64, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }

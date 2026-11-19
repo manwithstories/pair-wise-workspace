@@ -17,15 +17,20 @@ const (
 
 // Node is one explicit track in the processing graph. Dependencies are other
 // track ids that must be processed first (for example audio beds feeding a mix
-// bus). Group marks tracks that share one capture bus, whose declared spans
-// must not overlap.
+// bus).
+//
+// ExclusiveGroup names a set of tracks that contend for one non-shareable
+// resource, such as successive takes assigned the same recording slot; members
+// of a group may not declare overlapping spans. Tracks without a group are
+// unrestricted: two camera angles covering the same wall-clock interval are
+// normal and must not be reported as an overlap fault.
 type Node struct {
-	Track     string     `json:"track"`
-	Kind      NodeKind   `json:"kind"`
-	DependsOn []string   `json:"depends_on,omitempty"`
-	Group     string     `json:"group,omitempty"`
-	Span      Span       `json:"span"`
-	Segments  []Span     `json:"segments,omitempty"`
+	Track          string     `json:"track"`
+	Kind           NodeKind   `json:"kind"`
+	DependsOn      []string   `json:"depends_on,omitempty"`
+	ExclusiveGroup string     `json:"exclusive_group,omitempty"`
+	Span           Span       `json:"span"`
+	Segments       []Span     `json:"segments,omitempty"`
 }
 
 // Graph is an explicit, ordered track graph. It never infers dependencies.
@@ -121,14 +126,15 @@ func (g *Graph) Validate() []*core.Error {
 			Fatal:  true,
 		})
 	}
-	// Group spans are mutually exclusive by definition: same capture bus.
+	// Exclusive groups are mutually exclusive by definition: members contend
+	// for one non-shareable slot.
 	byGroup := make(map[string][]*Node)
 	for _, id := range g.ids {
 		n := g.nodes[id]
-		if n.Group == "" {
+		if n.ExclusiveGroup == "" {
 			continue
 		}
-		byGroup[n.Group] = append(byGroup[n.Group], n)
+		byGroup[n.ExclusiveGroup] = append(byGroup[n.ExclusiveGroup], n)
 	}
 	for group, nodes := range byGroup {
 		sort.Slice(nodes, func(i, j int) bool { return nodes[i].Track < nodes[j].Track })

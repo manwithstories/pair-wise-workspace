@@ -45,7 +45,7 @@ func (f *Fixture) buildVideo(spec TrackSpec, rng *rand.Rand) error {
 		if key {
 			idx = append(idx, Keyframe{OffsetUs: timeline.Micros(off), Size: len(payload), PTS: pts, Key: true})
 		}
-		ts, err := ticksFor(spec.Timescale, pts-spec.Origin)
+		ts, err := ticksFor(spec.Timescale, pts)
 		if err != nil {
 			return err
 		}
@@ -91,7 +91,7 @@ func (f *Fixture) buildAudio(spec TrackSpec, rng *rand.Rand) error {
 		// deterministic content, not decodability.
 		buf := make([]byte, 24)
 		rng.Read(buf)
-		ts, err := ticksFor(spec.Timescale, at-spec.Origin)
+		ts, err := ticksFor(spec.Timescale, at)
 		if err != nil {
 			return err
 		}

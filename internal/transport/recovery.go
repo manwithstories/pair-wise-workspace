@@ -15,17 +15,40 @@ type RecoverySource interface {
 	Fetch(track string, ext uint64) (Packet, bool)
 }
 
+// GapViability is optionally implemented by a RecoverySource that knows the
+// current uplink budget. A gap that cannot fit on the link is unrecoverable
+// regardless of how many retries are attempted, which is the honest outcome on
+// a degraded connection.
+type GapViability interface {
+	GapViable(track string, startExt uint64, count int) bool
+}
+
 // RecoveryReport summarizes what happened while repairing one track.
 type RecoveryReport struct {
-	Track        string          `json:"track"`
-	Attempted    int             `json:"attempted"`
-	Recovered    int             `json:"recovered"`
-	Unrecoverable int            `json:"unrecoverable"`
-	Timeouts     int             `json:"timeouts"`
-	Affected     []timeline.Span `json:"affected_us,omitempty"`
-	BufferBound  int             `json:"buffer_bound"`
-	MaxDelayMs   float64         `json:"max_delay_ms"`
+	Track         string  `json:"track"`
+	Attempted     int     `json:"attempted_gaps"`
+	Recovered     int     `json:"recovered_gaps"`
+	Unrecoverable int     `json:"unrecoverable_gaps"`
+	Timeouts      int     `json:"timeouts"`
+	AbandonedPkts int     `json:"abandoned_packets"`
+	BufferBound   int     `json:"buffer_bound"`
+	MaxDelayMs    float64 `json:"max_delay_ms"`
 }
+
+// Outcome classifies a repair attempt.
+type Outcome int
+
+const (
+	// NoGap means there was nothing to repair.
+	NoGap Outcome = iota
+	// Healed means the gap was fully restored and delivery resumed.
+	Healed
+	// Blocked means the gap is still within its deadline and may yet heal.
+	Blocked
+	// Unrecoverable means the gap can never be restored; the caller must
+	// advance past it.
+	Unrecoverable
+)
 
 // RecoveryPolicy bounds how hard a single weak track may delay the pipeline.
 type RecoveryPolicy struct {
@@ -48,11 +71,12 @@ func DefaultRecoveryPolicy() RecoveryPolicy {
 // abandoned. It never blocks: every call returns immediately with whatever is
 // currently recoverable.
 type RecoveryEngine struct {
-	policy  RecoveryPolicy
-	ctrl    *BandwidthController
-	src     RecoverySource
-	reports map[string]*RecoveryReport
-	order   []string
+	policy    RecoveryPolicy
+	ctrl      *BandwidthController
+	src       RecoverySource
+	reports   map[string]*RecoveryReport
+	order     []string
+	attempted map[string]uint64 // track -> gap start already attempted
 }
 
 // NewRecoveryEngine wires a recovery source and bandwidth policy.
@@ -71,12 +95,16 @@ func NewRecoveryEngine(policy RecoveryPolicy, src RecoverySource) *RecoveryEngin
 		ctrl.MaxDelayMs = policy.MaxDelayMs
 	}
 	return &RecoveryEngine{
-		policy:  policy,
-		ctrl:    ctrl,
-		src:     src,
-		reports: make(map[string]*RecoveryReport),
+		policy:    policy,
+		ctrl:      ctrl,
+		src:       src,
+		reports:   make(map[string]*RecoveryReport),
+		attempted: make(map[string]uint64),
 	}
 }
+
+// Policy returns the active policy.
+func (e *RecoveryEngine) Policy() RecoveryPolicy { return e.policy }
 
 // BufferBound returns the current per-track packet bound implied by bandwidth.
 func (e *RecoveryEngine) BufferBound() int { return e.ctrl.MaxBuffered(e.policy.BandwidthMBps) }
@@ -99,79 +127,68 @@ func (e *RecoveryEngine) report(track string) *RecoveryReport {
 	return r
 }
 
-// Recover processes a track's open gaps. It returns recovered packets in
-// sequence order, and the gaps that are now abandoned with their affected
-// time spans. A gap that cannot be repaired never blocks other tracks.
-func (e *RecoveryEngine) Recover(buf *ReorderBuffer, mkSpan func(ext uint64) timeline.Span, now timeline.Micros) ([]Packet, *RecoveryReport, error) {
+// RepairGap attempts the single open gap for a track. It is idempotent for one
+// gap: repeated calls before the gap heals or is abandoned do not inflate the
+// counters.
+//
+// A gap is healed only if every packet in it can be retransmitted. A partially
+// repaired gap is not consumed: the caller either keeps waiting or advances
+// past it, so a consumer never sees a half-restored span.
+func (e *RecoveryEngine) RepairGap(buf *ReorderBuffer, now timeline.Micros) ([]Packet, Outcome, *RecoveryReport) {
 	if buf == nil {
-		return nil, nil, &core.Error{Code: core.CodeInternal, Detail: "nil reorder buffer", Fatal: true}
+		return nil, Unrecoverable, nil
 	}
 	rep := e.report(buf.Track())
 	rep.BufferBound = e.BufferBound()
 	rep.MaxDelayMs = e.ctrl.MaxDelayMs
 
-	gaps := buf.OpenGaps()
-	if len(gaps) == 0 {
-		return nil, rep, nil
+	g, ok := buf.OpenGap()
+	if !ok {
+		return nil, NoGap, rep
 	}
-	var recovered []Packet
-	var abandoned []Gap
-	for _, g := range gaps {
-		rep.Attempted++
-		got := false
-		if e.src != nil {
-			for ext := g.StartExt; ext <= g.EndExt; ext++ {
-				if p, ok := e.src.Fetch(buf.Track(), ext); ok {
-					p.Ext = ext
-					p.Retransmit = true
-					recovered = append(recovered, buf.Recovered(p)...)
-					got = true
-				}
-			}
+	if prev, done := e.attempted[buf.Track()]; done && prev == g.StartExt {
+		// Already tried this exact gap; only the deadline can change things.
+		if buf.GapAgeMs(now) >= e.policy.DeadlineMs {
+			return nil, Unrecoverable, rep
 		}
-		if got {
-			rep.Recovered++
-			continue
+		return nil, Blocked, rep
+	}
+	e.attempted[buf.Track()] = g.StartExt
+	rep.Attempted++
+
+	viable, _ := e.src.(GapViability)
+	if e.src == nil || (viable != nil && !viable.GapViable(buf.Track(), g.StartExt, g.Count)) {
+		rep.Unrecoverable++
+		rep.AbandonedPkts += g.Count
+		return nil, Unrecoverable, rep
+	}
+
+	got := make([]Packet, 0, g.Count)
+	for ext := g.StartExt; ext <= g.EndExt; ext++ {
+		var p Packet
+		fetched := false
+		for attempt := 0; attempt < e.policy.MaxRetries && !fetched; attempt++ {
+			p, fetched = e.src.Fetch(buf.Track(), ext)
 		}
-		ageMs := float64(now-g.SinceUs) / 1000
-		if ageMs >= e.policy.DeadlineMs {
-			rep.Timeouts++
+		if !fetched {
 			rep.Unrecoverable++
-			abandoned = append(abandoned, g)
+			rep.AbandonedPkts += g.Count
+			if buf.GapAgeMs(now) >= e.policy.DeadlineMs {
+				rep.Timeouts++
+			}
+			return nil, Unrecoverable, rep
 		}
+		p.Ext = ext
+		p.Retransmit = true
+		got = append(got, p)
+	}
+	rep.Recovered++
+	var recovered []Packet
+	for _, p := range got {
+		recovered = append(recovered, buf.Insert(p)...)
 	}
 	sort.Slice(recovered, func(i, j int) bool { return recovered[i].Ext < recovered[j].Ext })
-	for _, g := range abandoned {
-		// Only the sequence span is known here; the caller maps it onto media
-		// time with codec keyframe boundaries.
-		rep.Affected = append(rep.Affected, spanForGap(g, mkSpan))
-	}
-	return recovered, rep, nil
-}
-
-// spanForGap converts a sequence gap into a media span using the caller's
-// mapping, falling back to a zero span when the mapping is unavailable.
-func spanForGap(g Gap, mkSpan func(ext uint64) timeline.Span) timeline.Span {
-	if mkSpan == nil {
-		return timeline.Span{}
-	}
-	start := mkSpan(g.StartExt)
-	end := mkSpan(g.EndExt + 1)
-	if end.Start <= start.Start {
-		// Single packet gap: derive an end from the next packet's start.
-		end = timeline.Span{Start: start.End, End: start.End}
-	}
-	if !start.Valid() || end.Start < start.Start {
-		return timeline.Span{}
-	}
-	return timeline.Span{Start: start.Start, End: maxMicros(end.Start, start.End)}
-}
-
-func maxMicros(a, b timeline.Micros) timeline.Micros {
-	if a > b {
-		return a
-	}
-	return b
+	return recovered, Healed, rep
 }
 
 // Report returns the accumulated report for a track.
@@ -191,7 +208,7 @@ func (e *RecoveryEngine) Reports() []*RecoveryReport {
 	return out
 }
 
-// RecoveryRate returns recovered/(attempted) across all tracks, or 1 when no
+// RecoveryRate returns recovered/attempted across all tracks, or 1 when no
 // gaps were ever attempted.
 func (e *RecoveryEngine) RecoveryRate() float64 {
 	attempted, recovered := 0, 0
@@ -204,3 +221,16 @@ func (e *RecoveryEngine) RecoveryRate() float64 {
 	}
 	return float64(recovered) / float64(attempted)
 }
+
+// Unrecoverable reports whether any track permanently lost media.
+func (e *RecoveryEngine) HasUnrecoverable() bool {
+	for _, r := range e.reports {
+		if r.Unrecoverable > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// Ensure core is referenced even if future edits drop other uses.
+var _ = core.CodeTimeout
