@@ -1,4 +1,84 @@
-// 同步恢复模块骨架（第 7 批实现）。
+#include "sync_recovery.hpp"
+#include "media_clock.hpp"
+
+#include <cmath>
+#include <limits>
+
 namespace ma {
-int sync_recovery_placeholder() { return 0; }
+
+bool SyncRecovery::interpolate(const std::vector<Point>& s, double t,
+                               double& out) {
+    if (s.empty()) return false;
+    if (t <= s.front().t) { out = s.front().offset; return true; }
+    if (t >= s.back().t) { out = s.back().offset; return true; }
+    for (size_t i = 1; i < s.size(); ++i) {
+        if (t <= s[i].t) {
+            const double span = s[i].t - s[i - 1].t;
+            const double f = span > 0.0 ? (t - s[i - 1].t) / span : 0.0;
+            out = s[i - 1].offset + f * (s[i].offset - s[i - 1].offset);
+            return true;
+        }
+    }
+    return false;
+}
+
+double SyncRecovery::rms(const std::vector<double>& v) {
+    if (v.empty()) return 0.0;
+    double sum = 0.0;
+    for (double x : v) sum += x * x;
+    return std::sqrt(sum / static_cast<double>(v.size()));
+}
+
+SyncReport SyncRecovery::estimate() const {
+    SyncReport rep;
+    if (video_.empty() || audio_.empty()) return rep;
+
+    // 1) 在视频参考时刻配对音视频偏移：avOffset = videoOff - audioOff。
+    std::vector<Point> pairs;
+    for (const auto& vp : video_) {
+        double aOff = 0.0;
+        if (!interpolate(audio_, vp.t, aOff)) continue;
+        pairs.push_back({vp.t, vp.offset - aOff});
+    }
+    if (pairs.size() < 2) return rep;
+    rep.sampleCount = static_cast<int>(pairs.size());
+
+    for (const auto& p : pairs) rep.rawOffsetsMs.push_back(p.offset);
+
+    // 2) 最小二乘拟合 offset(t) = b + k*t（k 单位 ms/ms）。
+    const double n = static_cast<double>(pairs.size());
+    double st = 0.0, so = 0.0;
+    for (const auto& p : pairs) { st += p.t; so += p.offset; }
+    const double mt = st / n, mo = so / n;
+    double sxx = 0.0, sxy = 0.0;
+    for (const auto& p : pairs) {
+        sxx += (p.t - mt) * (p.t - mt);
+        sxy += (p.t - mt) * (p.offset - mo);
+    }
+    const double k = sxx > 1e-12 ? sxy / sxx : 0.0;
+    const double b = mo - k * mt;
+    rep.initialOffsetMs = b + k * pairs.front().t;
+    rep.driftPpm = k * 1e6;
+
+    // 3) 校正只生成残差序列；原始偏移原样保留，不被覆盖。
+    std::vector<double> beforeAbs, afterAbs;
+    for (const auto& p : pairs) {
+        const double residual = p.offset - (b + k * p.t);
+        rep.residualsMs.push_back(residual);
+        beforeAbs.push_back(std::fabs(p.offset));
+        afterAbs.push_back(std::fabs(residual));
+    }
+    rep.errorBeforeRmsMs = rms(rep.rawOffsetsMs);
+    rep.errorAfterRmsMs = rms(rep.residualsMs);
+    rep.errorBeforeP95Ms = percentileMs(beforeAbs, 95.0);
+    rep.errorAfterP95Ms = percentileMs(afterAbs, 95.0);
+
+    // 4) 异常点：残差超过 3 倍残差 RMS（校正不掩盖原始异常）。
+    const double thr = 3.0 * rep.errorAfterRmsMs;
+    if (thr > 0.0)
+        for (double r : rep.residualsMs)
+            if (std::fabs(r) > thr) ++rep.anomalyCount;
+    return rep;
+}
+
 } // namespace ma

@@ -105,3 +105,67 @@ TEST_CASE("pipeline: 延迟 P95 与 RSS 采样可用", "[pipeline]") {
     REQUIRE(rss > 0.0);
     REQUIRE(rss < 512.0); // 测试进程自身不应超过 512 MiB
 }
+
+#include "sync_recovery.hpp"
+
+TEST_CASE("sync: 完美同步误差为零", "[sync]") {
+    SyncRecovery sr;
+    for (int i = 0; i <= 100; ++i) {
+        const double t = i * 40.0; // 25fps，ms
+        sr.addVideo(t, t);
+        sr.addAudio(t, t);
+    }
+    const auto r = sr.estimate();
+    REQUIRE(r.sampleCount == 101);
+    REQUIRE(r.errorAfterRmsMs == Approx(0.0).margin(1e-9));
+    REQUIRE(r.driftPpm == Approx(0.0).margin(1e-6));
+}
+
+TEST_CASE("sync: 恒定音画偏移可被截距校正", "[sync]") {
+    SyncRecovery sr;
+    for (int i = 0; i <= 100; ++i) {
+        const double t = i * 40.0;
+        sr.addVideo(t + 12.0, t); // 视频恒定超前 12ms
+        sr.addAudio(t, t);
+    }
+    const auto r = sr.estimate();
+    REQUIRE(r.initialOffsetMs == Approx(12.0).margin(1e-6));
+    REQUIRE(r.driftPpm == Approx(0.0).margin(1e-6));
+    REQUIRE(r.errorAfterRmsMs == Approx(0.0).margin(1e-9));
+}
+
+TEST_CASE("sync: 渐进漂移 100ppm 被识别且校正后误差达标", "[sync]") {
+    SyncRecovery sr;
+    const double ppm = 100.0;
+    for (int i = 0; i <= 250; ++i) { // 10 秒 @25fps
+        const double t = i * 40.0;
+        const double drift = t * ppm / 1e6; // ms
+        sr.addVideo(t + drift, t);
+        sr.addAudio(t, t);
+    }
+    const auto r = sr.estimate();
+    REQUIRE(r.driftPpm == Approx(100.0).margin(0.5));
+    REQUIRE(r.errorAfterP95Ms < 20.0);
+    REQUIRE(r.errorBeforeP95Ms > r.errorAfterP95Ms);
+}
+
+TEST_CASE("sync: 校正不掩盖异常且保留原始偏移", "[sync]") {
+    SyncRecovery sr;
+    for (int i = 0; i <= 200; ++i) {
+        const double t = i * 40.0;
+        const double glitch = (i == 100) ? 80.0 : 0.0;
+        sr.addVideo(t + glitch, t);
+        sr.addAudio(t, t);
+    }
+    const auto r = sr.estimate();
+    REQUIRE(r.anomalyCount >= 1);
+    REQUIRE(r.rawOffsetsMs.size() == r.residualsMs.size());
+    REQUIRE(r.rawOffsetsMs[100] == Approx(80.0)); // 原始观测未被修改
+}
+
+TEST_CASE("sync: 缺流/样本不足安全返回", "[sync]") {
+    SyncRecovery sr;
+    REQUIRE(sr.estimate().sampleCount == 0);
+    sr.addVideo(0.0, 0.0);
+    REQUIRE(sr.estimate().sampleCount == 0);
+}
