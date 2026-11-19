@@ -311,6 +311,7 @@ def _mkv_index_health(path: Path) -> tuple[bool, list[str], int | None]:
 
     times: list[int] = []
     offenders: set[str] = set()
+    cue_entries: list[dict[str, object]] = []
     cursor = 0
     header_size_total = len(data)
     while cursor < len(cues_payload):
@@ -326,6 +327,7 @@ def _mkv_index_health(path: Path) -> tuple[bool, list[str], int | None]:
         point_start = cursor + element_id_len + element_size_len
         point_end = min(len(cues_payload), point_start + element_size)
         time_value, position_value = _parse_cue_point(cues_payload, point_start, point_end)
+        cue_entries.append({"time": time_value, "cluster_position": position_value})
         if time_value is not None:
             if times and time_value < times[-1]:
                 offenders.add("cue_out_of_order")
@@ -341,7 +343,62 @@ def _mkv_index_health(path: Path) -> tuple[bool, list[str], int | None]:
         "cue_out_of_order": 1,
         "cue_past_eof": 2,
     }
+    _MKV_CUE_CACHE[str(path)] = cue_entries
     return True, sorted(offenders, key=lambda name: order.get(name, 99)), len(times)
+
+
+#: Raw Matroska cue entries keyed by file path, so the keyframe validator can
+#: check the container's *own* index instead of only re-scanning packets.
+_MKV_CUE_CACHE: dict[str, list[dict[str, object]]] = {}
+
+
+def mkv_cue_entries(path: Path) -> list[dict[str, object]]:
+    """Return the Matroska cue entries for ``path`` (empty for other formats).
+
+    Entries are ``{"time": int | None, "cluster_position": int | None}`` in
+    file order, including entries a well-behaved muxer would never write.
+    """
+    key = str(path)
+    if key not in _MKV_CUE_CACHE:
+        _mkv_index_health(path)
+    return list(_MKV_CUE_CACHE.get(key, []))
+
+
+def mkv_cue_scale_ns(path: Path) -> int:
+    """Timestamp scale of the Matroska segment (nanoseconds per tick)."""
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return 1_000_000
+    marker = b"\x2a\xd7\xb1"  # TimestampScale
+    position = data.find(marker)
+    if position < 0:
+        return 1_000_000
+    size, size_len = _read_size(data, position + len(marker))
+    if not size:
+        return 1_000_000
+    start = position + len(marker) + size_len
+    return int.from_bytes(data[start:start + size], "big") or 1_000_000
+
+
+def mkv_segment_start(path: Path) -> int:
+    """Byte offset of the Segment's body, needed to resolve cue positions."""
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return 0
+    if not data.startswith(b"\x1a\x45\xdf\xa3"):
+        return 0
+    _, id_len = _read_vint(data, 0)
+    header_size, size_len = _read_size(data, id_len)
+    if header_size is None:
+        return 0
+    position = id_len + size_len + header_size
+    segment_id, segment_id_len = _read_vint(data, position)
+    if segment_id is None:
+        return 0
+    _, segment_size_len = _read_size(data, position + segment_id_len)
+    return position + segment_id_len + segment_size_len
 
 
 def _parse_cue_point(payload: bytes, start: int, end: int) -> tuple[int | None, int | None]:
@@ -502,7 +559,14 @@ def probe(
 
         if "matroska" in format_name or "webm" in format_name:
             has_cues, problems, cue_count = _mkv_index_health(source)
-            index_info = {"has_cues": has_cues, "problems": problems, "cue_count": cue_count}
+            index_info = {
+                "has_cues": has_cues,
+                "problems": problems,
+                "cue_count": cue_count,
+                "cue_entries": mkv_cue_entries(source) if has_cues else [],
+                "cue_scale_ns": mkv_cue_scale_ns(source),
+                "segment_start": mkv_segment_start(source),
+            }
             if not has_cues:
                 issues.append(
                     ProbeIssue(
@@ -674,6 +738,9 @@ __all__ = [
     "ProbeResult",
     "StreamInfo",
     "AircheckError",
+    "mkv_cue_entries",
+    "mkv_cue_scale_ns",
+    "mkv_segment_start",
     "probe",
     "require_media",
 ]
