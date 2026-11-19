@@ -129,21 +129,38 @@ def default_thresholds(duration_us: int) -> dict:
 def decide_exit_code(manifest: Manifest, results: dict[str, TrackResult],
                      metrics: Metrics, hard_input_error: ExitCode | None
                      ) -> ExitCode:
-    """聚合问题严重度。硬输入错误（清单/色彩 error 策略）优先。"""
+    """按根因类别裁决退出码。
+
+    四类退出码是并列的失败模式而非数值严重度排序：
+    - UPSTREAM_FAILED 只是级联标记，不决定退出码（根因在上游轨）；
+    - inherit 策略下已消解的色彩冲突不阻断（error 策略在调度前已抛 2）；
+    - 内部错误(1)优先于素材不可恢复(3)，因为它代表流水线自身缺陷。
+    """
     if hard_input_error is not None:
         return hard_input_error
-    worst = ExitCode.OK
+    internal = invalid = unrecoverable = False
     for r in results.values():
         for issue in r.issues:
             cat = issue.category
+            if cat is ErrorCategory.UPSTREAM_FAILED:
+                continue
+            if issue.recovered and cat.exit_code is ExitCode.OK:
+                continue
             if cat is ErrorCategory.COLOR_CONFLICT:
-                worst = ExitCode(max(worst, ExitCode.INVALID_INPUT))
-            elif cat.exit_code is ExitCode.UNRECOVERABLE and \
-                    issue.recovered is not True:
-                worst = ExitCode(max(worst, ExitCode.UNRECOVERABLE))
-            elif cat.exit_code is ExitCode.INTERNAL:
-                worst = ExitCode(max(worst, ExitCode.INTERNAL))
-    return worst
+                continue  # inherit 已消解；error 策略走 hard_input_error
+            if cat.exit_code is ExitCode.INTERNAL:
+                internal = True
+            elif cat.exit_code is ExitCode.INVALID_INPUT:
+                invalid = True
+            elif cat.exit_code is ExitCode.UNRECOVERABLE:
+                unrecoverable = True
+    if internal:
+        return ExitCode.INTERNAL
+    if invalid:
+        return ExitCode.INVALID_INPUT
+    if unrecoverable:
+        return ExitCode.UNRECOVERABLE
+    return ExitCode.OK
 
 
 def build_report(manifest: Manifest, results: dict[str, TrackResult],
