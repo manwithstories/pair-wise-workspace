@@ -66,6 +66,11 @@ func Generate(cfg Config) (*Fixture, error) {
 	if cfg.VideoFrames <= 0 {
 		cfg.VideoFrames = 240
 	}
+	// The fixture needs at least two keyframe intervals and a sample after the
+	// planted damage for the bracketing search to have anything to find.
+	if cfg.VideoFrames < 12 {
+		return nil, fmt.Errorf("video frames must be at least 12, got %d", cfg.VideoFrames)
+	}
 	if cfg.AudioChunks <= 0 {
 		cfg.AudioChunks = 384
 	}
@@ -75,10 +80,14 @@ func Generate(cfg Config) (*Fixture, error) {
 		// real gaps, a late packet and duplicates.
 		cfg.LossEvery = 25
 	}
-	if cfg.CorruptAt <= 0 || cfg.CorruptAt >= cfg.VideoFrames {
-		// Mid-GOP, never on a keyframe: the damage must be bracketed by the
-		// previous and next decodable keyframes to exercise the search.
+	if cfg.CorruptAt <= 0 || cfg.CorruptAt >= cfg.VideoFrames-1 {
+		// Mid-GOP, never on a keyframe and never the last sample: the damage
+		// must be bracketed by the previous and next decodable keyframes to
+		// exercise the search.
 		cfg.CorruptAt = cfg.VideoFrames/2 + 3
+		if cfg.CorruptAt >= cfg.VideoFrames {
+			cfg.CorruptAt = cfg.VideoFrames - 2
+		}
 	}
 	if cfg.OutDir == "" {
 		return nil, fmt.Errorf("out dir is required")
