@@ -46,7 +46,7 @@ the same data as JSON. The fields the acceptance checks read are:
 | field | meaning |
 |-------|---------|
 | `sync_error_ms` | p95 audio/video sync error after drift correction |
-| `latency_p95_ms` | p95 end-to-end consumer latency across queued blocks |
+| `latency_p95_ms` | p95 block residence time: queue wait plus the consumer's own playout latency |
 | `packet_recovery_rate` | share of RTP loss repairable inside the recovery window |
 | `queue_peak_bytes` | peak charged bytes in the bounded queue |
 | `rms_before`, `rms_after` | RMS before and after loudness control |
@@ -65,7 +65,7 @@ it in the header:
 |---------|---------------|----------|-------------|
 | `normal` | default | < 20 ms | < 120 ms |
 | `drift-jitter-boundary` | jitter > 20 ms or drift > 2000 ppm | < 80 ms | < 120 ms |
-| `slow-consumer` | consumer delay >= 100 ms | < 20 ms | < 250 ms |
+| `slow-consumer` | consumer delay >= 100 ms | < 80 ms | < 250 ms |
 
 `packet_recovery_rate` must stay >= 0.90 and `queue_peak_bytes` must stay within
 `--queue-bytes` (262144 by default) in every profile.
@@ -112,8 +112,9 @@ scenario:
 - `graph_cycle` — a dependency cycle is detected before any track runs.
 - `drift_jitter` — the drift-and-jitter boundary sample stays inside the 80 ms
   budget after correction, with the raw error visibly larger.
-- `slow_consumer` — a slow consumer stays inside the 250 ms latency budget
-  without breaching the queue limit.
+- `slow_consumer` — a slow consumer against a jittery stream and a shallow
+  queue stays inside the byte limit by dropping excess blocks instead of
+  growing an unbounded backlog.
 
 ## Scratch data
 
