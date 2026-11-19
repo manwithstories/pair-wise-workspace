@@ -64,8 +64,23 @@ func TestParseDetectsTruncatedDataPayload(t *testing.T) {
 	img, _ := Encode(f, make([]float64, 40), 20)
 	short := img[:len(img)-7]
 	_, err := Parse(short, "")
-	if e := fault.Root(err); e == nil {
+	e := fault.Root(err)
+	if e == nil {
 		t.Fatal("truncated payload accepted")
+	}
+	// The data chunk itself overruns, so the error must point into it rather
+	// than blame the RIFF size field.
+	if e.Code != fault.CodeWAVLength || !e.HasOffset || e.Offset < 40 {
+		t.Fatalf("want data-length error inside payload, got %+v", e)
+	}
+}
+
+func TestParseDetectsTruncatedHeaderOnly(t *testing.T) {
+	f := testFormat(48000, 2, 16, 0)
+	img, _ := Encode(f, make([]float64, 4), 2)
+	_, err := Parse(img[:30], "")
+	if e := fault.Root(err); e == nil {
+		t.Fatal("truncated header accepted")
 	}
 }
 

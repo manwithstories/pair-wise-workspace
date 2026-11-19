@@ -53,12 +53,12 @@ func Parse(src []byte, expectedLayout string) (Info, error) {
 			"missing RIFF/WAVE magic").At(0)
 	}
 	riffSize := int64(binary.LittleEndian.Uint32(src[4:8])) + 8
-	if riffSize > int64(len(src)) {
-		return Info{}, fault.New(fault.CodeWAVLength, "audio.wav.parse",
-			"RIFF declares %d bytes but file has %d", riffSize, len(src)).At(4)
-	}
+	// A truncated file overstates the RIFF size. Keep scanning the bytes that
+	// are present so the error can name the chunk that actually overruns; if
+	// every chunk fits, the mismatch itself is the error.
+	truncated := riffSize > int64(len(src))
 	end := int64(len(src))
-	if riffSize >= 12 && riffSize < end {
+	if !truncated && riffSize >= 12 && riffSize < end {
 		end = riffSize
 	}
 
@@ -109,6 +109,10 @@ func Parse(src []byte, expectedLayout string) (Info, error) {
 	}
 	if !dataSeen {
 		return Info{}, fault.New(fault.CodeWAVFormat, "audio.wav.parse", "missing data chunk").At(end)
+	}
+	if truncated {
+		return Info{}, fault.New(fault.CodeWAVLength, "audio.wav.parse",
+			"RIFF declares %d bytes but file has %d", riffSize, len(src)).At(4)
 	}
 	align := info.Format.BlockAlign()
 	if align <= 0 || info.DataBytes%int64(align) != 0 {
