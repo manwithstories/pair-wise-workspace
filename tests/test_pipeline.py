@@ -390,6 +390,47 @@ def test_cli_demo_and_verify_pass(tmp_path):
     assert main(["verify", "--report", str(report)]) == 0
 
 
+def test_process_without_markers_skips_sync_threshold(fixtures, tmp_path):
+    inputs = tmp_path / "delivery"
+    inputs.mkdir()
+    report = tmp_path / "process.json"
+    code = main(
+        [
+            "process",
+            "--inputs",
+            str(inputs),
+            "--workdir",
+            str(tmp_path),
+        ]
+    )
+    assert code == 2, "an empty delivery folder is a usage error"
+
+    # A real folder without sync markers: sync cannot be measured, so the
+    # threshold is reported as not applicable rather than failed.
+    import shutil
+
+    shutil.copyfile(fixtures.normal, inputs / fixtures.normal.name)
+    report_path = tmp_path / "batch.json"
+    assert (
+        main(
+            [
+                "process",
+                "--inputs",
+                str(inputs),
+                "--workdir",
+                str(tmp_path / "work"),
+                "--json",
+                str(report_path),
+            ]
+        )
+        == 0
+    )
+    payload = json.loads(report_path.read_text())
+    assert payload["thresholds"]["sync_error_ms"]["applicable"] is False
+    assert payload["thresholds"]["damaged_samples"]["applicable"] is False
+    assert payload["passed"] is True
+
+
 def test_cli_usage_errors_use_exit_two(tmp_path):
     assert main(["process", "--inputs", str(tmp_path / "nope"), "--workdir", str(tmp_path)]) == 2
     assert main(["verify", "--report", str(tmp_path / "missing.json")]) == 2

@@ -35,6 +35,10 @@ python3.12 -m venv .venv
 | `remux_packet_match_rate` | ≥ 0.99 | 输出与保留包逐字节比对，取最小值 |
 | `damaged_samples` | ≥ 3 | 被识别并恢复（`recovered`/`partial`）的素材数量 |
 
+`sync_error_ms` 需要素材内置同步标记；`process` 对任意交付目录运行，若目录里没有标记素材，
+该项标为 `applicable: false` 并跳过（不判失败）。`damaged_samples` 同理只在 `demo`
+（内置三个受损样例）中作为验收项。
+
 ## 设计要点
 
 **时间基准统一为有理数。** `timeline.py` 中所有时间都是

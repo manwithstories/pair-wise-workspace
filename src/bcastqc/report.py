@@ -102,6 +102,7 @@ class BatchReport:
     started_at: str
     finished_at: str
     fatal_assets: int = 0
+    scenario: str = "process"
 
     @property
     def successful(self) -> list[AssetResult]:
@@ -148,10 +149,16 @@ class BatchReport:
         index = max(0, math.ceil(0.95 * len(values)) - 1)
         return values[index]
 
+    def sync_measured(self) -> bool:
+        """True when at least one asset carried markers to measure sync with."""
+        return any(r.sync_error_ms is not None for r in self.successful)
+
     def thresholds(self) -> dict[str, dict[str, Any]]:
         sync = self.sync_error_ms()
         return {
-            "sync_error_ms": _check(sync, THRESHOLDS["sync_error_ms"], "max"),
+            "sync_error_ms": _check(
+                sync, THRESHOLDS["sync_error_ms"], "max", applicable=self.sync_measured()
+            ),
             "recovery_rate": _check(self.recovery_rate(), THRESHOLDS["recovery_rate"], "min"),
             "p95_latency_ms": _check(
                 self.p95_latency_ms(), THRESHOLDS["p95_latency_ms"], "max"
@@ -162,7 +169,13 @@ class BatchReport:
                 "min",
             ),
             "damaged_samples": _check(
-                float(len(self.damaged_samples)), THRESHOLDS["damaged_samples"], "min"
+                float(len(self.damaged_samples)),
+                THRESHOLDS["damaged_samples"],
+                "min",
+                # The demo ships three deliberately damaged assets, so the
+                # count is part of its acceptance.  A real delivery folder may
+                # legitimately contain none.
+                applicable=self.scenario == "demo",
             ),
         }
 
@@ -185,6 +198,7 @@ class BatchReport:
             "workdir": str(self.workdir),
             "started_at": self.started_at,
             "finished_at": self.finished_at,
+            "scenario": self.scenario,
             "assets": [r.to_dict() for r in self.results],
             "summary": {
                 "assets": len(self.results),
@@ -217,14 +231,37 @@ def _version() -> str:
     return __version__
 
 
-def _check(value: float | None, threshold: float, mode: str) -> dict[str, Any]:
+def _check(
+    value: float | None,
+    threshold: float,
+    mode: str,
+    *,
+    applicable: bool = True,
+) -> dict[str, Any]:
+    if not applicable:
+        # ``process`` runs on arbitrary delivery folders that carry no sync
+        # markers; reporting "not applicable" is honest, failing them is not.
+        return {
+            "value": None,
+            "threshold": threshold,
+            "mode": mode,
+            "applicable": False,
+            "passed": True,
+        }
     if value is None:
-        return {"value": None, "threshold": threshold, "mode": mode, "passed": False}
+        return {
+            "value": None,
+            "threshold": threshold,
+            "mode": mode,
+            "applicable": True,
+            "passed": False,
+        }
     passed = value <= threshold if mode == "max" else value >= threshold
     return {
         "value": _round(value),
         "threshold": threshold,
         "mode": mode,
+        "applicable": True,
         "passed": bool(passed),
     }
 
@@ -269,6 +306,9 @@ def verify_thresholds(payload: dict[str, Any]) -> tuple[bool, list[str]]:
         if item is None:
             passed = False
             lines.append(f"{name}: MISSING (expected {threshold})")
+            continue
+        if item.get("applicable") is False:
+            lines.append(f"{name}: not applicable (no markers supplied) SKIP")
             continue
         value = item.get("value")
         if value is None:

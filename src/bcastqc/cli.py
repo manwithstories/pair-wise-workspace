@@ -64,6 +64,7 @@ def run_batch(
     timeout_s: float = 60.0,
     sync_markers: tuple[float, ...] = (),
     fps: float = 25.0,
+    scenario: str = "process",
 ) -> BatchReport:
     paths = _paths(workdir)
     paths.outputs.mkdir(parents=True, exist_ok=True)
@@ -103,6 +104,7 @@ def run_batch(
         started_at=started,
         finished_at=_timestamp(),
         fatal_assets=fatal,
+        scenario=scenario,
     )
 
 
@@ -141,6 +143,9 @@ def _print_summary(report: BatchReport) -> None:
         f"damaged_samples={summary['damaged_samples']}"
     )
     for name, item in report.thresholds().items():
+        if item.get("applicable") is False:
+            print(f"  [SKIP] {name}: not applicable for this batch")
+            continue
         mark = "PASS" if item["passed"] else "FAIL"
         print(
             f"  [{mark}] {name}: {_fmt(item['value'])} "
@@ -179,6 +184,7 @@ def cmd_demo(args: argparse.Namespace) -> int:
         reuse=not args.no_reuse,
         timeout_s=args.timeout,
         sync_markers=MARKERS,
+        scenario="demo",
     )
     _print_summary(report)
     json_path = Path(args.json).expanduser().resolve()
