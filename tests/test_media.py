@@ -113,3 +113,43 @@ class TestAudio:
         report = inspect_audio(fixture.path, result)
         assert report.streams == []
         assert report.ok
+
+
+class TestPcmVerification:
+    def test_pcm_fixture_roundtrips_with_zero_sample_difference(self, workdir):
+        from aircheck.fixtures import build_pcm_fixture
+        from aircheck.mapping import resolve_mapping
+        from aircheck.pcm import compare_pcm
+        from aircheck.pipeline import Pipeline, PipelineConfig
+
+        fixture = build_pcm_fixture(workdir / "pcm_source.mov")
+        source_probe = probe(fixture.path)
+        mapping = resolve_mapping(source_probe)
+        output = workdir / "pcm_copy.mkv"
+        stage = Pipeline(
+            source_probe, mapping, output,
+            PipelineConfig(segment_ticks=500_000_000, target_format="mkv"),
+        ).run()
+        assert stage.ok, stage.errors
+        report = compare_pcm(
+            fixture.path, stage.output, source_probe, probe(stage.output)
+        )
+        assert report.compared_streams == 2
+        assert report.skipped_streams == 0
+        assert report.ok
+        for check in report.checks:
+            assert check.identical
+            assert check.max_difference == 0.0
+            assert check.frames_compared > 0
+
+    def test_non_pcm_audio_is_skipped_not_failed(self, multi_mp4):
+        from aircheck.pcm import compare_pcm
+
+        source_probe = probe(multi_mp4.path)
+        report = compare_pcm(
+            multi_mp4.path, multi_mp4.path, source_probe, source_probe
+        )
+        assert report.ok
+        assert report.compared_streams == 0
+        assert report.skipped_streams == 2
+        assert all("non-PCM" in check.reason for check in report.checks)

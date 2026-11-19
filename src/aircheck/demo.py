@@ -32,6 +32,7 @@ from .hashing import HashComparison
 from .keyframes import IndexReport, build_index, validate_index
 from .mapping import resolve_mapping
 from .pipeline import Pipeline, PipelineConfig, compare_roundtrip, timeline_of
+from .pcm import PcmReport, compare_pcm
 from .probe import ProbeResult, probe
 from .timebase import AircheckError, ExitCode, InputError
 
@@ -67,6 +68,7 @@ class AssetReport:
     timeline_issues: list[dict[str, object]] = field(default_factory=list)
     keyframe: IndexReport | None = None
     audio: AudioReport | None = None
+    pcm: PcmReport | None = None
     stage: dict[str, object] | None = None
     expected_segments: int = 0
     isolated: bool = False
@@ -87,6 +89,7 @@ class AssetReport:
             "timeline_issues": list(self.timeline_issues),
             "keyframe": self.keyframe.to_dict() if self.keyframe else None,
             "audio": self.audio.to_dict() if self.audio else None,
+            "pcm": self.pcm.to_dict() if self.pcm else None,
             "stage": self.stage,
             "expected_segments": self.expected_segments,
             "notes": list(self.notes),
@@ -243,10 +246,14 @@ def _process_healthy(
         stage.output, index, probe_result=output_probe
     )
     report.audio = inspect_audio(stage.output, output_probe, sample_stride=8)
+    # For PCM audio, decode both sides and compare samples independently of the
+    # compressed payload hash (non-PCM streams are reported as skipped).
+    report.pcm = compare_pcm(fixture.path, stage.output, probe_result, output_probe)
     report.ok = (
         comparison.all_match
         and all(entry["within_tolerance"] for entry in drift)
         and not report.timeline_issues
+        and report.pcm.ok
     )
     if not comparison.all_match:
         report.notes.append(
@@ -498,6 +505,8 @@ def run_verify(input_dir: str | Path) -> VerifyReport:
         keyframe = validate_index(output, index, probe_result=output_probe)
         attempts += keyframe.seeks_attempted
         hits += keyframe.seeks_hit
+        pcm = compare_pcm(source, output, source_probe, output_probe)
+        entry["pcm"] = pcm.to_dict()
         entry.update(
             {
                 "segments": comparison.total,

@@ -169,6 +169,9 @@ class EncodeSpec:
     video_streams: int = 1
     audio_streams: int = 2
     sample_rates: tuple[int, ...] = (48000, 44100)
+    #: Override the preset's audio codec.  ``pcm_s16le`` is used by the lossless
+    #: PCM fixture so decoded samples can be compared directly.
+    audio_codec: str | None = None
     duration_ms: int = 2000
     segment_ms: int = 500
     fps: int = DEFAULT_FPS
@@ -179,7 +182,9 @@ class EncodeSpec:
 
 
 def _encode_asset(path: Path, spec: EncodeSpec) -> dict[str, object]:
-    preset = FORMAT_PRESETS[spec.format_key]
+    preset = dict(FORMAT_PRESETS[spec.format_key])
+    if spec.audio_codec:
+        preset["audio"] = spec.audio_codec
     options: dict[str, str] = {}
     if preset["format"] in ("mov", "mp4"):
         # Write the index up front so a truncated tail stays openable; this is
@@ -530,6 +535,27 @@ def build_index_and_timestamp_set(directory: str | Path) -> list[Fixture]:
     ]
 
 
+def build_pcm_fixture(target: str | Path) -> Fixture:
+    """MOV fixture with PCM audio, for decoding samples independently.
+
+    The other fixtures use ALAC/AAC, whose payloads are compared at the
+    compressed level.  PCM gives the verifier a second, sample-domain check via
+    soundfile that does not depend on the compressed bitstream matching.
+    """
+    return encode_asset(
+        target,
+        EncodeSpec(
+            format_key="mov",
+            video_streams=1,
+            audio_streams=2,
+            sample_rates=(48000, 44100),
+            duration_ms=1000,
+            segment_ms=500,
+            audio_codec="pcm_s16le",
+        ),
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Demo corpus
 # --------------------------------------------------------------------------- #
@@ -582,6 +608,9 @@ def build_demo_corpus(directory: str | Path, formats: list[str],
         corpus.healthy.append(healthy)
         corpus.damaged.extend(build_damaged_set(healthy, out_dir / "damaged"))
     corpus.damaged.extend(build_index_and_timestamp_set(out_dir / "damaged"))
+    # A PCM variant exercises the sample-domain verifier independently of the
+    # compressed payload hashes.
+    corpus.healthy.append(build_pcm_fixture(out_dir / "normal_pcm.mov"))
     corpus.spec = EncodeSpec(format_key=",".join(formats))
     return corpus
 
@@ -601,6 +630,7 @@ __all__ = [
     "build_damaged_set",
     "build_demo_corpus",
     "build_index_and_timestamp_set",
+    "build_pcm_fixture",
     "corrupt_asset",
     "disorder_timestamp_asset",
     "encode_asset",
