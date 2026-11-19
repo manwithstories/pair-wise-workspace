@@ -1,15 +1,18 @@
-// Package timeline converts per-frame timestamps to the unified 90 kHz media
-// clock and repairs wrapping, duplicate, out-of-order and drifting input.
+// Package timeline converts per-frame timestamps onto one absolute media
+// timeline in 90 kHz ticks and repairs wrapping, duplicate sequence numbers,
+// reordering and small backwards drift. Anything that cannot be repaired
+// unambiguously is quarantined with a diagnosable reason.
 package timeline
 
 import (
 	"fmt"
+	"math"
 	"sort"
 
 	"mediq/internal/model"
 )
 
-// Status is the outcome assigned to a frame by the repairer.
+// Status is the repair outcome for one frame.
 type Status int
 
 const (
@@ -17,25 +20,26 @@ const (
 	StatusQuarantined
 )
 
-// Event describes a repair decision for one frame.
+// Event describes the decision taken for one frame.
 type Event struct {
 	Frame    *model.Frame
 	Status   Status
 	Reason   string
 	Fault    *model.Fault
-	Media    int64
+	Media    int64 // 90 kHz ticks, absolute, strictly increasing
 	Adjusted bool
 }
 
-// Options tunes repair heuristics. All tolerances are in 90 kHz ticks.
+// Options tunes the repair heuristics. Tolerances are in 90 kHz ticks.
 type Options struct {
 	// ReorderWindow bounds how many sequence gaps are buffered before the
-	// repairer makes progress anyway. Default 32.
+	// repairer makes progress regardless. Default 32.
 	ReorderWindow int
-	// DriftTolerance is the largest backward timestamp movement that is
-	// treated as jitter and clamped forward. Default 450 (5 ms).
+	// DriftTolerance is the largest backward movement treated as jitter and
+	// clamped forward. Default 450 ticks (5 ms).
 	DriftTolerance int64
-	// WrapModulus is the modulus of the source timestamp clock. Default 1<<32.
+	// WrapModulus is the modulus of the source capture clock. Default 2^32,
+	// matching the 32-bit RTP timestamp field.
 	WrapModulus uint64
 }
 
@@ -52,69 +56,159 @@ func (o Options) withDefaults() Options {
 	return o
 }
 
-// Repairer reorders a bounded window of frames by sequence number and assigns
-// each emitted frame an absolute 90 kHz media time.
+// Repairer buffers a bounded out-of-order window and assigns media times.
+// Its memory is O(ReorderWindow) regardless of input length.
 type Repairer struct {
 	opts Options
 
-	started  bool
-	nextSeq  uint64
-	pending  map[uint64]*model.Frame
-	seen     map[uint64]struct{}
+	started bool
+	nextSeq uint64
+	pending map[uint64]*model.Frame
+	gaps    map[uint64]struct{} // sequence numbers known to be lost
+	recent  map[uint64]uint64   // seq -> generation, pruned with nextSeq
+
+	haveTick bool
 	lastRaw  uint64
 	lastTB   model.Timebase
-	haveRaw  bool
-	wraps    uint64
+	ticks    int64 // absolute source-clock ticks since the first frame
 
 	haveMedia bool
 	lastMedia int64
 	lastDelta int64
+	wraps     uint64
 }
 
 func New(opts Options) *Repairer {
 	return &Repairer{
 		opts:    opts.withDefaults(),
 		pending: make(map[uint64]*model.Frame),
-		seen:    make(map[uint64]struct{}),
+		gaps:    make(map[uint64]struct{}),
+		recent:  make(map[uint64]uint64),
 	}
 }
 
 // Wraps reports how many timestamp wraps were repaired.
 func (r *Repairer) Wraps() uint64 { return r.wraps }
 
-// Push accepts a frame and returns every frame that became emit-able.
+// LastMedia returns the most recently emitted media time.
+func (r *Repairer) LastMedia() int64 { return r.lastMedia }
+
+// Skip tells the repairer that seq will never arrive (it failed validation and
+// was dropped). The reorder window can move past the gap immediately instead
+// of stalling until the window fills, and later arrivals are reported as
+// at-least-once duplicates rather than silently colliding.
+func (r *Repairer) Skip(seq uint64) {
+	if !r.started {
+		return
+	}
+	if seq < r.nextSeq || seq > r.nextSeq+uint64(r.opts.ReorderWindow) {
+		return
+	}
+	delete(r.pending, seq)
+	if seq != r.nextSeq {
+		return
+	}
+	r.nextSeq++
+	for {
+		if _, ok := r.pending[r.nextSeq]; ok {
+			break
+		}
+		if _, gap := r.gaps[r.nextSeq]; gap {
+			delete(r.gaps, r.nextSeq)
+			r.nextSeq++
+			continue
+		}
+		break
+	}
+	r.prune()
+}
+
+// Snapshot captures enough state to resume a repairer at a chunk boundary.
+type Snapshot struct {
+	Started   bool           `json:"started"`
+	NextSeq   uint64         `json:"next_seq"`
+	HaveTick  bool           `json:"have_tick"`
+	LastRaw   uint64         `json:"last_raw"`
+	LastTB    model.Timebase `json:"last_timebase"`
+	Ticks     int64          `json:"ticks"`
+	HaveMedia bool           `json:"have_media"`
+	LastMedia int64          `json:"last_media"`
+	LastDelta int64          `json:"last_delta"`
+	Wraps     uint64         `json:"wraps"`
+}
+
+// Snapshot returns the current repairer state. It must only be taken when no
+// frames are pending (the runner flushes before every checkpoint).
+func (r *Repairer) Snapshot() Snapshot {
+	return Snapshot{
+		Started: r.started, NextSeq: r.nextSeq,
+		HaveTick: r.haveTick, LastRaw: r.lastRaw, LastTB: r.lastTB, Ticks: r.ticks,
+		HaveMedia: r.haveMedia, LastMedia: r.lastMedia, LastDelta: r.lastDelta,
+		Wraps: r.wraps,
+	}
+}
+
+// Restore reinstates a snapshot produced at the same committed position.
+func (r *Repairer) Restore(s Snapshot) {
+	r.started = s.Started
+	r.nextSeq = s.NextSeq
+	r.haveTick = s.HaveTick
+	r.lastRaw = s.LastRaw
+	r.lastTB = s.LastTB
+	r.ticks = s.Ticks
+	r.haveMedia = s.HaveMedia
+	r.lastMedia = s.LastMedia
+	r.lastDelta = s.LastDelta
+	r.wraps = s.Wraps
+	r.pending = make(map[uint64]*model.Frame)
+	r.gaps = make(map[uint64]struct{})
+	r.recent = make(map[uint64]uint64)
+}
+
+// Push accepts one validated frame and returns all frames that became
+// emit-able as a result, in increasing sequence order.
 func (r *Repairer) Push(fr *model.Frame) []Event {
 	if !fr.Timebase.Valid() {
 		return []Event{quarantine(fr, model.CodeBadTimebase, fmt.Sprintf("invalid timebase %s", fr.Timebase), nil)}
 	}
-	if _, dup := r.seen[fr.Seq]; dup {
-		return []Event{quarantine(fr, model.CodeDuplicateSeq, fmt.Sprintf("sequence %d already indexed", fr.Seq), nil)}
+	if _, dup := r.recent[fr.Seq]; dup {
+		return []Event{quarantine(fr, model.CodeDuplicateSeq, fmt.Sprintf("sequence %d was already indexed", fr.Seq), nil)}
 	}
-	if int64(fr.Seq) < 0 {
-		return []Event{quarantine(fr, model.CodeOutOfOrder, "sequence number out of range", nil)}
-	}
-	r.seen[fr.Seq] = struct{}{}
+	r.recent[fr.Seq] = uint64(fr.Seq)
 	if !r.started {
 		r.started = true
 		r.nextSeq = fr.Seq
 	}
 	if fr.Seq < r.nextSeq {
-		return []Event{quarantine(fr, model.CodeOutOfOrder, fmt.Sprintf("sequence %d arrived after %d", fr.Seq, r.nextSeq-1), nil)}
+		return []Event{quarantine(fr, model.CodeOutOfOrder,
+			fmt.Sprintf("sequence %d arrived after %d; too late for the reorder window", fr.Seq, r.nextSeq-1), nil)}
+	}
+	// A sequence number previously reported lost can no longer join the
+	// timeline: it would land behind already emitted samples.
+	if _, lost := r.gaps[fr.Seq]; lost {
+		return []Event{quarantine(fr, model.CodeOutOfOrder,
+			fmt.Sprintf("sequence %d was declared lost before it arrived", fr.Seq), nil)}
 	}
 	r.pending[fr.Seq] = fr
 
 	var out []Event
 	for {
-		next, ok := r.pending[r.nextSeq]
-		if ok {
+		if fr, ok := r.pending[r.nextSeq]; ok {
 			delete(r.pending, r.nextSeq)
-			out = append(out, r.emit(next))
+			out = append(out, r.emit(fr))
 			r.nextSeq++
+			r.prune()
 			continue
 		}
-		// A gap: keep buffering, but never let memory grow past the window.
+		if _, gap := r.gaps[r.nextSeq]; gap {
+			delete(r.gaps, r.nextSeq)
+			r.nextSeq++
+			r.prune()
+			continue
+		}
 		if len(r.pending) > r.opts.ReorderWindow {
 			out = append(out, r.emitOldest())
+			r.prune()
 			continue
 		}
 		break
@@ -122,13 +216,53 @@ func (r *Repairer) Push(fr *model.Frame) []Event {
 	return out
 }
 
-// Flush emits every buffered frame in sequence order.
+// PendingCount returns how many frames are buffered waiting for a gap to fill.
+func (r *Repairer) PendingCount() int { return len(r.pending) }
+
+// NextSeq returns the lowest sequence number the repairer has not yet decided.
+// A frame below it can never be indexed now.
+func (r *Repairer) NextSeq() uint64 { return r.nextSeq }
+
+// PendingFloor returns the smallest source byte offset among buffered frames,
+// or (0, false) when nothing is pending. A checkpoint must resume at or before
+// this offset or the pending frames would be lost.
+func (r *Repairer) PendingFloor() (int64, bool) {
+	floor := int64(0)
+	found := false
+	for _, fr := range r.pending {
+		if !found || fr.StartOffset < floor {
+			floor = fr.StartOffset
+			found = true
+		}
+	}
+	return floor, found
+}
+
+// Flush emits everything still buffered, in sequence order.
 func (r *Repairer) Flush() []Event {
 	var out []Event
 	for len(r.pending) > 0 {
 		out = append(out, r.emitOldest())
+		r.prune()
 	}
 	return out
+}
+
+func (r *Repairer) prune() {
+	keepFrom := uint64(0)
+	if r.nextSeq > uint64(r.opts.ReorderWindow) {
+		keepFrom = r.nextSeq - uint64(r.opts.ReorderWindow)
+	}
+	for seq := range r.recent {
+		if seq < keepFrom {
+			delete(r.recent, seq)
+		}
+	}
+	for seq := range r.gaps {
+		if seq < keepFrom {
+			delete(r.gaps, seq)
+		}
+	}
 }
 
 func (r *Repairer) emitOldest() Event {
@@ -140,69 +274,116 @@ func (r *Repairer) emitOldest() Event {
 	seq := seqs[0]
 	fr := r.pending[seq]
 	delete(r.pending, seq)
+	if seq > r.nextSeq {
+		// Everything between nextSeq and seq is genuinely absent.
+		for s := r.nextSeq; s < seq; s++ {
+			r.gaps[s] = struct{}{}
+		}
+	}
 	if seq >= r.nextSeq {
 		r.nextSeq = seq + 1
 	}
 	return r.emit(fr)
 }
 
+// emit assigns a media time. The source clock is unwrapped incrementally so a
+// wrap contributes the (small) forward step instead of a 2^32 tick jump.
 func (r *Repairer) emit(fr *model.Frame) Event {
-	unwrapped, wrapped := r.unwrap(fr)
-	media, err := fr.Timebase.Clock90(unwrapped)
+	ev := Event{Frame: fr}
+	step := r.deltaStep()
+
+	if fr.Timebase != r.lastTB {
+		// A timebase change breaks tick continuity. Keep the output clock
+		// running at the previous cadence and rebase the tick accumulator.
+		r.lastTB = fr.Timebase
+		r.lastRaw = fr.Timestamp
+		r.haveTick = true
+		r.ticks = 0
+		if r.haveMedia {
+			fr.MediaTime = r.lastMedia + step
+			r.lastMedia = fr.MediaTime
+			ev.Status = StatusIndexed
+			ev.Media = fr.MediaTime
+			ev.Adjusted = true
+			ev.Reason = "timebase change rebased onto the running media clock"
+			return ev
+		}
+	} else if r.haveTick {
+		d := tickDelta(r.lastRaw, fr.Timestamp, r.opts.WrapModulus)
+		switch {
+		case d < 0:
+			// Backwards movement of |d| ticks (never a wrap: wraps are
+			// resolved to the short forward way round).
+			if -d <= r.opts.DriftTolerance {
+				d = step
+				ev.Adjusted = true
+				ev.Reason = "backwards drift clamped"
+			} else {
+				return quarantine(fr, model.CodeUnrepairableTime,
+					fmt.Sprintf("timestamp moved backwards by %d ticks (tolerance %d)", -d, r.opts.DriftTolerance), nil)
+			}
+		case d == 0:
+			d = minInt64(step, 1)
+			ev.Adjusted = true
+			ev.Reason = "duplicate timestamp advanced by one tick"
+		case r.lastDelta > 0 && d > 100*r.lastDelta && d > int64(float64(step)*50):
+			return quarantine(fr, model.CodeUnrepairableTime,
+				fmt.Sprintf("timestamp jumped forward by %d ticks (expected about %d)", d, r.lastDelta), nil)
+		}
+		if fr.Timestamp < r.lastRaw {
+			r.wraps++
+			ev.Reason = joinReason(ev.Reason, "timestamp wrap repaired")
+		}
+		r.ticks += d
+		r.lastRaw = fr.Timestamp
+	} else {
+		r.haveTick = true
+		r.lastRaw = fr.Timestamp
+		r.ticks = 0
+	}
+	media, err := fr.Timebase.Clock90(uint64(r.ticks))
 	if err != nil {
 		return quarantine(fr, model.CodeUnrepairableTime, err.Error(), err)
 	}
-	ev := Event{Frame: fr}
-	if wrapped {
-		r.wraps++
+	if r.haveMedia && media <= r.lastMedia {
+		// Rounding to 90 kHz can collapse two adjacent ticks. Keep strict
+		// monotonicity: the MP4 sample table requires positive deltas.
+		media = r.lastMedia + 1
+		ev.Adjusted = true
+		ev.Reason = joinReason(ev.Reason, "media clock clamped by 90 kHz rounding")
 	}
-
-	if !r.haveMedia {
-		r.haveMedia = true
-		r.lastMedia = media
-		fr.MediaTime = media
-		ev.Status = StatusIndexed
-		ev.Media = media
-		return ev
+	if r.haveMedia {
+		r.lastDelta = media - r.lastMedia
 	}
-
-	delta := media - r.lastMedia
-	expected := r.lastMedia + r.deltaStep()
-	switch {
-	case delta <= 0:
-		if -delta <= r.opts.DriftTolerance {
-			// Jitter or rounding moved the timestamp backwards: clamp it
-			// forward so the media timeline stays strictly monotonic.
-			media = expected
-			if media <= r.lastMedia {
-				media = r.lastMedia + 1
-			}
-			ev.Adjusted = true
-			if wrapped {
-				ev.Reason = "timestamp wrap clamped"
-			} else {
-				ev.Reason = "backwards jitter clamped"
-			}
-			ev.Status = StatusIndexed
-			ev.Media = media
-			fr.MediaTime = media
-			break
-		}
-		return quarantine(fr, model.CodeUnrepairableTime,
-			fmt.Sprintf("timestamp moved backwards by %d ticks (tolerance %d)", -delta, r.opts.DriftTolerance), nil)
-	case r.lastDelta > 0 && abs64(delta-r.lastDelta) > 10*r.lastDelta && delta > 100*r.deltaStep():
-		return quarantine(fr, model.CodeUnrepairableTime,
-			fmt.Sprintf("timestamp jumped forward by %d ticks (expected about %d)", delta, r.lastDelta), nil)
-	default:
-		ev.Status = StatusIndexed
-		ev.Media = media
-		fr.MediaTime = media
-	}
+	r.haveMedia = true
 	r.lastMedia = media
-	if delta > 0 {
-		r.lastDelta = delta
-	}
+	fr.MediaTime = media
+	ev.Status = StatusIndexed
+	ev.Media = media
 	return ev
+}
+
+// tickDelta returns the forward tick distance from prev to cur, resolving
+// values more than half a modulus apart as backward movement. A wrap therefore
+// yields a small positive delta.
+func tickDelta(prev, cur uint64, modulus uint64) int64 {
+	if modulus == 0 {
+		modulus = 1 << 32
+	}
+	if cur >= prev {
+		d := cur - prev
+		if d > modulus/2 {
+			// Forward distance beyond half the clock is far more likely a
+			// large backwards step across the modulus boundary.
+			return int64(cur) - int64(prev)
+		}
+		return int64(d)
+	}
+	d := cur - prev + modulus // wraps modulo 2^64 to the short forward way
+	if d > modulus/2 {
+		return int64(cur) - int64(prev)
+	}
+	return int64(d)
 }
 
 func (r *Repairer) deltaStep() int64 {
@@ -212,47 +393,34 @@ func (r *Repairer) deltaStep() int64 {
 	return 1
 }
 
-// unwrap converts the frame's timestamp into a monotonically increasing tick
-// count, accounting for the source clock's modulus.
-func (r *Repairer) unwrap(fr *model.Frame) (uint64, bool) {
-	if !r.haveRaw || fr.Timebase != r.lastTB {
-		r.haveRaw = true
-		r.lastTB = fr.Timebase
-		r.lastRaw = fr.Timestamp
-		return fr.Timestamp, false
-	}
-	cur := fr.Timestamp
-	half := r.opts.WrapModulus / 2
-	wrapped := false
-	if r.lastRaw > half && cur < r.lastRaw-half {
-		cur += r.opts.WrapModulus
-		wrapped = true
-	} else if cur < r.lastRaw && r.lastRaw-cur > half {
-		cur += r.opts.WrapModulus
-		wrapped = true
-	}
-	if cur < r.lastRaw {
-		cur = r.lastRaw // never hand back a pre-wrap value
-	}
-	r.lastRaw = cur
-	return cur, wrapped
-}
-
 func quarantine(fr *model.Frame, code, reason string, err error) Event {
-	fault := &model.Fault{
-		Code:     code,
-		Seq:      fr.Seq,
-		HasSeq:   true,
-		Offset:   fr.FrameOffset,
-		Reason:   reason,
-		Err:      err,
+	return Event{
+		Frame:  fr,
+		Status: StatusQuarantined,
+		Reason: reason,
+		Fault: &model.Fault{
+			Code:   code,
+			Seq:    fr.Seq,
+			HasSeq: true,
+			Offset: fr.FrameOffset,
+			Reason: reason,
+			Err:    err,
+		},
 	}
-	return Event{Frame: fr, Status: StatusQuarantined, Reason: reason, Fault: fault}
 }
 
-func abs64(v int64) int64 {
-	if v < 0 {
-		return -v
+func joinReason(a, b string) string {
+	if a == "" {
+		return b
 	}
-	return v
+	return a + "; " + b
 }
+
+func minInt64(a, b int64) int64 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+var _ = math.MaxInt64

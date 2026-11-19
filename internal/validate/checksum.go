@@ -16,7 +16,7 @@ import (
 )
 
 // RTP extension identifier carrying the capture timestamp.
-const CaptureTimestampExtID uint8 = 0x0F
+const CaptureTimestampExtID uint8 = 0x0E
 
 // Metadata is the decoded RTP metadata carrier stored before the frame bytes.
 type Metadata struct {
@@ -25,11 +25,13 @@ type Metadata struct {
 	Timebase  model.Timebase
 }
 
-// EncodeMetadata builds the RTP metadata carrier for a frame. The RTP padding
-// carries a human-readable summary so captures stay inspectable with generic
-// RTP tooling; the 90 kHz-independent timestamp lives both in the packet
-// header and in the capture extension.
+// EncodeMetadata builds the RTP metadata carrier for a frame. It is a normal
+// RTP packet: the header carries the sequence number and the 32-bit capture
+// timestamp, the payload carries a human-readable summary, and a one-byte
+// header extension carries the full 64-bit timestamp so timestamps beyond the
+// 32-bit RTP field survive the trip.
 func EncodeMetadata(seq, ts uint64, tb model.Timebase) []byte {
+	payload := fmt.Sprintf("seq=%d;ts=%d;tb=%d/%d", seq, ts, tb.Num, tb.Den)
 	pkt := &rtp.Packet{
 		Header: rtp.Header{
 			Version:        2,
@@ -39,13 +41,15 @@ func EncodeMetadata(seq, ts uint64, tb model.Timebase) []byte {
 			SSRC:           0x4d454449, // "MEDI"
 			Marker:         true,
 		},
-		Payload: []byte(fmt.Sprintf("seq=%d;ts=%d;tb=%d/%d", seq, ts, tb.Num, tb.Den)),
+		Payload: []byte(payload),
 	}
 	ext := make([]byte, 8)
 	binary.BigEndian.PutUint64(ext, ts)
+	pkt.Header.Extension = true
+	// RFC 8285 one-byte header extension profile. The constant is unexported
+	// in pion/rtp, so it is spelled out here.
+	pkt.Header.ExtensionProfile = 0xBEDE
 	if err := pkt.Header.SetExtension(CaptureTimestampExtID, ext); err != nil {
-		// SetExtension only fails for malformed extension payloads; ours is
-		// fixed size and aligned, so this cannot happen. Guard anyway.
 		panic(err)
 	}
 	buf, err := pkt.Marshal()
@@ -86,6 +90,11 @@ func ParseMetadata(meta []byte, seq uint64, offset int64) (*Metadata, *model.Fau
 				Actual:   "capture_ts=" + strconv.FormatUint(extTS, 10),
 			}
 		}
+	} else {
+		return nil, &model.Fault{
+			Code: model.CodeMetadataMismatch, Seq: seq, HasSeq: true, Offset: offset,
+			Reason: "RTP metadata carrier has no capture timestamp extension",
+		}
 	}
 	if md.Seq != seq {
 		return nil, &model.Fault{
@@ -124,7 +133,7 @@ func parseSummary(b []byte) (*Metadata, error) {
 // MetadataMatches verifies the frame's metadata carrier agrees with the header
 // and returns a fault anchored at the metadata offset otherwise.
 func MetadataMatches(fr *model.Frame) *model.Fault {
-	md, fault := ParseMetadata(fr.Payload[:fr.MetaLen], fr.Seq, fr.MetaOffset)
+	md, fault := ParseMetadata(fr.Meta, fr.Seq, fr.MetaOffset)
 	if fault != nil {
 		return fault
 	}

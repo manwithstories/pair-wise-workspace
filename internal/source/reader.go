@@ -12,37 +12,38 @@ import (
 	"mediq/internal/model"
 )
 
-// Reader streams frame records from a file. It never holds more than one
-// record in memory; callers own the returned payload buffer.
-type Reader struct {
-	f       *os.File
-	br      *bufio.Reader
-	offset  int64 // byte offset of the next record header
-	digest  *Digest
-	cfg     Options
-	faults  []*model.Fault
-	faultCh chan<- *model.Fault
-	done    bool
-	eof     bool
+// Record is one step of the scan: either a decoded frame or a diagnosable
+// fault. The scan continues past recoverable faults; a non-recoverable fault
+// ends the stream (the next Read returns io.EOF).
+type Record struct {
+	Frame *model.Frame
+	Fault *model.Fault
 }
 
+// Reader streams frame records from a file. It holds at most one record in
+// memory; callers own the returned payload buffer.
+type Reader struct {
+	f      *os.File
+	br     *bufio.Reader
+	offset int64 // byte offset of the next record header
+	cfg    Options
+	eof    bool
+}
+
+// Options bounds memory and configures diagnostics.
 type Options struct {
 	MaxFrameBytes    int
 	MaxMetadataBytes int
-	// Faults, when non-nil, receives each recoverable fault as it is found.
-	Faults chan<- *model.Fault
-	// Digest, when non-nil, accumulates a rolling digest of the raw bytes.
-	Digest *Digest
 }
 
-func openOptions(opts Options) Options {
-	if opts.MaxFrameBytes <= 0 {
-		opts.MaxFrameBytes = model.DefaultMaxFrameBytes
+func (o Options) withDefaults() Options {
+	if o.MaxFrameBytes <= 0 {
+		o.MaxFrameBytes = model.DefaultMaxFrameBytes
 	}
-	if opts.MaxMetadataBytes <= 0 {
-		opts.MaxMetadataBytes = model.DefaultMaxMetadataBytes
+	if o.MaxMetadataBytes <= 0 {
+		o.MaxMetadataBytes = model.DefaultMaxMetadataBytes
 	}
-	return opts
+	return o
 }
 
 // Open opens path for sequential record reading.
@@ -56,8 +57,7 @@ func Open(path string, opts Options) (*Reader, error) {
 
 // NewReader wraps an already open file.
 func NewReader(f *os.File, opts Options) *Reader {
-	r := &Reader{f: f, br: bufio.NewReaderSize(f, 256<<10), cfg: openOptions(opts), digest: opts.Digest, faultCh: opts.Faults}
-	return r
+	return &Reader{f: f, br: bufio.NewReaderSize(f, 256<<10), cfg: opts.withDefaults()}
 }
 
 func (r *Reader) Close() error { return r.f.Close() }
@@ -65,71 +65,90 @@ func (r *Reader) Close() error { return r.f.Close() }
 // Offset reports the byte offset of the next record to be read.
 func (r *Reader) Offset() int64 { return r.offset }
 
-// Digest returns the rolling input digest, if one was supplied.
-func (r *Reader) Digest() *Digest { return r.digest }
+// SeekStart positions the reader at a record boundary and clears EOF.
+func (r *Reader) SeekStart(off int64) error {
+	if _, err := r.f.Seek(off, io.SeekStart); err != nil {
+		return err
+	}
+	r.br.Reset(r.f)
+	r.offset = off
+	r.eof = false
+	return nil
+}
 
-// Next returns the next valid record. Faults are reported (both via the
-// channel and as the second return value) and scanning continues at the next
-// recoverable boundary. io.EOF marks clean end of input.
-func (r *Reader) Next() (*model.Frame, *model.Fault, error) {
+// PrefixCRC computes CRC-32 of bytes [0, n) without disturbing the reader's
+// position. It proves a checkpoint belongs to this exact input prefix.
+func (r *Reader) PrefixCRC(n int64) (uint32, error) {
+	if n < 0 {
+		return 0, fmt.Errorf("negative prefix length %d", n)
+	}
+	cur, err := r.f.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := r.f.Seek(0, io.SeekStart); err != nil {
+		return 0, err
+	}
+	buf := make([]byte, 128<<10)
+	var crc uint32
+	for remaining := n; remaining > 0; {
+		chunk := int64(len(buf))
+		if remaining < chunk {
+			chunk = remaining
+		}
+		if _, err := io.ReadFull(r.f, buf[:chunk]); err != nil {
+			return 0, err
+		}
+		crc = crc32.Update(crc, crc32.IEEETable, buf[:chunk])
+		remaining -= chunk
+	}
+	if _, err := r.f.Seek(cur, io.SeekStart); err != nil {
+		return 0, err
+	}
+	return crc, nil
+}
+
+// Read returns the next record or io.EOF at the end of the stream. Faults are
+// returned as records with a nil Frame, so no diagnostic is ever dropped for
+// lack of channel space.
+func (r *Reader) Read() (Record, error) {
 	if r.eof {
-		return nil, nil, io.EOF
+		return Record{}, io.EOF
 	}
-	for {
-		fr, fault, err := r.readOne()
-		if err != nil {
-			return nil, fault, err
-		}
-		if fault != nil {
-			r.report(fault)
-			if !fault.Resync() {
-				r.eof = true
-				return nil, fault, nil // caller decides: frame lost, scanning stopped
-			}
-			continue
-		}
-		return fr, nil, nil
+	rec, err := r.readOne()
+	if err != nil {
+		return Record{}, err
 	}
+	if rec.Fault != nil && !rec.Fault.Resync() {
+		r.eof = true
+	}
+	return rec, nil
 }
 
-func (r *Reader) report(f *model.Fault) {
-	r.faults = append(r.faults, f)
-	if r.faultCh != nil {
-		select {
-		case r.faultCh <- f:
-		default:
-		}
-	}
-}
-
-// readOne reads one record. A returned fault with a nil error means the record
-// was skipped; scanning may continue because the framing stayed in sync.
-func (r *Reader) readOne() (*model.Frame, *model.Fault, error) {
+// readOne decodes a single record or reports the first fault it hit.
+func (r *Reader) readOne() (Record, error) {
 	start := r.offset
 	hdr := make([]byte, model.RecordHeaderSize)
 	n, err := io.ReadFull(r.br, hdr)
 	if err != nil {
 		if errors.Is(err, io.EOF) && n == 0 {
 			r.eof = true
-			return nil, nil, io.EOF
+			return Record{}, io.EOF
 		}
-		if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 			r.eof = true
-			if r.digest != nil {
-				r.digest.Write(hdr[:n])
-			}
 			r.offset += int64(n)
-			return nil, &model.Fault{
-				Code:   model.CodeTruncatedHeader,
-				Offset: start,
-				Reason: fmt.Sprintf("record header needs %d bytes, got %d", model.RecordHeaderSize, n),
-			}, nil
+			return Record{Fault: &model.Fault{
+				Code:     model.CodeTruncatedHeader,
+				Offset:   start,
+				Expected: fmt.Sprint(model.RecordHeaderSize),
+				Actual:   fmt.Sprint(n),
+				Reason:   fmt.Sprintf("truncated record header; first missing byte at offset %d", start+int64(n)),
+			}}, nil
 		}
-		return nil, nil, err
+		return Record{}, err
 	}
-	if r.digest != nil {
-		r.digest.Write(hdr)
-	}
+
 	rh, perr := model.ParseRecordHeader(hdr)
 	if perr != nil {
 		r.eof = true
@@ -137,61 +156,61 @@ func (r *Reader) readOne() (*model.Frame, *model.Fault, error) {
 		if string(hdr[0:4]) != model.RecordMagic {
 			code = model.CodeBadMagic
 		}
-		return nil, &model.Fault{Code: code, Offset: start, Reason: perr.Error(), Err: perr}, nil
+		return Record{Fault: &model.Fault{Code: code, Offset: start, Reason: perr.Error(), Err: perr}}, nil
 	}
+	r.offset += int64(model.RecordHeaderSize)
+
 	if int64(rh.MetaLen) > int64(r.cfg.MaxMetadataBytes) {
 		r.eof = true
-		return nil, &model.Fault{
+		return Record{Fault: &model.Fault{
 			Code: model.CodeOversizeMetadata, Seq: rh.Seq, HasSeq: true, Offset: start,
-			Expected: fmt.Sprintf("<=%d", r.cfg.MaxMetadataBytes),
-			Actual:   fmt.Sprint(rh.MetaLen),
-		}, nil
+			Expected: fmt.Sprintf("<=%d", r.cfg.MaxMetadataBytes), Actual: fmt.Sprint(rh.MetaLen),
+		}}, nil
 	}
 	if int64(rh.FrameLen) > int64(r.cfg.MaxFrameBytes) {
 		r.eof = true
-		return nil, &model.Fault{
+		return Record{Fault: &model.Fault{
 			Code: model.CodeOversizeFrame, Seq: rh.Seq, HasSeq: true, Offset: start,
-			Expected: fmt.Sprintf("<=%d", r.cfg.MaxFrameBytes),
-			Actual:   fmt.Sprint(rh.FrameLen),
-		}, nil
+			Expected: fmt.Sprintf("<=%d", r.cfg.MaxFrameBytes), Actual: fmt.Sprint(rh.FrameLen),
+		}}, nil
 	}
 
 	payloadLen := int64(rh.MetaLen) + int64(rh.FrameLen)
 	payload := make([]byte, payloadLen)
-	r.offset += int64(model.RecordHeaderSize)
 	n, err = io.ReadFull(r.br, payload)
-	if r.digest != nil {
-		r.digest.Write(payload[:n])
-	}
 	r.offset += int64(n)
 	if err != nil {
 		r.eof = true
 		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-			return nil, &model.Fault{
-				Code: model.CodeTruncatedPayload, Seq: rh.Seq, HasSeq: true, Offset: start + int64(model.RecordHeaderSize) + int64(n),
-				Expected: fmt.Sprint(payloadLen),
+			firstMissing := start + int64(model.RecordHeaderSize) + int64(n)
+			return Record{Fault: &model.Fault{
+				Code: model.CodeTruncatedPayload, Seq: rh.Seq, HasSeq: true, Offset: firstMissing,
+				Expected: fmt.Sprintf("%d body bytes", payloadLen),
 				Actual:   fmt.Sprint(n),
-				Reason:   fmt.Sprintf("record body truncated; first missing byte at offset %d", start+int64(model.RecordHeaderSize)+int64(n)),
-			}, nil
+				Reason:   fmt.Sprintf("record body truncated; first missing byte at offset %d", firstMissing),
+			}}, nil
 		}
-		return nil, nil, err
+		return Record{}, err
 	}
 
-	fr := &model.Frame{
+	return Record{Frame: &model.Frame{
 		Seq:         rh.Seq,
 		Timestamp:   rh.Timestamp,
 		Timebase:    rh.Timebase,
 		MetaLen:     rh.MetaLen,
+		StartOffset: start,
 		MetaOffset:  start + int64(model.RecordHeaderSize),
 		FrameOffset: start + int64(model.RecordHeaderSize) + int64(rh.MetaLen),
+		EndOffset:   start + int64(model.RecordHeaderSize) + payloadLen,
 		Hash:        rh.Hash,
+		Meta:        payload[:rh.MetaLen],
 		Payload:     payload[rh.MetaLen:],
-	}
-	return fr, nil, nil
+	}}, nil
 }
 
-// Digest accumulates a cheap rolling checksum over the exact bytes consumed.
-// It is used by the checkpoint to prove it belongs to the same input file.
+// Digest accumulates a rolling CRC-32 over bytes consumed by a reader. It is
+// a cheap identity check for checkpoint matching, not a content integrity
+// check (frame hashes serve that purpose).
 type Digest struct {
 	crc  uint32
 	size int64
@@ -200,9 +219,6 @@ type Digest struct {
 func NewDigest() *Digest { return &Digest{} }
 
 func (d *Digest) Write(p []byte) (int, error) {
-	if d == nil {
-		return len(p), nil
-	}
 	d.crc = crc32.Update(d.crc, crc32.IEEETable, p)
 	d.size += int64(len(p))
 	return len(p), nil
@@ -210,6 +226,3 @@ func (d *Digest) Write(p []byte) (int, error) {
 
 func (d *Digest) Sum() uint32 { return d.crc }
 func (d *Digest) Size() int64 { return d.size }
-func (d *Digest) Sum64() uint64 {
-	return uint64(d.size)<<32 | uint64(d.crc)
-}

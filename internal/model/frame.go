@@ -177,7 +177,10 @@ type Frame struct {
 	MetaLen     uint32
 	MetaOffset  int64
 	FrameOffset int64
+	StartOffset int64 // first byte of this record's header
+	EndOffset   int64 // first byte after this record, used to resume reading
 	MediaTime   int64 // assigned by timeline repair, 90 kHz ticks, absolute
+	Meta        []byte // RTP metadata carrier
 	Payload     []byte
 	Hash        [32]byte
 }
