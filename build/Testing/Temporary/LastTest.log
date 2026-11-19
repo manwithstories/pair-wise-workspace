@@ -1,74 +1,34 @@
-Start testing: Nov 20 00:58 CST
+Start testing: Nov 20 01:01 CST
 ----------------------------------------------------------
-1/4 Testing: 33 位掩码常量
-1/4 Test: 33 位掩码常量
-Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "33 位掩码常量" "--order decl"
+5/6 Testing: 清单解析与故障路径
+5/6 Test: 清单解析与故障路径
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "清单解析与故障路径" "--order decl"
 Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
-"33 位掩码常量" start time: Nov 20 00:58 CST
+"清单解析与故障路径" start time: Nov 20 01:01 CST
 Output:
 ----------------------------------------------------------
-Filters: "33 位掩码常量"
-Randomness seeded to: 42316821
+Filters: "清单解析与故障路径"
+Randomness seeded to: 269590822
 ===============================================================================
-All tests passed (2 assertions in 1 test case)
+All tests passed (7 assertions in 1 test case)
 
 <end of output>
 Test time =   0.01 sec
 ----------------------------------------------------------
 Test Passed.
-"33 位掩码常量" end time: Nov 20 00:58 CST
-"33 位掩码常量" time elapsed: 00:00:00
+"清单解析与故障路径" end time: Nov 20 01:01 CST
+"清单解析与故障路径" time elapsed: 00:00:00
 ----------------------------------------------------------
 
-2/4 Testing: ticks 与统一微秒时间基互转
-2/4 Test: ticks 与统一微秒时间基互转
-Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "ticks 与统一微秒时间基互转" "--order decl"
-Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
-"ticks 与统一微秒时间基互转" start time: Nov 20 00:58 CST
-Output:
-----------------------------------------------------------
-Filters: "ticks 与统一微秒时间基互转"
-Randomness seeded to: 706313978
-===============================================================================
-All tests passed (3 assertions in 1 test case)
-
-<end of output>
-Test time =   0.01 sec
-----------------------------------------------------------
-Test Passed.
-"ticks 与统一微秒时间基互转" end time: Nov 20 00:58 CST
-"ticks 与统一微秒时间基互转" time elapsed: 00:00:00
-----------------------------------------------------------
-
-4/4 Testing: 线性拟合与斜率钳制
-4/4 Test: 线性拟合与斜率钳制
-Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "线性拟合与斜率钳制" "--order decl"
-Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
-"线性拟合与斜率钳制" start time: Nov 20 00:58 CST
-Output:
-----------------------------------------------------------
-Filters: "线性拟合与斜率钳制"
-Randomness seeded to: 1191732033
-===============================================================================
-All tests passed (9 assertions in 1 test case)
-
-<end of output>
-Test time =   0.01 sec
-----------------------------------------------------------
-Test Passed.
-"线性拟合与斜率钳制" end time: Nov 20 00:58 CST
-"线性拟合与斜率钳制" time elapsed: 00:00:00
-----------------------------------------------------------
-
-3/4 Testing: 有界队列背压与取消
-3/4 Test: 有界队列背压与取消
+4/6 Testing: 有界队列背压与取消
+4/6 Test: 有界队列背压与取消
 Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "有界队列背压与取消" "--order decl"
 Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
-"有界队列背压与取消" start time: Nov 20 00:58 CST
+"有界队列背压与取消" start time: Nov 20 01:01 CST
 Output:
 ----------------------------------------------------------
 Filters: "有界队列背压与取消"
-Randomness seeded to: 2252973599
+Randomness seeded to: 1664456742
 ===============================================================================
 All tests passed (6 assertions in 1 test case)
 
@@ -76,8 +36,88 @@ All tests passed (6 assertions in 1 test case)
 Test time =   0.01 sec
 ----------------------------------------------------------
 Test Passed.
-"有界队列背压与取消" end time: Nov 20 00:58 CST
+"有界队列背压与取消" end time: Nov 20 01:01 CST
 "有界队列背压与取消" time elapsed: 00:00:00
 ----------------------------------------------------------
 
-End testing: Nov 20 00:58 CST
+2/6 Testing: ticks 与统一微秒时间基互转
+2/6 Test: ticks 与统一微秒时间基互转
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "ticks 与统一微秒时间基互转" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
+"ticks 与统一微秒时间基互转" start time: Nov 20 01:01 CST
+Output:
+----------------------------------------------------------
+Filters: "ticks 与统一微秒时间基互转"
+Randomness seeded to: 2927333122
+===============================================================================
+All tests passed (3 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"ticks 与统一微秒时间基互转" end time: Nov 20 01:01 CST
+"ticks 与统一微秒时间基互转" time elapsed: 00:00:00
+----------------------------------------------------------
+
+1/6 Testing: 33 位掩码常量
+1/6 Test: 33 位掩码常量
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "33 位掩码常量" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
+"33 位掩码常量" start time: Nov 20 01:01 CST
+Output:
+----------------------------------------------------------
+Filters: "33 位掩码常量"
+Randomness seeded to: 144810719
+===============================================================================
+All tests passed (2 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"33 位掩码常量" end time: Nov 20 01:01 CST
+"33 位掩码常量" time elapsed: 00:00:00
+----------------------------------------------------------
+
+6/6 Testing: 线性拟合与斜率钳制
+6/6 Test: 线性拟合与斜率钳制
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "线性拟合与斜率钳制" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
+"线性拟合与斜率钳制" start time: Nov 20 01:01 CST
+Output:
+----------------------------------------------------------
+Filters: "线性拟合与斜率钳制"
+Randomness seeded to: 2263889051
+===============================================================================
+All tests passed (9 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"线性拟合与斜率钳制" end time: Nov 20 01:01 CST
+"线性拟合与斜率钳制" time elapsed: 00:00:00
+----------------------------------------------------------
+
+3/6 Testing: 剪辑点对齐最近有效帧
+3/6 Test: 剪辑点对齐最近有效帧
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests" "剪辑点对齐最近有效帧" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/12777/build
+"剪辑点对齐最近有效帧" start time: Nov 20 01:01 CST
+Output:
+----------------------------------------------------------
+Filters: "剪辑点对齐最近有效帧"
+Randomness seeded to: 3084049259
+===============================================================================
+All tests passed (4 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"剪辑点对齐最近有效帧" end time: Nov 20 01:01 CST
+"剪辑点对齐最近有效帧" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Nov 20 01:01 CST

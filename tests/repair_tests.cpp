@@ -3,6 +3,7 @@
 #include "media/time_model.hpp"
 #include "media/packet.hpp"
 #include "media/stream_pipeline.hpp"
+#include "media/manifest.hpp"
 
 using namespace media;
 using Catch::Approx;
@@ -45,4 +46,43 @@ TEST_CASE("有界队列背压与取消", "[queue]") {
   auto [r, pkt] = q.pop();
   CHECK(r == PopResult::Cancelled);
   CHECK(q.cancelled());
+}
+
+TEST_CASE("清单解析与故障路径", "[manifest]") {
+  Manifest m;
+  auto err = parseManifest(
+    "TRACK cam1 video cam1.mkv 1 90000\n"
+    "TRACK cam2 video cam2.mkv 1 90000\n"
+    "TRACK mic1 audio mic1.wav 1 24000\n"
+    "EDIT 0 cam1 1000\n"
+    "XFADE 0 cam1 cam2 2000 2500\n", m);
+  REQUIRE_FALSE(err);
+  REQUIRE(m.tracks.size() == 3);
+  CHECK(m.edits.at(0).targetUs == 1'000'000);
+  CHECK(m.transitions.at(0).endUs - m.transitions.at(0).startUs == 500'000);
+
+  Manifest bad;
+  err = parseManifest("TRACK cam1 video cam1.mkv 0 90000\n", bad);
+  CHECK(err);
+  CHECK(err.line == 1);
+
+  Manifest dangling;
+  err = parseManifest("TRACK cam1 video a.mkv 1 90000\nEDIT 0 ghost 10\n",
+                      dangling);
+  CHECK(err);
+}
+
+TEST_CASE("剪辑点对齐最近有效帧", "[manifest]") {
+  std::vector<MediaPacket> pk(3);
+  pk[0].index = 0; pk[0].repairedUs = 0;
+  pk[1].index = 1; pk[1].repairedUs = 33'333;
+  pk[2].index = 2; pk[2].repairedUs = 66'667;
+  EditPoint e;
+  e.index = 0;
+  e.targetUs = 50'000;
+  auto st = alignEditPoint(e, pk);
+  CHECK(st.kind == BoundaryKind::Snapped);
+  CHECK(st.actualUs == 33'333);
+  CHECK(st.errorUs == -16'667);
+  CHECK(st.nearestPacket == 1);
 }
