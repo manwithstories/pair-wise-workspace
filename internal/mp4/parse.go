@@ -48,6 +48,7 @@ var leafPaths = []mp4.BoxPath{
 	{mp4.BoxTypeMdia(), mp4.BoxTypeMdhd()},
 	{mp4.BoxTypeMdia(), mp4.BoxTypeHdlr()},
 	{mp4.BoxTypeTkhd()},
+	{mp4.BoxTypeMdia(), mp4.BoxTypeMinf(), mp4.BoxTypeStbl()},
 	{mp4.BoxTypeMdia(), mp4.BoxTypeMinf(), mp4.BoxTypeStbl(), mp4.BoxTypeStts()},
 	{mp4.BoxTypeMdia(), mp4.BoxTypeMinf(), mp4.BoxTypeStbl(), mp4.BoxTypeStss()},
 	{mp4.BoxTypeMdia(), mp4.BoxTypeMinf(), mp4.BoxTypeStbl(), mp4.BoxTypeStsz()},
@@ -75,7 +76,7 @@ func buildTracks(rs io.ReadSeeker, file string, data []byte) ([]*Track, error) {
 		if err != nil {
 			tr.Issues = append(tr.Issues, media.New(media.StageMP4, media.InputMP4, media.CodeTruncated,
 				"track boxes unreadable: %s", describe(err)).
-				WithFile(file).WithOffset(int64(trak.Info.Offset)).WithRecord(len(tracks)+1))
+				WithFile(file).WithOffset(int64(trak.Info.Offset)).WithRecord(len(tracks)+1).AsFatal())
 			tracks = append(tracks, tr)
 			continue
 		}
@@ -98,6 +99,8 @@ func readTrackBoxes(rs io.ReadSeeker, trak *mp4.BoxInfo) (*trackBoxes, error) {
 	for _, b := range bs {
 		tb.boxPos[b.Info.Type] = b.Info.Offset
 		switch v := b.Payload.(type) {
+		case *mp4.Stbl:
+			_ = v
 		case *mp4.Stsz:
 			tb.stsz = v
 		case *mp4.Mdhd:

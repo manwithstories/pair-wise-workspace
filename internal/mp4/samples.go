@@ -62,7 +62,7 @@ func indexTrackSamples(tr *Track, tb *trackBoxes, data []byte) {
 		tr.issue(media.CodeMissingEntry, boxOffset(tb, mp4.BoxTypeStsz()), len(tr.Samples)+1,
 			"stsz declares %d samples but only %d could be laid out", declared, len(tr.Samples))
 	}
-	buildKeyframeIndex(tr, tb.stss, data, boxOffset(tb, mp4.BoxTypeStss()))
+	buildKeyframeIndex(tr, tb.stss, data, boxOffset(tb, mp4.BoxTypeStss()), boxOffset(tb, mp4.BoxTypeStbl()))
 	if len(tr.Samples) == 0 {
 		tr.issue(media.CodeMissingEntry, boxOffset(tb, mp4.BoxTypeStbl()), 0,
 			"track %d produced an empty sample table", tr.TrackID)
@@ -151,7 +151,16 @@ func layoutSamples(tr *Track, stsc *mp4.Stsc, sizes []uint32, chunkSamples []int
 	}
 	for i, off := range out {
 		if off < 0 || off+int64(sizes[i]) > fileSize {
-			tr.issue(media.CodeOutOfRange, off, i+1,
+			// Report at the offending byte clamped into the file so the
+			// offset always addresses real input.
+			at := off
+			if at > fileSize {
+				at = fileSize
+			}
+			if at < 0 {
+				at = 0
+			}
+			tr.issue(media.CodeOutOfRange, at, i+1,
 				"sample %d offset %d size %d exceeds file size %d", i+1, off, sizes[i], fileSize)
 		}
 	}

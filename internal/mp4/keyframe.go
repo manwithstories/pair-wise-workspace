@@ -13,9 +13,14 @@ import (
 // video tracks are expected to carry one; a missing or out-of-range stss entry
 // triggers a scan-and-rebuild pass so damaged indexes degrade instead of
 // silently dropping keyframes.
-func buildKeyframeIndex(tr *Track, stss *mp4.Stss, data []byte, stssOff int64) {
+// buildKeyframeIndex builds the sync-sample list. When stss is absent the
+// issue points at the enclosing stbl box, since no stss offset exists.
+func buildKeyframeIndex(tr *Track, stss *mp4.Stss, data []byte, stssOff, stblOff int64) {
 	if len(tr.Samples) == 0 {
 		return
+	}
+	if stss == nil {
+		stssOff = stblOff
 	}
 	video := tr.Handler == "vide"
 	if stss == nil {
