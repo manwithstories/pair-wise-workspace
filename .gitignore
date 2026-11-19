@@ -80,6 +80,9 @@ demo-run/
 demo-run-*/
 damaged-run/
 damaged-run-*/
+final-good/
+final-damaged/
+*-run/
 *.o
 *.a
 *.dylib
