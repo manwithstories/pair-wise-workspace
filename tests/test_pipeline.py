@@ -124,6 +124,22 @@ class TestRoundTrip:
         ]
 
 
+    def test_unwritable_output_directory_is_reported_with_context(self, multi_mp4, workdir):
+        source_probe = probe(multi_mp4.path)
+        mapping = resolve_mapping(source_probe)
+        blocker = workdir / "blocker"
+        blocker.write_text("not a directory")
+        stage = Pipeline(
+            source_probe,
+            mapping,
+            blocker / "sub" / "out.mkv",
+            PipelineConfig(segment_ticks=SEGMENT),
+        ).run()
+        assert not stage.ok
+        assert stage.errors[0]["category"] == "input"
+        assert "output directory" in stage.errors[0]["message"]
+
+
 class TestBackpressure:
     def test_peak_queue_depth_never_exceeds_capacity(self, multi_mp4, workdir):
         source_probe = probe(multi_mp4.path)

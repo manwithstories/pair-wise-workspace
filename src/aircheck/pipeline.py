@@ -399,7 +399,10 @@ class Pipeline:
         else:
             result.ok = True
 
-        self._persist_checkpoint(result, complete=not cancelled and error is None)
+        # Keep a durable resume point for any run that wrote something, even if
+        # it later failed; a clean success marks the part complete.
+        if self._packets_out or error is None or cancelled:
+            self._persist_checkpoint(result, complete=not cancelled and error is None)
         return result
 
     # -- stages ----------------------------------------------------------- #

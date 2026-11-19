@@ -89,7 +89,14 @@ class RemuxWriter:
                 "refusing to overwrite an existing output file",
                 path=str(self.path),
             )
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise InputError(
+                "output directory could not be created",
+                path=str(self.path.parent),
+                error=str(exc),
+            ) from exc
         options: dict[str, str] = {}
         if self.target_format in ("mov", "mp4"):
             options["movflags"] = "+faststart"
@@ -97,7 +104,7 @@ class RemuxWriter:
             self._container = av.open(
                 str(self.path), "w", format=TARGET_FORMATS[self.target_format], options=options
             )
-        except av.error.FFmpegError as exc:
+        except (av.error.FFmpegError, OSError) as exc:
             raise InputError(
                 "target container could not be opened",
                 path=str(self.path),
