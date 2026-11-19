@@ -15,13 +15,15 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
   libavformat libavcodec libavutil libswresample)
 
+find_package(Threads REQUIRED)
 add_library(mbcore
   src/util.cpp
   src/timebase.cpp
   src/subtitle.cpp
+  src/stream.cpp
 )
 target_include_directories(mbcore PUBLIC src)
-target_link_libraries(mbcore PUBLIC PkgConfig::FFMPEG)
+target_link_libraries(mbcore PUBLIC PkgConfig::FFMPEG Threads::Threads)
 
 add_executable(media_batch src/main.cpp)
 target_link_libraries(media_batch PRIVATE mbcore)

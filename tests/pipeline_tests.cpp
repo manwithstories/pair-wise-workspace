@@ -1,5 +1,9 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <future>
+#include <thread>
+
+#include "stream.hpp"
 #include "subtitle.hpp"
 #include "timebase.hpp"
 
@@ -116,3 +120,46 @@ TEST_CASE("subtitle: truncated line and bounded text length", "[subtitle]") {
   REQUIRE(trunc);
 }
 
+
+TEST_CASE("stream: bounded capacity enforces backpressure", "[stream]") {
+  constexpr size_t kCap = 4;
+  BoundedQueue q(kCap);
+  REQUIRE(q.capacity() == kCap);
+  // 单线程预填到容量上限，峰值不得超过容量。
+  for (int i = 0; i < 20; ++i) {
+    std::vector<uint8_t> blob(16, static_cast<uint8_t>(i));
+    size_t depth = 0;
+    // 填满后需由消费者释放；这里用异步线程在满时取走一个。
+    if (i >= static_cast<int>(kCap)) {
+      auto fut = std::async(std::launch::async, [&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        auto v = q.pop();
+        REQUIRE(v.has_value());
+      });
+      REQUIRE(q.push(std::move(blob), &depth));
+      fut.wait();
+    } else {
+      REQUIRE(q.push(std::move(blob), &depth));
+    }
+    REQUIRE(depth <= kCap);
+  }
+  REQUIRE(q.peak_items() <= kCap);
+  REQUIRE(q.peak_bytes() > 0);
+  REQUIRE(q.total_pushed() == 20);
+  REQUIRE(q.push_wait_count() >= 1);  // 确有背压等待发生
+}
+
+TEST_CASE("stream: close drains remaining items then ends", "[stream]") {
+  BoundedQueue q(2);
+  q.push({1, 2, 3});
+  q.push({4});
+  q.close();
+  int got = 0;
+  while (auto v = q.pop()) ++got;
+  REQUIRE(got == 2);  // 关闭前排空，不丢数据
+}
+
+TEST_CASE("stream: capacity clamped to hard limit", "[stream]") {
+  BoundedQueue huge(1'000'000);
+  REQUIRE(huge.capacity() == kMaxQueueCapacity);
+}
