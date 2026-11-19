@@ -254,3 +254,84 @@ TEST_CASE("pts: jump after a burst gap is marked uncertain", "[pts]") {
   // The observed value is preserved rather than silently rewritten.
   REQUIRE(r.packets[4].repaired_pts == in[4].pts_ticks);
 }
+
+#include "media_archive/audio_sync.h"
+
+TEST_CASE("audio: archive round-trip preserves fragments", "[audio]") {
+  namespace fs = std::filesystem;
+  const fs::path dir = fs::temp_directory_path() / "ma_audio_rt";
+  fs::create_directories(dir);
+  const fs::path pcm = dir / "audio.pcm";
+
+  AudioArchive a;
+  a.sample_rate = 24000;
+  a.channels = 1;
+  for (int f = 0; f < 3; ++f) {
+    PcmFragment frag;
+    frag.start_pts_ticks = f * kTimebaseHz / 10;  // 100 ms spacing
+    frag.samples_s16.resize(2400);                 // 100 ms at 24 kHz
+    for (size_t i = 0; i < frag.samples_s16.size(); ++i)
+      frag.samples_s16[i] = static_cast<int16_t>((i * 37 + f) & 0xFFFF);
+    a.fragments.push_back(std::move(frag));
+  }
+  REQUIRE(write_audio_archive(pcm.string(), a).ok());
+  AudioArchive b;
+  REQUIRE(read_audio_archive(pcm.string(), &b).ok());
+  REQUIRE(b.sample_rate == 24000);
+  REQUIRE(b.fragments.size() == 3);
+  REQUIRE(b.fragments[2].samples_s16.size() == 2400);
+  REQUIRE(b.fragments[1].start_pts_ticks == kTimebaseHz / 10);
+}
+
+TEST_CASE("audio: resample to 48k and align on shared clock", "[audio]") {
+  AudioArchive a;
+  a.sample_rate = 24000;
+  a.channels = 1;
+  PcmFragment frag;
+  frag.start_pts_ticks = 0;
+  frag.samples_s16.resize(2400);  // 100 ms of audio
+  a.fragments.push_back(frag);
+  PcmFragment late;
+  late.start_pts_ticks = kTimebaseHz / 5;  // starts at 200 ms: 50 ms silence
+  late.samples_s16.resize(2400);
+  a.fragments.push_back(late);
+
+  const uint64_t timeline = kTimebaseHz / 2;  // 500 ms
+  AudioSyncResult r = align_audio(a, kCommonAudioRate, timeline);
+  REQUIRE(r.fragments.size() == 2);
+  // 2400 samples @24 kHz -> 4800 samples @48 kHz per fragment.
+  REQUIRE(r.fragments[0].samples.size() == Catch::Approx(4800).margin(2));
+  // Second fragment carries ~2400 silence samples (50 ms) before audio.
+  REQUIRE(r.fragments[1].samples.size() >= 2400 + 4700);
+  REQUIRE(r.sample_rate == 48000);
+  REQUIRE(r.expected_samples == 24000);
+  REQUIRE(r.max_sync_error_ms >= 0.0);
+}
+
+TEST_CASE("audio: truncated archive reports corrupt status", "[audio]") {
+  namespace fs = std::filesystem;
+  const fs::path dir = fs::temp_directory_path() / "ma_audio_bad";
+  fs::create_directories(dir);
+  const fs::path pcm = dir / "bad.pcm";
+  AudioArchive a;
+  a.sample_rate = 48000;
+  a.channels = 1;
+  a.fragments.push_back({{}, std::vector<int16_t>(100, 1000)});
+  REQUIRE(write_audio_archive(pcm.string(), a).ok());
+  // Chop the last 40 bytes off (inside the sample payload).
+  auto full = fs::file_size(pcm);
+  std::vector<char> bytes(static_cast<size_t>(full) - 40);
+  {
+    std::ifstream in(pcm.string(), std::ios::binary);
+    in.read(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+  }
+  {
+    std::ofstream out(pcm.string(), std::ios::binary | std::ios::trunc);
+    out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+  }
+  AudioArchive b;
+  Diagnostic d = read_audio_archive(pcm.string(), &b);
+  REQUIRE(!d.ok());
+  REQUIRE(d.status == Status::MediaCorrupt);
+  REQUIRE(d.offset >= 0);
+}

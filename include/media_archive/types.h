@@ -99,6 +99,7 @@ struct AudioSyncResult {
   double end_to_end_sync_error_ms = 0.0;
   int64_t expected_samples = 0;
   int64_t actual_samples = 0;
+  int64_t audio_sample_delta = 0;
   int sample_rate = 0;
 };
 
