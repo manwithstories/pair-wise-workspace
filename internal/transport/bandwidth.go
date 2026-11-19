@@ -9,10 +9,10 @@ import "math"
 // more packets queue while retransmits are hoped for, so the bound shrinks to
 // cap delay; recovering bandwidth lets the bound grow again.
 type BandwidthController struct {
-	MinMBps      float64
-	MaxMBps      float64
+	MinMBps float64
+	MaxMBps float64
 	// MaxDelayMs is the largest playout delay the controller will allow.
-	MaxDelayMs   float64
+	MaxDelayMs float64
 	// PktIntervalMs is the nominal spacing of packets at the stream rate.
 	PktIntervalMs float64
 }

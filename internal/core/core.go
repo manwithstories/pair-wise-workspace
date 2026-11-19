@@ -10,22 +10,22 @@ import (
 
 // Error codes are stable identifiers that appear in CLI output and JSON.
 const (
-	CodeBadArgument    = "bad_argument"
-	CodeOverLimit      = "over_limit"
-	CodeBadIndex       = "bad_index"
-	CodeBadTimestamp   = "bad_timestamp"
-	CodeBadPacket      = "bad_packet"
-	CodeBadGraph       = "bad_graph"
-	CodeMissingDep     = "missing_dependency"
-	CodeCycle          = "cycle"
-	CodeOverlap        = "overlap"
-	CodeAudioInvalid   = "audio_invalid"
-	CodeSilentAudio    = "audio_silent"
-	CodeClippedAudio   = "audio_clipped"
-	CodeEmptyTrack     = "empty_track"
-	CodeUnrecoverable  = "unrecoverable_gap"
-	CodeTimeout        = "timeout"
-	CodeInternal       = "internal"
+	CodeBadArgument   = "bad_argument"
+	CodeOverLimit     = "over_limit"
+	CodeBadIndex      = "bad_index"
+	CodeBadTimestamp  = "bad_timestamp"
+	CodeBadPacket     = "bad_packet"
+	CodeBadGraph      = "bad_graph"
+	CodeMissingDep    = "missing_dependency"
+	CodeCycle         = "cycle"
+	CodeOverlap       = "overlap"
+	CodeAudioInvalid  = "audio_invalid"
+	CodeSilentAudio   = "audio_silent"
+	CodeClippedAudio  = "audio_clipped"
+	CodeEmptyTrack    = "empty_track"
+	CodeUnrecoverable = "unrecoverable_gap"
+	CodeTimeout       = "timeout"
+	CodeInternal      = "internal"
 )
 
 // Error is the single error type shared across mediamix. It is JSON friendly

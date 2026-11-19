@@ -56,12 +56,12 @@ type Sample struct {
 
 // Index is the validated keyframe index for one track.
 type Index struct {
-	Track  string   `json:"track"`
-	Format Format   `json:"format"`
-	Length int      `json:"length"`
+	Track  string            `json:"track"`
+	Format Format            `json:"format"`
+	Length int               `json:"length"`
 	Base   timeline.TimeBase `json:"-"`
 	Origin timeline.Micros   `json:"origin_us"`
-	Sync   []Sample `json:"sync"`
+	Sync   []Sample          `json:"sync"`
 	// Rejects lists non-fatal anomalies (for example a keyframe that fails
 	// format validation) that did not abort the whole index.
 	Rejects []*core.Error `json:"rejects,omitempty"`

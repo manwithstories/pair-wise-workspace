@@ -56,9 +56,9 @@ func (f *Fixture) corruptIndex(rng *rand.Rand) {
 
 // NetworkOptions configure the simulated uplink impairment.
 type NetworkOptions struct {
-	LossBurst    int
+	LossBurst     int
 	BandwidthMBps float64
-	Seed         int64
+	Seed          int64
 	// ReorderWindow reorders arrivals within this many packets.
 	ReorderWindow int
 	// DuplicateEvery duplicates every Nth packet (0 disables duplication).
@@ -68,9 +68,9 @@ type NetworkOptions struct {
 // Delivery is one packet as it arrives at the receiver. ArrivalUs is the
 // receiver's clock; DueUs is the sender's intended presentation time.
 type Delivery struct {
-	Packet   SentPacket
+	Packet    SentPacket
 	ArrivalUs timeline.Micros
-	Dropped  bool
+	Dropped   bool
 }
 
 // Impair applies loss bursts, reordering and duplication to a sent sequence.

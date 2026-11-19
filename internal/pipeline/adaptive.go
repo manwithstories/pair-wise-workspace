@@ -10,11 +10,11 @@ import "mediamix/internal/timeline"
 // nominal rate is known from the initial estimate, a sustained gap in arrivals
 // reads as a bandwidth drop, which is exactly when the buffer should shrink.
 type bandwidthTuner struct {
-	initial   float64
-	current   float64
-	window    []timeline.Micros
-	last      timeline.Micros
-	haveLast  bool
+	initial  float64
+	current  float64
+	window   []timeline.Micros
+	last     timeline.Micros
+	haveLast bool
 	// sampleEvery is how many arrivals between re-samples. Short enough to
 	// react within a second of proxy media, long enough to avoid thrash.
 	sampleEvery int

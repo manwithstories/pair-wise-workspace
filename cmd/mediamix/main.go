@@ -78,6 +78,10 @@ func runDemo(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&opts.truncateTrack, "truncate-track", "", "truncate a track's media")
 	fs.BoolVar(&opts.json, "json", false, "emit JSON")
 	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			fmt.Fprint(stdout, usageText)
+			return 0
+		}
 		fmt.Fprintf(stderr, "bad arguments: %v\n", err)
 		return 2
 	}

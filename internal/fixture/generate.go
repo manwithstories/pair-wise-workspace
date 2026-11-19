@@ -12,10 +12,10 @@ import (
 // Limits caps generated work so a hostile seed or flag cannot request an
 // unbounded fixture.
 type Limits struct {
-	MaxTracks     int
-	MaxPackets    int
-	MaxSeconds    int
-	MaxPayload    int
+	MaxTracks  int
+	MaxPackets int
+	MaxSeconds int
+	MaxPayload int
 }
 
 // DefaultLimits bound a default demo run.
@@ -42,12 +42,12 @@ func (l Limits) Validate() error {
 
 // Params selects the fixture variant.
 type Params struct {
-	Seed         int64
-	LossBurst    int
+	Seed          int64
+	LossBurst     int
 	BandwidthMBps float64
-	CorruptIndex bool
+	CorruptIndex  bool
 	TruncateTrack string
-	Limits       Limits
+	Limits        Limits
 }
 
 // TrackSpec describes one generated track.
@@ -66,11 +66,11 @@ type TrackSpec struct {
 
 // AudioSpec describes generated PCM material.
 type AudioSpec struct {
-	Rate     int
-	Layout   string
-	FreqHz   float64
+	Rate      int
+	Layout    string
+	FreqHz    float64
 	Amplitude float64
-	Silent   bool
+	Silent    bool
 }
 
 // SentPacket is one packet the sender transmitted, before transport effects.

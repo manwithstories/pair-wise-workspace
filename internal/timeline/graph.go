@@ -25,12 +25,12 @@ const (
 // unrestricted: two camera angles covering the same wall-clock interval are
 // normal and must not be reported as an overlap fault.
 type Node struct {
-	Track          string     `json:"track"`
-	Kind           NodeKind   `json:"kind"`
-	DependsOn      []string   `json:"depends_on,omitempty"`
-	ExclusiveGroup string     `json:"exclusive_group,omitempty"`
-	Span           Span       `json:"span"`
-	Segments       []Span     `json:"segments,omitempty"`
+	Track          string   `json:"track"`
+	Kind           NodeKind `json:"kind"`
+	DependsOn      []string `json:"depends_on,omitempty"`
+	ExclusiveGroup string   `json:"exclusive_group,omitempty"`
+	Span           Span     `json:"span"`
+	Segments       []Span   `json:"segments,omitempty"`
 }
 
 // Graph is an explicit, ordered track graph. It never infers dependencies.

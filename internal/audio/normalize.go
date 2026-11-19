@@ -12,8 +12,8 @@ import (
 type Layout string
 
 const (
-	Mono   Layout = "mono"
-	Stereo Layout = "stereo"
+	Mono     Layout = "mono"
+	Stereo   Layout = "stereo"
 	Layout51 Layout = "5.1"
 )
 
@@ -33,10 +33,10 @@ func (l Layout) Channels() (int, error) {
 
 // Material is an interleaved PCM segment on the shared timeline.
 type Material struct {
-	Track     string          `json:"track"`
-	Rate      int             `json:"rate"`
-	Layout    Layout          `json:"layout"`
-	Span      timeline.Span   `json:"span"`
+	Track  string        `json:"track"`
+	Rate   int           `json:"rate"`
+	Layout Layout        `json:"layout"`
+	Span   timeline.Span `json:"span"`
 	// Samples is interleaved, len == frames*channels.
 	Samples []float64 `json:"-"`
 }
@@ -75,8 +75,8 @@ func (m *Material) Validate() (*core.Error, error) {
 
 // Target describes the unified output audio specification.
 type Target struct {
-	Rate        int     `json:"rate"`
-	Layout      Layout  `json:"layout"`
+	Rate         int     `json:"rate"`
+	Layout       Layout  `json:"layout"`
 	LoudnessLUFS float64 `json:"loudness_lufs"` // e.g. -23 for EBU R128
 }
 
@@ -85,21 +85,21 @@ func DefaultTarget() Target { return Target{Rate: 48000, Layout: Stereo, Loudnes
 
 // Result is the normalized material plus explicit status flags.
 type Result struct {
-	Track       string          `json:"track"`
-	Span        timeline.Span   `json:"span"`
-	Rate        int             `json:"rate"`
-	Layout      Layout          `json:"layout"`
-	Frames      int             `json:"frames"`
-	InputPeakDB float64         `json:"input_peak_db"`
-	OutputPeakDB float64        `json:"output_peak_db"`
-	GainDB      float64         `json:"gain_db"`
-	Silent      bool            `json:"silent"`
-	Clipped     bool            `json:"clipped"`
-	Resampled   bool            `json:"resampled"`
-	Upmixed     bool            `json:"upmixed"`
+	Track        string        `json:"track"`
+	Span         timeline.Span `json:"span"`
+	Rate         int           `json:"rate"`
+	Layout       Layout        `json:"layout"`
+	Frames       int           `json:"frames"`
+	InputPeakDB  float64       `json:"input_peak_db"`
+	OutputPeakDB float64       `json:"output_peak_db"`
+	GainDB       float64       `json:"gain_db"`
+	Silent       bool          `json:"silent"`
+	Clipped      bool          `json:"clipped"`
+	Resampled    bool          `json:"resampled"`
+	Upmixed      bool          `json:"upmixed"`
 	// Status carries non-fatal notices such as silence or clipping.
-	Status []*core.Error `json:"status,omitempty"`
-	Material *Material   `json:"-"`
+	Status   []*core.Error `json:"status,omitempty"`
+	Material *Material     `json:"-"`
 }
 
 // Normalize converts material to the target spec without crossing its span

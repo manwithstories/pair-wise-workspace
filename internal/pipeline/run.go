@@ -27,46 +27,46 @@ type Options struct {
 
 // TrackResult is the per-track outcome.
 type TrackResult struct {
-	Track          string              `json:"track"`
-	Kind           timeline.NodeKind   `json:"kind"`
-	Status         string              `json:"status"` // ok | degraded | failed
-	Error          *core.Error         `json:"error,omitempty"`
-	Adjustments    []*core.Error       `json:"adjustments,omitempty"`
-	Received       int                 `json:"received"`
-	Delivered      int                 `json:"delivered"`
-	Duplicates     int                 `json:"duplicate_packets"`
-	Reordered      int                 `json:"reordered_packets"`
-	Recovered      int                 `json:"recovered_packets"`
-	Unrecoverable  int                 `json:"unrecoverable_gaps"`
-	SkippedPackets int                 `json:"skipped_packets"`
-	Timeouts       int                 `json:"timeouts"`
-	Affected       []timeline.Span     `json:"affected_us,omitempty"`
-	SyncOffsetUs   timeline.Micros     `json:"sync_offset_us"`
-	Audio          *audio.Result       `json:"audio,omitempty"`
-	Index          *codec.Index        `json:"index,omitempty"`
-	LatencyP95Ms   float64             `json:"latency_p95_ms"`
+	Track          string            `json:"track"`
+	Kind           timeline.NodeKind `json:"kind"`
+	Status         string            `json:"status"` // ok | degraded | failed
+	Error          *core.Error       `json:"error,omitempty"`
+	Adjustments    []*core.Error     `json:"adjustments,omitempty"`
+	Received       int               `json:"received"`
+	Delivered      int               `json:"delivered"`
+	Duplicates     int               `json:"duplicate_packets"`
+	Reordered      int               `json:"reordered_packets"`
+	Recovered      int               `json:"recovered_packets"`
+	Unrecoverable  int               `json:"unrecoverable_gaps"`
+	SkippedPackets int               `json:"skipped_packets"`
+	Timeouts       int               `json:"timeouts"`
+	Affected       []timeline.Span   `json:"affected_us,omitempty"`
+	SyncOffsetUs   timeline.Micros   `json:"sync_offset_us"`
+	Audio          *audio.Result     `json:"audio,omitempty"`
+	Index          *codec.Index      `json:"index,omitempty"`
+	LatencyP95Ms   float64           `json:"latency_p95_ms"`
 }
 
 // Report is the machine-readable run summary. The JSON field names are part of
 // the CLI contract and are asserted by tests.
 type Report struct {
-	Seed             int64             `json:"seed"`
-	SyncErrorMS      float64           `json:"sync_error_ms"`
-	RecoveryRate     float64           `json:"recovery_rate"`
-	LatencyP95MS     float64           `json:"latency_p95_ms"`
-	ReorderedPackets int               `json:"reordered_packets"`
-	DuplicatePackets int               `json:"duplicate_packets"`
-	FailedTracks     []string          `json:"failed_tracks"`
-	DegradedTracks   []string          `json:"degraded_tracks,omitempty"`
-	Unrecoverable    []string          `json:"unrecoverable_tracks,omitempty"`
-	ValidationErrors []*core.Error     `json:"validation_errors,omitempty"`
+	Seed             int64              `json:"seed"`
+	SyncErrorMS      float64            `json:"sync_error_ms"`
+	RecoveryRate     float64            `json:"recovery_rate"`
+	LatencyP95MS     float64            `json:"latency_p95_ms"`
+	ReorderedPackets int                `json:"reordered_packets"`
+	DuplicatePackets int                `json:"duplicate_packets"`
+	FailedTracks     []string           `json:"failed_tracks"`
+	DegradedTracks   []string           `json:"degraded_tracks,omitempty"`
+	Unrecoverable    []string           `json:"unrecoverable_tracks,omitempty"`
+	ValidationErrors []*core.Error      `json:"validation_errors,omitempty"`
 	BufferBound      int                `json:"buffer_bound"`
 	Timeouts         int                `json:"timeouts"`
 	BandwidthMBps    float64            `json:"bandwidth_mbps"`
 	Container        *mp4.ContainerInfo `json:"container,omitempty"`
-	Tracks           []TrackResult     `json:"tracks"`
+	Tracks           []TrackResult      `json:"tracks"`
 	// ExitCode is the process status implied by this report.
-	ExitCode         int               `json:"exit_code"`
+	ExitCode int `json:"exit_code"`
 }
 
 const (
@@ -179,7 +179,6 @@ func muxDeliverable(fx *fixture.Fixture, tracks []TrackResult) *mp4.ContainerInf
 	}
 	return info
 }
-
 
 // newSource builds the retransmit source. It only hands back packets the
 // sender actually transmitted, so recovery can never invent media.

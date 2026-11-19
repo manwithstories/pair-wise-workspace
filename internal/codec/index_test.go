@@ -9,7 +9,7 @@ import (
 
 // h264Stream builds an Annex-B stream with an IDR frame then a non-IDR frame.
 func h264Stream() ([]byte, []Sample) {
-	idr := append([]byte{0, 0, 0, 1, 0x65}, make([]byte, 8)...)   // type 5
+	idr := append([]byte{0, 0, 0, 1, 0x65}, make([]byte, 8)...)    // type 5
 	nonIDR := append([]byte{0, 0, 0, 1, 0x41}, make([]byte, 8)...) // type 1
 	stream := append(append([]byte{}, idr...), nonIDR...)
 	samples := []Sample{
