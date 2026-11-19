@@ -14,15 +14,18 @@ Each rule is a small dict::
 
 ``output`` defaults to the rule's position in the list.  ``source`` is the
 input stream index.  ``kind`` must match the probed stream type.  ``required``
-controls whether a missing source is fatal (recoverable assets are still
-written, but a required missing track makes the asset partial).
+controls whether a missing source makes the asset partial (the remaining
+tracks are still written and reported).
 
 Rejections (all carry a located :class:`~bcastqc.errors.MediaLocation`):
 
 * duplicate output slots          -> :class:`DuplicateMappingError`
 * duplicate use of one input      -> :class:`DuplicateMappingError`
-* missing required track          -> :class:`MissingTrackError`
-* mismatched type / parameters    -> :class:`IncompatibleTrackError`
+* mismatched stream type          -> :class:`IncompatibleTrackError`
+* a mapping that covers nothing   -> :class:`MissingTrackError`
+
+A missing *required* track is not a rejection: it marks the output partial.  A
+track that is missing but declared non-required is dropped silently.
 """
 
 from __future__ import annotations
@@ -254,11 +257,11 @@ def build_track_graph(probe: AssetProbe, rules: list[TrackRule]) -> TrackGraph:
             ),
         )
 
-    # Parameter compatibility between mapped duplicates of the same kind is a
-    # caller error: two different video streams with different dimensions in
-    # the same output slot family is fine, but the *same* source cannot change
-    # parameters between runs -- that is checked against the policy digest.
-    _check_parameter_consistency(nodes)
+    # Distinct source streams may legitimately share a codec with different
+    # parameters (a main picture plus a thumbnail, say): each output stream
+    # inherits its own source template, so there is nothing to reconcile.
+    # A single source cannot be mapped twice -- that is the duplicate-source
+    # check above.
 
     ignored = [
         stream.index
@@ -266,35 +269,6 @@ def build_track_graph(probe: AssetProbe, rules: list[TrackRule]) -> TrackGraph:
         if stream.index not in sources and stream.copyable
     ]
     return TrackGraph(nodes=nodes, missing_required=missing_required, ignored_inputs=ignored)
-
-
-def _check_parameter_consistency(nodes: list[TrackNode]) -> None:
-    seen: dict[str, tuple[int, tuple[Any, ...]]] = {}
-    for node in nodes:
-        src = node.source
-        sig = (
-            src.codec,
-            src.width,
-            src.height,
-            src.pix_fmt,
-            src.sample_rate,
-            src.channels,
-            src.sample_format,
-            src.extradata_sha256,
-        )
-        key = f"{src.type}:{src.codec}"
-        previous = seen.get(key)
-        if previous is not None and previous[1] != sig:
-            raise IncompatibleTrackError(
-                f"streams {previous[0]} and {src.index} share codec {src.codec!r} "
-                "but have different codec parameters",
-                location=MediaLocation(
-                    stream=src.index,
-                    rule=node.output,
-                    detail="codec parameter mismatch",
-                ),
-            )
-        seen.setdefault(key, (src.index, sig))
 
 
 def describe_mapping(graph: TrackGraph) -> list[str]:

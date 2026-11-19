@@ -175,6 +175,49 @@ def test_missing_required_track_is_partial_not_fatal(tmp_path, demo_dir):
     assert graph.missing_required == [1]
 
 
+def test_multiple_video_tracks_with_different_parameters_are_allowed(tmp_path, demo_dir):
+    import av as _av
+    import numpy as _np
+
+    source = demo_dir / "inputs" / "normal_master.mp4"
+    two_track = tmp_path / "two_video.mp4"
+    with _av.open(str(source)) as inp:
+        audio = next(s for s in inp.streams if s.type == "audio")
+        with _av.open(
+            str(two_track), mode="w", format="mp4", options={"movflags": "+faststart"}
+        ) as out:
+            main = out.add_stream("libx264", rate=25)
+            main.width, main.height, main.pix_fmt = 320, 180, "yuv420p"
+            main.options = {"preset": "ultrafast", "crf": "30", "bf": "0"}
+            thumb = out.add_stream("libx264", rate=25)
+            thumb.width, thumb.height, thumb.pix_fmt = 160, 90, "yuv420p"
+            thumb.options = {"preset": "ultrafast", "crf": "30", "bf": "0"}
+            audio_out = out.add_stream(template=audio)
+            for _ in range(50):
+                for stream, shape in ((main, (180, 320, 3)), (thumb, (90, 160, 3))):
+                    frame = _av.VideoFrame.from_ndarray(
+                        _np.zeros(shape, dtype=_np.uint8), format="rgb24"
+                    )
+                    for packet in stream.encode(frame):
+                        out.mux(packet)
+            for stream in (main, thumb):
+                for packet in stream.encode():
+                    out.mux(packet)
+            for packet in inp.demux(audio):
+                if packet.size == 0:
+                    continue
+                packet.stream = audio_out
+                out.mux(packet)
+
+    probe = probe_asset(two_track)
+    graph = build_track_graph(probe, stable_automatic_rules(probe))
+    # A main picture plus a thumbnail: different parameters, both legitimate.
+    assert len([n for n in graph.nodes if n.source.type == "video"]) == 2
+    outcome = process_asset(two_track, _options(tmp_path / "work"))
+    assert outcome.result.status == "ok"
+    assert outcome.result.remux_packet_match_rate == 1.0
+
+
 def test_empty_mapping_is_fatal(tmp_path, demo_dir):
     probe = probe_asset(demo_dir / "inputs" / "normal_master.mp4")
     with pytest.raises(MissingTrackError):
