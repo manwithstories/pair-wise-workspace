@@ -212,6 +212,14 @@ def load_timeline(manifest_path: str | Path) -> Timeline:
             raise _err("MANIFEST_UNKNOWN_TRACK", f"delivery references unknown track '{tid}'", track=tid)
     for t in tracks:
         for s in t.segments:
+            if s.start_tick < t.offset_ticks:
+                raise _err(
+                    "MANIFEST_RANGE",
+                    f"track {t.id} segment starts at {s.start_tick}, before the track "
+                    f"offset {t.offset_ticks} (negative file position)",
+                    track=t.id,
+                    sample_offset=s.start_tick,
+                )
             if s.start_tick < delivery.start_tick or s.end_tick > delivery.end_tick:
                 raise _err(
                     "MANIFEST_RANGE",

@@ -151,15 +151,13 @@ class Mixer:
         if n_out <= 0:
             return
         # Source window in track-file samples (exact rational positions).
+        # Timeline validation guarantees lo_tick >= track.offset_ticks.
         src_lo = Fraction((lo_tick - track.offset_ticks) * reader.samplerate, MASTER_RATE)
         src_hi = Fraction((hi_tick - track.offset_ticks) * reader.samplerate, MASTER_RATE)
-        read_start = int(src_lo)  # floor for non-negative positions
-        if src_lo < 0:
-            read_start = -int(-src_lo)  # ceil toward zero handled below
-            read_start = int(src_lo) - (1 if src_lo.denominator != 1 else 0)
-        read_start = max(0, read_start)
-        # One extra frame of slack for the interpolation tap.
-        read_end = min(reader.frames, int(src_hi) + 2)
+        read_start = int(src_lo)  # floor; src_lo >= 0
+        # One extra frame of slack for the interpolation tap; the reader
+        # zero-pads up to SLACK_FRAMES past EOF and reports anything more.
+        read_end = int(src_hi) + 2
         read_frames = max(0, read_end - read_start)
         block: Block = reader.read_range(read_start, read_frames)
         data = map_channels(block.data, reader.channels, d.channels, track.id)

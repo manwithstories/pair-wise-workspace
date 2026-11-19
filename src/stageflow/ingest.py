@@ -17,6 +17,7 @@ manifest can mark the substitution; with "fail" the MediaError propagates.
 from __future__ import annotations
 
 import os
+import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -30,6 +31,30 @@ SUBTYPE_BYTES = {
     "PCM_S8": 1, "PCM_16": 2, "PCM_24": 3, "PCM_32": 4,
     "PCM_U8": 1, "FLOAT": 4, "DOUBLE": 8,
 }
+
+
+def _riff_data_extent(path: Path) -> tuple[int, int] | None:
+    """Return (data_offset, declared_data_bytes) from the RIFF/WAVE header.
+
+    libsndfile heals its frame count for truncated files, so truncation is
+    detected by comparing the header's declared data-chunk size with the
+    actual file size.  Returns None for non-RIFF containers.
+    """
+    try:
+        with open(path, "rb") as f:
+            riff = f.read(12)
+            if len(riff) < 12 or riff[:4] not in (b"RIFF", b"RF64") or riff[8:12] != b"WAVE":
+                return None
+            while True:
+                header = f.read(8)
+                if len(header) < 8:
+                    return None
+                chunk_id, chunk_size = header[:4], struct.unpack("<I", header[4:])[0]
+                if chunk_id == b"data":
+                    return f.tell(), chunk_size
+                f.seek(chunk_size + (chunk_size & 1), os.SEEK_CUR)
+    except OSError:
+        return None
 
 
 @dataclass
@@ -107,17 +132,22 @@ class TrackReader:
             )
         declared = self._sf.frames
         bytes_per_frame = SUBTYPE_BYTES.get(self._sf.subtype, 4) * self.channels
-        data_bytes = size - self._data_offset_guess(size, declared, bytes_per_frame)
-        readable = max(0, min(declared, data_bytes // bytes_per_frame))
-        self.frames = int(readable)
-        if readable < declared:
-            self.truncated_at = int(readable)
+        riff = _riff_data_extent(self.path)
+        if riff is not None:
+            # Trust the RIFF header over libsndfile's self-healing frame count:
+            # a truncated file declares more data than it carries.
+            data_offset, declared_bytes = riff
+            readable = max(0, (size - data_offset) // bytes_per_frame)
+            declared_frames = declared_bytes // bytes_per_frame
+            self.frames = int(min(readable, declared, max(declared_frames, readable)))
+            if size - data_offset < declared_bytes:
+                self.truncated_at = int(readable)
+        else:
+            self.frames = int(declared)
 
-    def _data_offset_guess(self, size: int, declared: int, bpf: int) -> int:
-        # Header size = file size - declared data size when the file is whole;
-        # clamp so a truncated file still yields a sane offset.
-        offset = size - declared * bpf
-        return offset if 0 <= offset <= size else 0
+    # Interpolation may ask for a frame or two past EOF; that much slack is
+    # zero-padded.  Anything further is corruption or a timeline mismatch.
+    SLACK_FRAMES = 2
 
     def read_range(self, start: int, frames: int) -> Block:
         """Read [start, start+frames) of track-file samples."""
@@ -125,23 +155,36 @@ class TrackReader:
         if frames <= 0:
             return Block(self.track.id, start, 0, np.zeros((0, self.channels), np.float32))
         end = start + frames
-        if self.truncated_at is not None and end > self.truncated_at:
-            return self._corrupt(
-                "WAV_TRUNCATED",
-                f"{self.name}: data ends at frame {self.truncated_at}, need {end}",
-                start, frames,
+        if end > self.frames + self.SLACK_FRAMES:
+            if self.truncated_at is not None:
+                return self._corrupt(
+                    "WAV_TRUNCATED",
+                    f"{self.name}: data ends at frame {self.truncated_at}, need {end}",
+                    start, frames,
+                )
+            raise MediaError(
+                "TIMELINE_BEYOND_EOF",
+                f"{self.name}: timeline needs frame {end} but file has {self.frames}",
+                stage="ingest", track=self.track.id, sample_offset=self.frames,
+                path=self.name,
             )
+        pad = max(0, end - self.frames)
+        want = frames - pad
         self._sf.seek(start)
         try:
-            data = self._sf.read(frames, dtype="float32", always_2d=True)
+            data = self._sf.read(want, dtype="float32", always_2d=True)
         except (sf.LibsndfileError, RuntimeError) as e:
             return self._corrupt("WAV_READ_ERROR", f"{self.name}: read failed: {e}", start, frames)
-        if data.shape[0] < frames:
+        if data.shape[0] < want:
             return self._corrupt(
                 "WAV_TRUNCATED",
                 f"{self.name}: short read at frame {start + data.shape[0]} "
-                f"(wanted {frames}, got {data.shape[0]})",
+                f"(wanted {want}, got {data.shape[0]})",
                 start + data.shape[0], frames - data.shape[0],
+            )
+        if pad:
+            data = np.concatenate(
+                [data, np.zeros((pad, self.channels), np.float32)], axis=0
             )
         if not np.isfinite(data).all():
             bad = start + int(np.argwhere(~np.isfinite(data).all(axis=1))[0, 0])
