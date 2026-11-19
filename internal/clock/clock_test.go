@@ -215,3 +215,27 @@ func TestEstimateFlagsJumpAnomaly(t *testing.T) {
 		t.Fatalf("jump sample not reported with raw value: %+v", anomalies)
 	}
 }
+
+func TestEstimateRefitsAroundJump(t *testing.T) {
+	base := NewBase(1, 90000)
+	pairs := make([]Pair, 0, 300)
+	for i := int64(0); i < 300; i++ {
+		src := i * 90000
+		node := src + 2*90000 + src*85/1_000_000
+		if i == 150 || i == 151 {
+			node += 45 * 90000 // two consecutive jumped timestamps
+		}
+		pairs = append(pairs, Pair{SourceTicks: src, NodeTicks: node})
+	}
+	corr, anomalies, ok := Estimate(pairs, base, NewRational(1, 100))
+	if !ok {
+		t.Fatal("estimate failed")
+	}
+	if len(anomalies) != 2 {
+		t.Fatalf("anomalies = %+v, want 2", anomalies)
+	}
+	drift := corr.DriftPPM.Seconds()
+	if drift < 80 || drift > 90 {
+		t.Fatalf("drift = %.2f ppm, want ~85 after refit", drift)
+	}
+}

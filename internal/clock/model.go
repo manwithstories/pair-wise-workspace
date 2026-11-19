@@ -9,6 +9,7 @@ package clock
 import (
 	"fmt"
 	"math/big"
+	"sort"
 	"strings"
 )
 
@@ -363,9 +364,11 @@ type Anomaly struct {
 
 // Estimate fits offset and linear drift from source/node pairs using
 // exact big.Rat least squares. threshold is the maximum absolute
-// residual, in seconds, considered healthy. When fewer than two pairs
-// are available a zero-drift correction anchored on the first pair is
-// returned.
+// residual, in seconds, considered healthy. Samples whose residual
+// exceeds threshold are reported as anomalies and excluded from a
+// second fit, so a small number of jumped timestamps cannot bias the
+// drift estimate. Nothing is modified: anomalous pairs keep their raw
+// node values.
 func Estimate(pairs []Pair, base Base, threshold Rational) (Correction, []Anomaly, bool) {
 	if len(pairs) == 0 {
 		return Correction{Offset: Zero(), Slope: NewRational(1, 1)}, nil, false
@@ -376,6 +379,95 @@ func Estimate(pairs []Pair, base Base, threshold Rational) (Correction, []Anomal
 		return c, nil, true
 	}
 
+	// A robust seed is required before outlier detection: ordinary least
+	// squares lets a few jumped timestamps rotate and shift the whole
+	// line, so almost every healthy sample would look anomalous.
+	slope, intercept := theilSen(pairs)
+	firstPass := residualAnomalies(pairs, slope, intercept, base, threshold)
+	inliers := make([]Pair, 0, len(pairs))
+	outlierIdx := make(map[int]bool, len(firstPass))
+	for _, a := range firstPass {
+		outlierIdx[a.Index] = true
+	}
+	for i, p := range pairs {
+		if !outlierIdx[i] {
+			inliers = append(inliers, p)
+		}
+	}
+	// Refit on the retained samples so the reported offset and drift are
+	// the least-squares optimum rather than the robust seed.
+	if len(inliers) >= 2 {
+		if s2, i2, ok2 := fitLine(inliers); ok2 {
+			slope, intercept = s2, i2
+		}
+	}
+
+	c := correctionFromFit(slope, intercept, base, len(pairs))
+	anomalies := residualAnomalies(pairs, slope, intercept, base, threshold)
+	// A pair excluded by the robust seed must stay flagged even if it
+	// happens to land near the final line.
+	flagged := make(map[int]bool, len(anomalies))
+	for _, a := range anomalies {
+		flagged[a.Index] = true
+	}
+	for _, a := range firstPass {
+		if !flagged[a.Index] {
+			anomalies = append(anomalies, a)
+			flagged[a.Index] = true
+		}
+	}
+	sort.Slice(anomalies, func(i, j int) bool { return anomalies[i].Index < anomalies[j].Index })
+	return c, anomalies, true
+}
+
+// theilSen returns a robust slope and intercept: the median of all
+// pairwise slopes and the median residual intercept. It tolerates up to
+// ~29% gross outliers. Duplicate source ticks are skipped for the slope
+// and the intercept median handles them separately. Above maxTheilSen
+// pairs the candidate set is decimated so memory and CPU stay bounded.
+func theilSen(pairs []Pair) (*big.Rat, *big.Rat) {
+	const maxTheilSen = 200_000
+	stride := 1
+	if n := len(pairs); n > 2 {
+		pairsPossible := n * (n - 1) / 2
+		if pairsPossible > maxTheilSen {
+			stride = pairsPossible/maxTheilSen + 1
+		}
+	}
+	var slopes []*big.Rat
+	seen := 0
+	for i := 0; i < len(pairs); i++ {
+		for j := i + 1; j < len(pairs); j++ {
+			seen++
+			if stride > 1 && seen%stride != 0 {
+				continue
+			}
+			dx := pairs[j].SourceTicks - pairs[i].SourceTicks
+			if dx == 0 {
+				continue
+			}
+			dy := pairs[j].NodeTicks - pairs[i].NodeTicks
+			slopes = append(slopes, new(big.Rat).SetFrac(big.NewInt(dy), big.NewInt(dx)))
+		}
+	}
+	if len(slopes) == 0 {
+		return big.NewRat(1, 1), new(big.Rat).SetInt64(pairs[0].NodeTicks)
+	}
+	sort.Slice(slopes, func(i, j int) bool { return slopes[i].Cmp(slopes[j]) < 0 })
+	slope := slopes[len(slopes)/2]
+	intercepts := make([]*big.Rat, 0, len(pairs))
+	for _, p := range pairs {
+		intercepts = append(intercepts, new(big.Rat).Sub(
+			new(big.Rat).SetInt64(p.NodeTicks),
+			new(big.Rat).Mul(slope, new(big.Rat).SetInt64(p.SourceTicks))))
+	}
+	sort.Slice(intercepts, func(i, j int) bool { return intercepts[i].Cmp(intercepts[j]) < 0 })
+	return slope, intercepts[len(intercepts)/2]
+}
+
+// fitLine returns the ordinary-least-squares slope and intercept of
+// node ticks against source ticks, exactly.
+func fitLine(pairs []Pair) (slope, intercept *big.Rat, ok bool) {
 	n := int64(len(pairs))
 	sx, sy := new(big.Int), new(big.Int)
 	sxy, sxx := new(big.Int), new(big.Int)
@@ -389,35 +481,48 @@ func Estimate(pairs []Pair, base Base, threshold Rational) (Correction, []Anomal
 	nn := big.NewInt(n)
 	den := new(big.Int).Sub(new(big.Int).Mul(nn, sxx), new(big.Int).Mul(sx, sx))
 	if den.Sign() == 0 {
-		// All source ticks identical: no slope can be estimated.
-		off := base.Time(pairs[0].NodeTicks).Sub(base.Time(pairs[0].SourceTicks))
-		return Correction{Offset: off, Slope: NewRational(1, 1), Samples: len(pairs)}, nil, true
+		return nil, nil, false
 	}
 	num := new(big.Int).Sub(new(big.Int).Mul(nn, sxy), new(big.Int).Mul(sx, sy))
-	slope := new(big.Rat).SetFrac(num, den)
-	intercept := new(big.Rat).Sub(new(big.Rat).SetFrac(sy, nn),
+	slope = new(big.Rat).SetFrac(num, den)
+	intercept = new(big.Rat).Sub(new(big.Rat).SetFrac(sy, nn),
 		new(big.Rat).Mul(slope, new(big.Rat).SetFrac(sx, nn)))
+	return slope, intercept, true
+}
 
+// correctionFromFit converts the fitted slope/intercept into the public
+// Correction shape. The intercept is in node ticks and is rotated to
+// seconds with the base scale factor Num/Den.
+func correctionFromFit(slope, intercept *big.Rat, base Base, samples int) Correction {
 	slopeRat := fromBig(slope)
-	// intercept is in node ticks; rotate it to seconds with the base
-	// scale factor Num/Den.
 	offsetBig := new(big.Rat).SetFrac(
 		new(big.Int).Mul(big.NewInt(base.Num), intercept.Num()),
 		new(big.Int).Mul(big.NewInt(base.Den), intercept.Denom()))
-	offsetSec := fromBig(offsetBig)
 	driftPPM := fromBig(new(big.Rat).Mul(
 		new(big.Rat).Sub(slope, big.NewRat(1, 1)), new(big.Rat).SetInt64(1_000_000)))
+	return Correction{
+		Offset:   fromBig(offsetBig),
+		Slope:    slopeRat,
+		DriftPPM: driftPPM,
+		Samples:  samples,
+	}
+}
 
-	c := Correction{Offset: offsetSec, Slope: slopeRat, DriftPPM: driftPPM, Samples: len(pairs)}
-	var anomalies []Anomaly
+// residualAnomalies reports every pair whose residual exceeds limit.
+func residualAnomalies(pairs []Pair, slope, intercept *big.Rat, base Base, limit Rational) []Anomaly {
+	var out []Anomaly
 	for i, p := range pairs {
 		predicted := new(big.Rat).Add(intercept, new(big.Rat).Mul(slope, new(big.Rat).SetInt64(p.SourceTicks)))
 		observed := new(big.Rat).SetInt64(p.NodeTicks)
 		residualTicks := new(big.Rat).Sub(observed, predicted)
 		residualSec := new(big.Rat).Quo(residualTicks, new(big.Rat).SetFrac64(base.Den, base.Num))
 		res := fromBig(residualSec)
-		if res.Cmp(threshold) > 0 || res.Neg().Cmp(threshold) > 0 {
-			anomalies = append(anomalies, Anomaly{
+		absRes := res
+		if res.Num < 0 {
+			absRes = res.Neg()
+		}
+		if absRes.Cmp(limit) > 0 {
+			out = append(out, Anomaly{
 				Index:       i,
 				SourceTicks: p.SourceTicks,
 				NodeTicks:   p.NodeTicks,
@@ -425,5 +530,5 @@ func Estimate(pairs []Pair, base Base, threshold Rational) (Correction, []Anomal
 			})
 		}
 	}
-	return c, anomalies, true
+	return out
 }
