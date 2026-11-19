@@ -130,7 +130,10 @@ func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer, se
 		fmt.Fprintf(stderr, "avpipe: %v\n", err)
 		return 2
 	}
-	opts.Layout, opts.SourceLayout = layout, srcLayout
+	// --layout is the negotiated target layout; keep every field the
+	// pipeline reads in sync so the flag cannot be silently ignored.
+	opts.Layout, opts.TargetLayout = layout, layout
+	opts.SourceLayout = srcLayout
 	opts.Input = input
 	opts.QueueTicks = int64(queueMs * 90)
 	opts.ReportPath = reportPath

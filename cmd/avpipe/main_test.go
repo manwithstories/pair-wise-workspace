@@ -134,6 +134,31 @@ func TestReportIsWrittenAndValid(t *testing.T) {
 	}
 }
 
+func TestLayoutFlagDrivesPipeline(t *testing.T) {
+	code, stdout, stderr := execCLI(t, "run", "--seed", "1",
+		"--source-layout", "stereo", "--layout", "5.1")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stdout, "layout=5.1 rate=") {
+		t.Fatalf("target layout not honored:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "silence_fills                     4") {
+		t.Fatalf("stereo->5.1 should report 4 silence fills:\n%s", stdout)
+	}
+}
+
+func TestSampleRateFlagDrivesPipeline(t *testing.T) {
+	code, stdout, _ := execCLI(t, "run", "--seed", "1",
+		"--source-sample-rate", "48000", "--sample-rate", "44100")
+	if code != 0 {
+		t.Fatalf("code=%d", code)
+	}
+	if !strings.Contains(stdout, "rate=44100") {
+		t.Fatalf("target sample rate not honored:\n%s", stdout)
+	}
+}
+
 func TestHelpExitsZero(t *testing.T) {
 	code, stdout, _ := execCLI(t, "--help")
 	if code != 0 || !strings.Contains(stdout, "avpipe run") {
