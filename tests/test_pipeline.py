@@ -182,6 +182,11 @@ def test_legacy_index_out_of_range_invalidates(demo_dir):
     issues = index_mod.validate_legacy_index(t, idx, str(legacy))
     assert idx.stale is True
     assert all(i.category is ErrorCategory.INDEX_STALE for i in issues)
+    # 失效后重扫重建的索引必须仍可随机跳转
+    rebuilt = index_mod.build_index(t, pr.frames,
+                                    Path(t.path).stat().st_size)
+    index_mod.verify_seek_points(t, rebuilt, t.path, sample=6)
+    assert index_mod.seek_pass_rate(rebuilt) >= 0.99
 
 
 # ------------------------------------------------------------ 音频
@@ -343,3 +348,12 @@ def test_internal_error_exit_1(demo_dir, monkeypatch):
     work = Path(out) / "work_internal"
     _, code = Pipeline(manifest, str(work)).run()
     assert code is ExitCode.INTERNAL
+
+
+def test_temp_budget_limit_rejects(demo_dir):
+    out, manifest = demo_dir
+    manifest.limits["max_temp_bytes"] = 64      # 极小预算，任何输出都超限
+    work = Path(out) / "work_budget"
+    _, code = Pipeline(manifest, str(work)).run()
+    # 预算超限在阶段内被调度器捕获，归类为输入无效（退出码 2）。
+    assert code is ExitCode.INVALID_INPUT

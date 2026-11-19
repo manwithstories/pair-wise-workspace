@@ -125,9 +125,15 @@ class Pipeline:
         result.latency_ms.append((time.perf_counter() - t0) * 1000.0)
         self.ra_indexes[track.track_id] = idx
         self.seek_rates[track.track_id] = rate
-        index_mod.write_index(
-            idx, str(Path(self.work_dir) / "index" /
-                     f"{track.track_id}.index.json"))
+        index_path = str(Path(self.work_dir) / "index" /
+                        f"{track.track_id}.index.json")
+        # 估算索引 JSON 体积并纳入临时预算。
+        est = len(idx.entries) * 80 + 256
+        sched.acquire_temp(est)
+        try:
+            index_mod.write_index(idx, index_path)
+        finally:
+            sched.release_temp(est)
         result.outputs["keyframe_index"] = f"index/{track.track_id}.index.json"
         result.issues.extend(idx.issues)
 
@@ -166,7 +172,13 @@ class Pipeline:
 
         out_wav = str(Path(self.work_dir) / "audio" /
                       f"{track.track_id}.wav")
-        audio_mod.write_normalized(ares, out_wav)
+        # PCM16 估算：每样本每声道 2 字节 + WAV 头。
+        est_wav = ares.samples.size * 2 + 44
+        sched.acquire_temp(est_wav)
+        try:
+            audio_mod.write_normalized(ares, out_wav)
+        finally:
+            sched.release_temp(est_wav)
         result.outputs["normalized_audio"] = f"audio/{track.track_id}.wav"
 
         # 同步实测：以参考视频轨为基准。

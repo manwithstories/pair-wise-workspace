@@ -93,34 +93,46 @@ class Scheduler:
         self.results: dict[str, TrackResult] = {}
         self._hashes: dict[str, str] = {}
         self._cache_bytes = 0
+        self._temp_bytes = 0
 
     # ------------------------------------------------------------ 工具
     def file_hash(self, track_id: str, abs_path: str) -> str:
         if track_id not in self._hashes:
-            size = os.path.getsize(abs_path)
-            if size > self.manifest.limits["max_cache_bytes"]:
-                # 大文件只哈希一次且不缓存内容，哈希本身分块进行。
-                self._hashes[track_id] = sha256_file(
-                    abs_path, self.manifest.limits["chunk_bytes"])
-            else:
-                self._hashes[track_id] = sha256_file(abs_path)
+            # 哈希一律分块进行，避免一次性读入大文件。
+            self._hashes[track_id] = sha256_file(
+                abs_path, self.manifest.limits["chunk_bytes"])
         return self._hashes[track_id]
 
-    def _acquire_cache(self, need: int) -> None:
-        """限制并发缓存；超限时抛内部错误而非无限吃内存。"""
+    def acquire_temp(self, need: int) -> None:
+        """登记临时/输出占用，超过 max_temp_bytes 即拒绝（退出码 2）。"""
+        cap = self.manifest.limits["max_temp_bytes"]
+        if need > cap:
+            raise PipelineError(
+                ErrorCategory.INPUT_TOO_LARGE,
+                f"单任务临时需求 {need}B 超过上限 {cap}B")
+        if self._temp_bytes + need > cap:
+            raise PipelineError(
+                ErrorCategory.INPUT_TOO_LARGE,
+                f"临时文件累计 {self._temp_bytes + need}B 超过上限 {cap}B")
+        self._temp_bytes += need
+
+    def release_temp(self, size: int) -> None:
+        self._temp_bytes = max(0, self._temp_bytes - size)
+
+    def acquire_cache(self, need: int) -> None:
+        """限制并发缓存占用；超限拒绝，避免无限吃内存。"""
         cap = self.manifest.limits["max_cache_bytes"]
         if need > cap:
             raise PipelineError(
-                ErrorCategory.INTERNAL,
+                ErrorCategory.INPUT_TOO_LARGE,
                 f"单任务缓存需求 {need}B 超过上限 {cap}B")
-        # 简化的预算占用：调度层串行释放，超限即拒绝新任务。
         if self._cache_bytes + need > cap:
             raise PipelineError(
                 ErrorCategory.INPUT_TOO_LARGE,
                 f"并发缓存 {self._cache_bytes + need}B 超过上限 {cap}B")
         self._cache_bytes += need
 
-    def _release_cache(self, size: int) -> None:
+    def release_cache(self, size: int) -> None:
         self._cache_bytes = max(0, self._cache_bytes - size)
 
     # ------------------------------------------------------------ 调度
