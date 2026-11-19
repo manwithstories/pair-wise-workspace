@@ -15,6 +15,7 @@ struct SidecarEntry {
   MediaType type = MediaType::Video;
   int64_t rawPts = 0;
   int64_t rawDuration = 0;
+  int64_t linearPts = 0;    // 仅含漂移、剥离 VFR 的线性化 PTS（漂移锚点用）
   bool keyframe = false;
   bool corrupt = false;
   uint64_t offset = 0;

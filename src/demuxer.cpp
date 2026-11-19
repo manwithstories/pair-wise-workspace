@@ -35,11 +35,13 @@ bool loadSidecar(const std::string& path, Sidecar& out, std::string& err) {
     } else if (tag == "PKT") {
       SidecarEntry e;
       std::string type, key, corrupt;
+      // 兼容两种格式：9 字段（含 linearPts）或 8 字段（无 linearPts）。
       if (!(iss >> e.ordinal >> e.trackId >> type >> e.rawPts >>
                 e.rawDuration >> key >> corrupt >> e.offset)) {
         err = "bad PKT at line " + std::to_string(lineNo);
         return false;
       }
+      if (!(iss >> e.linearPts)) e.linearPts = e.rawPts;
       e.type = parseType(type);
       e.keyframe = key == "1";
       e.corrupt = corrupt == "1";
@@ -73,6 +75,7 @@ DemuxResult demuxTrack(const std::string& trackId, const Sidecar& sc,
     p.globalIndex = e.ordinal;
     p.rawPts = e.rawPts;
     p.rawDts = e.rawPts;
+    p.linearPts = e.linearPts;
     p.durationTicks = e.rawDuration;
     p.keyframe = e.keyframe;
     p.corrupt = e.corrupt;

@@ -38,8 +38,10 @@ public:
 private:
   Rational tb_;
   uint64_t wrapCount_ = 0;
-  int64_t lastRaw_ = 0;
+  int64_t lastRaw_ = 0;     // 上一包展开后滴答
+  int64_t lastMod_ = 0;     // 上一包 33 位模内滴答
   int64_t lastRepairedUs_ = 0;
+  int64_t baseUs_ = 0;      // 首帧绝对时间，统一时间线据此归零
   bool haveLast_ = false;
   RepairSummary summary_;
   std::vector<TimeEvent> events_;

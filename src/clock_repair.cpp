@@ -16,57 +16,57 @@ ClockRepair::ClockRepair(Rational tb, MediaType) : tb_(tb) {}
 TimeError ClockRepair::accept(MediaPacket& pkt) {
   summary_.packetsIn++;
   TimeError err = TimeError::None;
-  uint64_t raw = uint64_t(pkt.rawPts);
+  uint64_t raw = uint64_t(pkt.rawPts) & PTS33_MASK;
 
   if (haveLast_) {
-    const int64_t delta = int64_t(raw) - lastRaw_;
-    if (delta == 0) {
+    // 33 位模空间下的前向增量（始终落在 [0, PTS33_MOD)）。
+    uint64_t fwd = (raw - uint64_t(lastMod_)) & PTS33_MASK;
+    if (fwd == 0) {
       // 重复 PTS：可恢复，保留并标记。
       err = TimeError::DuplicatePts;
       pkt.duplicate = true;
       summary_.duplicates++;
       summary_.packetsRepaired++;
-    } else if (delta < 0) {
-      const uint64_t back = uint64_t(-delta);
-      if (back >= WRAP_THRESHOLD) {
-        // 合法 33 位回绕：展开并校验单调性。
-        wrapCount_++;
-        err = TimeError::Wrap;
-        summary_.wraps++;
-        summary_.packetsRepaired++;
-      } else {
-        // 小幅回退无法与局部坏包/重排序安全区分 -> 不可交付。
-        err = TimeError::Ambiguous;
-        summary_.ambiguous++;
-        summary_.deliverable = false;
-        if (summary_.firstBadPacket == 0)
-          summary_.firstBadPacket = pkt.globalIndex;
-        pkt.deliverable = false;
-      }
+    } else if (fwd >= WRAP_THRESHOLD) {
+      // 前向增量超过半模，等价于小幅非法倒退，无法安全修复。
+      err = TimeError::Ambiguous;
+      summary_.ambiguous++;
+      summary_.deliverable = false;
+      if (summary_.firstBadPacket == 0)
+        summary_.firstBadPacket = pkt.globalIndex;
+      pkt.deliverable = false;
+    } else if (raw < uint64_t(lastMod_)) {
+      // 数值回退但前向增量正常 -> 合法 33 位回绕。
+      wrapCount_++;
+      err = TimeError::Wrap;
+      summary_.wraps++;
+      summary_.packetsRepaired++;
     }
   }
 
   const uint64_t unwrapped = raw + wrapCount_ * PTS33_MOD;
   // 展开后仍倒退（回绕幅度与模数不自洽）-> 非法倒退。
   if (haveLast_ && int64_t(unwrapped) <= lastRaw_ &&
-      err != TimeError::DuplicatePts) {
-    if (err == TimeError::None) {
-      err = TimeError::BackwardIllegal;
-      summary_.deliverable = false;
-      pkt.deliverable = false;
-      if (summary_.firstBadPacket == 0)
-        summary_.firstBadPacket = pkt.globalIndex;
-    }
+      err != TimeError::DuplicatePts && err != TimeError::Ambiguous) {
+    err = TimeError::BackwardIllegal;
+    summary_.deliverable = false;
+    pkt.deliverable = false;
+    if (summary_.firstBadPacket == 0)
+      summary_.firstBadPacket = pkt.globalIndex;
   }
 
   pkt.repairedUs = ticksToUs(int64_t(unwrapped), tb_);
   pkt.durationUs = ticksToUs(pkt.durationTicks, tb_);
+  // 统一时间线按首帧归零，消除各设备不同的绝对起点（如接近 2^33）。
+  if (!haveLast_) baseUs_ = pkt.repairedUs;
+  pkt.repairedUs -= baseUs_;
   if (pkt.duplicate && haveLast_) pkt.repairedUs = lastRepairedUs_;
 
   if (err != TimeError::None)
     events_.push_back({pkt.globalIndex, pkt.rawPts, pkt.repairedUs, err,
                        std::string(toString(err))});
   lastRaw_ = int64_t(unwrapped);
+  lastMod_ = int64_t(raw);
   lastRepairedUs_ = pkt.repairedUs;
   haveLast_ = true;
   return err;

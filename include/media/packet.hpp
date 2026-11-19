@@ -17,6 +17,7 @@ struct MediaPacket {
   size_t globalIndex = 0;    // 全轨累计序号（诊断定位用）
   int64_t rawPts = 0;        // 容器原始 PTS（轨道时间基滴答）
   int64_t rawDts = 0;
+  int64_t linearPts = 0;     // 剥离 VFR 的线性化 PTS（漂移锚点真值，滴答）
   int64_t durationTicks = 0; // 原始时长（滴答）
   int64_t repairedUs = 0;    // 修复后统一时间基 PTS（微秒）
   int64_t durationUs = 0;    // 修复后时长（微秒）

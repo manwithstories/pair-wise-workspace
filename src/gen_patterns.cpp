@@ -30,6 +30,11 @@ std::vector<FramePlan> videoPlan(const GenConfig& cfg, uint64_t seed,
     double vfr = cfg.vfr ? 1.0 + (rng.unit() - 0.5) * 0.08 : 1.0;
     double stepUs = baseStepUs * vfr;
     driftUs += stepUs * (ppm * 1e-6);
+    // 线性化时间：理想帧时间 + 纯漂移（无 VFR），用于漂移估计真值。
+    double linearUs = double(i) * baseStepUs * (1.0 + ppm * 1e-6) +
+                      double(offsetUs);
+    int64_t linearTick = start +
+        int64_t(std::llround(linearUs / 1e6 * VIDEO_TB));
     double devUs = double(i) * baseStepUs + driftUs + double(offsetUs);
     int64_t tick = start + int64_t(std::llround(devUs / 1e6 * VIDEO_TB));
     if (tick <= lastTick) tick = lastTick + 1; // 数值兜底：严格递增
@@ -38,7 +43,7 @@ std::vector<FramePlan> videoPlan(const GenConfig& cfg, uint64_t seed,
     // CFR 时步长恒定；VFR 时取相邻 tick 之差，首帧用理想步长。
     int64_t dur = cfg.vfr ? (i == 0 ? baseStepTick : tick - lastTick)
                           : baseStepTick;
-    plan.push_back({pts, tick, dur, (i % 12 == 0),
+    plan.push_back({pts, tick, linearTick, dur, (i % 2 == 0),
                     corruptStride > 0 && (i % corruptStride == 0) && i > 0,
                     wrapN != prevWrap});
     prevWrap = wrapN;
@@ -64,12 +69,14 @@ std::vector<AudioPlan> audioPlan(const GenConfig& cfg, int corruptStride) {
 }
 
 void fillFrame(AVFrame* f, size_t index, int width, int height) {
-  // Y 平面：水平渐变 + 随帧滚动的条纹；U/V：随帧缓变的平涂。
+  // Y 平面：水平渐变 + 滚动条纹 + 确定性高频噪声（提升可编码熵与码率动态）；
+  // U/V：随帧缓变的平涂。噪声公式须与 decoder.cpp 的 referenceLuma 完全一致。
   for (int y = 0; y < height; ++y)
     for (int x = 0; x < width; ++x) {
       int stripe = ((x + int(index) * 4) / 16) % 2 * 24;
+      int noise = int((x * 73 + y * 19 + index * 131) & 0x1F) - 16;
       f->data[0][y * f->linesize[0] + x] =
-          uint8_t((x * 200 / width + y * 40 / height + stripe) & 0xFF);
+          uint8_t((x * 200 / width + y * 40 / height + stripe + noise) & 0xFF);
     }
   for (int y = 0; y < height / 2; ++y)
     for (int x = 0; x < width / 2; ++x) {

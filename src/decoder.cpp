@@ -23,8 +23,9 @@ std::vector<uint8_t> referenceLuma(size_t index, int width, int height) {
   for (int y = 0; y < height; ++y)
     for (int x = 0; x < width; ++x) {
       int stripe = ((x + int(index) * 4) / 16) % 2 * 24;
+      int noise = int((x * 73 + y * 19 + index * 131) & 0x1F) - 16;
       ref[size_t(y) * width + x] =
-          uint8_t((x * 200 / width + y * 40 / height + stripe) & 0xFF);
+          uint8_t((x * 200 / width + y * 40 / height + stripe + noise) & 0xFF);
     }
   return ref;
 }

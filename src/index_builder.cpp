@@ -1,5 +1,6 @@
 #include "media/index_builder.hpp"
 #include <algorithm>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -17,19 +18,26 @@ void KeyframeIndex::build(const std::vector<MediaPacket>& packets) {
 
 std::optional<SeekResult> KeyframeIndex::seek(int64_t targetUs) const {
   if (entries_.empty()) return std::nullopt;
-  // 取不晚于目标的最后一个关键帧（upper_bound - 1）。
-  auto it = std::upper_bound(
+  // 双向最近邻：lower_bound 找首个不早于目标的关键帧，再与前一个比较，
+  // 选落点误差绝对值更小者，把 seek 误差压到半个关键帧间隔以内。
+  auto next = std::lower_bound(
       entries_.begin(), entries_.end(), targetUs,
-      [](int64_t t, const IndexEntry& e) { return t < e.ptsUs; });
-  if (it == entries_.begin()) {
-    // 目标早于首个关键帧：回退到首帧，由误差字段暴露偏差。
-    it = entries_.begin();
+      [](const IndexEntry& e, int64_t t) { return e.ptsUs < t; });
+  auto best = next;
+  if (next == entries_.begin()) {
+    best = entries_.begin(); // 目标早于首关键帧
+  } else if (next == entries_.end()) {
+    best = entries_.end() - 1; // 目标晚于末关键帧
   } else {
-    --it;
+    auto prev = next - 1;
+    best = std::llabs(prev->ptsUs - targetUs) <=
+                   std::llabs(next->ptsUs - targetUs)
+               ? prev
+               : next;
   }
   SeekResult r;
   r.targetUs = targetUs;
-  r.entry = *it;
+  r.entry = *best;
   r.errorUs = r.entry.ptsUs - targetUs;
   return r;
 }

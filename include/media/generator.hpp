@@ -16,8 +16,8 @@ struct GenConfig {
   bool vfr = true;
   int corruptEvery = 97;     // >0 时每 N 个包注入一个坏包
   int64_t targetBitrate = 1'800'000;
-  int videoWidth = 160;
-  int videoHeight = 120;
+  int videoWidth = 320;
+  int videoHeight = 240;
   int sampleRate = 24000;
   int audioPacketSamples = 1024;
 };

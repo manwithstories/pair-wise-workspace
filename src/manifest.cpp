@@ -1,5 +1,6 @@
 #include "media/manifest.hpp"
 #include <algorithm>
+#include <cstdlib>
 #include <sstream>
 
 namespace media {
@@ -116,13 +117,23 @@ BoundaryState alignEditPoint(const EditPoint& edit,
     st.kind = BoundaryKind::MissingFrame;
     return st;
   }
-  // 不晚于目标时间的最近有效帧；无满足项则取首帧并标记缺帧。
+  // 取时间距离最近的有效帧（前后双向），把 VFR 下的对齐误差压到半帧内；
+  // 所有帧都晚于目标时取首帧并标记缺帧。
   const MediaPacket* best = nullptr;
+  const MediaPacket* prev = nullptr;
   for (const auto& p : packets) {
     if (!p.deliverable) continue;
-    if (p.repairedUs <= edit.targetUs) best = &p;
-    else break;
+    if (p.repairedUs <= edit.targetUs) {
+      prev = &p;
+      continue;
+    }
+    best = prev;
+    if (!best || std::llabs(p.repairedUs - edit.targetUs) <
+                     std::llabs(prev->repairedUs - edit.targetUs))
+      best = &p;
+    break;
   }
+  if (!best) best = prev; // 目标晚于末帧
   if (!best) {
     best = &packets.front();
     st.kind = BoundaryKind::MissingFrame;

@@ -14,6 +14,7 @@ namespace media::gen {
 struct FramePlan {
   int64_t pts;        // 注入回绕后的原始 PTS（33 位，写入侧车供修复模块）
   int64_t unwrappedPts; // 单调未回绕 PTS（送入编码器，保证容器合法）
+  int64_t linearPts;  // 仅含漂移、剥离 VFR 的线性化 PTS（漂移锚点真值）
   int64_t duration;   // 帧时长滴答
   bool keyframe;
   bool corrupt;

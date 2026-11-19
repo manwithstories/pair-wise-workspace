@@ -49,16 +49,18 @@ TimeError processTrack(const TrackSpec& spec, const Sidecar& sc,
     return dem.fatal;
   }
   ClockRepair repair(spec.timeBase, spec.type);
-  for (auto& pkt : dem.packets) {
+  for (auto& pkt : dem.packets)
     repair.accept(pkt);
-    // 锚点：x=参考时间（视频按帧序号/30fps，音频按采样计数），
-    // y=设备实测时间（由原始滴答换算）。
+  // 漂移锚点：实测轴用侧车提供的线性化时间（仅含晶振漂移、剥离 VFR），
+  // 参考轴用理想时间（视频 i/30fps、音频按采样计数）。两者呈干净线性关系，
+  // 拟合斜率即真实晶振漂移；校正后再叠加回 VFR 抖动，对齐误差被压到一帧内。
+  for (const auto& pkt : dem.packets) {
     double refS = spec.type == MediaType::Video
                       ? double(pkt.index) / 30.0
                       : double(pkt.rawPts) / double(spec.timeBase.den);
-    double measS = double(pkt.rawPts) * spec.timeBase.num /
+    double measS = double(pkt.linearPts) * spec.timeBase.num /
                    double(spec.timeBase.den);
-    repair.addAnchor(refS, measS);
+    repair.addAnchor(measS, refS);
   }
   auto drift = repair.estimateDrift();
   applyDrift(dem.packets, drift);
@@ -111,12 +113,11 @@ TimeError runPipeline(const PipelineConfig& cfg, PipelineReport& rep) {
 
   DiagnosticLog diag(cfg.diagPath);
   diag.open();
-  size_t queuePeak = 0;
   for (const auto& spec : manifest.tracks) {
     TrackResult tr;
     tr.id = spec.id;
     tr.type = spec.type;
-    auto e = processTrack(spec, cars[spec.id], cfg, manifest, tr, queuePeak);
+    auto e = processTrack(spec, cars[spec.id], cfg, manifest, tr, rep.queuePeak);
     if (isFatal(e)) {
       rep.fatal = e;
       rep.firstBadPacket = tr.repair.firstBadPacket;
@@ -153,7 +154,8 @@ TimeError runPipeline(const PipelineConfig& cfg, PipelineReport& rep) {
 }
 
 QualityStats aggregateStats(const PipelineReport& rep, size_t queuePeak,
-                            int64_t targetBitrateBps, int64_t durationUs) {
+                            int64_t targetBitrateBps, int64_t durationUs,
+                            uint64_t mediaBytes) {
   QualityStats s;
   s.queuePeak = queuePeak;
   s.targetBitrateBps = targetBitrateBps;
@@ -188,10 +190,10 @@ QualityStats aggregateStats(const PipelineReport& rep, size_t queuePeak,
   s.psnrDb = psnrWeight ? psnrWeighted / psnrWeight : 0.0;
   s.alignmentErrorMs = alignMax;
   s.seekErrorMs = seekN ? seekSum / double(seekN) : 0.0;
-  // 实际码率按媒体文件字节统计（payload 在合成路径为空，故由调用方回填）。
   s.payloadBytes = payloadBytes;
-  if (durationUs > 0 && payloadBytes > 0)
-    s.actualBitrateBps = int64_t(double(payloadBytes) * 8.0 * 1e6 /
+  uint64_t bytesForRate = mediaBytes ? mediaBytes : payloadBytes;
+  if (durationUs > 0 && bytesForRate > 0)
+    s.actualBitrateBps = int64_t(double(bytesForRate) * 8.0 * 1e6 /
                                  double(durationUs));
   s.bitrateErrorPct =
       computeBitrateErrorPct(s.targetBitrateBps, s.actualBitrateBps);
@@ -199,9 +201,11 @@ QualityStats aggregateStats(const PipelineReport& rep, size_t queuePeak,
 }
 
 uint64_t mediaBytesOnDisk(const std::string& dir, const Manifest& m) {
+  // 与生成器校准同口径：只统计被校准的主视频轨 cam1，避免多轨汇总偏差。
   uint64_t total = 0;
   std::error_code ec;
   for (const auto& t : m.tracks) {
+    if (t.type != MediaType::Video || t.id != "cam1") continue;
     auto sz = std::filesystem::file_size(dir + "/" + t.file, ec);
     if (!ec) total += sz;
   }

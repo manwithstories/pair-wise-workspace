@@ -233,10 +233,17 @@ TEST_CASE("关键帧索引定位与落点误差", "[index]") {
   idx.build(pk);
   REQUIRE(idx.entries().size() == 3); // 0,4,8
 
+  // 双向最近邻：550ms 距 400ms(150ms) 比距 800ms(250ms) 更近 -> 400ms。
   auto r = idx.seek(550'000);
   REQUIRE(r.has_value());
   CHECK(r->entry.ptsUs == 400'000);
   CHECK(r->errorUs == -150'000);
+
+  // 越过中点则取后一个关键帧：700ms 距 800ms(100ms) 比距 400ms(300ms) 近。
+  auto mid = idx.seek(700'000);
+  REQUIRE(mid.has_value());
+  CHECK(mid->entry.ptsUs == 800'000);
+  CHECK(mid->errorUs == 100'000);
 
   auto early = idx.seek(10);
   REQUIRE(early.has_value());

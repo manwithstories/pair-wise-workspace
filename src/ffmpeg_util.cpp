@@ -35,6 +35,9 @@ std::string encodeMJpeg(
   enc.p->framerate = AVRational{30, 1};
   enc.p->flags |= AV_CODEC_FLAG_QSCALE;
   enc.p->global_quality = spec.qscale * FF_QP2LAMBDA;
+  // MJPEG 只在 qmin==qmax 且每帧带 quality 时才严格遵循量化等级。
+  enc.p->qmin = spec.qscale;
+  enc.p->qmax = spec.qscale;
 
   AVStream* st = avformat_new_stream(fmt, nullptr);
   if (!st) return "new stream failed";
@@ -84,6 +87,7 @@ std::string encodeMJpeg(
       return "frame writable: " + avError(rc);
     fill(frame.p, i);
     frame.p->pts = ptsFn(i);
+    frame.p->quality = enc.p->global_quality;
     if ((rc = avcodec_send_frame(enc.p, frame.p)) < 0)
       return "send_frame: " + avError(rc);
     if (auto e = drain(); !e.empty()) return e;

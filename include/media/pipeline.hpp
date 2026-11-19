@@ -40,6 +40,7 @@ struct PipelineReport {
   QualityStats stats;
   TimeError fatal = TimeError::None;
   size_t firstBadPacket = 0;
+  size_t queuePeak = 0;
   std::string fatalDetail;
   std::map<std::string, TrackResult> tracks;
 };
@@ -49,7 +50,8 @@ TimeError runPipeline(const PipelineConfig& cfg, PipelineReport& rep);
 
 // 把各轨结果聚合为验收字段（码率/PSNR/对齐/落点/漂移）。
 QualityStats aggregateStats(const PipelineReport& rep, size_t queuePeak,
-                            int64_t targetBitrateBps, int64_t durationUs);
+                            int64_t targetBitrateBps, int64_t durationUs,
+                            uint64_t mediaBytes = 0);
 
 // 统计工作目录下该清单引用的全部媒体文件总字节（用于真实码率）。
 uint64_t mediaBytesOnDisk(const std::string& dir, const Manifest& m);
