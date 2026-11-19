@@ -148,6 +148,41 @@ func genDASHAsset(rng *rand.Rand, dir string) (string, error) {
 	return "manifest.mpd", writeFile(dir, "manifest.mpd", []byte(mpd))
 }
 
+// genClassicMP4 writes a single non-fragmented MP4 asset (moov sample
+// tables, no moof) so the pipeline's classic demux path is exercised. It
+// is described by a one-segment DASH SegmentList.
+func genClassicMP4(rng *rand.Rand, dir string) (string, error) {
+	tracks := []mp4.MuxTrack{
+		{ID: 1, Type: "video", Codec: "avc1", Timescale: 90000, Language: "eng", Width: 640, Height: 360},
+		{ID: 2, Type: "audio", Codec: "mp4a", Timescale: 48000},
+	}
+	var video, audio []mp4.Sample
+	for i := 0; i < 60; i++ {
+		payload := make([]byte, 900+rng.Intn(200))
+		rng.Read(payload)
+		video = append(video, mp4.Sample{
+			DTS: int64(i) * 1500, Duration: 1500, Keyframe: i%15 == 0, Data: payload,
+		})
+	}
+	for i := 0; i < 94; i++ {
+		payload := make([]byte, 200+rng.Intn(120))
+		rng.Read(payload)
+		audio = append(audio, mp4.Sample{DTS: int64(i) * 1024, Duration: 1024, Data: payload})
+	}
+	ws := &mp4.MemWS{}
+	if err := mp4.WriteClassic(ws, tracks, [][]mp4.Sample{video, audio}); err != nil {
+		return "", err
+	}
+	if err := writeFile(dir, "movie.mp4", ws.Bytes()); err != nil {
+		return "", err
+	}
+	mpd := `<?xml version="1.0"?><MPD><Period><AdaptationSet>` +
+		`<Representation><SegmentList timescale="90000" duration="90000">` +
+		`<SegmentURL media="movie.mp4"/></SegmentList></Representation>` +
+		`</AdaptationSet></Period></MPD>`
+	return "manifest.mpd", writeFile(dir, "manifest.mpd", []byte(mpd))
+}
+
 // genBigAsset writes a 6-segment DASH asset (SegmentTemplate) with ~3 MiB
 // of payload so checkpointing commits multiple chunks at 1 MiB.
 func genBigAsset(rng *rand.Rand, dir string) (string, error) {

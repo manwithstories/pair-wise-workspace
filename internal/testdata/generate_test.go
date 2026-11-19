@@ -19,7 +19,7 @@ func TestGenerate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(f.Good) != 4 || len(f.Corrupt) != 4 {
+	if len(f.Good) != 5 || len(f.Corrupt) != 4 {
 		t.Fatalf("good=%d corrupt=%d", len(f.Good), len(f.Corrupt))
 	}
 	if len(f.RTP) == 0 {

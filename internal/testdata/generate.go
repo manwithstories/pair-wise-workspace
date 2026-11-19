@@ -30,11 +30,11 @@ type Asset struct {
 
 // CorruptCase is an asset expected to fail with a locatable error.
 type CorruptCase struct {
-	Name string
-	Kind string
-	Dir  string
+	Name         string
+	Kind         string
+	Dir          string
 	ManifestFile string
-	Want string // expected error kind: "demux", "segment", "clock", "io"
+	Want         string // expected error kind: "demux", "segment", "clock", "io"
 }
 
 // Fixtures is everything the demo pipeline needs.
@@ -60,6 +60,7 @@ func Generate(cfg Config, root string) (*Fixtures, error) {
 		{"docu-dash", "dash", func(dir string) (string, error) { return genDASHAsset(rng, dir) }},
 		{"wrap-hls", "hls", func(dir string) (string, error) { return genHLSAsset(rng, dir, true) }},
 		{"big-dash", "dash", func(dir string) (string, error) { return genBigAsset(rng, dir) }},
+		{"classic-mp4", "dash", func(dir string) (string, error) { return genClassicMP4(rng, dir) }},
 	}
 	for _, g := range goods {
 		dir := filepath.Join(root, g.name)
