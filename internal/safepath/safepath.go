@@ -17,13 +17,15 @@ func Resolve(dir string) (string, error) {
 	if strings.TrimSpace(dir) == "" {
 		return "", clock.NewSourceError("safepath", "bad_output_path", -1, "empty output directory")
 	}
-	clean := filepath.Clean(dir)
-	for _, part := range strings.Split(filepath.ToSlash(clean), "/") {
+	// Check for traversal before cleaning: filepath.Clean("/tmp/../etc")
+	// collapses to "/etc", which would hide the attempt.
+	for _, part := range strings.Split(filepath.ToSlash(dir), "/") {
 		if part == ".." {
 			return "", clock.Errorf("safepath", "path_traversal", -1,
 				"output path %q escapes the working tree", dir)
 		}
 	}
+	clean := filepath.Clean(dir)
 	abs, err := filepath.Abs(clean)
 	if err != nil {
 		return "", err
