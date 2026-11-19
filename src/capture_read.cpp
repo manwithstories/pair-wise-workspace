@@ -54,7 +54,9 @@ bool PacketSource::open(const std::string& path, PipelineError& err) {
     return true;
 }
 
-bool PacketSource::next_rtp(MediaPacket& out, PipelineError& err) {
+bool PacketSource::next_rtp(MediaPacket& out,
+                            const std::function<void(const RtcpReport&)>& on_rtcp,
+                            PipelineError& err) {
     while (true) {
         uint8_t rh[3];
         stream_->read(reinterpret_cast<char*>(rh), 3);
@@ -88,6 +90,7 @@ bool PacketSource::next_rtp(MediaPacket& out, PipelineError& err) {
             rr.rtp_ts = get_u32(body.data() + 4);
             rr.ntp_us = int64_t(get_u64(body.data() + 8));
             rtcp_.push_back(rr);
+            if (on_rtcp) on_rtcp(rr);
             continue;
         }
         if (rh[0] != uint8_t(RecordKind::Rtp)) {

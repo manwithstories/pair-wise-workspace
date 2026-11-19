@@ -40,8 +40,15 @@ struct InputSummary {
 class PacketSource {
 public:
     bool open(const std::string& path, PipelineError& err);
-    // 取下一条 RTP；文件结束返回 false。RTCP 存入内部队列。
-    bool next_rtp(MediaPacket& out, PipelineError& err);
+    // 取下一条 RTP；文件结束返回 false。途中遇到的 RTCP 通过 on_rtcp 内联回调，
+    // 保证 RTCP 与 RTP 按采集流中的真实顺序应用。
+    bool next_rtp(MediaPacket& out,
+                  const std::function<void(const RtcpReport&)>& on_rtcp,
+                  PipelineError& err);
+    // 无回调的便捷重载（不推荐，RTCP 仅入备用队列）
+    bool next_rtp(MediaPacket& out, PipelineError& err) {
+        return next_rtp(out, nullptr, err);
+    }
     const std::vector<RtcpReport>& rtcp_reports() const { return rtcp_; }
     const InputSummary& summary() const { return summary_; }
     uint32_t total_records() const { return records_seen_; }

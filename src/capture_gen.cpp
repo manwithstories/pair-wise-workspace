@@ -12,6 +12,7 @@ extern "C" {
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <map>
 #include <random>
 
 namespace md {
@@ -186,6 +187,7 @@ encode_audio(uint32_t duration_ms, bool aac, std::vector<int16_t>& pcm_all) {
 struct TimedRtp {
     uint8_t pt; uint16_t seq; uint32_t ts; uint32_t ssrc;
     bool marker; CodecId codec; uint32_t clock;
+    int64_t send_us;           // 64 位单调发送时间（排序键，线上仍用 32 位 ts）
     std::vector<uint8_t> pl;
 };
 
@@ -201,39 +203,53 @@ uint32_t generate_capture(const std::string& out_path,
     auto audio = encode_audio(opt.duration_ms, opt.aac, pcm_all);
 
     std::vector<TimedRtp> stream;
-    // 视频：seq 从 65530 起，便于触发 16 位回绕
+    // 视频：seq 从 65530 起触发 16 位序号回绕；ts 起点贴近 32 位边界，
+    // 使整段（约 27 万滴答）只跨越一次时间戳回绕，符合真实 ~13h 回绕语义
     uint16_t vseq = 65530;
-    uint32_t vts = 0xFFFFFF00u; // 靠近 32 位回绕边界
+    uint32_t vts = 0xFFFFE000u;
+    uint64_t v_ext = vts;       // 64 位扩展时间戳，保证排序单调
+    const int64_t v_t0 = int64_t(v_ext * 1'000'000ull / VIDEO_CLOCK);
     for (size_t i = 0; i < h264.size(); ++i) {
+        int64_t send_us = int64_t(v_ext * 1'000'000ull / VIDEO_CLOCK) - v_t0;
         stream.push_back({PT_H264, vseq++, vts, SSRC_VIDEO, true,
-                          CodecId::H264, VIDEO_CLOCK, std::move(h264[i])});
+                          CodecId::H264, VIDEO_CLOCK, send_us,
+                          std::move(h264[i])});
         vts += VIDEO_CLOCK / VIDEO_FPS;
+        v_ext += VIDEO_CLOCK / VIDEO_FPS;
     }
     // 音频
     uint16_t aseq = 30000;
     uint32_t ats = 0x1000;
+    uint64_t a_ext = ats;
     const uint32_t a_step = AUDIO_CLOCK / 50; // 20ms
+    const int64_t a_t0 = int64_t(a_ext * 1'000'000ull / AUDIO_CLOCK);
     for (size_t i = 0; i < audio.size(); ++i) {
+        int64_t send_us = int64_t(a_ext * 1'000'000ull / AUDIO_CLOCK) - a_t0;
         stream.push_back({opt.aac ? PT_AAC : PT_PCM, aseq++, ats, SSRC_AUDIO,
                           i + 1 == audio.size(),
                           opt.aac ? CodecId::Aac : CodecId::PcmS16,
-                          AUDIO_CLOCK, std::move(audio[i])});
+                          AUDIO_CLOCK, send_us, std::move(audio[i])});
         ats += a_step;
+        a_ext += a_step;
     }
     // 末尾重复素材（跨机位同内容）：复制前 8 个视频包，新 SSRC
     if (opt.duplicate_tail_ms > 0) {
         uint32_t n = std::min<uint32_t>(8, uint32_t(h264.size()));
         uint16_t dseq = 40000; uint32_t dts = 0x500000;
+        uint64_t d_ext = dts;
+        const int64_t d_t0 = int64_t(d_ext * 1'000'000ull / VIDEO_CLOCK);
         for (uint32_t i = 0; i < n; ++i) {
+            int64_t send_us = int64_t(d_ext * 1'000'000ull / VIDEO_CLOCK) - d_t0;
             stream.push_back({PT_H264, dseq++, dts, SSRC_VIDEO + 1, true,
-                              CodecId::H264, VIDEO_CLOCK, h264[i]});
+                              CodecId::H264, VIDEO_CLOCK, send_us, h264[i]});
             dts += VIDEO_CLOCK / VIDEO_FPS;
+            d_ext += VIDEO_CLOCK / VIDEO_FPS;
         }
     }
-    // 按 RTP 时间戳排序形成发送顺序（同刻视频优先），稳定排序
+    // 按 64 位单调媒体时间排序形成发送顺序（同刻视频优先），稳定排序
     std::stable_sort(stream.begin(), stream.end(),
                      [](const TimedRtp& a, const TimedRtp& b) {
-                         if (a.ts != b.ts) return a.ts < b.ts;
+                         if (a.send_us != b.send_us) return a.send_us < b.send_us;
                          return a.ssrc < b.ssrc;
                      });
 
@@ -265,16 +281,22 @@ uint32_t generate_capture(const std::string& out_path,
         payload_bytes += t.pl.size();
         ++record_count;
     };
+    // 每 SSRC 独立的 RTCP 计数：首个 RTP 之后立即发一条 SR 建立时钟锚点，
+    // 此后每 50 个 RTP 发一条；符合真实发送者报告语义并保证统一基准一致
+    std::map<uint32_t, uint32_t> rtp_seen_per_ssrc;
+    std::map<uint32_t, uint32_t> rtcp_counter;
     for (size_t i = 0; i < sent.size(); ++i) {
-        if (i % 50 == 0) {
-            // RTCP 发送者报告：ntp_us = rtp_ts 按 clock 换算（锚定统一基准）
-            const TimedRtp& t = sent[i];
-            int64_t ntp = int64_t(uint64_t(t.ts) * 1'000'000ull / t.clock);
-            auto rb = rtcp_body(t.ssrc, t.ts, ntp);
+        const TimedRtp& t = sent[i];
+        uint32_t seen = ++rtp_seen_per_ssrc[t.ssrc];
+        if (seen == 1 || (seen > 1 && seen % 50 == 0)) {
+            // RTCP 发送者报告：ntp_us 取该包的 64 位扩展媒体时间，
+            // rtp_ts 仍为线上 32 位（可能回绕），由时间轴阶段重新扩展
+            auto rb = rtcp_body(t.ssrc, t.ts, t.send_us);
             wrap_record(records, RecordKind::Rtcp, rb);
             ++record_count;
+            ++rtcp_counter[t.ssrc];
         }
-        push_rtp(sent[i]);
+        push_rtp(t);
     }
 
     uint32_t flags = 0;
