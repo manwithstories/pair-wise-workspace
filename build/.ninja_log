@@ -1,0 +1,17 @@
+# ninja log v7
+1	439	1795107479551184492	CMakeFiles/md_core.dir/src/packet.cpp.o	f0af5b29239e7b4e
+1	468	1795107479551439034	CMakeFiles/md_core.dir/src/clock_repair.cpp.o	9105eb7ff0f514a8
+1	470	1795107479551695453	CMakeFiles/md_core.dir/src/index_builder.cpp.o	a5c5d41742e24f2a
+1	491	1795107479551019199	CMakeFiles/md_core.dir/src/time_model.cpp.o	d3fb7b2adf66dd83
+1	509	1795107479551561743	CMakeFiles/md_core.dir/src/stream_pipeline.cpp.o	aaa807b089dabc73
+2	519	1795107479552614540	CMakeFiles/md_core.dir/src/demuxer.cpp.o	f624f09827f57e10
+3	531	1795107479553019167	CMakeFiles/md_core.dir/src/generator.cpp.o	96b31240885ab5f9
+3	553	1795107479553468419	CMakeFiles/media-deliver.dir/src/main.cpp.o	e93a29aebb70b744
+2	605	1795107479552207872	CMakeFiles/md_core.dir/src/quality_report.cpp.o	574c834c158a1f02
+1	605	1795107479551312701	CMakeFiles/md_core.dir/src/manifest.cpp.o	66ee1b8a78d1ce2c
+605	640	1795107480155774752	libmd_core.a	7c11b312fe06ef4e
+640	669	1795107480190517915	media-deliver	64911f75b0252261
+4	432	1795107495299158350	CMakeFiles/repair_tests.dir/tests/repair_tests.cpp.o	8452eba4a0f230f9
+433	483	1795107495777835268	repair_tests	ec6d69fac0bbddef
+433	483	1795107495777835268	repair_tests-b12d07c_tests.cmake	ec6d69fac0bbddef
+433	483	1795107495777835268	/Users/clearliu/WorkSpace/pair-wise-workspace/12777/build/repair_tests-b12d07c_tests.cmake	ec6d69fac0bbddef
