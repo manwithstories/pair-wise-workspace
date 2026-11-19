@@ -111,7 +111,7 @@ def _origin_ticks(
     differs per stream because each has its own time base.
     """
     declared = declared or {}
-    origins: list[tuple[Fraction, int]] = []
+    origins: list[tuple[Fraction, int, str]] = []
     for node in graph.ordered():
         index = node.source.index
         start = declared.get(index)
@@ -120,10 +120,17 @@ def _origin_ticks(
             first = next((p for p in stream_packets if p.pts is not None), None)
             start = None if first is None else Fraction(first.pts) * first.time_base
         if start is not None:
-            origins.append((start, index))
+            origins.append((start, index, node.source.type))
     if not origins:
         return Fraction(0), {node.source.index: 0 for node in graph.nodes}, Fraction(0)
-    origin_seconds = min(start for start, _ in origins)
+    # Picture defines where the programme begins.  Anchoring on the earliest
+    # declared start would let an audio priming packet (legitimately ~21 ms
+    # early) drag the whole programme later without any visible sync error.
+    # Only an asset with no video falls back to its earliest declared start.
+    video_origins = [start for start, _, kind in origins if kind == "video"]
+    origin_seconds = min(video_origins) if video_origins else min(
+        start for start, _, _ in origins
+    )
 
     shifts: dict[int, int] = {}
     snapped: dict[int, Fraction] = {}
