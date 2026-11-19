@@ -21,7 +21,7 @@ from archive_restore.errors import (
     ErrorKind,
 )
 from archive_restore.fixtures import build_all
-from archive_restore.manifest import ManifestError, parse_manifest, safe_resolve
+from archive_restore.manifest import ManifestError, Representation, SegmentRef, parse_manifest, safe_resolve
 from archive_restore.metrics import av_sync_error, packet_recovery_rate, percentile_latency, TrackSpan
 from archive_restore.pipeline import process_asset
 from archive_restore.recovery import CheckpointStore, digest_inputs
@@ -124,6 +124,22 @@ def test_duplicate_and_disorder_are_distinguished(archive: Path) -> None:
 def test_truncated_playlist_emits_retryable_manifest_error(archive: Path) -> None:
     parsed = parse_manifest(archive / "truncated" / "master.m3u8")
     assert parsed.errors.count(ErrorKind.RETRYABLE) >= 1
+
+
+def test_zero_duration_and_overlong_segments_are_flagged(tmp_path: Path) -> None:
+    refs = [
+        SegmentRef(0, tmp_path / "s0.ts", 2_000_000, 0),
+        SegmentRef(1, tmp_path / "s1.ts", 0, 2_000_000),            # zero duration
+        SegmentRef(2, tmp_path / "s2.ts", 9_000_000, 2_000_000),    # overlong (>3x target)
+    ]
+    rep = Representation("edge", "video", 100, "avc1", tmp_path, refs, 2_000_000)
+    result = build_timelines([rep], ErrorCollector())
+    tl = result.timelines["edge"]
+    messages = " ".join(e.message for e in tl.errors.records)
+    assert "zero-duration" in messages
+    assert "overlong" in messages
+    zero_seg = next(s for s in tl.segments if s.duration_us == 0)
+    assert zero_seg.valid is False
 
 
 # ------------------------------------------------------------- bounded stream
