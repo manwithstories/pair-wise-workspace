@@ -1,0 +1,5 @@
+av<13,>=12
+numpy<3,>=2
+soundfile<0.13,>=0.12
+
+[test]

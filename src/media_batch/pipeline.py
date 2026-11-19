@@ -92,14 +92,31 @@ def _write_pcm(path: Path, data: bytes, offset: int | None = None) -> None:
                               str(path), offset if offset is not None else -1)
 
 
-def _finalize(workdir: Path, pcm_path: Path, total_samples: int) -> str:
+def _scan_silence(wav_path: Path) -> list[list[int]]:
+    """Stream the whole program in blocks; merge silent intervals across blocks."""
+    intervals: list[tuple[int, int]] = []
+    block = SAMPLE_RATE * 30
+    done_samples = 0
+    with sf.SoundFile(str(wav_path)) as snd:
+        while True:
+            data = snd.read(block, dtype="int16", always_2d=False)
+            if len(data) == 0:
+                break
+            base_ms = timebase.samples_to_ms(done_samples, SAMPLE_RATE)
+            for a, b in analyze.detect_silence(data, SAMPLE_RATE, min_ms=0):
+                intervals.append((base_ms + a, base_ms + b))
+            done_samples += len(data)
+    return [list(iv) for iv in analyze.merge_intervals(intervals)]
+
+
+def _finalize(workdir: Path, pcm_path: Path) -> str:
     """Write the final WAV to a temp file, validate, atomically replace."""
     out_dir = workdir / "output"
     out_dir.mkdir(exist_ok=True)
     final = out_dir / "program.out.wav"
     tmp = out_dir / "program.out.wav.tmp"
     try:
-        raw = pcm_path.read_bytes()[: total_samples * 2]
+        raw = pcm_path.read_bytes()
         samples = np.frombuffer(raw, dtype=np.int16).copy()
         sf.write(str(tmp), samples, SAMPLE_RATE, subtype="PCM_16", format="WAV")
         digest = hashlib.sha256(tmp.read_bytes()).hexdigest()
@@ -151,7 +168,6 @@ def run(workdir: str | Path, interrupt_after: int | None = None,
     fingerprints: list[dict] = _load_json(fp_path, [])
     reps: list[tuple[int, str]] = [(f["seq"], f["fingerprint"])
                                    for f in fingerprints if f["duplicate_of"] is None]
-    silence_ms: list[list[int]] = _load_json(work / "silence.json", [])
     committed = start_seq
     try:
         with sf.SoundFile(workdir / "input" / "program.wav") as snd:
@@ -170,8 +186,6 @@ def run(workdir: str | Path, interrupt_after: int | None = None,
                     if rfp == fp or analyze.fingerprint_similarity(rfp, fp) >= 0.90:
                         duplicate_of = rseq
                         break
-                for a, b in analyze.detect_silence(samples, SAMPLE_RATE):
-                    silence_ms.append([chunk.start_ms + a, chunk.start_ms + b])
                 offset = pcm_path.stat().st_size if pcm_path.exists() else 0
                 payload = b"" if duplicate_of is not None else raw
                 _write_pcm(pcm_path, payload)
@@ -188,13 +202,9 @@ def run(workdir: str | Path, interrupt_after: int | None = None,
                     raise PipelineInterrupted(committed)
     finally:
         log.save(err_path)
-        _save_json(work / "silence.json", silence_ms)
 
-    total = sum(timebase.ms_to_samples(c.end_ms - c.start_ms, SAMPLE_RATE)
-                for c in plan
-                if not any(f["seq"] == c.seq and f["duplicate_of"] is not None
-                           for f in fingerprints))
-    out_sha = _finalize(workdir, pcm_path, total)
+    silence_ms = _scan_silence(workdir / "input" / "program.wav")
+    out_sha = _finalize(workdir, pcm_path)
     index.set_meta("output_sha256", out_sha)
     index.close()
     report.update({

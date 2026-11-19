@@ -42,26 +42,30 @@ def _cue_body(i: int) -> np.ndarray:
     if i == DUP_A[0] or i == DUP_A[1]:
         return _tone(440.0, CUE_BODY_MS)
     if i == DUP_B[0]:
-        return _tone(550.0, CUE_BODY_MS)
+        return np.concatenate([_tone(550.0, 1000), _silence(200)])
     if i == DUP_B[1]:
-        return np.concatenate([_silence(200), _tone(550.0, CUE_BODY_MS - 200, gain=0.15)])
+        return np.concatenate([_silence(200), _tone(550.0, 1000, gain=0.15)])
     freq = 220.0 + (i * 37) % 660
     return _tone(freq, CUE_BODY_MS)
+
+
+def _lead_ms(i: int) -> int:
+    if i in LONG_SILENCE_CUES:
+        return 500
+    if i == SHORT_SILENCE_CUE:
+        return 150
+    return 0
 
 
 def build_audio() -> np.ndarray:
     parts: list[np.ndarray] = []
     for i in range(N_CUES):
-        if i in LONG_SILENCE_CUES:
-            parts.append(_silence(500))
-        elif i == SHORT_SILENCE_CUE:
-            parts.append(_silence(150))
-        parts.append(_cue_body(i))
-        parts.append(_silence(CUE_MS - CUE_BODY_MS - 500
-                              if i in LONG_SILENCE_CUES else
-                              CUE_MS - CUE_BODY_MS - 150
-                              if i == SHORT_SILENCE_CUE else
-                              CUE_MS - CUE_BODY_MS))
+        lead = _lead_ms(i)
+        body = _cue_body(i)[: int(RATE * (CUE_BODY_MS - lead) / 1000)] \
+            if lead else _cue_body(i)
+        parts.append(_silence(lead))
+        parts.append(body)
+        parts.append(_silence(CUE_MS - lead - len(body) * 1000 // RATE))
     return np.concatenate(parts)
 
 
@@ -73,9 +77,9 @@ def _fmt_srt_ms(ms: int) -> str:
 
 
 def cue_window(i: int) -> tuple[int, int]:
-    start = i * CUE_MS + (500 if i in LONG_SILENCE_CUES else
-                          150 if i == SHORT_SILENCE_CUE else 0)
-    return start, start + CUE_BODY_MS
+    lead = _lead_ms(i)
+    start = i * CUE_MS + lead
+    return start, start + CUE_BODY_MS - lead
 
 
 def build_srt() -> str:

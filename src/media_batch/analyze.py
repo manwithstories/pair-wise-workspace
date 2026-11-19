@@ -53,6 +53,19 @@ def detect_silence(samples: np.ndarray, sample_rate: int,
     return [(s, e) for s, e in intervals if e - s >= min_ms]
 
 
+def merge_intervals(intervals: list[tuple[int, int]],
+                    min_ms: int = MIN_SILENCE_MS) -> list[tuple[int, int]]:
+    """Merge touching/overlapping intervals (e.g. split at stream block
+    boundaries), then drop those shorter than min_ms."""
+    merged: list[list[int]] = []
+    for s, e in sorted(intervals):
+        if merged and s <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], e)
+        else:
+            merged.append([s, e])
+    return [(s, e) for s, e in merged if e - s >= min_ms]
+
+
 def _trim_silence(x: np.ndarray, sample_rate: int,
                   threshold_db: float = SILENCE_THRESHOLD_DB) -> np.ndarray:
     block = max(1, sample_rate * BLOCK_MS // 1000)
