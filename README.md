@@ -47,6 +47,10 @@ go run ./cmd/archive demo --case wrap-vfr-drift --json
 
 `ok` 字段与退出码保持一致：仅当退出码为 0 时为 `true`。
 
+> 注意：`go run` 会把任何非零退出码折叠为 1 并打印 `exit status N`。上面表格的退出码是
+> 编译后二进制的契约（`go build ./cmd/archive`）。使用 `go run` 时请读取 JSON 中的
+> `exit_code` 字段作为程序自身返回码。
+
 ## 架构
 
 ```
