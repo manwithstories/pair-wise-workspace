@@ -644,7 +644,8 @@ TEST_CASE("sha256 matches known vectors", "[hash]") {
 TEST_CASE("timeline offset pads or trims deterministically", "[audio]") {
   auto input = make_tone(48000, "stereo", 4800, 440.0, 0.2);
   media_restore::AudioStats stats;
-  REQUIRE(media_restore::apply_timeline_offset(960, &input, &stats));
+  REQUIRE(media_restore::apply_timeline_offset(
+      960, std::numeric_limits<int64_t>::max(), &input, &stats));
   CHECK(stats.padded_frames == 960);
   CHECK(input.frames == 5760);
   for (int c = 0; c < input.channels; ++c) {
@@ -654,7 +655,8 @@ TEST_CASE("timeline offset pads or trims deterministically", "[audio]") {
   auto trimmed = make_tone(48000, "stereo", 4800, 440.0, 0.2);
   const float first_original = trimmed.plane(0)[480];
   media_restore::AudioStats trim_stats;
-  REQUIRE(media_restore::apply_timeline_offset(-480, &trimmed, &trim_stats));
+  REQUIRE(media_restore::apply_timeline_offset(
+      -480, std::numeric_limits<int64_t>::max(), &trimmed, &trim_stats));
   CHECK(trim_stats.discarded_frames == 480);
   CHECK(trimmed.frames == 4320);
   CHECK(trimmed.plane(0)[0] == first_original);
@@ -974,4 +976,78 @@ TEST_CASE("integrated loudness matches the BS.1770 reference for a sine", "[audi
   REQUIRE(media_restore::measure_loudness(mono, &lufs, &peak, &silent,
                                           &diagnostics));
   CHECK(std::fabs(lufs - (-9.02)) < 0.1);
+}
+
+TEST_CASE("trimming a negative offset keeps channels separate", "[audio]") {
+  media_restore::PcmBuffer buffer;
+  buffer.sample_rate = 48000;
+  REQUIRE(media_restore::parse_layout("stereo", &buffer.layout));
+  buffer.channels = 2;
+  buffer.frames = 5;
+  buffer.data = {1, 101, 2, 102, 3, 103, 4, 104, 5, 105};
+  // Repack planar: plane0 = {1,2,3,4,5}, plane1 = {101..105}.
+  buffer.interleaved = false;
+  std::vector<float> planar = {1, 2, 3, 4, 5, 101, 102, 103, 104, 105};
+  buffer.data = planar;
+  media_restore::AudioStats stats;
+  REQUIRE(media_restore::apply_timeline_offset(
+      -2, std::numeric_limits<int64_t>::max(), &buffer, &stats));
+  REQUIRE(buffer.frames == 3);
+  CHECK(buffer.plane(0)[0] == 3);
+  CHECK(buffer.plane(0)[1] == 4);
+  CHECK(buffer.plane(0)[2] == 5);
+  // Channel 1 must still carry its own samples, not channel 0's tail.
+  CHECK(buffer.plane(1)[0] == 103);
+  CHECK(buffer.plane(1)[1] == 104);
+  CHECK(buffer.plane(1)[2] == 105);
+}
+
+TEST_CASE("padding is bounded by the frame limit", "[audio]") {
+  auto buffer = make_tone(48000, "mono", 4800, 440.0, 0.2);
+  media_restore::AudioStats stats;
+  // One second of padding is fine under a two-second cap...
+  auto under = buffer;
+  CHECK(media_restore::apply_timeline_offset(48000, 96000, &under, &stats));
+  CHECK(under.frames == 52800);
+  // ...but two thousand seconds is refused rather than allocated.
+  auto over = buffer;
+  media_restore::AudioStats over_stats;
+  CHECK_FALSE(media_restore::apply_timeline_offset(96000000, 86400000, &over,
+                                                   &over_stats));
+  CHECK(over.frames == 4800);
+}
+
+TEST_CASE("out-of-range time values are rejected, not clamped", "[rational]") {
+  media_restore::Rational value;
+  CHECK_FALSE(media_restore::Rational::parse("99999999999999999999999/1", &value));
+  CHECK_FALSE(media_restore::Rational::parse("1/99999999999999999999999", &value));
+  CHECK_FALSE(media_restore::Rational::parse("99999999999999999999999", &value));
+  CHECK_FALSE(media_restore::Rational::parse("1/0", &value));
+  REQUIRE(media_restore::Rational::parse("-3/4", &value));
+  CHECK(value.num == -3);
+  CHECK(value.den == 4);
+}
+
+TEST_CASE("a segment between 100 ms and 400 ms is not amplified on a bogus level", "[audio]") {
+  // 250 ms cannot form one complete 400 ms gating block: loudness is
+  // unmeasurable, so the short path must skip gain instead of applying +30 dB.
+  auto buffer = make_tone(48000, "stereo", 12000, 440.0, 0.5);
+  media_restore::AudioRestoreConfig config;
+  config.output_rate = 48000;
+  config.target_lufs = -23.0;
+  REQUIRE(media_restore::parse_layout("stereo", &config.output_layout));
+  media_restore::AudioStats stats;
+  std::vector<media_restore::Diagnostic> diagnostics;
+  REQUIRE(media_restore::normalize_loudness(config, &buffer, &stats, &diagnostics));
+  CHECK(stats.short_segment);
+  CHECK(stats.input_lufs <= -99.0);
+  CHECK(stats.output_lufs <= -99.0);
+  CHECK(stats.applied_gain_db == 0.0);
+  CHECK(stats.limited_samples == 0);
+  bool warned = false;
+  for (const auto& diagnostic : diagnostics) {
+    warned |= diagnostic.code == media_restore::ErrorCode::loudness_invalid &&
+              diagnostic.severity == media_restore::Severity::warning;
+  }
+  CHECK(warned);
 }

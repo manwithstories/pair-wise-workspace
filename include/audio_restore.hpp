@@ -100,9 +100,10 @@ bool convert_audio(const PcmBuffer& input, const AudioRestoreConfig& config,
 
 // Applies a timeline offset in samples.  Positive offsets prepend silence
 // (audio starts later than the segment); negative offsets trim leading
-// samples.  Counts padded/discarded frames.
-bool apply_timeline_offset(int64_t offset_samples, PcmBuffer* buffer,
-                           AudioStats* stats);
+// samples.  Counts padded/discarded frames.  Fails when padding would take
+// the buffer past `max_frames`, so an offset cannot force unbounded memory.
+bool apply_timeline_offset(int64_t offset_samples, int64_t max_frames,
+                           PcmBuffer* buffer, AudioStats* stats);
 
 // Applies loudness normalisation to `target_lufs` followed by a true-peak
 // limiter at `true_peak_dbtp`.  Silence, too-short and out-of-range material

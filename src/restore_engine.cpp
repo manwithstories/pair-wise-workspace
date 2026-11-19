@@ -295,8 +295,25 @@ bool restore_archive(const Manifest& manifest, const RestoreOptions& options,
   std::set<std::string> cyclic(timeline.order.cyclic.begin(),
                                timeline.order.cyclic.end());
 
-  std::map<std::string, bool> track_restored;
+  // Restoration follows the topological order so a dependent track always
+  // sees its dependencies' outcomes.  Tracks that could not be ordered run
+  // last; they are marked skipped regardless, but keeping them out of the
+  // ordered pass makes the invariant explicit.
+  std::vector<const Track*> execution_order;
+  std::set<std::string> scheduled;
+  for (const auto& id : timeline.order.order) {
+    const Track* track = manifest.find_track(id);
+    if (track != nullptr && scheduled.insert(id).second) {
+      execution_order.push_back(track);
+    }
+  }
   for (const auto& track : manifest.tracks) {
+    if (scheduled.insert(track.id).second) execution_order.push_back(&track);
+  }
+
+  std::map<std::string, bool> track_restored;
+  for (const Track* track_ptr : execution_order) {
+    const Track& track = *track_ptr;
     const TrackTimeline* view = timeline.find(track.id);
     if (view == nullptr) continue;
     bool track_can_restore = resolve_order.contains(track.id) &&
@@ -378,7 +395,9 @@ bool restore_archive(const Manifest& manifest, const RestoreOptions& options,
         bool dependency_failed = false;
         for (const auto& dependency : track.depends_on) {
           const auto found = track_restored.find(dependency);
-          if (found != track_restored.end() && !found->second) {
+          // A dependency that has not run yet (unorderable) or that failed
+          // both block this track: silence must never look like success.
+          if (found == track_restored.end() || !found->second) {
             dependency_failed = true;
           }
         }

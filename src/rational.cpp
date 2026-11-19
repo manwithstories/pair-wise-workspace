@@ -1,5 +1,6 @@
 #include "rational.hpp"
 
+#include <cerrno>
 #include <cstdlib>
 #include <limits>
 #include <numeric>
@@ -41,27 +42,39 @@ Rational::Rational(int64_t numerator, int64_t denominator) {
   *this = normalized(numerator, denominator);
 }
 
+namespace {
+
+// strtoll silently saturates on overflow, which would turn a hostile or
+// corrupt manifest value into INT64_MAX.  Parse with explicit range checks so
+// an out-of-range time is rejected instead of quietly clamped.
+bool parse_int64(const std::string& text, int64_t* out) {
+  if (text.empty()) return false;
+  errno = 0;
+  char* end = nullptr;
+  const long long value = std::strtoll(text.c_str(), &end, 10);
+  if (errno == ERANGE || end != text.c_str() + text.size()) return false;
+  *out = static_cast<int64_t>(value);
+  return true;
+}
+
+}  // namespace
+
 bool Rational::parse(std::string_view text, Rational* out) {
   const size_t slash = text.find('/');
   if (slash == std::string_view::npos) {
-    const std::string number(text);
-    char* end = nullptr;
-    const long long value = std::strtoll(number.c_str(), &end, 10);
-    if (end != number.c_str() + number.size()) return false;
-    *out = Rational(static_cast<int64_t>(value), 1);
+    int64_t value = 0;
+    if (!parse_int64(std::string(text), &value)) return false;
+    *out = Rational(value, 1);
     return true;
   }
-  const std::string numerator(text.substr(0, slash));
-  const std::string denominator(text.substr(slash + 1));
-  char* end_num = nullptr;
-  char* end_den = nullptr;
-  const long long n = std::strtoll(numerator.c_str(), &end_num, 10);
-  const long long d = std::strtoll(denominator.c_str(), &end_den, 10);
-  if (end_num != numerator.c_str() + numerator.size() ||
-      end_den != denominator.c_str() + denominator.size() || d == 0) {
+  int64_t numerator = 0;
+  int64_t denominator = 0;
+  if (!parse_int64(std::string(text.substr(0, slash)), &numerator) ||
+      !parse_int64(std::string(text.substr(slash + 1)), &denominator) ||
+      denominator == 0) {
     return false;
   }
-  *out = Rational(static_cast<int64_t>(n), static_cast<int64_t>(d));
+  *out = Rational(numerator, denominator);
   return out->valid();
 }
 

@@ -455,15 +455,20 @@ bool convert_audio(const PcmBuffer& input, const AudioRestoreConfig& config,
   return true;
 }
 
-bool apply_timeline_offset(int64_t offset_samples, PcmBuffer* buffer,
-                           AudioStats* stats) {
+bool apply_timeline_offset(int64_t offset_samples, int64_t max_frames,
+                           PcmBuffer* buffer, AudioStats* stats) {
   if (offset_samples == 0) return true;
   if (offset_samples > 0) {
     // Positive offset: the audio starts later than the segment, so prepend
-    // silence at the destination rate.
+    // silence at the destination rate.  A hostile manifest can ask for hours
+    // of silence, so the resulting length is bounded like any other output.
     const int64_t frames = offset_samples;
     if (static_cast<__int128>(buffer->frames + frames) * buffer->channels >
-        std::numeric_limits<int64_t>::max()) {
+        static_cast<__int128>(std::numeric_limits<int64_t>::max())) {
+      return false;
+    }
+    if (static_cast<__int128>(buffer->frames + frames) >
+        static_cast<__int128>(max_frames)) {
       return false;
     }
     const int64_t source_frames = buffer->frames;
@@ -500,12 +505,20 @@ bool apply_timeline_offset(int64_t offset_samples, PcmBuffer* buffer,
     buffer->data.clear();
     return true;
   }
-  for (int c = 0; c < buffer->channels; ++c) {
-    std::memmove(buffer->plane(c), buffer->plane(c) + drop,
-                 static_cast<size_t>(buffer->frames - drop) * sizeof(float));
+  // A planar buffer's stride is its frame count, so trimming changes where
+  // every plane starts.  Copy through a repacked buffer instead of shifting
+  // planes in place, which would overwrite channel c with channel c-1's tail.
+  const int channels = buffer->channels;
+  const int64_t remaining = buffer->frames - drop;
+  std::vector<float> packed(static_cast<size_t>(remaining) *
+                            static_cast<size_t>(channels));
+  for (int c = 0; c < channels; ++c) {
+    std::memcpy(packed.data() + static_cast<size_t>(c) * remaining,
+                buffer->plane(c) + drop,
+                static_cast<size_t>(remaining) * sizeof(float));
   }
-  buffer->frames -= drop;
-  buffer->data.resize(static_cast<size_t>(buffer->frames) * buffer->channels);
+  buffer->data = std::move(packed);
+  buffer->frames = remaining;
   stats->discarded_frames = drop;
   return true;
 }
@@ -537,13 +550,15 @@ bool measure_loudness(const PcmBuffer& buffer, double* lufs, double* true_peak,
   } else {
     measured = buffer;
   }
-  if (measured.frames < kBlockStep) {
-    // Too short to gate: report the explicit short-path warning, keep the
-    // measured true peak, and leave loudness at the silence floor.  The
-    // caller skips gain, so the segment is still delivered.
+  // BS.1770 integrated loudness needs at least one complete 400 ms gating
+  // block.  Anything shorter has no valid integrated level: report the
+  // explicit short-path warning, keep the measured true peak, and leave
+  // loudness at the silence floor.  The caller checks frames < kBlockFrames
+  // and skips gain, so a 100-400 ms segment is not amplified on a bogus level.
+  if (measured.frames < kBlockFrames) {
     diagnostics->push_back(make(
         ErrorCode::loudness_invalid,
-        "segment is shorter than one 100 ms gating block; loudness stays at "
+        "segment is shorter than one 400 ms gating block; loudness stays at "
         "the silence floor",
         {}, Severity::warning));
     return true;
@@ -640,7 +655,11 @@ bool normalize_loudness(const AudioRestoreConfig& config, PcmBuffer* buffer,
   stats->input_true_peak_dbtp = true_peak;
   stats->silent = silent;
   stats->loudness_measured = true;
-  stats->short_segment = buffer->frames < kBlockStep;
+  // Short means "no complete gating block", measured at the delivery rate;
+  // the measurement resamples to 48 kHz, so compare on the same scale.
+  const int64_t block_frames_at_rate =
+      static_cast<int64_t>(kBlockFrames) * buffer->sample_rate / kLoudnessRate;
+  stats->short_segment = buffer->frames < block_frames_at_rate;
   if (silent) {
     // Silence has no measurable level; never amplify it into noise.
     stats->output_lufs = kSilenceLufs;
@@ -1071,9 +1090,12 @@ bool restore_segment_audio(const std::filesystem::path& source,
       return false;
     }
     stats.offset_rounding_seconds = remainder.to_double();
-    if (!apply_timeline_offset(offset_samples, &converted, &stats)) {
-      diagnostics->push_back(make(ErrorCode::audio_too_large,
-                                  "offset would overflow the audio buffer"));
+    if (!apply_timeline_offset(offset_samples, config.max_output_frames,
+                               &converted, &stats)) {
+      diagnostics->push_back(make(
+          ErrorCode::audio_too_large,
+          "the timeline offset would grow the audio past the " +
+              std::to_string(config.max_output_frames) + " frame limit"));
       return false;
     }
   }
