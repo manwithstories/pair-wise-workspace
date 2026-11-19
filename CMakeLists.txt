@@ -19,6 +19,7 @@ add_library(media_core STATIC
   src/packet_reorder.cpp
   src/av_sync.cpp
   src/recovery.cpp
+  src/subtitle.cpp
 )
 target_include_directories(media_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(media_core PUBLIC PkgConfig::FFMPEG)
