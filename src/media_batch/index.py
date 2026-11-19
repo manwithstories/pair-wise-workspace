@@ -54,6 +54,12 @@ class CheckpointIndex:
     def close(self) -> None:
         self._db.close()
 
+    def __enter__(self) -> "CheckpointIndex":
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self.close()
+
     def _execute(self, *args):
         try:
             return self._db.execute(*args)
@@ -66,9 +72,14 @@ class CheckpointIndex:
         return row[0] if row else default
 
     def set_meta(self, key: str, value: str) -> None:
-        with self._db:
-            self._db.execute("INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)",
-                             (key, value))
+        try:
+            with self._db:
+                self._db.execute("INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)",
+                                 (key, value))
+        except sqlite3.DatabaseError as exc:
+            raise MediaBatchError("index_corrupt",
+                                  f"cannot write meta {key!r}: {exc}",
+                                  str(self.path), 0)
 
     def next_txn_id(self) -> int:
         row = self._execute("SELECT COALESCE(MAX(txn_id), 0) FROM chunks").fetchone()
@@ -97,9 +108,14 @@ class CheckpointIndex:
 
     def rollback_from(self, seq: int) -> int:
         """Delete chunk `seq` and everything after it. Returns rows removed."""
-        with self._db:
-            cur = self._db.execute("DELETE FROM chunks WHERE seq >= ?", (seq,))
-            return cur.rowcount
+        try:
+            with self._db:
+                cur = self._db.execute("DELETE FROM chunks WHERE seq >= ?", (seq,))
+                return cur.rowcount
+        except sqlite3.DatabaseError as exc:
+            raise MediaBatchError("index_corrupt",
+                                  f"rollback from chunk {seq} failed: {exc}",
+                                  str(self.path), 0)
 
     def chunk_count(self) -> int:
         return self._execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
@@ -125,9 +141,15 @@ def verify_chunks(records: list[ChunkRecord], output_path: str | Path
 
     Returns (valid_records, first_corrupt_record_or_None). Verification stops
     at the first mismatch: that chunk and all later ones must be recomputed.
+    A missing output file makes chunk 0 (or the first record) the culprit.
     """
+    if not Path(output_path).exists():
+        return [], records[0] if records else None
+    size = Path(output_path).stat().st_size
     valid: list[ChunkRecord] = []
     for rec in records:
+        if rec.output_offset + rec.output_length > size:
+            return valid, rec
         digest = sha256_file_region(output_path, rec.output_offset, rec.output_length)
         if digest != rec.output_sha256:
             return valid, rec
