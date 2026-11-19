@@ -26,9 +26,11 @@ from .timebase import (
     to_ticks,
 )
 
-#: A packet is "committed" once its segment boundary has been observed by the
-#: writer; finish packets (size 0) flush decoder state and carry no boundary.
-COMMIT_GRACE_SEGMENTS = 1
+#: A segment marker is emitted only once demux has advanced this many segments
+#: beyond it, so a packet whose timestamp landed a frame across the boundary has
+#: already been queued behind the marker.  One segment of lag is enough: a late
+#: packet can only trail by its own duration, which is far less than a segment.
+BOUNDARY_LAG_SEGMENTS = 1
 
 
 @dataclass(frozen=True)
@@ -105,6 +107,9 @@ class Demuxer:
     validate_timestamps: bool = True
 
     stats: DemuxStats = field(default_factory=DemuxStats)
+    _next_marker: int = 0
+    _seen_up_to: int = -1
+    _completed: list[int] = field(default_factory=list)
 
     def _segment_for(self, pts_ticks: int | None, dts_ticks: int | None,
                      fallback: int) -> int:
@@ -119,6 +124,28 @@ class Demuxer:
         ``cancel`` may be a :class:`threading.Event`; it is polled between
         packets so a blocked consumer does not delay cancellation.
         """
+        yield from self._iterate(cancel)
+
+    def iter_items(
+        self, cancel: object | None = None
+    ) -> Iterator[DemuxedPacket | int]:
+        """Yield packets plus lagged segment-boundary markers.
+
+        A marker is the integer ``segment`` and is emitted once demux has
+        advanced :data:`BOUNDARY_LAG_SEGMENTS` beyond it.  Because markers and
+        packets share one FIFO, a consumer that receives a marker has already
+        received every packet for that segment, which lets the writer commit an
+        exact resume boundary.
+        """
+        yield from self._iterate(cancel, with_boundaries=True)
+
+    def completed_segments(self) -> list[int]:
+        """Segments fully emitted by the last iteration (ascending)."""
+        return list(self._completed)
+
+    def _iterate(
+        self, cancel: object | None, *, with_boundaries: bool = False
+    ) -> Iterator[DemuxedPacket | int]:
         if self.segment_ticks <= 0:
             raise ValueError("segment_ticks must be positive")
         try:
@@ -137,13 +164,14 @@ class Demuxer:
         }
         resume_ticks = self.resume_from_segment * self.segment_ticks
         last_segment = self.resume_from_segment
+        self._completed = []
         try:
             for packet in container.demux():
                 if _is_cancelled(cancel):
                     raise CancelledError(
                         "demux cancelled",
                         path=str(self.probe.path),
-                        last_confirmed_segment=last_segment - COMMIT_GRACE_SEGMENTS,
+                        last_confirmed_segment=last_segment - BOUNDARY_LAG_SEGMENTS,
                     )
                 if packet.size == 0:
                     # Decoder flush packet: no payload, no new timeline info.
@@ -173,6 +201,15 @@ class Demuxer:
                         self.stats.skipped_before += 1
                         continue
 
+                if with_boundaries:
+                    if segment > last_segment:
+                        # Every packet up to ``last_segment`` has now been
+                        # emitted, so markers may cover it after the lag.
+                        for ready in self._drain_ready(last_segment):
+                            yield ready
+                    last_segment = max(last_segment, segment)
+                    self._seen_up_to = max(self._seen_up_to, segment)
+
                 self.stats.packets += 1
                 self.stats.bytes += packet.size
                 self.stats.per_stream[packet.stream.index] = (
@@ -183,7 +220,6 @@ class Demuxer:
                     if (self.stats.last_timestamp_ticks is None
                             or pts_ticks > self.stats.last_timestamp_ticks):
                         self.stats.last_timestamp_ticks = pts_ticks
-                last_segment = max(last_segment, segment)
                 yield DemuxedPacket(
                     stream_index=packet.stream.index,
                     segment=segment,
@@ -197,6 +233,9 @@ class Demuxer:
                     pts_raw=packet.pts,
                     dts_raw=packet.dts,
                 )
+            if with_boundaries:
+                for ready in self._drain_all():
+                    yield ready
         except av.error.FFmpegError as exc:
             raise CorruptStreamError(
                 "demux failed mid-stream",
@@ -207,6 +246,26 @@ class Demuxer:
             ) from exc
         finally:
             container.close()
+
+    def _drain_ready(self, last_segment: int) -> Iterator[int]:
+        """Emit markers for segments at least BOUNDARY_LAG_SEGMENTS old."""
+        while self._next_marker + BOUNDARY_LAG_SEGMENTS <= last_segment:
+            if self._next_marker < self.resume_from_segment:
+                self._next_marker = self.resume_from_segment
+                continue
+            self._completed.append(self._next_marker)
+            yield self._next_marker
+            self._next_marker += 1
+
+    def _drain_all(self) -> Iterator[int]:
+        # At end of stream every observed segment is complete.
+        while self._next_marker <= self._seen_up_to:
+            if self._next_marker < self.resume_from_segment:
+                self._next_marker = self.resume_from_segment
+                continue
+            self._completed.append(self._next_marker)
+            yield self._next_marker
+            self._next_marker += 1
 
     def segment_boundaries(self) -> dict[int, int]:
         """Return ``{segment: packet_count}`` for this asset's packets."""
@@ -226,7 +285,7 @@ def _is_cancelled(cancel: object | None) -> bool:
 
 
 __all__ = [
-    "COMMIT_GRACE_SEGMENTS",
+    "BOUNDARY_LAG_SEGMENTS",
     "DemuxStats",
     "DemuxedPacket",
     "Demuxer",
