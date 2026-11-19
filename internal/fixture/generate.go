@@ -88,7 +88,8 @@ func Generate(opts Options) (*Set, error) {
 	n := opts.FrameCount
 	deltas := make([]uint32, n)
 	keys := make([]bool, n)
-	base := uint32(30000 * opts.FrameRate.Den / (opts.FrameRate.Num * 1000))
+	// One frame in the 30 kHz video timescale.
+	base := uint32(int64(30000) * opts.FrameRate.Den / opts.FrameRate.Num)
 	if base == 0 {
 		base = 1001
 	}
@@ -184,14 +185,16 @@ func buildRTP(opts Options, deltas []uint32, baseDelta uint32) []RTPPacket {
 	offsetTicks := int64(3) * rtpBase / 2
 	var srcTick int64
 	for i := range deltas {
-		// Source ticks in the video timescale.
+		// Source ticks in the video timescale; node ticks are 90 kHz.
 		src := srcTick * rtpBase / 30000
 		drift := src * opts.DriftPPM / 1_000_000
 		if src*opts.DriftPPM%1_000_000 >= 500_000 {
 			drift++
 		}
 		node := src + offsetTicks + drift
-		wire := uint32((int64(opts.WrapAt) + node) & 0xFFFFFFFF)
+		// Bias the wire value so the first packet is exactly WrapAt;
+		// the node offset is not part of the wire counter.
+		wire := uint32((int64(opts.WrapAt) + src + drift) & 0xFFFFFFFF)
 		out = append(out, RTPPacket{
 			Sequence:    uint16(i),
 			Timestamp:   wire,
