@@ -20,6 +20,7 @@ set(MEDIAQC_SOURCES
   src/media_error.cpp
   src/mp4_structure.cpp
   src/scanner.cpp
+  src/resume_store.cpp
   src/sha256.cpp
   src/timeline.cpp
   src/util.cpp
@@ -41,7 +42,7 @@ if(BUILD_TESTING)
   include(Catch)
 
   set(MEDIAQC_TEST_TARGETS)
-  foreach(test_name clock timeline structure pipeline)
+  foreach(test_name clock timeline structure resume pipeline)
     add_executable(${test_name}_tests tests/${test_name}_tests.cpp)
     target_link_libraries(${test_name}_tests PRIVATE mediaqc_core Catch2::Catch2WithMain)
     target_compile_options(${test_name}_tests PRIVATE -Wall -Wextra)
