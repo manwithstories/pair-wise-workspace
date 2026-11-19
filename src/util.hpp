@@ -33,9 +33,16 @@ std::string sha256_file(const std::filesystem::path& p, std::string* err);
 // ---- 极简 JSON 写出器（对象/数组/字符串/数字/布尔）----
 class JsonWriter {
  public:
-  JsonWriter() { s_ << '{'; top_ = {false}; open_ = {'{'}; }
+  JsonWriter() {
+    s_ << '{';
+    top_ = {false};
+    open_ = {'{'};
+    after_key_ = {false};
+  }
   void key(const std::string& k);
   void val(const std::string& v);
+  void val(const char* v) { val(std::string(v)); }
+  void val(int v) { val(static_cast<int64_t>(v)); }
   void val(int64_t v);
   void val(uint64_t v) { val(static_cast<int64_t>(v)); }
   void val(double v);
@@ -49,8 +56,9 @@ class JsonWriter {
  private:
   void sep();
   std::ostringstream s_;
-  std::vector<bool> top_;  // 每层是否已写过元素
-  std::vector<char> open_; // 每层的开括号：'{' 或 '['
+  std::vector<bool> top_;       // 每层是否已写过元素
+  std::vector<char> open_;      // 每层的开括号：'{' 或 '['
+  std::vector<bool> after_key_; // 每层是否刚写过 key（冒号后待值）
 };
 
 // ---- 路径与目录 ----

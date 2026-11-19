@@ -111,9 +111,15 @@ std::string sha256_file(const std::filesystem::path& p, std::string* err) {
 }
 
 // ---------------- 极简 JSON 写出器 ----------------
-void JsonWriter::sep() { s_ << (top_.back() ? ',' : ' '); top_.back() = true; }
+void JsonWriter::sep() {
+  if (after_key_.back()) { after_key_.back() = false; return; }
+  s_ << (top_.back() ? ',' : ' ');
+  top_.back() = true;
+}
 void JsonWriter::key(const std::string& k) {
-  sep(); s_ << std::quoted(k) << ':';
+  sep();
+  s_ << std::quoted(k) << ':';
+  after_key_.back() = true;
 }
 void JsonWriter::val(const std::string& v) {
   sep(); s_ << std::quoted(v);
@@ -126,18 +132,26 @@ void JsonWriter::val(double v) {
 }
 void JsonWriter::val(bool v) { sep(); s_ << (v ? "true" : "false"); }
 void JsonWriter::begin_obj(const std::string& k) { key(k); begin_obj(); }
-void JsonWriter::begin_obj() { sep(); s_ << '{'; top_.push_back(false); open_.push_back('{'); }
+void JsonWriter::begin_obj() {
+  sep(); s_ << '{';
+  top_.push_back(false); open_.push_back('{'); after_key_.push_back(false);
+}
 void JsonWriter::begin_arr(const std::string& k) { key(k); begin_arr(); }
-void JsonWriter::begin_arr() { sep(); s_ << '['; top_.push_back(false); open_.push_back('['); }
+void JsonWriter::begin_arr() {
+  sep(); s_ << '[';
+  top_.push_back(false); open_.push_back('['); after_key_.push_back(false);
+}
 void JsonWriter::end() {
   char close = open_.back() == '{' ? '}' : ']';
   s_ << close;
   top_.pop_back();
   open_.pop_back();
+  after_key_.pop_back();
 }
 std::string JsonWriter::str() const {
   std::string base = s_.str();
-  for (size_t i = 1; i < open_.size(); ++i)
+  // 补齐所有仍打开的层（含未 end 的根对象），逆序无关，括号类型按层取。
+  for (size_t i = 0; i < open_.size(); ++i)
     base += (open_[i] == '{' ? '}' : ']');
   return base;
 }
