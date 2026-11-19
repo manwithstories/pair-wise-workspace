@@ -33,17 +33,21 @@ def source_frame(source_id: str, source_ticks: int, tb: TimeBase,
         [(seed >> 16) & 0xFF, (seed >> 8) & 0xFF, seed & 0xFF], dtype=np.float64
     )
     phase = (frame_no * 7 + seed) % 256
-    grad = ((x + phase) % 256)[None, :, None].astype(np.float64)
+    grad = ((x + phase) % 256)[..., None].astype(np.float64)
     img = (base[None, None, :] * 0.6 + grad * 0.4).astype(np.uint8)
     block = 12 + (seed % 5)
     mask = ((x // block) + (y // block) + frame_no) % 2 == 0
     img[mask] = np.clip(img[mask].astype(int) + 40, 0, 255).astype(np.uint8)
+    # 确定性细噪声：模拟真实传感器底噪，也让码率控制有实际负载
+    rng = np.random.default_rng((seed, frame_no))
+    noise = rng.integers(-16, 17, size=img.shape)
+    img = np.clip(img.astype(int) + noise, 0, 255).astype(np.uint8)
     return np.ascontiguousarray(img)
 
 
 def encode_source(path, source_id: str, frame_count: int, fps: int,
                   size: tuple[int, int], tb: TimeBase,
-                  bit_rate: int) -> None:
+                  bit_rate: int, start_frame: int = 0) -> None:
     """把合成源编码为视频文件（传输前的原始段）。"""
     width, height = size
     container = av.open(str(path), mode="w")
@@ -56,9 +60,11 @@ def encode_source(path, source_id: str, frame_count: int, fps: int,
         stream.options = {"preset": "medium"}
         frame_ticks = tb.frame_ticks(fps)
         for i in range(frame_count):
-            arr = source_frame(source_id, i * frame_ticks, tb, width, height)
+            frame_no = start_frame + i
+            arr = source_frame(source_id, frame_no * frame_ticks, tb,
+                               width, height)
             frame = av.VideoFrame.from_ndarray(arr, format="rgb24")
-            frame.pts = i
+            frame.pts = frame_no
             for packet in stream.encode(frame):
                 container.mux(packet)
         for packet in stream.encode():
@@ -91,7 +97,11 @@ def decode_frames(path, expected_frames: int, tb: TimeBase,
                 idx = len(out)
                 if idx >= expected_frames:
                     break
-                pts_ticks = int(frame.pts or idx) * frame_ticks
+                if frame.pts is not None and frame.time_base is not None:
+                    seconds = float(frame.pts * frame.time_base)
+                    pts_ticks = tb.to_ticks(seconds)
+                else:
+                    pts_ticks = idx * frame_ticks
                 out.append(
                     DecodedFrame(idx, pts_ticks, frame.to_ndarray(format="rgb24"))
                 )

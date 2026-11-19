@@ -92,25 +92,28 @@ def run_pipeline(config: PipelineConfig,
     total_frames = int(round(config.duration_s * config.fps))
     width, height = config.size
 
-    # 1) 编码各源素材
+    # 1) 各源素材分段编码（每段可独立解码，丢失只影响局部）
     source_ids = sorted(timeline.source_ranges())
-    encoded: dict[str, Path] = {}
-    for seg_id, sid in enumerate(source_ids):
+    part_frames = config.chunk_frames
+    parts: list[tuple[str, int, int]] = []  # (source_id, start_frame, n)
+    for sid in source_ids:
+        for start in range(0, total_frames, part_frames):
+            parts.append((sid, start, min(part_frames, total_frames - start)))
+    encoded: dict[int, Path] = {}
+    for seg_id, (sid, start, n) in enumerate(parts):
         path = work_dir / f"src-{seg_id}.mp4"
-        encode_source(path, sid, total_frames, config.fps, config.size, tb,
-                      config.bit_rate)
-        encoded[sid] = path
+        encode_source(path, sid, n, config.fps, config.size, tb,
+                      config.bit_rate, start_frame=start)
+        encoded[seg_id] = path
 
     # 2) 打包 → 故障注入 → 修复
     all_packets = []
     expected: dict[int, int] = {}
     seq = 0
-    seg_of: dict[str, int] = {}
-    for seg_id, sid in enumerate(source_ids):
-        data = encoded[sid].read_bytes()
-        pkts = packetize(seg_id, data, seq, 0)
+    for seg_id in range(len(parts)):
+        data = encoded[seg_id].read_bytes()
+        pkts = packetize(seg_id, data, seq, parts[seg_id][1] * frame_ticks)
         expected[seg_id] = len(pkts)
-        seg_of[sid] = seg_id
         seq += len(pkts)
         all_packets.extend(pkts)
     stream = inject_faults(all_packets, config.fault, rng)
@@ -118,10 +121,9 @@ def run_pipeline(config: PipelineConfig,
 
     # 3) 重组完整段并解码；不完整段标记缺失，由合成策略处理
     complete_segments = set(expected) - {r[0] for r in report.missing_ranges}
-    sources: dict[str, dict] = {}
+    sources: dict[str, dict] = {sid: {} for sid in source_ids}
     alignment_err_ms = 0.0
-    for sid in source_ids:
-        seg_id = seg_of[sid]
+    for seg_id, (sid, start, n) in enumerate(parts):
         if seg_id not in complete_segments:
             continue
         blob = b"".join(
@@ -129,10 +131,10 @@ def run_pipeline(config: PipelineConfig,
         )
         repaired_path = work_dir / f"repaired-{seg_id}.mp4"
         repaired_path.write_bytes(blob)
-        frames = decode_frames(repaired_path, total_frames, tb, config.fps)
-        sources[sid] = {f.pts_ticks: f for f in frames}
+        frames = decode_frames(repaired_path, n, tb, config.fps)
         for f in frames:
-            err = abs(f.pts_ticks - f.index * frame_ticks)
+            sources[sid][f.pts_ticks] = f
+            err = abs(f.pts_ticks - (start + f.index) * frame_ticks)
             alignment_err_ms = max(alignment_err_ms, tb.ticks_to_ms(err))
 
     # 4) 音轨：合成、偏移、统计、落盘
@@ -159,7 +161,7 @@ def run_pipeline(config: PipelineConfig,
             json.dumps({
                 "range": [f0, f1],
                 "repair": report.to_dict(),
-                "sources": sorted(sources),
+                "sources": sorted(s for s, d in sources.items() if d),
             }, sort_keys=True).encode()
         ).hexdigest()
         if store.is_committed(idx, chunk_digest):
