@@ -5,52 +5,54 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
+	"os"
 
 	"mediq/internal/model"
 	"mediq/internal/source"
 	"mediq/internal/validate"
 )
 
-// verifyAgainstSource proves the index is an order-preserving projection of
-// the source's valid frames:
+// verifyAgainstSourceStream proves the index is an order-preserving projection
+// of the source's valid frames:
 //
 //   - every indexed sample matches the SHA-256 of a source frame that appears
 //     later in the source stream than the previous sample's frame, so samples
 //     can never be reordered or substituted;
 //   - every source frame failing validation is absent from the index.
 //
-// Valid source frames the timeline stage quarantined are legitimately absent;
-// they are counted in UnindexedSource rather than treated as corruption.
-func verifyAgainstSource(mp4File io.ReaderAt, t *Table, sourcePath string, rep *VerifyReport) error {
+// Both the index and the source are consumed as streams, so verification uses
+// constant memory regardless of input length.
+func verifyAgainstSourceStream(f *os.File, rep *VerifyReport, sourcePath string) error {
+	ts, err := openTableSource(f)
+	if err != nil {
+		rep.Problems = append(rep.Problems, "index tables unreadable: "+err.Error())
+		return nil
+	}
 	src, err := source.Open(sourcePath, source.Options{})
 	if err != nil {
 		return fmt.Errorf("open source: %w", err)
 	}
 	defer src.Close()
 
-	type goodFrame struct {
-		seq  uint64
-		hash [32]byte
-	}
 	// nextGood returns the next valid, first-seen frame from the source.
 	seen := make(map[uint64]struct{}, 256)
 	window := make([]uint64, 0, 256)
-	nextGood := func() (*goodFrame, bool, error) {
+	nextGood := func() (*model.Frame, error) {
 		for {
 			rec, err := src.Read()
 			if err == io.EOF {
-				return nil, false, nil
+				return nil, nil
 			}
 			if err != nil {
-				return nil, false, fmt.Errorf("read source: %w", err)
+				return nil, fmt.Errorf("read source: %w", err)
 			}
 			if rec.Fault != nil {
 				rep.SourceFaults = append(rep.SourceFaults, rec.Fault)
 				continue
 			}
 			fr := rec.Frame
-			if f := validate.CheckFrame(fr); f != nil {
-				rep.SourceFaults = append(rep.SourceFaults, f)
+			if fault := validate.CheckFrame(fr); fault != nil {
+				rep.SourceFaults = append(rep.SourceFaults, fault)
 				continue
 			}
 			if _, dup := seen[fr.Seq]; dup {
@@ -66,56 +68,74 @@ func verifyAgainstSource(mp4File io.ReaderAt, t *Table, sourcePath string, rep *
 				delete(seen, window[0])
 				window = window[1:]
 			}
-			return &goodFrame{seq: fr.Seq, hash: fr.Hash}, true, nil
+			return fr, nil
 		}
 	}
 
 	sum := sha256.New()
-	pending, havePending, err := nextGood()
+	readBuf := make([]byte, 64<<10)
+	pending, err := nextGood()
 	if err != nil {
 		return err
 	}
-	for sample := 0; sample < len(t.SampleSize); sample++ {
-		sum.Reset()
-		if _, err := io.Copy(sum, io.NewSectionReader(mp4File,
-			int64(t.Offsets[sample]), int64(t.SampleSize[sample]))); err != nil {
+	var sample uint64
+	missing := false
+	for {
+		off, size, _, ok, err := ts.next()
+		if err != nil {
+			rep.Problems = append(rep.Problems, "index tables unreadable: "+err.Error())
+			return nil
+		}
+		if !ok {
+			break
+		}
+		// Read the sample with a positional read: the table readers and the
+		// digest share the file, so a shared seek position would corrupt one
+		// another.
+		if cap(readBuf) < int(size) {
+			readBuf = make([]byte, size)
+		}
+		buf := readBuf[:size]
+		if _, err := f.ReadAt(buf, int64(off)); err != nil {
 			return fmt.Errorf("read sample %d: %w", sample, err)
 		}
+		sum.Reset()
+		sum.Write(buf)
 		want := sum.Sum(nil)
 
 		matched := false
-		skipped := 0
-		for havePending {
-			if bytes.Equal(want, pending.hash[:]) {
+		for pending != nil {
+			if bytes.Equal(want, pending.Hash[:]) {
 				matched = true
-				pending, havePending, err = nextGood()
+				pending, err = nextGood()
 				if err != nil {
 					return err
 				}
 				break
 			}
-			skipped++
-			pending, havePending, err = nextGood()
+			rep.UnindexedSource++
+			pending, err = nextGood()
 			if err != nil {
 				return err
 			}
 		}
-		rep.UnindexedSource += skipped
 		if !matched {
+			missing = true
 			rep.Problems = append(rep.Problems,
 				fmt.Sprintf("index sample %d has no matching source frame in remaining input", sample))
 			if len(rep.Problems) >= 16 {
 				return nil
 			}
 		}
+		sample++
 	}
-	// Everything valid left over was not indexed.
-	for havePending {
+	for pending != nil {
 		rep.UnindexedSource++
-		pending, havePending, err = nextGood()
+		pending, err = nextGood()
 		if err != nil {
 			return err
 		}
 	}
+	_ = missing
 	return nil
 }

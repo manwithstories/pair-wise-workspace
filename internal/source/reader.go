@@ -15,9 +15,15 @@ import (
 // Record is one step of the scan: either a decoded frame or a diagnosable
 // fault. The scan continues past recoverable faults; a non-recoverable fault
 // ends the stream (the next Read returns io.EOF).
+//
+// CRC is the CRC-32 of every input byte from offset zero through EndOffset.
+// The producer computes it while reading, so checkpointing never has to reread
+// the input prefix.
 type Record struct {
-	Frame *model.Frame
-	Fault *model.Fault
+	Frame     *model.Frame
+	Fault     *model.Fault
+	EndOffset int64
+	CRC       uint32
 }
 
 // Reader streams frame records from a file. It holds at most one record in
@@ -28,7 +34,24 @@ type Reader struct {
 	offset int64 // byte offset of the next record header
 	cfg    Options
 	eof    bool
+
+	// Cumulative CRC-32 of everything read so far. Every record is consumed
+	// exactly once in order, so the pipeline can checkpoint its prefix digest
+	// without rereading the file.
+	cumulativeCRC uint32
 }
+
+// CumulativeCRC returns the CRC-32 of the bytes consumed so far together with
+// the offset those bytes end at. The pair identifies a resumable prefix.
+func (r *Reader) CumulativeCRC() (uint32, int64) {
+	return r.cumulativeCRC, r.offset
+}
+
+// SeedCumulative tells the reader what the CRC of the bytes before its current
+// position is. A resumed run seeks to a record boundary and seeds the value
+// computed when the checkpoint was written, so subsequent records carry
+// absolute prefix checksums.
+func (r *Reader) SeedCumulative(crc uint32) { r.cumulativeCRC = crc }
 
 // Options bounds memory and configures diagnostics.
 type Options struct {
@@ -119,6 +142,8 @@ func (r *Reader) Read() (Record, error) {
 	if err != nil {
 		return Record{}, err
 	}
+	rec.EndOffset = r.offset
+	rec.CRC = r.cumulativeCRC
 	if rec.Fault != nil && !rec.Fault.Resync() {
 		r.eof = true
 	}
@@ -130,6 +155,7 @@ func (r *Reader) readOne() (Record, error) {
 	start := r.offset
 	hdr := make([]byte, model.RecordHeaderSize)
 	n, err := io.ReadFull(r.br, hdr)
+	r.cumulativeCRC = crc32.Update(r.cumulativeCRC, crc32.IEEETable, hdr[:n])
 	if err != nil {
 		if errors.Is(err, io.EOF) && n == 0 {
 			r.eof = true
@@ -178,6 +204,7 @@ func (r *Reader) readOne() (Record, error) {
 	payloadLen := int64(rh.MetaLen) + int64(rh.FrameLen)
 	payload := make([]byte, payloadLen)
 	n, err = io.ReadFull(r.br, payload)
+	r.cumulativeCRC = crc32.Update(r.cumulativeCRC, crc32.IEEETable, payload[:n])
 	r.offset += int64(n)
 	if err != nil {
 		r.eof = true

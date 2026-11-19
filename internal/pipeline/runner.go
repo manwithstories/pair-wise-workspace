@@ -82,17 +82,19 @@ type Stats struct {
 
 // Runner executes one job.
 type Runner struct {
-	opts Options
-	cks  *checkpoint.Store
-	log  func(format string, args ...any)
+	opts     Options
+	cks      *checkpoint.Store
+	chunkLog *checkpoint.ChunkLog
+	log      func(format string, args ...any)
 }
 
 func New(opts Options) *Runner {
 	o := opts.withDefaults()
 	return &Runner{
-		opts: o,
-		cks:  checkpoint.New(o.CheckpointPath),
-		log:  func(f string, a ...any) { fmt.Fprintf(o.Log, f+"\n", a...) },
+		opts:     o,
+		cks:      checkpoint.New(o.CheckpointPath),
+		chunkLog: checkpoint.NewChunkLog(o.CheckpointPath),
+		log:      func(f string, a ...any) { fmt.Fprintf(o.Log, f+"\n", a...) },
 	}
 }
 
@@ -140,7 +142,8 @@ func (r *Runner) Run(ctx context.Context) (*Stats, error) {
 	resumeOffset := int64(0)
 	if st != nil {
 		job.repairer.Restore(st.Timeline)
-		job.chunks = append([]checkpoint.ChunkRecord(nil), st.Chunks...)
+		job.chunkHead = st.ChunkHead
+		job.chunkDigest = st.ChunkDigest
 		job.indexed = st.Index.Samples
 		job.readOffset = st.CommittedOffset
 		job.committed = st.CommittedOffset
@@ -150,7 +153,7 @@ func (r *Runner) Run(ctx context.Context) (*Stats, error) {
 		stats.FramesQuarantined = st.FramesQuarantined
 		stats.ResumeOffset = st.CommittedOffset
 		stats.Resumed = true
-		stats.RecoveredChunks = uint64(len(st.Chunks))
+		stats.RecoveredChunks = st.Index.Chunks
 		resumeOffset = st.CommittedOffset
 	}
 
@@ -163,6 +166,9 @@ func (r *Runner) Run(ctx context.Context) (*Stats, error) {
 		if err := src.SeekStart(resumeOffset); err != nil {
 			return nil, err
 		}
+		// Seed the running prefix digest with the value the checkpoint
+		// verified, so later checkpoints stay absolute without rereading.
+		src.SeedCumulative(st.InputCRC)
 	}
 
 	runCtx, cancel := context.WithCancel(ctx)
@@ -191,6 +197,21 @@ func (r *Runner) Run(ctx context.Context) (*Stats, error) {
 			stats.ResumeUsable = true
 		}
 		return stats, runErr
+	}
+	if job.structuralFault != nil {
+		// The scan stopped on lost framing. Indexing stops at the last record
+		// that could be trusted, but the job is reported as damaged rather
+		// than published as if the source ended there.
+		idx.Abort()
+		idx = nil
+		jf := job.structuralFault
+		stats.FramesBad++
+		if !stats.HasCorrupt {
+			stats.HasCorrupt = true
+			stats.FirstCorruptFrame = jf.Seq
+			stats.FirstCorruptOffset = jf.Offset
+		}
+		return stats, fmt.Errorf("%w: %v", model.ErrDamagedInput, jf)
 	}
 	if !job.sourceDone {
 		idx.Abort()

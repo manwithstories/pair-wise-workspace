@@ -33,9 +33,11 @@ import (
 const Version = 1
 
 const (
-	magic        = "MCKP"
-	headerSize   = 64
-	bodyChecksum = 32 // trailing SHA-256 of everything before it
+	magic             = "MCKP"
+	headerSize        = 64
+	bodyChecksum      = 32 // trailing SHA-256 of everything before it
+	chunkRecordSize   = 60 // 28 bytes of fields + 32-byte chain digest
+	chunkRecordFields = 28
 )
 
 // ChunkRecord identifies one committed index chunk and its checksum.
@@ -58,9 +60,16 @@ type State struct {
 	InputCRC   uint32 `json:"input_crc"`
 	// CommittedOffset is the first byte not yet consumed; a resumed run scans
 	// from here, after proving the prefix still matches InputCRC.
-	CommittedOffset   int64             `json:"committed_offset"`
-	SourceDone        bool              `json:"source_done"` // source fully scanned
-	Chunks            []ChunkRecord     `json:"chunks"`
+	CommittedOffset int64 `json:"committed_offset"`
+	SourceDone      bool  `json:"source_done"` // source fully scanned
+	// ChunkHead is the most recent committed chunk. The full chunk log lives
+	// beside the checkpoint (see ChunkLog) so the checkpoint stays O(1) in the
+	// number of chunks.
+	ChunkHead ChunkRecord `json:"chunk_head"`
+	// ChunkDigest chains every chunk checksum together, so a rewritten or
+	// missing chunk log entry is detectable without keeping the log in the
+	// checkpoint body itself.
+	ChunkDigest       [32]byte          `json:"chunk_digest"`
 	Index             index.State       `json:"index"`
 	Timeline          timeline.Snapshot `json:"timeline"`
 	FramesRead        uint64            `json:"frames_read"`
@@ -136,9 +145,11 @@ func (s *Store) Save(st *State) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	// Keep the previous checkpoint for post-mortem diagnosis.
+	// Keep the previous checkpoint for post-mortem diagnosis. A rename is
+	// O(1) and atomic; copying would turn every chunk commit into an O(file
+	// size) operation.
 	if _, err := os.Stat(s.path); err == nil {
-		_ = copyFile(s.path, s.backupPath())
+		_ = os.Rename(s.path, s.backupPath())
 	}
 	if err := os.Rename(part, s.path); err != nil {
 		return err
@@ -153,23 +164,6 @@ func syncDir(dir string) error {
 	}
 	defer d.Close()
 	return d.Sync()
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		return err
-	}
-	return out.Close()
 }
 
 // Reset removes every checkpoint artefact, so a fresh run cannot resume from
@@ -251,21 +245,11 @@ func (st *State) validate() error {
 	if st.Index.Samples > 0 && st.Index.LastMedia < st.Index.FirstMedia {
 		return fmt.Errorf("index media range inverted")
 	}
-	if uint64(len(st.Chunks)) != st.Index.Chunks {
-		return fmt.Errorf("chunk table has %d entries, index reports %d chunks", len(st.Chunks), st.Index.Chunks)
+	if st.ChunkHead.Samples == 0 && st.Index.Chunks != 0 {
+		return fmt.Errorf("index reports %d chunks but the checkpoint has no chunk head", st.Index.Chunks)
 	}
-	var samples uint64
-	for i, c := range st.Chunks {
-		if c.Index != uint32(i) {
-			return fmt.Errorf("chunk %d recorded as index %d", i, c.Index)
-		}
-		if c.Samples == 0 {
-			return fmt.Errorf("chunk %d has no samples", i)
-		}
-		samples += uint64(c.Samples)
-	}
-	if samples != st.Index.Samples {
-		return fmt.Errorf("chunks cover %d samples, index has %d", samples, st.Index.Samples)
+	if st.ChunkHead.Samples != 0 && st.ChunkHead.Index+1 != uint32(st.Index.Chunks) {
+		return fmt.Errorf("chunk head %d disagrees with %d committed chunks", st.ChunkHead.Index, st.Index.Chunks)
 	}
 	if st.InputSize < 0 || st.Index.PayloadLen < 0 {
 		return fmt.Errorf("negative size in checkpoint")
@@ -274,6 +258,101 @@ func (st *State) validate() error {
 		return fmt.Errorf("committed offset %d outside input size %d", st.CommittedOffset, st.InputSize)
 	}
 	return nil
+}
+
+// ChunkLog is the append-only record of committed chunks, stored next to the
+// checkpoint. Append is O(1); reading is streaming.
+type ChunkLog struct{ path string }
+
+// NewChunkLog returns the log belonging to a checkpoint path.
+func NewChunkLog(checkpointPath string) *ChunkLog { return &ChunkLog{path: checkpointPath + ".chunks"} }
+
+// Path returns the log file path.
+func (l *ChunkLog) Path() string { return l.path }
+
+// Reset truncates the log and starts it with the chain seed.
+func (l *ChunkLog) Reset() error {
+	if err := os.Remove(l.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+// Append writes one chunk record and returns the updated chain digest.
+func (l *ChunkLog) Append(c ChunkRecord, chain [32]byte) ([32]byte, error) {
+	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return chain, err
+	}
+	defer f.Close()
+	var rec [chunkRecordSize]byte
+	binary.BigEndian.PutUint32(rec[0:4], c.Index)
+	binary.BigEndian.PutUint64(rec[4:12], c.FirstFrame)
+	binary.BigEndian.PutUint64(rec[12:20], c.LastFrame)
+	binary.BigEndian.PutUint32(rec[20:24], c.Samples)
+	binary.BigEndian.PutUint32(rec[24:28], c.Checksum)
+	next := chainRecord(chain, rec[:chunkRecordFields])
+	copy(rec[chunkRecordFields:], next[:])
+	if _, err := f.Write(rec[:]); err != nil {
+		return chain, err
+	}
+	return next, f.Sync()
+}
+
+// Verify re-reads the whole log and confirms the chain digest matches want,
+// which is the digest the checkpoint recorded. A truncated or edited log is
+// rejected.
+func (l *ChunkLog) Verify(want [32]byte, chunks uint64) error {
+	f, err := os.Open(l.path)
+	if err != nil {
+		return fmt.Errorf("chunk log: %w", err)
+	}
+	defer f.Close()
+	chain := [32]byte{}
+	var n uint64
+	var rec [chunkRecordSize]byte
+	for {
+		_, err := io.ReadFull(f, rec[:])
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("chunk log truncated after %d records: %w", n, err)
+		}
+		if binary.BigEndian.Uint32(rec[0:4]) != uint32(n) {
+			return fmt.Errorf("chunk log record %d is out of order", n)
+		}
+		chain = chainRecord(chain, rec[:chunkRecordFields])
+		n++
+	}
+	if n != chunks {
+		return fmt.Errorf("chunk log holds %d records, checkpoint committed %d", n, chunks)
+	}
+	if chain != want {
+		return fmt.Errorf("chunk log digest mismatch")
+	}
+	return nil
+}
+
+func chainRecord(prev [32]byte, rec []byte) [32]byte {
+	h := sha256.New()
+	h.Write(prev[:])
+	h.Write(rec)
+	var out [32]byte
+	copy(out[:], h.Sum(nil))
+	return out
+}
+
+// ChunkCount returns how many chunk records the log holds.
+func (l *ChunkLog) ChunkCount() (uint64, error) {
+	fi, err := os.Stat(l.path)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return uint64(fi.Size() / chunkRecordSize), nil
 }
 
 // ValidForInput checks a loaded checkpoint against the input being processed.

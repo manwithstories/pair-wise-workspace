@@ -222,11 +222,10 @@ func printStats(w io.Writer, s *pipeline.Stats) {
 
 func classify(stats *pipeline.Stats, err error, stderr io.Writer) int {
 	if err == nil {
-		if stats != nil && stats.HasCorrupt {
+		if stats != nil && stats.FramesBad > 0 {
 			// Damaged frames were isolated and the rest indexed; that is the
 			// documented outcome for a repairable delivery.
 			fmt.Fprintln(stderr, "mediq: damaged input isolated; valid frames indexed")
-			return exitOK
 		}
 		return exitOK
 	}

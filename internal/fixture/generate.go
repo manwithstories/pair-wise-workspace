@@ -81,7 +81,12 @@ func Generate(cfg Config) (*Result, error) {
 
 	if cfg.WrapAt > 0 && cfg.WrapAt <= cfg.Frames {
 		p := filepath.Join(cfg.Dir, "wrap.seq")
-		if err := writeSequence(p, cfg.with(func(c *Config) { c.Corrupt, c.WrapAt = 0, cfg.WrapAt }), 0); err != nil {
+		// Isolate the defect: the wrap fixture carries no corruption,
+		// duplicate or reordering, so its outcome is unambiguous.
+		wcfg := cfg.with(func(c *Config) {
+			c.Corrupt, c.Duplicate, c.OutOfOrder = 0, 0, 0
+		})
+		if err := writeSequence(p, wcfg, 0); err != nil {
 			return nil, err
 		}
 		res.WrapSeq = uint64(cfg.WrapAt)
@@ -89,7 +94,13 @@ func Generate(cfg Config) (*Result, error) {
 	}
 	if cfg.Duplicate > 0 && cfg.Duplicate <= cfg.Frames {
 		p := filepath.Join(cfg.Dir, "duplicate.seq")
-		wcfg := cfg.with(func(c *Config) { c.Corrupt, c.Duplicate = 0, cfg.Duplicate })
+		// Duplicates and reordering travel together: both are sequence-level
+		// defects the repairer must resolve.
+		wcfg := cfg.with(func(c *Config) {
+			c.Corrupt, c.WrapAt = 0, 0
+			c.Duplicate = cfg.Duplicate
+			c.OutOfOrder = cfg.OutOfOrder
+		})
 		if err := writeSequence(p, wcfg, 0); err != nil {
 			return nil, err
 		}
@@ -180,18 +191,19 @@ type planned struct {
 // right after its original, and an out-of-order frame is emitted just before
 // the one it should precede.
 func planSequence(cfg Config, step uint32) []planned {
+	const modulus = uint64(1) << 32
 	base := make([]planned, 0, cfg.Frames+1)
 	var ts uint64
+	if cfg.WrapAt > 0 {
+		// Start close enough to the top of the 32-bit capture clock that the
+		// requested frame is the first one after the counter rolls over.
+		ts = modulus - uint64(cfg.WrapAt)*uint64(step)
+	}
 	for i := 1; i <= cfg.Frames; i++ {
-		raw := ts
-		if cfg.WrapAt > 0 && i == cfg.WrapAt+1 {
-			// The capture clock wraps to zero although real time advanced.
-			raw = 0
-		}
 		// Sequence numbers are 1-based so --corrupt N, --duplicate N and
 		// --wrap-at N refer to the same frame the terminal reports.
-		base = append(base, planned{ordinal: i, seq: uint64(i), timestamp: raw})
-		ts += uint64(step)
+		base = append(base, planned{ordinal: i, seq: uint64(i), timestamp: ts})
+		ts = (ts + uint64(step)) % modulus
 	}
 	out := make([]planned, 0, len(base)+1)
 	for _, rec := range base {

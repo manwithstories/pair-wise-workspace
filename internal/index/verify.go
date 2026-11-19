@@ -203,57 +203,91 @@ func VerifyFile(path string, opts VerifyOptions) (*VerifyReport, error) {
 	}
 	rep.OutputSHA256 = hex.EncodeToString(sum.Sum(nil))
 
-	t, err := readTableFrom(f)
-	if err != nil {
-		rep.Problems = append(rep.Problems, "index tables unreadable: "+err.Error())
-		return rep, nil
-	}
-	rep.Samples = uint64(len(t.SampleSize))
-	if len(t.SampleSize) > 0 {
-		rep.FirstMedia = t.Times[0]
-		rep.LastMedia = t.Times[len(t.Times)-1]
-	}
-	rep.TimestampMono = true
-	for i := 1; i < len(t.Times); i++ {
-		if t.Times[i] <= t.Times[i-1] {
-			rep.TimestampMono = false
-			rep.Problems = append(rep.Problems,
-				fmt.Sprintf("timestamp not increasing at sample %d: %d <= %d", i, t.Times[i], t.Times[i-1]))
-			break
-		}
-	}
-	// Locate the mdat payload bounds.
 	mdatStart, mdatEnd, err := findMdat(f)
 	if err != nil {
 		rep.Problems = append(rep.Problems, err.Error())
 		return rep, nil
 	}
-	if len(t.SampleSize) > 0 {
-		if t.Offsets[0] != uint64(mdatStart) {
-			rep.Problems = append(rep.Problems,
-				fmt.Sprintf("first sample offset %d != mdat payload start %d", t.Offsets[0], mdatStart))
+
+	// Walk the sample tables as streams: memory stays constant even for a
+	// million-frame index.
+	ts, err := openTableSource(f)
+	if err != nil {
+		rep.Problems = append(rep.Problems, "index tables unreadable: "+err.Error())
+		return rep, nil
+	}
+	rep.TimestampMono = true
+	var (
+		prevEnd   uint64
+		prevTime  int64
+		firstOff  uint64
+		lastEnd   uint64
+		haveFirst bool
+		chunks    uint64
+		sample    uint64
+	)
+	for {
+		off, size, mt, ok, err := ts.next()
+		if err != nil {
+			rep.Problems = append(rep.Problems, "index tables unreadable: "+err.Error())
+			return rep, nil
 		}
-		last := t.Offsets[len(t.Offsets)-1] + uint64(t.SampleSize[len(t.SampleSize)-1])
-		if last != uint64(mdatEnd) {
-			rep.Problems = append(rep.Problems,
-				fmt.Sprintf("last sample ends at %d, mdat payload ends at %d", last, mdatEnd))
+		if !ok {
+			break
 		}
+		if sample == 0 {
+			firstOff = off
+			rep.FirstMedia = mt
+			haveFirst = true
+		} else {
+			if off != prevEnd {
+				rep.Problems = append(rep.Problems,
+					fmt.Sprintf("sample %d offset %d does not follow sample %d end %d", sample, off, sample-1, prevEnd))
+				if len(rep.Problems) > 16 {
+					return rep, nil
+				}
+			}
+			if mt <= prevTime {
+				rep.TimestampMono = false
+				rep.Problems = append(rep.Problems,
+					fmt.Sprintf("timestamp not increasing at sample %d: %d <= %d", sample, mt, prevTime))
+			}
+			if off != prevEnd {
+				chunks++
+			}
+			if chunks == 0 {
+				chunks = 1
+			}
+		}
+		if sample == 0 {
+			chunks = 1
+		}
+		prevEnd, prevTime = off+uint64(size), mt
+		lastEnd = prevEnd
+		sample++
+		if len(rep.Problems) > 16 {
+			return rep, nil
+		}
+	}
+	rep.Samples = sample
+	rep.Chunks = chunks
+	if haveFirst {
+		if firstOff != uint64(mdatStart) {
+			rep.Problems = append(rep.Problems,
+				fmt.Sprintf("first sample offset %d != mdat payload start %d", firstOff, mdatStart))
+		}
+		if lastEnd != uint64(mdatEnd) {
+			rep.Problems = append(rep.Problems,
+				fmt.Sprintf("last sample ends at %d, mdat payload ends at %d", lastEnd, mdatEnd))
+		}
+		rep.LastMedia = prevTime
 	} else if mdatStart != mdatEnd {
 		rep.Problems = append(rep.Problems,
 			fmt.Sprintf("empty index but mdat holds %d bytes", mdatEnd-mdatStart))
 	}
-	for i := 0; i+1 < len(t.Offsets); i++ {
-		want := t.Offsets[i] + uint64(t.SampleSize[i])
-		if t.Offsets[i+1] != want {
-			rep.Problems = append(rep.Problems,
-				fmt.Sprintf("sample %d offset %d does not follow sample %d end %d", i+1, t.Offsets[i+1], i, want))
-			break
-		}
-	}
-	rep.Chunks = chunkCount(t)
 
 	if opts.SourcePath != "" {
-		if err := verifyAgainstSource(f, t, opts.SourcePath, rep); err != nil {
+		if err := verifyAgainstSourceStream(f, rep, opts.SourcePath); err != nil {
 			return rep, err
 		}
 	}

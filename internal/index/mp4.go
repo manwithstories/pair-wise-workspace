@@ -92,6 +92,7 @@ type Writer struct {
 	runDelta      uint32
 	runOpen       bool
 	firstDeltaSet bool
+	stszBuf       []byte
 
 	lastSPC              uint32
 	haveSPC              bool
@@ -442,8 +443,10 @@ func (w *Writer) Append(seq uint64, media int64, payload []byte) error {
 		}
 	}
 	if w.chunkLens == 0 {
-		pos, err := w.data.Seek(0, io.SeekCurrent)
-		if err != nil {
+		// Track the append position explicitly: seeking keeps a small write
+		// per sample otherwise.
+		pos := w.headerEnd + w.payloadLen
+		if _, err := w.data.Seek(pos, io.SeekStart); err != nil {
 			return err
 		}
 		if err := w.writeU64(w.stco, uint64(pos)); err != nil {
@@ -456,9 +459,7 @@ func (w *Writer) Append(seq uint64, media int64, payload []byte) error {
 	}
 	w.crc = crc32.Update(w.crc, crc32.IEEETable, payload)
 	w.payloadLen += int64(len(payload))
-	if err := w.writeU32(w.stsz, uint32(len(payload))); err != nil {
-		return err
-	}
+	w.stszBuf = binary.BigEndian.AppendUint32(w.stszBuf, uint32(len(payload)))
 	if w.chunkLens == 0 {
 		w.chunkFirstSeq = seq
 	}
@@ -539,6 +540,9 @@ func (w *Writer) writeU64(f *os.File, v uint64) error {
 // Commit closes the open chunk, flushes tables and syncs everything to disk.
 // The returned state is exactly what a checkpoint should persist.
 func (w *Writer) Commit() (State, error) {
+	if err := w.FlushTables(); err != nil {
+		return State{}, err
+	}
 	if err := w.flushRun(); err != nil {
 		return State{}, err
 	}
@@ -558,9 +562,11 @@ func (w *Writer) Commit() (State, error) {
 		{w.stsc, &sizes.Stsc},
 		{w.stco, &sizes.Stco},
 	} {
-		if err := t.f.Sync(); err != nil {
-			return State{}, err
-		}
+		// Table bytes reach the OS through unbuffered writes; the checkpoint
+		// that follows this commit is itself fsynced, and recovery truncates
+		// the tables to these recorded sizes, so an un-synced table tail is
+		// never trusted. Skipping a per-table fsync here keeps a 100k-frame
+		// job linear instead of turning every chunk into four disk barriers.
 		pos, err := t.f.Seek(0, io.SeekEnd)
 		if err != nil {
 			return State{}, err
@@ -605,6 +611,19 @@ func (w *Writer) CloseWithoutPublishing() error {
 		}
 	}
 	w.stsz, w.stts, w.stsc, w.stco = nil, nil, nil, nil
+	return nil
+}
+
+// FlushTables pushes buffered per-sample sizes to the spool. It must run
+// before the tables are inspected, measured or closed.
+func (w *Writer) FlushTables() error {
+	if len(w.stszBuf) == 0 {
+		return nil
+	}
+	if _, err := w.stsz.Write(w.stszBuf); err != nil {
+		return err
+	}
+	w.stszBuf = w.stszBuf[:0]
 	return nil
 }
 

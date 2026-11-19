@@ -26,15 +26,24 @@ type job struct {
 	repairer *timeline.Repairer
 	started  time.Time
 
-	chunks     []checkpoint.ChunkRecord
-	indexed    uint64
-	readOffset int64 // resume offset taken from the checkpoint
-	committed  int64 // first input byte not yet in a committed chunk
+	chunkDigest [32]byte
+	indexed     uint64
+	chunkHead   checkpoint.ChunkRecord
+	readOffset  int64 // resume offset taken from the checkpoint
+	committed   int64 // first input byte not yet in a committed chunk
 	// replayLimit is the checkpoint's committed offset. Records starting
 	// before it were already counted and diagnosed, so a resumed run replays
 	// them into the repairer without double-counting their statistics.
 	replayLimit int64
-	sourceDone  bool
+	// scanned/scannedCRC track the furthest input byte read and the CRC of
+	// the prefix ending there. Records are consumed strictly in order, so this
+	// is the digest of the whole scanned prefix, computed without rereading.
+	scanned    int64
+	scannedCRC uint32
+	// structuralFault is set when record framing itself was lost, which makes
+	// publishing a partial index misrepresent the input.
+	structuralFault *model.Fault
+	sourceDone      bool
 }
 
 // prepareCheckpoint loads and validates any resumable checkpoint. The input
@@ -77,7 +86,10 @@ func (r *Runner) prepareCheckpoint(inputSize int64) (*checkpoint.State, error) {
 	if crc != st.InputCRC {
 		return nil, fmt.Errorf("%w: input prefix checksum %08x != checkpoint %08x", model.ErrCheckpointMismatch, crc, st.InputCRC)
 	}
-	r.log("resuming at byte %d (generation %d, %d committed chunks)", st.CommittedOffset, st.Generation, len(st.Chunks))
+	if err := r.chunkLog.Verify(st.ChunkDigest, st.Index.Chunks); err != nil {
+		return nil, fmt.Errorf("%w: %v", model.ErrCheckpointMismatch, err)
+	}
+	r.log("resuming at byte %d (generation %d, %d committed chunks)", st.CommittedOffset, st.Generation, st.Index.Chunks)
 	return st, nil
 }
 
@@ -94,6 +106,10 @@ func prefixCRC(path string, n int64) (uint32, error) {
 func (r *Runner) openIndex(st *checkpoint.State) (*index.Writer, error) {
 	tblDir := r.opts.Output + ".tables"
 	if st == nil {
+		// A fresh run must not inherit a chunk log from an unrelated job.
+		if err := r.chunkLog.Reset(); err != nil {
+			return nil, err
+		}
 		if err := os.Remove(r.opts.Output + ".part"); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, err
 		}
@@ -149,10 +165,25 @@ func (j *job) handleRecord(ctx context.Context, rec source.Record, chunk *[]*mod
 		if rec.Fault.HasSeq {
 			j.repairer.Skip(rec.Fault.Seq)
 		}
+		// A fault still consumes bytes, so the prefix digest advances; keep
+		// the committed prefix in sync with what was actually scanned.
+		if rec.EndOffset > j.scanned {
+			j.scanned = rec.EndOffset
+			j.scannedCRC = rec.CRC
+		}
+		if !rec.Fault.Resync() && j.structuralFault == nil {
+			// Framing is lost: no later byte can be reliably interpreted, so
+			// the index cannot honestly represent the rest of the input.
+			j.structuralFault = rec.Fault
+		}
 		return nil
 	}
 	fr := rec.Frame
 	j.committed = fr.EndOffset
+	if fr.EndOffset > j.scanned {
+		j.scanned = fr.EndOffset
+		j.scannedCRC = rec.CRC
+	}
 	replay := j.stats.Resumed && fr.StartOffset < j.replayLimit
 	if !replay {
 		j.stats.FramesRead++
@@ -219,14 +250,20 @@ func (j *job) flushChunk(chunk *[]*model.Frame, final bool) error {
 		if err := j.idx.VerifyLastChunk(*sum, idxState); err != nil {
 			return err
 		}
-		j.chunks = append(j.chunks, checkpoint.ChunkRecord{
+		rec := checkpoint.ChunkRecord{
 			Index:      sum.Index,
 			FirstFrame: sum.FirstFrame,
 			LastFrame:  sum.LastFrame,
 			Samples:    sum.Samples,
 			Checksum:   sum.Checksum,
-		})
-		j.stats.RecoveredChunks = uint64(len(j.chunks))
+		}
+		digest, err := j.runner.chunkLog.Append(rec, j.chunkDigest)
+		if err != nil {
+			return err
+		}
+		j.chunkDigest = digest
+		j.chunkHead = rec
+		j.stats.RecoveredChunks = uint64(rec.Index) + 1
 	}
 	if final {
 		j.sourceDone = true
@@ -246,9 +283,16 @@ func (j *job) writeCheckpoint(idxState index.State, done bool) error {
 	if done {
 		offset = j.stats.InputSize
 	}
-	crc, err := prefixCRC(j.runner.opts.Input, offset)
-	if err != nil {
-		return err
+	// Snap the prefix digest at the chosen resume offset. If the offset sits
+	// after the last scanned record (the normal case), the running CRC already
+	// covers exactly that prefix.
+	crc := j.scannedCRC
+	if offset != j.scanned {
+		var err error
+		crc, err = prefixCRC(j.runner.opts.Input, offset)
+		if err != nil {
+			return err
+		}
 	}
 	st := &checkpoint.State{
 		InputPath:         j.runner.opts.Input,
@@ -256,7 +300,8 @@ func (j *job) writeCheckpoint(idxState index.State, done bool) error {
 		InputCRC:          crc,
 		CommittedOffset:   offset,
 		SourceDone:        done,
-		Chunks:            j.chunks,
+		ChunkHead:         j.chunkHead,
+		ChunkDigest:       j.chunkDigest,
 		Index:             idxState,
 		Timeline:          j.repairer.Snapshot(),
 		FramesRead:        j.stats.FramesRead,

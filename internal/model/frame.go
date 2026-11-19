@@ -177,9 +177,9 @@ type Frame struct {
 	MetaLen     uint32
 	MetaOffset  int64
 	FrameOffset int64
-	StartOffset int64 // first byte of this record's header
-	EndOffset   int64 // first byte after this record, used to resume reading
-	MediaTime   int64 // assigned by timeline repair, 90 kHz ticks, absolute
+	StartOffset int64  // first byte of this record's header
+	EndOffset   int64  // first byte after this record, used to resume reading
+	MediaTime   int64  // assigned by timeline repair, 90 kHz ticks, absolute
 	Meta        []byte // RTP metadata carrier
 	Payload     []byte
 	Hash        [32]byte
@@ -197,8 +197,8 @@ func (f *Frame) Validate() error {
 
 // Sentinel errors used with errors.Is.
 var (
-	ErrCanceled           = errors.New("mediq: canceled")
-	ErrCheckpointMismatch = errors.New("mediq: checkpoint mismatch")
-	ErrVerifyFailed       = errors.New("mediq: output verification failed")
-	ErrDamagedInput       = errors.New("mediq: input damaged")
+	ErrCanceled           = errors.New("canceled")
+	ErrCheckpointMismatch = errors.New("checkpoint mismatch")
+	ErrVerifyFailed       = errors.New("output verification failed")
+	ErrDamagedInput       = errors.New("input damaged")
 )
