@@ -34,6 +34,10 @@ type job struct {
 	// before it were already counted and diagnosed, so a resumed run replays
 	// them into the repairer without double-counting their statistics.
 	replayLimit int64
+	// replaySeqLimit is the checkpoint's next undecided sequence number.
+	// Replayed frames below it were already indexed or quarantined and counted
+	// by the previous run, so replaying them must not count them twice.
+	replaySeqLimit uint64
 	// scanned/scannedCRC track the furthest input byte read and the CRC of
 	// the prefix ending there. Records are consumed strictly in order, so this
 	// is the digest of the whole scanned prefix, computed without rereading.
@@ -206,9 +210,11 @@ func (j *job) handleRecord(ctx context.Context, rec source.Record, chunk *[]*mod
 // handleEvent records a repair decision and queues indexed frames.
 func (j *job) handleEvent(ctx context.Context, ev timeline.Event, chunk *[]*model.Frame) error {
 	if ev.Status == timeline.StatusQuarantined {
-		j.stats.FramesQuarantined++
-		if ev.Fault != nil {
-			j.noteFault(ev.Fault)
+		if ev.Frame.Seq >= j.replaySeqLimit {
+			j.stats.FramesQuarantined++
+			if ev.Fault != nil {
+				j.noteFault(ev.Fault)
+			}
 		}
 		return nil
 	}

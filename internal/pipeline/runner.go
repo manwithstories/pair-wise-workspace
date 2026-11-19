@@ -153,6 +153,7 @@ func (r *Runner) Run(ctx context.Context) (*Stats, error) {
 		job.readOffset = st.CommittedOffset
 		job.committed = st.CommittedOffset
 		job.replayLimit = st.CommittedOffset
+		job.replaySeqLimit = st.Timeline.NextSeq
 		stats.FramesRead = st.FramesRead
 		stats.FramesBad = st.FramesBad
 		stats.FramesQuarantined = st.FramesQuarantined
