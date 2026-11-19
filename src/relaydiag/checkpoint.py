@@ -42,6 +42,7 @@ class CheckpointState:
     track_state: dict = field(default_factory=dict)
     damage: list[dict] = field(default_factory=list)
     wraps: dict = field(default_factory=dict)
+    collected_count: int = 0
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), sort_keys=True, separators=(",", ":"))
