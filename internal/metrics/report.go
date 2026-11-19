@@ -40,7 +40,9 @@ func Assemble(in Input) (*manifest.Manifest, error) {
 	sort.Slice(reps, func(i, j int) bool { return avgBitrate(reps[i]) < avgBitrate(reps[j]) })
 	targets := append([]uint64(nil), in.TargetBitrates...)
 	sort.Slice(targets, func(i, j int) bool { return targets[i] < targets[j] })
-	if len(targets) != len(reps) {
+	// No targets given: each representation is its own baseline and the
+	// deviation reports zero. Otherwise the counts must match.
+	if len(targets) > 0 && len(targets) != len(reps) {
 		return nil, fmt.Errorf("target bitrate count %d does not match video track count %d",
 			len(targets), len(reps))
 	}
@@ -73,7 +75,10 @@ func Assemble(in Input) (*manifest.Manifest, error) {
 	}
 	for i, rep := range reps {
 		actual := avgBitrate(rep)
-		target := targets[i]
+		target := actual
+		if len(targets) > 0 {
+			target = targets[i]
+		}
 		dev := 0.0
 		if target > 0 {
 			dev = float64(int64(actual)-int64(target)) / float64(target) * 100
