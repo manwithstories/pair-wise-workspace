@@ -133,7 +133,7 @@ func Run(cfg Config) (*Result, error) {
 			continue
 		}
 		plan := g.Sort()
-		rep.Tracks = tracksReport(rep.Tracks, plan)
+		rep.Tracks = tracksReport(rep.Tracks, rd.Name, plan)
 		if !plan.Recoverable(1) {
 			// Video branch stopped; skip its contribution but keep the report.
 			continue
@@ -214,11 +214,11 @@ func collectIssues(rep *report.Report, r *index.RepairResult, file string) {
 		rep.Issues = append(rep.Issues, i)
 	}
 }
-func tracksReport(cur *report.TracksReport, plan *graph.Plan) *report.TracksReport {
+func tracksReport(cur *report.TracksReport, rendition string, plan *graph.Plan) *report.TracksReport {
 	if cur == nil {
 		cur = &report.TracksReport{}
 	}
-	cur.Order = append(cur.Order, plan.Order...)
+	cur.Plans = append(cur.Plans, report.TrackPlan{Rendition: rendition, Order: plan.Order})
 	for _, s := range plan.Stopped {
 		cur.Stopped = append(cur.Stopped, report.StoppedInfo{
 			TrackID: s.TrackID, Kind: s.Kind, Code: s.Code, Reason: s.Reason, Related: s.Related,

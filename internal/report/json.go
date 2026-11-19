@@ -72,10 +72,18 @@ type IndexReport struct {
 	Missing  int    `json:"missing_pages"`
 }
 
-// TracksReport summarizes the dependency plan.
+// TracksReport summarizes the dependency plan. Each rendition contributes its
+// own plan, so the per-rendition orders are listed separately rather than
+// concatenated, which would be ambiguous.
 type TracksReport struct {
-	Order   []uint32      `json:"order"`
+	Plans   []TrackPlan   `json:"plans"`
 	Stopped []StoppedInfo `json:"stopped"`
+}
+
+// TrackPlan is one rendition's dependency order.
+type TrackPlan struct {
+	Rendition string   `json:"rendition"`
+	Order     []uint32 `json:"order"`
 }
 
 // StoppedInfo names a branch that could not be recovered.
