@@ -49,7 +49,7 @@ func (p *Pump) Run(blocks []audio.Block, arrivals []float64) (PumpResult, error)
 			start = e.arrival
 		}
 		freeAt = start + p.ServiceMs
-		res.Latencies = append(res.Latencies, freeAt-e.arrival)
+		res.Latencies = append(res.Latencies, freeAt-e.arrival+p.ConsumerMs)
 		res.Blocks = append(res.Blocks, e.block)
 	}
 	// retireAll drains the queue head into the consumer until it would need

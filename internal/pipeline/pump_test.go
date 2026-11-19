@@ -6,10 +6,10 @@ import (
 )
 
 func TestPoliciesDivergeUnderBacklog(t *testing.T) {
-	// A consumer that takes longer than the block cadence builds a backlog
-	// once the queue is small: block waits, drop discards, drop-oldest
-	// evicts. All three must stay inside the byte limit.
-	base := Options{Seed: 5, ConsumerDelayMs: 30, QueueBytes: 4096, QueueTicks: 3600}
+	// Heavy jitter bursts against a shallow queue build real backlog: block
+	// waits, drop discards, drop-oldest evicts. All three must stay inside
+	// the byte limit.
+	base := Options{Seed: 5, JitterMs: 200, QueueBytes: 4096, QueueTicks: 3600}
 	for _, policy := range []string{"block", "drop", "drop-oldest"} {
 		o := base
 		o.Policy = policy

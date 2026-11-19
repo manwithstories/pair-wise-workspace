@@ -151,19 +151,18 @@ func driftJitterScenario(opts Options) report.Scenario {
 	return scenarioResult("drift_jitter", nil, ok, detail)
 }
 
-// slowConsumerScenario runs a slow consumer with a shallow queue under the
-// drop policy. The point is that the system stays bounded: the queue never
-// exceeds its byte limit, excess blocks are dropped, and every delivered
-// block is still measured, rather than the backlog growing without limit.
+// slowConsumerScenario runs a slow consumer (added playout latency) against a
+// jittery stream and a shallow queue under the drop policy. The point is that
+// the system stays bounded: the queue never exceeds its byte limit, excess
+// blocks are dropped, and delivered blocks are still measured, rather than
+// the backlog growing without limit.
 func slowConsumerScenario(opts Options) report.Scenario {
 	slow := opts
-	slow.ConsumerDelayMs = 40
-	slow.JitterMs = 10
+	slow.ConsumerDelayMs = 180
+	slow.JitterMs = 200
 	slow.Policy = "drop"
 	slow.QueueBytes = 4096
-	if slow.QueueTicks == 0 {
-		slow.QueueTicks = 3600
-	}
+	slow.QueueTicks = 3600
 	rep := Run(context.Background(), slow)
 	if rep.RootError != nil {
 		return scenarioResult("slow_consumer", nil, false, "slow-consumer run failed: "+rep.RootError.Detail)

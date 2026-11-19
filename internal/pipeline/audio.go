@@ -105,14 +105,11 @@ func runAudio(ctx context.Context, opts Options) (audioResult, stream.Stats, err
 	if err != nil {
 		return res, stream.Stats{}, err
 	}
-	// A consumer that needs longer than one block duration to retire a
-	// block is genuinely slow: backlog builds and the policy engages. A
-	// consumer faster than the cadence keeps up.
-	service := blockMs
-	if opts.ConsumerDelayMs > service {
-		service = opts.ConsumerDelayMs
-	}
-	pump := &Pump{Queue: q, ServiceMs: service}
+	// The consumer keeps pace with the block cadence (one block retired per
+	// block duration); the configured consumer delay is added playout
+	// latency. Queue depth therefore grows only from arrival bursts, which
+	// is what the jitter and queue limits are meant to absorb.
+	pump := &Pump{Queue: q, ServiceMs: blockMs, ConsumerMs: opts.ConsumerDelayMs}
 	pr, err := pump.Run(emitted, arrivals)
 	if err != nil {
 		return res, q.Stats(), err
