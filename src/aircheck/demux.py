@@ -33,7 +33,13 @@ COMMIT_GRACE_SEGMENTS = 1
 
 @dataclass(frozen=True)
 class DemuxedPacket:
-    """A single demuxed packet plus the routing metadata the writer needs."""
+    """A single demuxed packet plus the routing metadata the writer needs.
+
+    Both raw stream-timebase timestamps (``pts_raw``/``dts_raw``) and canonical
+    nanosecond ticks (``pts_ticks``/``dts_ticks``) are carried.  The raw values
+    are what the remuxer re-emits so the copy stays byte-exact; the ticks exist
+    only so validation, segmentation and reporting share one integer clock.
+    """
 
     stream_index: int
     segment: int
@@ -44,6 +50,8 @@ class DemuxedPacket:
     size: int
     pos: int | None
     payload: bytes
+    pts_raw: int | None = None
+    dts_raw: int | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -51,6 +59,8 @@ class DemuxedPacket:
             "segment": self.segment,
             "pts_ticks": self.pts_ticks,
             "dts_ticks": self.dts_ticks,
+            "pts_raw": self.pts_raw,
+            "dts_raw": self.dts_raw,
             "time_base": list(self.time_base),
             "is_keyframe": self.is_keyframe,
             "size": self.size,
@@ -184,6 +194,8 @@ class Demuxer:
                     size=packet.size,
                     pos=packet.pos,
                     payload=bytes(packet),
+                    pts_raw=packet.pts,
+                    dts_raw=packet.dts,
                 )
         except av.error.FFmpegError as exc:
             raise CorruptStreamError(

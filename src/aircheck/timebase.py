@@ -122,6 +122,11 @@ class QueueOverflowError(AircheckError):
     exit_code = ExitCode.UNRECOVERABLE
 
 
+class UnrecoverableMuxError(AircheckError):
+    category = ErrorCategory.MAPPING
+    exit_code = ExitCode.UNRECOVERABLE
+
+
 @dataclass(frozen=True)
 class TimestampIssue:
     """One detected timestamp anomaly, anchored to a stream and packet."""
