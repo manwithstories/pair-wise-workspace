@@ -61,6 +61,7 @@ add_library(media_core STATIC
   src/stream_index.cpp
   src/network_replay.cpp
   src/jitter_buffer.cpp
+  src/recovery.cpp
   src/cli.cpp)
 # Modules are appended to media_core in later, independently compilable batches.
 # Modules are appended to media_core in later, independently compilable batches.
