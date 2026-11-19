@@ -71,3 +71,11 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- bcastqc 运行产物与构建元数据 ----
+.demo/
+*.egg-info/
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
