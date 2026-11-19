@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"math/rand"
 
+	"github.com/pion/rtp"
+
 	"pairflow/media/internal/clock"
 	"pairflow/media/internal/mp4"
 )
@@ -55,6 +57,11 @@ type Set struct {
 
 	SRT []byte `json:"-"`
 	VTT []byte `json:"-"`
+
+	// RTPDump is a packet-per-record dump of real marshalled RTP
+	// packets (4-byte big-endian length + packet), so the pipeline
+	// exercises pion/rtp unmarshalling rather than an in-memory slice.
+	RTPDump []byte `json:"-"`
 
 	RTP []RTPPacket `json:"rtp"`
 
@@ -170,6 +177,18 @@ func Generate(opts Options) (*Set, error) {
 	set.OutOfBounds = oob.Bytes
 
 	set.RTP = buildRTP(opts, deltas, base)
+	// Inject one gross timestamp jump mid-stream, then let the next
+	// packet resume the drift line. The raw value is preserved.
+	if len(set.RTP) > 40 {
+		jump := 43
+		set.RTP[jump].NodeTicks += 30 * 90000
+		set.RTP[jump].Timestamp = clock.WrapAt(int64(opts.WrapAt) + set.RTP[jump].NodeTicks)
+	}
+	dump, err := encodeRTPDump(set.RTP)
+	if err != nil {
+		return nil, err
+	}
+	set.RTPDump = dump
 	set.SRT = buildSRT(opts, deltas)
 	set.VTT = buildVTT(opts, deltas)
 	return set, nil
@@ -251,4 +270,65 @@ func buildVTT(opts Options, deltas []uint32) []byte {
 	b.WriteString("00:00:05.000 --> 00:00:06.000\r\n")
 	b.WriteString("Closing caption\r\n")
 	return b.Bytes()
+}
+
+// encodeRTPDump marshals each packet with pion/rtp and prefixes a
+// 4-byte big-endian length. The payload is a fixed 8-byte marker so
+// packet contents stay deterministic.
+func encodeRTPDump(packets []RTPPacket) ([]byte, error) {
+	var out bytes.Buffer
+	for _, p := range packets {
+		pkt := &rtp.Packet{
+			Header: rtp.Header{
+				Version:        2,
+				PayloadType:    96,
+				SequenceNumber: p.Sequence,
+				Timestamp:      p.Timestamp,
+				SSRC:           0x50465257,
+			},
+			Payload: []byte{0x50, 0x46, 0x52, 0x57, byte(p.Frame), 0, 0, 0},
+		}
+		raw, err := pkt.Marshal()
+		if err != nil {
+			return nil, err
+		}
+		var size [4]byte
+		n := uint32(len(raw))
+		size[0] = byte(n >> 24)
+		size[1] = byte(n >> 16)
+		size[2] = byte(n >> 8)
+		size[3] = byte(n)
+		out.Write(size[:])
+		out.Write(raw)
+	}
+	return out.Bytes(), nil
+}
+
+// DecodeRTPDump reads the length-prefixed dump back into packets.
+func DecodeRTPDump(data []byte) ([]*rtp.Packet, error) {
+	var out []*rtp.Packet
+	r := bytes.NewReader(data)
+	for r.Len() > 0 {
+		if r.Len() < 4 {
+			return out, fmt.Errorf("fixture: truncated RTP dump frame header")
+		}
+		var size [4]byte
+		if _, err := r.Read(size[:]); err != nil {
+			return out, err
+		}
+		n := int64(uint32(size[0])<<24 | uint32(size[1])<<16 | uint32(size[2])<<8 | uint32(size[3]))
+		if n <= 0 || n > int64(r.Len()) {
+			return out, fmt.Errorf("fixture: bad RTP dump frame length %d", n)
+		}
+		buf := make([]byte, n)
+		if _, err := r.Read(buf); err != nil {
+			return out, err
+		}
+		pkt := &rtp.Packet{}
+		if err := pkt.Unmarshal(buf); err != nil {
+			return out, err
+		}
+		out = append(out, pkt)
+	}
+	return out, nil
 }

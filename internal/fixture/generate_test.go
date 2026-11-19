@@ -79,11 +79,24 @@ func TestGeneratedRTPWraps(t *testing.T) {
 	if set.RTP[0].Timestamp != set.Options.WrapAt {
 		t.Fatalf("first timestamp = %d, want %d", set.RTP[0].Timestamp, set.Options.WrapAt)
 	}
-	// Node timing must advance monotonically and drift upwards.
+	// Node timing advances monotonically except for the injected jump at
+	// packet 43, whose raw value is preserved.
+	jumps := 0
 	for i := 1; i < len(set.RTP); i++ {
-		if set.RTP[i].NodeTicks <= set.RTP[i-1].NodeTicks {
-			t.Fatalf("node ticks not monotonic at %d", i)
+		if i <= 44 && set.RTP[i].NodeTicks <= set.RTP[i-1].NodeTicks {
+			jumps++
+			if i != 44 {
+				t.Fatalf("unexpected backward node tick at %d", i)
+			}
+		} else if set.RTP[i].NodeTicks <= set.RTP[i-1].NodeTicks {
+			t.Fatalf("unexpected backward node tick at %d", i)
 		}
+	}
+	if jumps != 1 {
+		t.Fatalf("jump count = %d, want 1", jumps)
+	}
+	if set.RTP[43].NodeTicks-set.RTP[42].NodeTicks < 20*90000 {
+		t.Fatal("injected jump not present")
 	}
 }
 
@@ -160,8 +173,11 @@ func TestDriftEstimateFromFixture(t *testing.T) {
 	if !ok || corr.Samples != len(pairs) {
 		t.Fatalf("estimate failed: %+v", corr)
 	}
-	if len(anomalies) != 0 {
-		t.Fatalf("unexpected anomalies: %+v", anomalies)
+	if len(anomalies) != 1 || anomalies[0].Index != 43 {
+		t.Fatalf("anomalies = %+v, want only the injected jump", anomalies)
+	}
+	if anomalies[0].NodeTicks != set.RTP[43].NodeTicks {
+		t.Fatal("anomaly did not preserve the raw node timestamp")
 	}
 	drift := corr.DriftPPM.Seconds()
 	if drift < 80 || drift > 90 {
