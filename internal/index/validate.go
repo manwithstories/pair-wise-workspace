@@ -6,6 +6,7 @@ package index
 
 import (
 	"fmt"
+	"sort"
 
 	"archive.local/recover/internal/errs"
 	"archive.local/recover/internal/stream"
@@ -235,24 +236,22 @@ func Validate(p *Parsed, scan *stream.Result, file string) *RepairResult {
 	}
 
 	// Entries that survive must also be ordered consistently: a higher sample
-	// ordinal may never point earlier in the bitstream than a lower one. An
-	// inversion is a stale or misassembled page, so the later entry is dropped
-	// and recovered from the scan.
-	lastOffset := int64(-1)
-	for _, e := range p.Entries {
-		if !bySample[e.Sample] {
-			continue
-		}
-		if e.Offset < lastOffset {
+	// ordinal may never point earlier in the bitstream than a lower one. A
+	// single stale page can invert many later entries, so dropping the first
+	// inversion in file order would wrongly discard every valid entry after
+	// it. Instead keep the longest run of entries whose offsets are increasing
+	// in sample order; the fewest entries are dropped and only the real
+	// outliers are recovered from the scan.
+	if kept, dropped := keepLongestOrdered(p.Entries, bySample); len(dropped) > 0 {
+		for _, e := range dropped {
 			res.Issues.Add(errs.ClassCorrupt, errs.CodeIndexOffsetOutOfRange,
-				fmt.Sprintf("sample %d offset %d precedes the prior entry's %d", e.Sample, e.Offset, lastOffset),
+				fmt.Sprintf("sample %d offset %d is out of sample order", e.Sample, e.Offset),
 				errs.Location{File: file, Sample: e.Sample, Offset: e.Offset})
 			delete(bySample, e.Sample)
 			delete(byOffset, e.Offset)
 			res.Dropped++
-			continue
 		}
-		lastOffset = e.Offset
+		_ = kept
 	}
 
 	// Rebuild in sample order, filling gaps from scanned keyframes.
@@ -389,4 +388,69 @@ func isKeyframeOffset(kf []int64, off int64) bool {
 		}
 	}
 	return false
+}
+
+// keepLongestOrdered returns the entries that form a longest strictly
+// increasing run of offsets when ordered by sample ordinal. Entries not in
+// bySample are ignored. The second result lists the rejected entries in file
+// order. O(n log n).
+func keepLongestOrdered(entries []Entry, bySample map[int]bool) ([]Entry, []Entry) {
+	type item struct {
+		idx int
+		e   Entry
+	}
+	var items []item
+	for i, e := range entries {
+		if bySample[e.Sample] {
+			items = append(items, item{i, e})
+		}
+	}
+	if len(items) < 2 {
+		return entries, nil
+	}
+	sort.SliceStable(items, func(a, b int) bool { return items[a].e.Sample < items[b].e.Sample })
+	// Patience-style LIS on offset, keeping predecessor links.
+	tails := make([]int, 0, len(items)) // indexes into items; offset of tails[k] is smallest end of a length-(k+1) run
+	prev := make([]int, len(items))     // predecessor in the chosen run
+	for i := range prev {
+		prev[i] = -1
+	}
+	for i := range items {
+		off := items[i].e.Offset
+		// First tail whose offset is >= off.
+		lo, hi := 0, len(tails)
+		for lo < hi {
+			mid := (lo + hi) / 2
+			if items[tails[mid]].e.Offset < off {
+				lo = mid + 1
+			} else {
+				hi = mid
+			}
+		}
+		if lo > 0 {
+			prev[i] = tails[lo-1]
+		}
+		if lo == len(tails) {
+			tails = append(tails, i)
+		} else {
+			tails[lo] = i
+		}
+	}
+	keep := make(map[int]bool, len(tails))
+	for i := tails[len(tails)-1]; i >= 0; i = prev[i] {
+		keep[items[i].idx] = true
+	}
+	kept := make([]Entry, 0, len(keep))
+	var dropped []Entry
+	for i, e := range entries {
+		if !bySample[e.Sample] {
+			continue
+		}
+		if keep[i] {
+			kept = append(kept, e)
+		} else {
+			dropped = append(dropped, e)
+		}
+	}
+	return kept, dropped
 }
