@@ -71,12 +71,16 @@ func ClockToNs(ticks int64, timescale uint32) int64 {
 	return out
 }
 
-// NsToClock is the inverse of ClockToNs for reporting purposes.
+// NsToClock is the inverse of ClockToNs for reporting purposes. It splits the
+// nanosecond value so that large timescales cannot overflow the product.
 func NsToClock(ns int64, timescale uint32) int64 {
 	if timescale == 0 {
 		return 0
 	}
-	return (ns*int64(timescale) + 500_000_000) / 1_000_000_000
+	const billion = int64(1_000_000_000)
+	whole := ns / billion
+	rem := ns % billion
+	return whole*int64(timescale) + (rem*int64(timescale)+billion/2)/billion
 }
 
 // MaxPTS returns the last program-time position across all tracks.

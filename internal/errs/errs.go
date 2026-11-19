@@ -150,8 +150,11 @@ func (l *List) AddFatal(class Class, code, msg string, loc Location) {
 }
 
 func (l *List) append(i Issue) {
-	if i.Loc.Sample == 0 && i.Loc.Offset == 0 && i.Loc.Field == "" {
-		// Callers that only set a file/track still get a coherent location.
+	if i.Loc == (Location{}) {
+		// A zero-value location means "nowhere in particular"; encode it with
+		// the documented -1 sentinels instead of claiming sample 0 at byte 0.
+		// Only offsets and sample indexes are sentinelled, so a caller that set
+		// a file or track keeps it.
 		i.Loc.Sample = -1
 		i.Loc.Offset = -1
 	}
