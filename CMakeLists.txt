@@ -15,6 +15,8 @@ pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
   libavformat libavcodec libswscale libswresample libavutil)
 
 add_library(media_core STATIC
+  src/byte_io.cpp
+  src/media_types.cpp
   src/sha256.cpp
 )
 target_include_directories(media_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
