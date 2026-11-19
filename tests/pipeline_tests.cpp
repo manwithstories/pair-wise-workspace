@@ -786,3 +786,42 @@ TEST_CASE("safety: pipeline refuses to overwrite input", "[safety]") {
   REQUIRE(fs::weakly_canonical(input) != fs::weakly_canonical(output));
   REQUIRE(path_within(work, output));
 }
+
+TEST_CASE("bounds: track count hard limit", "[bounds]") {
+  std::vector<TrackSpec> tracks;
+  for (size_t i = 0; i < kMaxTracks + 3; ++i) {
+    TrackSpec t;
+    t.id = "t" + std::to_string(i);
+    t.priority = 1;
+    t.clips.push_back({"src", int64_t(i) * 100, int64_t(i) * 100 + 50, 0});
+    tracks.push_back(t);
+  }
+  auto tl = compose_timeline(tracks);
+  bool limited = false;
+  for (auto& d : tl.decisions) limited |= d.code == kTlTrackLimit;
+  REQUIRE(limited);
+  REQUIRE(tl.segments.empty());  // 超限直接有界失败，不产出任何区段
+}
+
+TEST_CASE("bounds: subtitle entry and text length caps", "[bounds]") {
+  // 单条文本超长：截断并记录，不越界分配。
+  std::string longline(kMaxSubtitleText + 500, 'A');
+  std::string srt = "1\n00:00:01,000 --> 00:00:02,000\n" + longline + "\n";
+  auto doc = parse_subtitles(srt, SubFormat::kSrt);
+  bool long_err = false;
+  for (auto& e : doc.errors) long_err |= e.code == kErrSubTextLong;
+  REQUIRE(long_err);
+  REQUIRE(doc.cues[0].text.size() <= kMaxSubtitleText);
+
+  // 条目数上限：构造超过 kMaxSubtitleEntries 的最小字幕，触发有界中止。
+  std::string many;
+  for (size_t i = 0; i < kMaxSubtitleEntries + 5; ++i) {
+    char h[64];
+    std::snprintf(h, sizeof(h), "%zu\n00:00:%02zu,000 --> 00:00:%02zu,500\nx\n\n",
+                  i + 1, (i % 50), (i % 50));
+    many += h;
+  }
+  auto big = parse_subtitles(many, SubFormat::kSrt);
+  REQUIRE(big.bounded_abort);
+  REQUIRE(big.cues.size() <= kMaxSubtitleEntries);
+}
