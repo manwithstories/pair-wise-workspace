@@ -211,8 +211,18 @@ func generateRendition(opts Options, idx, bitrate int) (*Rendition, error) {
 		}
 	}
 
-	anchors := makeAnchors(program, opts.Seed+int64(idx)*7, 10)
-	audioAnchors := makeAnchors(audioProgram, opts.Seed+int64(idx)*13, 10)
+	// Anchor density scales with capture length so short fixtures still get
+	// trusted references on both sides of any injected clock break: roughly ten
+	// anchors over the whole capture, and never more than 4 s apart.
+	anchorInterval := int64(10)
+	if secs := opts.DurationNs / 1e9; secs > 0 && secs < 40 {
+		anchorInterval = 2
+		if secs < 12 {
+			anchorInterval = 1
+		}
+	}
+	anchors := makeAnchors(program, opts.Seed+int64(idx)*7, anchorInterval)
+	audioAnchors := makeAnchors(audioProgram, opts.Seed+int64(idx)*13, anchorInterval)
 
 	// Index pages, one per keyframe, ordinal-addressed like a page table.
 	var pages []index.Entry

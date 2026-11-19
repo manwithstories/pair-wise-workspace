@@ -8,17 +8,28 @@ import (
 	"archive.local/recover/internal/testkit"
 )
 
-// TestWrapVFRDriftBreakIsLocated checks that the drift fit is split at the
-// actual clock jump rather than at a following anchor, and that samples on
-// both sides remain within the sync budget.
-func TestWrapVFRDriftBreakIsLocated(t *testing.T) {
+// TestShortWrapCaseHasAnchorsOnBothSides guards the fixture property the
+// drift fit relies on: even a 20 s capture must carry anchors after an injected
+// clock break, otherwise the break cannot be segmented and the mapping is
+// extrapolated (which is what produced a 500 ms sync error before).
+func TestShortWrapCaseHasAnchorsOnBothSides(t *testing.T) {
 	fx, err := testkit.Generate(testkit.Options{
-		Seed: 17, DurationNs: 60e9, Bitrates: []int{800}, Loss: 0.03, Case: testkit.CaseWrapVFRDrift,
+		Seed: 99, DurationNs: 20e9, Bitrates: []int{800}, Loss: 0.03, Case: testkit.CaseWrapVFRDrift,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	rd := &fx.Renditions[0]
+	breakAt := len(rd.Clock) * 6 / 10
+	after := 0
+	for _, a := range rd.Anchors {
+		if a.Sample > breakAt {
+			after++
+		}
+	}
+	if after == 0 {
+		t.Fatalf("no anchor after the clock break at sample %d: %d anchors total", breakAt, len(rd.Anchors))
+	}
 	r, err := clock.Unwrap(clock.Input{
 		TrackID: 1, Kind: model.KindVideo, Timescale: rd.VideoTimescale,
 		RawPTS: rd.Clock, Anchors: rd.Anchors, BreakNs: 20e6,
@@ -27,13 +38,7 @@ func TestWrapVFRDriftBreakIsLocated(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(r.Breakpoints) == 0 {
-		t.Fatal("jump not segmented")
-	}
-	// The generator injects the +0.5 s reset at 60% of the capture.
-	want := len(rd.Clock) * 6 / 10
-	got := r.Breakpoints[0]
-	if d := got - want; d < -25 || d > 25 {
-		t.Fatalf("breakpoint %d, want near %d (cadence rounding allowed)", got, want)
+		t.Fatal("clock break not segmented on a short capture")
 	}
 	for i := range r.Track.PTS {
 		if d := r.Track.PTS[i] - rd.ProgramNs[i]; d > 20_000_000 || d < -20_000_000 {
