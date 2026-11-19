@@ -96,5 +96,5 @@ def arbitrate_all(manifest: Manifest) -> dict[str, TrackColorVerdict]:
             verdicts[tid] = arbitrate_track(tr, manifest, source)
         else:
             # 音频轨无色彩概念，记录空裁决，保持图结构一致。
-            verdicts[tid] = TrackColorVerdict(tid=tid)
+            verdicts[tid] = TrackColorVerdict(track_id=tid)
     return verdicts

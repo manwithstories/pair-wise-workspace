@@ -277,8 +277,8 @@ def generate_demo(out_root: str, seed: int) -> Manifest:
         known_losses: list[dict] = []
         wrap = None
         if tid == "cam_b":
-            # 突发丢包：删 2 个 inter 包（可恢复）。
-            known_losses = inject_packet_loss(str(path), codec, 2, rng)
+            # 突发丢包：删 3 个 inter 包（全部可恢复，纯成功样例）。
+            known_losses = inject_packet_loss(str(path), codec, 3, rng)
         if tid == "cam_c":
             # 顺序：先 PTS 回绕，再可恢复丢包，最后制造不可恢复截断。
             if codec is VideoCodec.AV1:

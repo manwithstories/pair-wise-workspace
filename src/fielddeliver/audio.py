@@ -125,9 +125,11 @@ def process_audio(track: TrackDecl, root: str,
     mapped, channel_map = _map_channels(rs, src_names, dst_names)
 
     # 3) 边界补齐：对齐到参考时间线（通常为机位视频时长）。
+    # 空音轨保留零样本骨架，不按参考时长补齐，避免伪造内容与虚高样本差。
     padded = 0
     target_frames = (round(reference_duration_us * target_rate / US_PER_SEC)
-                     if reference_duration_us is not None else None)
+                     if reference_duration_us is not None and len(data) > 0
+                     else None)
     if target_frames is not None:
         if len(mapped) < target_frames:
             short = target_frames - len(mapped)

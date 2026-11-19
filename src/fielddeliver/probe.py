@@ -270,6 +270,38 @@ def probe_video_track(track: TrackDecl) -> ProbeResult:
             offset=packets[-1].byte_offset + packets[-1].size,
             recovered=False))
 
+    # 合并现场工程师标注的已知丢包事件。annex-B 无 PTS，删包后帧号仍
+    # 连续，时间戳分析无法独立识别，故以采集端清单标注为准；只采纳尚未
+    # 被时间戳/截断分析覆盖的事件，避免重复计数。
+    existing_cats = {i.category for i in issues}
+    covered_offsets = {i.byte_offset for i in issues
+                       if i.byte_offset is not None and i.byte_offset >= 0}
+    for ev in track.known_losses:
+        off = ev.get("byte_offset", -1)
+        if off >= 0 and off in covered_offsets:
+            continue
+        recoverable = ev.get("recoverable", True)
+        # ivf 等带 PTS 的码流，时间戳分析已能识别丢包/截断，则不重复计入。
+        if packets and packets[0].raw_pts is not None:
+            if recoverable and ErrorCategory.PACKET_LOSS_RECOVERED in existing_cats:
+                continue
+            if not recoverable and (
+                    ErrorCategory.TRUNCATED_STREAM in existing_cats
+                    or ErrorCategory.TIMESTAMP_GAP in existing_cats):
+                continue
+        if recoverable:
+            issues.append(_issue(
+                track.track_id, ErrorCategory.PACKET_LOSS_RECOVERED,
+                f"采集端标注丢包(可恢复) offset={off} size={ev.get('size')}",
+                offset=off if off >= 0 else None, recovered=True,
+                detail={"declared": True, **ev}))
+        else:
+            issues.append(_issue(
+                track.track_id, ErrorCategory.PACKET_LOSS_UNRECOVERED,
+                f"采集端标注丢包(不可恢复) offset={off} size={ev.get('size')}",
+                offset=off if off >= 0 else None, recovered=False,
+                detail={"declared": True, **ev}))
+
     # 解码探测：确认分辨率/帧率并统计真正可解码帧。
     width = height = 0
     decoded = 0

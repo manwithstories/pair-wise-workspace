@@ -292,6 +292,9 @@ class FrameRecord:
     raw_pts: int | None = None     # 原始帧号/PTS
     is_gap: bool = False           # 显式缺口：不伪造帧
 
+    def to_dict(self) -> dict:
+        return asdict(self)
+
 
 @dataclass(slots=True)
 class VideoInfo:
@@ -303,6 +306,9 @@ class VideoInfo:
     frame_count: int
     keyframe_count: int
     gaps: int = 0
+
+    def to_dict(self) -> dict:
+        return asdict(self)
 
 
 @dataclass(slots=True)
@@ -318,6 +324,9 @@ class AudioInfo:
     output_frames: int             # 归一后样本帧数
     padded_samples: int = 0
     channel_map: list[int] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return asdict(self)
 
 
 @dataclass(slots=True)

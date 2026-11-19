@@ -1,0 +1,2 @@
+[console_scripts]
+fielddeliver = fielddeliver.cli:main
