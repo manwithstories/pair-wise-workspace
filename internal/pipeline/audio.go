@@ -200,8 +200,10 @@ func runRTP(ctx context.Context, opts Options, blocks []audio.Block) (rtp.Recove
 			return rtp.Recovery{}, err
 		}
 	}
+	// Derive an independent stream so RTP loss/jitter does not repeat the
+	// audio-gain jitter pattern for the same seed.
 	return rtp.SimulateReceive(sent, rtp.Config{
-		Seed: opts.Seed, LossRate: opts.Loss, JitterMs: opts.JitterMs,
+		Seed: opts.Seed ^ 0x9E3779B9, LossRate: opts.Loss, JitterMs: opts.JitterMs,
 		Window: opts.RecoveryWindow, LatePackets: len(sent) / 50, ConflictCopy: len(sent) / 100,
 	})
 }
@@ -222,7 +224,9 @@ func runSync(opts Options, blocks []audio.Block) (sync.Result, error) {
 	}
 	// The aligned video track spans the whole audio run at the negotiated
 	// drift, with a handful of recovery-driven resyncs across the stream.
-	return sync.Align(sync.Config{Seed: opts.Seed, JitterMs: opts.JitterMs,
+	// The aligned video stream uses its own derived seed so its jitter is
+	// independent of the audio pacing jitter.
+	return sync.Align(sync.Config{Seed: opts.Seed ^ 0x85EBCA6B, JitterMs: opts.JitterMs,
 		DriftPPM: opts.DriftPPM, Recoveries: intervals / 50}, intervals, step)
 }
 
