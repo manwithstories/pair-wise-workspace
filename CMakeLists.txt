@@ -38,6 +38,15 @@ target_include_directories(media_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
 target_link_libraries(media_core PUBLIC PkgConfig::FFMPEG)
 target_compile_options(media_core PRIVATE -Wall -Wextra -Wpedantic)
 
+add_executable(media_repair
+  src/commands_damage.cpp
+  src/commands_sample.cpp
+  src/commands_verify.cpp
+  src/main.cpp
+)
+target_link_libraries(media_repair PRIVATE media_core)
+target_compile_options(media_repair PRIVATE -Wall -Wextra -Wpedantic)
+
 enable_testing()
 find_package(Catch2 3 CONFIG REQUIRED)
 
