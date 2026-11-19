@@ -47,8 +47,8 @@ constexpr uint8_t PT_AAC  = 98;
 
 // 统一整数时间基准：微秒
 constexpr int64_t UNIFIED_TICK_US = 1;
-constexpr uint32_t SEQ_MOD = 0x10000u;   // RTP 16 位序号模数
-constexpr uint32_t TS_MOD  = 0x100000000u; // RTP 32 位时间戳模数
+constexpr uint64_t SEQ_MOD = 1ULL << 16;     // RTP 16 位序号模数
+constexpr uint64_t TS_MOD  = 1ULL << 32;     // RTP 32 位时间戳模数
 
 // 采集流记录类型
 enum class RecordKind : uint8_t { Rtp = 1, Rtcp = 2 };

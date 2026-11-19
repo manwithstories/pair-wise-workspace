@@ -32,13 +32,13 @@ uint64_t get_u64(const uint8_t* p) {
     return v;
 }
 
-uint32_t wrap_delta(uint32_t a, uint32_t b, uint32_t mod) {
+uint64_t wrap_delta(uint64_t a, uint64_t b, uint64_t mod) {
     return (a - b) & (mod - 1);
 }
-int32_t wrap_signed_delta(uint32_t a, uint32_t b, uint32_t mod) {
-    uint32_t d = wrap_delta(a, b, mod);
-    uint32_t half = mod / 2;
-    return int32_t(d < half ? d : d - mod);
+int64_t wrap_signed_delta(uint64_t a, uint64_t b, uint64_t mod) {
+    uint64_t d = wrap_delta(a, b, mod);
+    uint64_t half = mod / 2;
+    return int64_t(d < half ? d : d - mod);
 }
 
 std::string json_escape(const std::string& s) {

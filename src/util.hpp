@@ -17,8 +17,8 @@ uint32_t get_u32(const uint8_t* p);
 uint64_t get_u64(const uint8_t* p);
 
 // 回绕感知的无符号差值：a - b，按模数 mod 解释（mod 必须为 2 的幂）
-uint32_t wrap_delta(uint32_t a, uint32_t b, uint32_t mod);
-int32_t  wrap_signed_delta(uint32_t a, uint32_t b, uint32_t mod);
+uint64_t wrap_delta(uint64_t a, uint64_t b, uint64_t mod);
+int64_t  wrap_signed_delta(uint64_t a, uint64_t b, uint64_t mod);
 
 std::string json_escape(const std::string& s);
 
