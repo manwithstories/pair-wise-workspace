@@ -18,6 +18,7 @@ pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
 add_library(mbcore
   src/util.cpp
   src/timebase.cpp
+  src/subtitle.cpp
 )
 target_include_directories(mbcore PUBLIC src)
 target_link_libraries(mbcore PUBLIC PkgConfig::FFMPEG)

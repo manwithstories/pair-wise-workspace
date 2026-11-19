@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include "subtitle.hpp"
 #include "timebase.hpp"
 
 using namespace mb;
@@ -62,5 +63,56 @@ TEST_CASE("timebase: day wrap and millisecond timestamps", "[timebase]") {
   REQUIRE_FALSE(parse_ms_timestamp("00:99:00,000").has_value());
   REQUIRE_FALSE(parse_ms_timestamp("garbage").has_value());
   REQUIRE(format_ms_timestamp(135000) == "00:00:01,500");
+}
+
+TEST_CASE("subtitle: SRT parse, offsets and error continuation",
+          "[subtitle]") {
+  // 注意每条之间空行；第二条时间非法，应跳过但后续仍被解析。
+  std::string srt =
+      "1\r\n00:00:01,000 --> 00:00:02,000\r\nhello\r\n\r\n"
+      "2\r\n00:00:03,000 --> 00:00:01,000\r\nbad order\r\n\r\n"
+      "3\r\n00:00:04,000 --> 00:00:05,000\r\nworld\r\n";
+  auto doc = parse_subtitles(srt, SubFormat::kSrt);
+  REQUIRE(doc.cues.size() == 2);
+  REQUIRE(doc.skipped_count == 1);
+  REQUIRE(doc.cues[0].text == "hello");
+  REQUIRE(doc.cues[0].start_ticks == ms_to_master(1000));
+  REQUIRE(doc.cues[1].text == "world");  // 错误后继续
+  // 源偏移：第一条时间轴行位于序号行 "1\r\n" 之后（偏移 3）。
+  REQUIRE(doc.cues[0].source_offset == 3);
+  REQUIRE(doc.errors.size() >= 1);
+  REQUIRE(doc.errors.front().code == kErrSubTime);
+  REQUIRE(doc.errors.front().source_offset >= 0);
+}
+
+TEST_CASE("subtitle: VTT headers, overlap and duplicate", "[subtitle]") {
+  std::string vtt =
+      "WEBVTT\n\n"
+      "NOTE a comment block\nspanning lines\n\n"
+      "cue-id-1\n00:00:01.000 --> 00:00:03.000\nfirst\n\n"
+      "00:00:02.000 --> 00:00:02.500\noverlap\n\n"
+      "00:00:02.000 --> 00:00:02.500\ndup\n";
+  auto doc = parse_subtitles(vtt, SubFormat::kVtt);
+  REQUIRE(doc.cues.size() == 3);
+  REQUIRE(doc.overlap_count == 1);
+  REQUIRE(doc.duplicate_count == 1);
+  bool has_ov = false, has_dup = false;
+  for (auto& e : doc.errors) {
+    has_ov |= e.code == kErrSubOverlap;
+    has_dup |= e.code == kErrSubDuplicate;
+  }
+  REQUIRE(has_ov);
+  REQUIRE(has_dup);
+  REQUIRE(doc.cues[0].text == "first");
+}
+
+TEST_CASE("subtitle: truncated line and bounded text length", "[subtitle]") {
+  std::string srt = "1\n00:00:01,000 --> 00:00:02,000\nok\n\n"
+                    "2\n00:00:03,000 -->\n\n";  // 截断的时间轴
+  auto doc = parse_subtitles(srt, SubFormat::kSrt);
+  REQUIRE(doc.cues.size() == 1);
+  bool trunc = false;
+  for (auto& e : doc.errors) trunc |= e.code == kErrSubTruncated;
+  REQUIRE(trunc);
 }
 
