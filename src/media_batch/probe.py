@@ -127,11 +127,28 @@ def probe_packets(path: str | Path, log: ErrorLog,
 
 
 def video_frame_times(path: str | Path, log: ErrorLog) -> list[Fraction]:
-    """Presentation-order video packet timestamps (seconds, exact rationals)."""
+    """Presentation-order video packet timestamps (seconds, exact rationals).
+
+    The returned list is sorted by presentation time because callers look up
+    the nearest displayed frame; the *source order* is checked first and any
+    duplicate or backwards pts is logged, never silently repaired.
+    """
     pkts = probe_packets(path, log)
-    times = [p.seconds for p in pkts
-             if p.stream_type == "video" and p.seconds is not None]
-    return sorted(times)
+    raw: list[Fraction] = []
+    prev: Fraction | None = None
+    for p in pkts:
+        if p.stream_type != "video" or p.seconds is None:
+            continue
+        if prev is not None and p.seconds < prev:
+            log.add("timestamp_regression",
+                    f"video pts {p.seconds} regresses below {prev}", str(path),
+                    max(p.pos, 0), len(raw))
+        elif prev is not None and p.seconds == prev:
+            log.add("timestamp_duplicate", f"duplicate video pts {p.seconds}",
+                    str(path), max(p.pos, 0), len(raw))
+        prev = p.seconds
+        raw.append(p.seconds)
+    return sorted(raw)
 
 
 def detect_vfr(packets: list[PacketInfo]) -> bool:

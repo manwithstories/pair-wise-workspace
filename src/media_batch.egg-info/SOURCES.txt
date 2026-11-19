@@ -1,3 +1,4 @@
+README.md
 pyproject.toml
 src/media_batch/__init__.py
 src/media_batch/analyze.py
@@ -5,6 +6,7 @@ src/media_batch/cli.py
 src/media_batch/errors.py
 src/media_batch/fixtures.py
 src/media_batch/index.py
+src/media_batch/output.py
 src/media_batch/pipeline.py
 src/media_batch/probe.py
 src/media_batch/subtitle.py
@@ -15,3 +17,4 @@ src/media_batch.egg-info/SOURCES.txt
 src/media_batch.egg-info/dependency_links.txt
 src/media_batch.egg-info/requires.txt
 src/media_batch.egg-info/top_level.txt
+tests/test_pipeline.py

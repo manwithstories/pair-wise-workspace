@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "media-batch"
 version = "0.1.0"
 description = "Batch media segment extraction, silence marking, dedup and remux with checkpointed recovery"
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "av>=12,<13",
