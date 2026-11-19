@@ -3,7 +3,8 @@
 The demuxer walks packets from a container and hands them to a consumer through
 a :class:`pipeline.BoundedQueue`.  The queue enforces the memory ceiling: when
 the consumer is slow, ``put`` blocks the demux thread instead of buffering, so
-resident memory stays proportional to ``queue_size`` rather than to the asset.
+resident memory stays proportional to the pipeline's queue size rather than to
+the asset.
 
 Cancellation is checked at every block point, and each packet is annotated with
 the segment it belongs to before it is queued.  The last *confirmed* segment
@@ -106,7 +107,6 @@ class Demuxer:
 
     probe: ProbeResult
     segment_ticks: int
-    queue_size: int = 4
     resume_from_segment: int = 0
     validate_timestamps: bool = True
 

@@ -330,7 +330,6 @@ class Pipeline:
         demuxer = Demuxer(
             probe=self.probe,
             segment_ticks=self.config.segment_ticks,
-            queue_size=self.config.queue_size,
             resume_from_segment=resume_from,
             validate_timestamps=self.config.validate_timestamps,
         )
