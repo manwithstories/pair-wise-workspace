@@ -51,7 +51,7 @@ func (c Code) Class() Class {
 	switch c {
 	case CodeMetric:
 		return ClassMetric
-	case CodeInternal, CodeRTP:
+	case CodeInternal, CodeRTP, CodeQueueClosed, CodeQueueCanceled:
 		return ClassInternal
 	default:
 		return ClassInput
@@ -137,22 +137,27 @@ func (e *Error) Error() string {
 // Unwrap exposes the cause chain.
 func (e *Error) Unwrap() error { return e.Cause }
 
-// Root returns the deepest *Error in a chain (the first root cause).
+// Root returns the deepest *Error in a chain (the first root cause). When
+// the chain bottoms out in a non-fault error (for example context.Canceled),
+// the innermost fault error is returned and keeps that error as its cause.
 func Root(err error) *Error {
 	if err == nil {
 		return nil
 	}
+	var last *Error
 	cur := err
-	for {
+	for cur != nil {
 		var e *Error
 		if !errors.As(cur, &e) {
-			return &Error{Code: CodeInternal, Op: "unclassified", Detail: cur.Error(), Cause: cur}
+			break
 		}
-		if e.Cause == nil {
-			return e
-		}
+		last = e
 		cur = e.Cause
 	}
+	if last != nil {
+		return last
+	}
+	return &Error{Code: CodeInternal, Op: "unclassified", Detail: err.Error(), Cause: err}
 }
 
 // FirstRoot preserves the first non-nil root cause among candidates.
