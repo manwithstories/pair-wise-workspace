@@ -192,9 +192,12 @@ class TimestampTracker:
 
     Feed it every demuxed packet in mux order.  It classifies a backwards step
     as a 32-bit *wrap* only when the jump is large and lands near zero;
-    everything else is *non_monotonic*.  The tracker records the issue list and
-    keeps a phase counter so callers can tell wrapped runs apart from genuine
-    timeline resets.
+    everything else is *non_monotonic*.  Negative timestamps *before* the stream
+    has produced its first non-negative timestamp are treated as encoder
+    priming (AAC/Opus pre-roll) rather than damage, and are counted separately.
+
+    The tracker records the issue list and keeps a phase counter so callers can
+    tell wrapped runs apart from genuine timeline resets.
     """
 
     stream_index: int
@@ -202,22 +205,31 @@ class TimestampTracker:
     previous_raw: int | None = None
     previous_dts: int | None = None
     wraps: int = 0
+    priming_packets: int = 0
     issues: list[TimestampIssue] = field(default_factory=list)
-    _last_report: str | None = None
+    _started: bool = False
 
     def observe(self, pts: int | None, dts: int | None = None) -> list[TimestampIssue]:
         found: list[TimestampIssue] = []
         if pts is None:
             return found
         if pts < 0:
-            found.append(
-                TimestampIssue(
-                    "negative", self.stream_index, pts, self.previous_raw, self.time_base,
-                    "negative presentation timestamp",
+            if self._started:
+                found.append(
+                    TimestampIssue(
+                        "negative", self.stream_index, pts, self.previous_raw, self.time_base,
+                        "negative presentation timestamp after the stream started",
+                    )
                 )
-            )
-        elif self.previous_raw is not None and pts < self.previous_raw:
-            delta = self.previous_raw - pts
+            else:
+                # Encoder priming / pre-roll emitted before timeline zero.
+                self.priming_packets += 1
+                self.previous_raw = pts
+                if dts is not None:
+                    self.previous_dts = dts
+                return found
+        elif self.previous_raw is not None and pts < max(self.previous_raw, 0):
+            delta = max(self.previous_raw, 0) - pts
             if delta > WRAP_THRESHOLD and pts < WRAP_THRESHOLD:
                 self.wraps += 1
                 found.append(
@@ -233,6 +245,8 @@ class TimestampTracker:
                         self.time_base, f"timestamp moved backwards by {delta} raw ticks",
                     )
                 )
+        if pts >= 0:
+            self._started = True
         self.previous_raw = pts
         if dts is not None:
             self.previous_dts = dts
@@ -245,6 +259,7 @@ class TimestampTracker:
             "stream_index": self.stream_index,
             "time_base": str(self.time_base),
             "wraps": self.wraps,
+            "priming_packets": self.priming_packets,
             "issues": len(self.issues),
             "kinds": kinds,
         }
