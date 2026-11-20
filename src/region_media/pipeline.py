@@ -126,13 +126,19 @@ class Pipeline:
         start_seq = self.store.resume_from() + 1
         # 按分片序号去重：同一 seq 的音/视频引用归并为一个处理单元
         seqs = sorted({r.seq for r in self.manifest.refs})
+        pending = [s for s in seqs if s >= start_seq]
+        # 全量续跑：所有分片均已提交，直接还原首次完整摘要，保证两次
+        # 运行结果逐项一致，不会因内存样本清空而把 P95 等指标归零。
+        if not pending:
+            stored = self.store.load_summary()
+            if stored is not None:
+                stored["checkpoint_resumed"] = True
+                return stored
         chunk_rows: list[tuple] = []
         chunk_errors: list[ErrorEvent] = []
         chunk_counters = self._zero_counters()
         processed = 0
-        for seq in seqs:
-            if seq < start_seq:
-                continue
+        for seq in pending:
             refs = [r for r in self.manifest.refs if r.seq == seq]
             row = self._process_segment(seq, refs, chunk_errors,
                                         chunk_counters)
@@ -147,7 +153,9 @@ class Pipeline:
             self._commit_chunk(seqs[-1] if seqs else start_seq - 1,
                                chunk_counters, chunk_rows, chunk_errors)
         self.domain.estimate()
-        return self._summary()
+        summary = self._summary()
+        self.store.save_summary(summary)
+        return summary
 
     # ---- 单分片处理 ------------------------------------------------
     def _process_segment(self, seq: int, refs, chunk_errors, cc) -> tuple:

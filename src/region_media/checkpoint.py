@@ -108,6 +108,19 @@ class CheckpointStore:
             "SELECT MAX(last_segment_seq) FROM chunks").fetchone()
         return int(row[0]) if row and row[0] is not None else -1
 
+    def save_summary(self, summary: dict) -> None:
+        """事务持久化完整运行摘要，供全量续跑原样还原。"""
+        payload = json.dumps(summary, sort_keys=True, ensure_ascii=False)
+        with self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO meta(key, value) VALUES('summary', ?)",
+                (payload,))
+
+    def load_summary(self) -> dict | None:
+        row = self._conn.execute(
+            "SELECT value FROM meta WHERE key='summary'").fetchone()
+        return json.loads(row[0]) if row else None
+
     def commit_chunk(self, chunk_id: int, last_segment_seq: int,
                      counters: dict, segment_rows: list[tuple],
                      errors: list[ErrorEvent]) -> None:
