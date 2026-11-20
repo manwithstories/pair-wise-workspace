@@ -120,3 +120,71 @@ tests/
 - 仅支持本地 MP4/MOV，不上传素材、不访问网络
 - 磁盘输出不得覆盖输入（同路径写入被拒绝）
 - 内存上限同时约束队列字节数与条目数，处理大文件时固定内存生效
+
+---
+
+# relay_timeline（Python 边缘分片统一时间线重建）
+
+区域直播分发场景下，将同一节目经 HLS 与 DASH 分片跨边缘节点传输后，重建视频、
+音频与事件标记轨的统一时间线，输出离屏帧序列与质量/对齐统计。纯本地、纯终端，
+无图形界面、无外部服务依赖。
+
+## 技术栈与安装
+
+- Python 3.12、PyAV 13.x（FFmpeg 解封装/解码）、NumPy 2.x、soundfile 0.12.x
+- 全部依赖仅安装于项目根目录 `.venv`：
+
+```bash
+python3.12 -m venv .venv
+.venv/bin/python -m pip install "av>=13,<14" "numpy>=2,<3" "soundfile>=0.12,<0.13"
+.venv/bin/python -m pip install -e .
+```
+
+## 模块划分（src/relay_timeline）
+
+| 模块 | 职责 |
+| --- | --- |
+| `clock.py` | 有理数时基、33 位 PTS 回绕展开、线性漂移最小二乘估计 |
+| `manifest.py` / `dash_manifest.py` | 本地 HLS/DASH 清单解析、越界防护、序号连续性、输入摘要 |
+| `streamio.py` | 取消令牌、有界队列背压、视频/音频数据项 |
+| `decode.py` | PyAV 流式解码、跨分片时钟归一化与回绕定位、截断检测 |
+| `audio.py` | 音轨对齐、段内漂移回归、峰值/RMS 统计与 PCM 落盘 |
+| `compose.py` | 多轨时间线合成、重复/倒退/断档定位、fail/gap-fill/skip 策略 |
+| `render.py` | 离屏帧原子导出、时间索引、像素哈希、PSNR |
+| `checkpoint.py` | 原子检查点、输入摘要校验、孤儿帧清理 |
+| `stats.py` | 码率偏差、PSNR、清单对齐误差等汇总 |
+| `pipeline.py` | 阶段串联、错误传播、检查点续跑 |
+| `fixtures.py` | 确定性合成夹具（回绕/漂移/VFR/乱序/零长/截断/慢消费者） |
+| `cli.py` | `demo` / `verify` 终端入口与退出码（0/2/3） |
+
+## 验收演示
+
+```bash
+.venv/bin/python -m relay_timeline.cli demo --format hls,dash --duration 12 \
+  --drift-ppm 85 --wrap-at 8589934500 --vfr --queue-size 4 --out .artifacts/demo
+.venv/bin/python -m relay_timeline.cli verify --input .artifacts/demo \
+  --target-bitrate 1800000
+```
+
+成功打印 `segments=... frames=... audio_rms=... bitrate_* ... quality_psnr_db=...
+manifest_alignment_ms=... peak_memory_mb=... frame_hashes=...`，帧数约 250–400、
+码率偏差 < 8%、对齐误差 < 40 ms，哈希数等于导出帧数，退出码 0。
+
+故障与续跑：
+
+```bash
+.venv/bin/python -m relay_timeline.cli demo --fault truncated --queue-size 1 \
+  --out .artifacts/broken     # 报告首个坏分片、恢复策略与错误计数
+# 再次运行同一输出目录即按检查点续跑，摘要与干净运行一致
+```
+
+退出码：`0` 验收通过；`2` 输入/时序校验失败；`3` 不可恢复的处理或写入错误。
+
+## 测试
+
+```bash
+.venv/bin/python -m unittest tests.test_pipeline -v
+```
+
+覆盖：回绕前后、漂移渐变、VFR、路径越界、截断/零长/缺失、fail/skip/gap-fill、
+检查点续跑逐帧一致性与输入篡改检测。

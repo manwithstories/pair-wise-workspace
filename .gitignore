@@ -77,3 +77,12 @@ build/
 generated/
 out.jsonl
 *.jsonl
+
+# ---- Python relay_timeline 运行环境与生成产物 ----
+.venv/
+.artifacts/
+*.egg-info/
+__pycache__/
+*.pyc
+.pytest_cache/
+generated_fixtures/
