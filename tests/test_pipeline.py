@@ -483,3 +483,142 @@ class TestRender:
 # ==========================================================================
 # Pipeline
 # ==========================================================================
+
+
+class TestPipeline:
+    def test_full_run_meets_targets(self, fixture_root, tmp_path):
+        timeline = load_timeline(_write_timeline(fixture_root, _simple_document(), "pipe.json"))
+        result = run_pipeline(
+            timeline,
+            tmp_path,
+            RunParams(seed=SEED, drop_rate=0.02, block_frames=8, queue_blocks=1),
+        )
+        report = result.report.to_json()
+        assert report["exit_code"] == 0
+        assert report["sync_error_ms_p95"] <= 20.0
+        assert report["packet_recovery_rate"] >= 0.90
+        assert report["latency_ms_p95"] <= 500.0
+        assert report["peak_queue_frames"] <= 8
+        assert report["frame_hash_mismatches"] == 0
+        assert result.frames_written == FRAMES
+        manifest = read_manifest(result.manifest_path)
+        assert manifest["frames_written"] == FRAMES
+        assert manifest["complete_blocks"] == (FRAMES + 7) // 8
+
+    def test_rerun_is_byte_identical(self, fixture_root, tmp_path):
+        timeline = load_timeline(_write_timeline(fixture_root, _simple_document(), "rerun.json"))
+        params = RunParams(seed=SEED, drop_rate=0.02, block_frames=8, queue_blocks=1)
+        first = run_pipeline(timeline, tmp_path / "a", params)
+        second = run_pipeline(timeline, tmp_path / "b", params)
+        hashes_a = [block["hash"] for block in read_manifest(first.manifest_path)["blocks"]]
+        hashes_b = [block["hash"] for block in read_manifest(second.manifest_path)["blocks"]]
+        assert hashes_a == hashes_b
+        assert first.report.to_json()["frames_rendered"] == second.report.to_json()["frames_rendered"]
+
+    def test_resume_from_complete_blocks(self, fixture_root, tmp_path):
+        timeline = load_timeline(_write_timeline(fixture_root, _simple_document(), "resume.json"))
+        params = RunParams(seed=SEED, drop_rate=0.02, block_frames=8, queue_blocks=1)
+        out = tmp_path / "run"
+        first = run_pipeline(timeline, out, params)
+        original = read_manifest(first.manifest_path)
+        reference = [block["hash"] for block in original["blocks"]]
+
+        keep = len(original["blocks"]) // 2
+        truncated = dict(original)
+        truncated["blocks"] = original["blocks"][:keep]
+        truncated["complete_blocks"] = keep
+        (out / "manifest.json").write_text(json.dumps(truncated), encoding="utf-8")
+        for block in original["blocks"][keep:]:
+            for entry in block["entries"]:
+                (out / "frames" / entry["file"]).unlink(missing_ok=True)
+
+        resumed = run_pipeline(timeline, out, params, resume=True)
+        assert resumed.resumed_from_block == keep
+        final = read_manifest(resumed.manifest_path)
+        assert [block["hash"] for block in final["blocks"]] == reference
+        assert resumed.report.frame_hash_mismatches == 0
+
+    def test_resume_rejects_changed_inputs(self, fixture_root, tmp_path):
+        timeline = load_timeline(_write_timeline(fixture_root, _simple_document(), "reject.json"))
+        params = RunParams(seed=SEED, block_frames=8, queue_blocks=1)
+        run_pipeline(timeline, tmp_path, params)
+        with pytest.raises(QcError) as excinfo:
+            run_pipeline(timeline, tmp_path, RunParams(seed=SEED, drop_rate=0.05, block_frames=8, queue_blocks=1), resume=True)
+        assert excinfo.value.category is ErrorCategory.CHECKSUM_MISMATCH
+        assert excinfo.value.exit_code == 2
+
+    def test_truncated_input_exits_3_with_gap(self, fixture_root, tmp_path):
+        document = _simple_document(video="program_h264_truncated.bin")
+        timeline = load_timeline(_write_timeline(fixture_root, document, "trunc.json"))
+        result = run_pipeline(timeline, tmp_path, RunParams(seed=SEED, block_frames=8, queue_blocks=1))
+        report = result.report.to_json()
+        assert report["exit_code"] == 3
+        assert report["concealed_frames"] > 0
+        assert report["max_gap_ms"] > 0
+        concealed = [
+            span
+            for block in read_manifest(result.manifest_path)["blocks"]
+            for entry in block["entries"]
+            for span in entry["sources"]
+            if span.get("concealed")
+        ]
+        assert concealed and all(span["recovered"] is False for span in concealed)
+
+    def test_verify_manifest_detects_tampering(self, fixture_root, tmp_path):
+        timeline = load_timeline(_write_timeline(fixture_root, _simple_document(), "verify.json"))
+        result = run_pipeline(timeline, tmp_path, RunParams(seed=SEED, block_frames=8, queue_blocks=1))
+        clean = verify_manifest(result.manifest_path)
+        assert clean["mismatches"] == 0 and clean["exit_code"] == 0
+        manifest = read_manifest(result.manifest_path)
+        frame_file = tmp_path / "frames" / manifest["blocks"][0]["entries"][0]["file"]
+        frame_file.write_bytes(frame_file.read_bytes()[:64])  # truncate mid-file
+        tampered = verify_manifest(result.manifest_path)
+        assert tampered["mismatches"] >= 1
+        assert tampered["exit_code"] == 3
+
+    def test_output_failure_is_resource_error(self, fixture_root, tmp_path):
+        timeline = load_timeline(_write_timeline(fixture_root, _simple_document(), "outfail.json"))
+        blocker = tmp_path / "frames"
+        blocker.write_text("not a directory", encoding="utf-8")
+        with pytest.raises(QcError) as excinfo:
+            run_pipeline(timeline, tmp_path, RunParams(seed=SEED, block_frames=8, queue_blocks=1))
+        assert excinfo.value.exit_code == 4
+
+
+# ==========================================================================
+# CLI
+# ==========================================================================
+
+
+class TestCli:
+    def test_scan_and_verify(self, fixture_root, tmp_path, capsys):
+        from bcastqc.cli import main
+
+        code = main(["scan", "--stream", str(fixture_root / "program_h264.bin")])
+        assert code == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["access_units"] == FRAMES
+
+        timeline = load_timeline(_write_timeline(fixture_root, _simple_document(), "cli.json"))
+        run_pipeline(timeline, tmp_path, RunParams(seed=SEED, block_frames=8, queue_blocks=1))
+        code = main(["verify", "--manifest", str(tmp_path / "manifest.json")])
+        assert code == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["frames"] == FRAMES and payload["mismatches"] == 0
+
+    def test_invalid_timeline_exit_code(self, fixture_root, tmp_path, capsys):
+        from bcastqc.cli import main
+
+        document = _simple_document()
+        document["tracks"][0]["depends_on"] = ["a"]
+        document["tracks"][1]["depends_on"] = ["v"]
+        path = _write_timeline(fixture_root, document, "cli_cycle.json")
+        code = main(["run", "--timeline", str(path), "--out", str(tmp_path)])
+        assert code == 2
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["error"]["category"] == "timeline.cycle"
+
+
+# ==========================================================================
+# Failure classification and edge inputs
+# ==========================================================================
