@@ -81,6 +81,10 @@ struct ProbeOptions {
     // damaged (demuxers otherwise surface truncation as plain EOF).
     Rational declaredDuration{0, 1};
     double minDurationCoverage = 0.85;
+    // Absolute timeline start tick (on the probe's time base) used to
+    // evaluate keyframe index hits for standalone per-file segments whose
+    // own PTS restarts at zero.
+    Tick expectedStartTick = 0;
 };
 
 // Probe one media segment. Corrupt containers produce a located

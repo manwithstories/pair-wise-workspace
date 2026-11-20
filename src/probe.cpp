@@ -136,7 +136,11 @@ SegmentProbe probeSegment(const std::filesystem::path& path,
     }
 
     AVPacket* pkt = av_packet_alloc();
-    std::vector<std::optional<Tick>> lastSeen(fmt->nb_streams);
+    // PTS may legitimately reorder with B-frames; monotonicity is judged
+    // on DTS (decode order) per stream, while duplicate detection uses
+    // presentation timestamps.
+    std::vector<std::optional<Tick>> lastDts(fmt->nb_streams);
+    std::vector<std::optional<Tick>> lastPts(fmt->nb_streams);
     while (opts.maxPacketsPerSegment == 0 ||
            out.packetCount <
                static_cast<int64_t>(opts.maxPacketsPerSegment)) {
@@ -151,7 +155,7 @@ SegmentProbe probeSegment(const std::filesystem::path& path,
         }
         ++out.packetCount;
         if (pkt->stream_index < 0 ||
-            pkt->stream_index >= static_cast<int>(lastSeen.size()) ||
+            pkt->stream_index >= static_cast<int>(lastDts.size()) ||
             !fmt->streams[pkt->stream_index]) {
             av_packet_unref(pkt);
             continue;
@@ -159,13 +163,16 @@ SegmentProbe probeSegment(const std::filesystem::path& path,
         {
             const auto& tb = fmt->streams[pkt->stream_index]->time_base;
             const Rational base = rat(tb);
-            auto& last = lastSeen[pkt->stream_index];
-            if (pkt->pts != AV_NOPTS_VALUE) {
-                if (last && pkt->pts < *last)
+            const int si = pkt->stream_index;
+            if (pkt->dts != AV_NOPTS_VALUE) {
+                if (lastDts[si] && pkt->dts < *lastDts[si])
                     out.backwardTimestamps = true;
-                if (last && pkt->pts == *last)
+                lastDts[si] = pkt->dts;
+            }
+            if (pkt->pts != AV_NOPTS_VALUE) {
+                if (lastPts[si] && pkt->pts == *lastPts[si])
                     out.duplicateTimestamps = true;
-                last = pkt->pts;
+                lastPts[si] = pkt->pts;
             }
             if (pkt->flags & AV_PKT_FLAG_KEY) {
                 out.keyframes.push_back(
@@ -179,9 +186,9 @@ SegmentProbe probeSegment(const std::filesystem::path& path,
     av_packet_free(&pkt);
 
     for (auto& s : out.streams) {
-        if (s.index < 0 || s.index >= static_cast<int>(lastSeen.size()))
+        if (s.index < 0 || s.index >= static_cast<int>(lastPts.size()))
             continue;
-        s.lastPts = lastSeen[s.index].value_or(s.firstPts);
+        s.lastPts = lastPts[s.index].value_or(s.firstPts);
     }
 
     // Demuxers (mov/mpegts) commonly turn truncation into clean EOF rather
@@ -233,7 +240,25 @@ IndexHitSummary evaluateKeyframeIndex(
     for (std::size_t i = 0; i < n; ++i) {
         if (!probes[i].opened || probes[i].keyframes.empty()) continue;
         ++sum.evaluated;
+        // Two valid index-hit interpretations:
+        //  (a) standalone file whose boundary is the local origin: the
+        //      first keyframe may sit within one frame of PTS zero due to
+        //      encoder delay;
+        //  (b) an explicit boundary tick that must match exactly after
+        //      rescaling (no tolerance, no silent rounding).
         const auto& kf = probes[i].keyframes.front();
+        if (expectedBoundaries[i].start == 0) {
+            Tick tolerance = 0;
+            for (const auto& st : probes[i].streams) {
+                if (st.kind == MediaKind::Video && st.frameRate.num > 0) {
+                    auto oneFrame = scaleExact(1, st.frameRate, kf.base);
+                    if (oneFrame) tolerance = *oneFrame;
+                    break;
+                }
+            }
+            if (kf.pts <= tolerance) ++sum.hits;
+            continue;
+        }
         const auto mapped = scaleExact(kf.pts, kf.base,
                                        expectedBoundaries[i].base);
         if (mapped && *mapped == expectedBoundaries[i].start) ++sum.hits;

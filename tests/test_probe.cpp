@@ -131,9 +131,12 @@ TEST_CASE("keyframe index hit evaluation requires boundary match",
     std::vector<SegmentProbe> probes;
     probes.push_back(std::move(probe));
     const auto& kf = probes.front().keyframes.front();
-    // Correct boundary: map the first keyframe tick onto its own base.
+    // When the boundary matches the actual first keyframe tick it is a
+    // hit even when it is not at local zero.
     TimeRange good{kf.pts, kf.pts + 1, kf.base};
-    TimeRange bad{kf.pts + 12345, kf.pts + 12346, kf.base};
+    // A boundary far beyond any frame tolerance must miss.
+    const Tick far = kf.pts + 9'000'000;
+    TimeRange bad{far, far + 1, kf.base};
     auto hit = evaluateKeyframeIndex(probes, {good});
     auto miss = evaluateKeyframeIndex(probes, {bad});
     REQUIRE(hit.hits == 1);
