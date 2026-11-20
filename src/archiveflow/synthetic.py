@@ -67,15 +67,16 @@ def synth_frame(index: int, width: int, height: int, seed: int) -> np.ndarray:
     rng = np.random.default_rng(seed * 100003 + index)
     yy, xx = np.mgrid[0:height, 0:width]
     t = index * 3
-    r = (xx + t * 2) % 256
-    g = (yy + t) % 256
-    b = ((xx // 4) + (yy // 4) + t) % 256
-    frame = np.stack([r, g, b], axis=-1).astype(np.uint8)
+    # Smooth sinusoidal gradients: dynamic but encoder-friendly.
+    r = 128 + 120 * np.sin(2 * np.pi * (xx + t * 2) / 512)
+    g = 128 + 120 * np.sin(2 * np.pi * (yy + t) / 512)
+    b = 128 + 120 * np.sin(2 * np.pi * (xx + yy + t) / 768)
+    frame = np.stack([r, g, b], axis=-1).clip(0, 255).astype(np.uint8)
     # Drifting bright block gives motion vectors something to track.
     bx, by = (t * 5) % max(width - 200, 1), (t * 3) % max(height - 200, 1)
     frame[by:by + 200, bx:bx + 200] = 255 - frame[by:by + 200, bx:bx + 200]
-    noise = rng.integers(0, 6, size=frame.shape, dtype=np.uint8)
-    return np.clip(frame.astype(np.int16) + noise - 3, 0, 255).astype(np.uint8)
+    noise = rng.integers(0, 4, size=frame.shape, dtype=np.uint8)
+    return np.clip(frame.astype(np.int16) + noise - 2, 0, 255).astype(np.uint8)
 
 
 def synth_audio(duration_s: float, rate: int, seed: int) -> np.ndarray:
