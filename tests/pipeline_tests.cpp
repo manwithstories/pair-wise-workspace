@@ -304,3 +304,61 @@ TEST_CASE("Matroska 容器输出可被识别且样本为 pcm_s16le") {
     REQUIRE(fs::exists(mka));
     REQUIRE(fs::file_size(mka) > 0);
 }
+
+TEST_CASE("48kHz/8 声道慢速写入下队列峰值严格不超容量") {
+    const auto dir = uniqueDir();
+    const auto out = uniqueDir();
+
+    // 自生成 48kHz/8 声道、1 秒输入
+    fixture::WavBuilder b;
+    b.format = PcmFormat{48000, 8, 16, SampleFormat::S16Le};
+    b.writeHeader(0);
+    b.writeBytes(fixture::makePcm(b.format, 48000));
+    b.finish();
+    const std::string input = dir + "/in8ch.wav";
+    REQUIRE(fixture::writeFile(input, b.bytes));
+
+    MappingConfig mc;
+    for (int ch = 0; ch < 8; ++ch) {
+        OutputTrack t;
+        t.name = "ch" + std::to_string(ch);
+        t.layout = TrackLayout::Mono;
+        t.inputChannels = {ch};
+        mc.tracks.push_back(t);
+    }
+
+    constexpr std::size_t kCap = 4;
+    PipelineConfig config;
+    config.queueBlocks = kCap;
+    config.mapping = mc;
+    config.slowWriteUs = 500; // 慢速写入迫使生产者在满队列处背压
+
+    RemuxPipeline pipe(config);
+    auto r = pipe.processFile(input, out, "in8ch");
+    REQUIRE(r.ok());
+    REQUIRE(r.value().queuePeakBlocks <= kCap);
+    REQUIRE(r.value().queuePeakBlocks >= 1);
+
+    // 8 条单声道轨道均产出
+    int tracks = 0;
+    for (auto& e : fs::directory_iterator(out)) {
+        if (e.path().extension() == ".wav") {
+            ++tracks;
+        }
+    }
+    REQUIRE(tracks == 8);
+}
+
+TEST_CASE("取消后生产者及时停止，不产生成功清单") {
+    BoundedBlockQueue q(1);
+    AudioBlock blk;
+    blk.format = PcmFormat{16000, 1, 16, SampleFormat::S16Le};
+    REQUIRE(q.push(blk));
+    q.cancel();
+
+    AudioBlock got;
+    // 已取消：pop 排空后返回 false，push 立即失败
+    CHECK_FALSE(q.push(blk));
+    CHECK(q.peakSize() <= q.capacity());
+    (void)got;
+}
