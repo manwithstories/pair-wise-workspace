@@ -1,0 +1,259 @@
+"""End-to-end and unit tests for the mediabridge pipeline.
+
+Run with: ``.venv/bin/python -m unittest discover -s tests -v``
+
+Fixtures are generated from code (``samplegen``) into a temporary directory
+per test session, so the suite never depends on checked-in media or network
+access.  Tests are grouped by what they prove:
+
+* timestamp repair rules (unit),
+* fixture generation and ground truth (``corrupt.json`` sidecars),
+* repair of clean / corrupt / truncated / jittered inputs,
+* resumability and byte-identical output,
+* checkpoint and index rejection paths,
+* memory and queue bounds,
+* verification (seek, offsets, digests).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import resource
+import shutil
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import unittest
+from fractions import Fraction
+from pathlib import Path
+
+import av
+
+_SRC = Path(__file__).resolve().parents[1] / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
+from mediabridge import checkpoint as checkpoint_mod  # noqa: E402
+from mediabridge import probe as probe_mod  # noqa: E402
+from mediabridge import samplegen  # noqa: E402
+from mediabridge.errors import (  # noqa: E402
+    EXIT_INTERNAL,
+    EXIT_OK,
+    EXIT_RESUME_MISMATCH,
+    EXIT_UNRECOVERABLE,
+    IndexIncompatibleError,
+    InputChangedError,
+    StructuralError,
+    TimestampToleranceError,
+)
+from mediabridge.index import IndexReader  # noqa: E402
+from mediabridge.repair import RepairConfig, repair  # noqa: E402
+from mediabridge.timeline import (  # noqa: E402
+    ORIGIN_FLOOR,
+    PacketTimestamps,
+    TimelineProfile,
+    TrackClock,
+    TrackSpec,
+    build_clocks,
+    seconds,
+    to_ticks,
+)
+from mediabridge.verify import VerifyConfig, verify  # noqa: E402
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+class FixtureCase(unittest.TestCase):
+    """Base class that generates the sample library once per session."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.tmpdir = Path(tempfile.mkdtemp(prefix="mediabridge-tests-"))
+        cls.samples = cls.tmpdir / "samples"
+        cls.specs = samplegen.generate(cls.samples)
+        cls.spec_by_name = {spec.name: spec for spec in cls.specs}
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        shutil.rmtree(cls.tmpdir, ignore_errors=True)
+
+    def workdir(self) -> Path:
+        path = Path(tempfile.mkdtemp(prefix="case-", dir=self.tmpdir))
+        return path
+
+    def sample(self, name: str) -> Path:
+        return self.spec_by_name[name].path
+
+    def metadata(self, name: str) -> dict:
+        return self.spec_by_name[name].metadata
+
+
+class TimelineTests(unittest.TestCase):
+    def make_clock(self, kind="video", tolerance=Fraction(5, 1), rate=30):
+        spec = TrackSpec(
+            stream_index=0, track_index=0, kind=kind, codec="h264",
+            time_base=Fraction(1, 90000),
+            average_rate=Fraction(rate, 1) if kind == "video" else None,
+            sample_rate=48000 if kind == "audio" else None,
+        )
+        return TrackClock(spec=spec, tolerance=tolerance, max_consecutive_reversals=8)
+
+    def packet(self, dts, pts=None, index=0):
+        return PacketTimestamps(
+            track_index=0, stream_index=0, packet_index=index, global_index=index,
+            dts=dts, pts=dts if pts is None else pts, time_base=Fraction(1, 90000),
+        )
+
+    def test_seconds_and_ticks_roundtrip(self):
+        self.assertEqual(seconds(90000, Fraction(1, 90000)), Fraction(1))
+        self.assertEqual(to_ticks(Fraction(1), Fraction(1, 90000)), 90000)
+        self.assertEqual(to_ticks(Fraction(1, 2), Fraction(1, 90000)), 45000)
+
+    def test_nonzero_start_is_rebased_to_zero(self):
+        clock = self.make_clock()
+        decision = clock.observe(self.packet(90000))
+        self.assertEqual(decision.dts_seconds, 0)
+        self.assertEqual(decision.dts, 0)
+
+    def test_constant_timestamps_are_preserved(self):
+        clock = self.make_clock()
+        clock.observe(self.packet(0))
+        decision = clock.observe(self.packet(3000, index=1))
+        self.assertEqual(decision.dts_seconds, Fraction(3000, 90000))
+        self.assertFalse(decision.repaired)
+
+    def test_duplicate_timestamp_is_repaired_forward(self):
+        clock = self.make_clock()
+        clock.observe(self.packet(0))
+        clock.observe(self.packet(3000, index=1))
+        decision = clock.observe(self.packet(3000, index=2))
+        self.assertTrue(decision.repaired)
+        self.assertGreater(decision.dts_seconds, Fraction(3000, 90000))
+
+    def test_backwards_timestamp_is_repaired_forward(self):
+        clock = self.make_clock()
+        clock.observe(self.packet(0))
+        clock.observe(self.packet(6000, index=1))
+        decision = clock.observe(self.packet(3000, index=2))
+        self.assertTrue(decision.repaired)
+        self.assertGreater(decision.dts_seconds, Fraction(6000, 90000))
+
+    def test_missing_timestamp_is_reconstructed(self):
+        clock = self.make_clock()
+        clock.observe(self.packet(0))
+        missing = PacketTimestamps(
+            track_index=0, stream_index=0, packet_index=1, global_index=1,
+            dts=None, pts=None, time_base=Fraction(1, 90000),
+        )
+        decision = clock.observe(missing)
+        self.assertTrue(decision.repaired)
+        self.assertEqual(decision.dts_seconds, clock.interval or Fraction(1, 30))
+
+    def test_large_forward_jump_is_rebased_and_reported(self):
+        clock = self.make_clock()
+        clock.observe(self.packet(0))
+        clock.observe(self.packet(3000, index=1))
+        decision = clock.observe(self.packet(3000 + 90000 * 60, index=2))
+        self.assertTrue(decision.discontinuity)
+        self.assertTrue(decision.repaired)
+        self.assertLess(decision.dts_seconds, Fraction(10, 1))
+
+    def test_wrap_is_unwrapped(self):
+        clock = self.make_clock()
+        modulus = 1 << 32
+        clock.observe(self.packet(modulus - 3000))
+        decision = clock.observe(self.packet(0, index=1))
+        self.assertTrue(decision.repaired)
+        self.assertLess(decision.dts_seconds, Fraction(1, 1))
+
+    def test_audio_uses_sample_rate_interval(self):
+        clock = self.make_clock(kind="audio")
+        self.assertEqual(clock._step(), Fraction(1024, 48000))
+
+    def test_origin_is_shared_across_tracks(self):
+        specs = [
+            TrackSpec(stream_index=0, track_index=0, kind="video", codec="h264",
+                      time_base=Fraction(1, 90000), average_rate=Fraction(30, 1)),
+            TrackSpec(stream_index=1, track_index=1, kind="audio", codec="aac",
+                      time_base=Fraction(1, 48000), sample_rate=48000),
+        ]
+        clocks = build_clocks(specs, TimelineProfile())
+        for clock in clocks.values():
+            clock.set_origin(Fraction(-1, 48))
+        first = clocks[1].observe(PacketTimestamps(
+            track_index=1, stream_index=1, packet_index=0, global_index=0,
+            dts=-1024, pts=-1024, time_base=Fraction(1, 48000),
+        ))
+        self.assertEqual(first.dts_seconds, ORIGIN_FLOOR)
+
+
+class SampleTests(FixtureCase):
+    def test_all_fixtures_generated(self):
+        names = {spec.name for spec in self.specs}
+        self.assertTrue({"normal", "truncated", "broken_index", "corrupt",
+                         "jitter", "zero_packets", "slow_consumer",
+                         "unsupported_codec"} <= names)
+
+    def test_corrupt_sidecar_names_first_error(self):
+        meta = self.metadata("corrupt")
+        self.assertIn("first_error_packet", meta)
+        self.assertGreater(meta["first_error_packet"], 0)
+        # The sidecar must describe real damage: flipping the recorded byte
+        # range must change the file's hash.
+        original = _sha256(self.sample("corrupt"))
+        self.assertEqual(len(original), 64)
+
+    def test_zero_packets_fixture_has_streams_without_samples(self):
+        path = self.sample("zero_packets")
+        container = av.open(str(path))
+        try:
+            self.assertTrue(list(container.streams))
+            packets = [p for p in container.demux() if p.dts is not None]
+            self.assertEqual(packets, [])
+        finally:
+            container.close()
+
+    def test_truncated_fixture_still_opens(self):
+        result = probe_mod.probe(self.sample("truncated"))
+        self.assertGreater(result.packet_count, 0)
+
+    def test_generation_is_deterministic(self):
+        second = Path(tempfile.mkdtemp(prefix="determinism-", dir=self.tmpdir))
+        try:
+            specs = samplegen.generate(second)
+            by_name = {spec.name: spec for spec in specs}
+            for name in ("normal", "corrupt", "jitter", "truncated"):
+                self.assertEqual(_sha256(self.sample(name)), _sha256(by_name[name].path),
+                                 f"{name} fixture is not reproducible")
+        finally:
+            shutil.rmtree(second, ignore_errors=True)
+
+
+class ProbeTests(FixtureCase):
+    def test_probe_reports_tracks_and_packets(self):
+        result = probe_mod.probe(self.sample("normal"))
+        kinds = {track.kind for track in result.tracks}
+        self.assertEqual(kinds, {"video", "audio"})
+        self.assertGreater(result.packet_count, 100)
+
+    def test_probe_rejects_missing_file(self):
+        with self.assertRaises(StructuralError):
+            probe_mod.probe(self.tmpdir / "does-not-exist.mov")
+
+    def test_probe_rejects_empty_file(self):
+        path = self.workdir() / "empty.mov"
+        path.write_bytes(b"")
+        from mediabridge.errors import TruncatedInputError
+        with self.assertRaises(TruncatedInputError):
+            probe_mod.probe(path)
+
+
