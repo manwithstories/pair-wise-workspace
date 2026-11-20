@@ -160,6 +160,8 @@ def run_demo(args: argparse.Namespace) -> int:
     )
     summary = {
         "seed": args.seed,
+        "input_digest": input_digest,
+        "params_digest": params,
         "bad_record_count": result.bad_record_count,
         "first_error_offset_bytes": result.first_error_offset_bytes,
         "offset_error_bytes": offset_error_bytes,
@@ -223,12 +225,26 @@ def run_verify(args: argparse.Namespace) -> int:
     checkpoint = load_checkpoint(directory / "run")
     if checkpoint is None:
         failures.append("checkpoint missing")
-    elif checkpoint.cursor < 1:
-        failures.append("checkpoint recorded no completed stages")
+    else:
+        if checkpoint.cursor < 1:
+            failures.append("checkpoint recorded no completed stages")
+        # The checkpoint must still be bound to the recorded inputs/params.
+        if checkpoint.input_digest != summary.get("input_digest"):
+            failures.append("checkpoint input digest no longer matches inputs")
+        if checkpoint.params_digest != summary.get("params_digest"):
+            failures.append("checkpoint parameter digest no longer matches params")
+        expected_stages = {"subtitle", "timeline", "fingerprint", "write"}
+        missing_stages = expected_stages - set(checkpoint.stages)
+        if missing_stages:
+            failures.append(f"checkpoint missing stages: {sorted(missing_stages)}")
 
     if failures:
         for failure in failures:
             print(f"verify failure: {failure}", file=sys.stderr)
+        # A broken checkpoint binding is the dedicated resume-mismatch class.
+        if any("digest" in f for f in failures):
+            from .errors import EXIT_CHECKPOINT_MISMATCH
+            return EXIT_CHECKPOINT_MISMATCH
         return EXIT_VERIFY_FAILED
     print("verify ok")
     print(f"offset_error_bytes={byte_error}")
