@@ -163,6 +163,12 @@ std::string json_escape(std::string_view s) {
   return out;
 }
 
+JsonWriter::JsonWriter() {
+  text_ = "{";
+  stack_.push_back('{');
+  filled_.push_back(false);
+}
+
 void JsonWriter::sep() {
   if (filled_.empty()) return;
   if (filled_.back()) text_ += ",";

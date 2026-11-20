@@ -29,9 +29,9 @@ void CaptureWriter::begin_record(RecordType t, u16 track_id, u32 length) {
 void CaptureWriter::write_track_decl(const TrackInfo& t) {
   TrackDeclRecord r{t.ssrc, static_cast<u8>(t.kind), t.clock_rate,
                     t.channels};
-  begin_record(RecordType::TrackDecl, static_cast<u16>(t.track_id),
-               static_cast<u32>(sizeof(r)));
   u32 name_len = static_cast<u32>(t.name.size());
+  begin_record(RecordType::TrackDecl, static_cast<u16>(t.track_id),
+               static_cast<u32>(sizeof(r) + sizeof(u32) + name_len));
   append_bytes(data_, &r, sizeof(r));
   wr32(data_, name_len);
   append_bytes(data_, t.name.data(), t.name.size());

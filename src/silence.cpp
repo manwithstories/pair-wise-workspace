@@ -41,7 +41,7 @@ struct SilenceDetector::Impl {
     AVChannelLayout out_layout{};
     av_channel_layout_default(&in_layout, int(ch));
     av_channel_layout_default(&out_layout, int(ch));
-    swr_alloc_set_opts2(&swr, &out_layout, AV_SAMPLE_FMT_FLT, int(rate),
+    swr_alloc_set_opts2(&swr, &out_layout, AV_SAMPLE_FMT_FLTP, int(rate),
                         &in_layout, AV_SAMPLE_FMT_S16, int(rate), 0, nullptr);
     av_channel_layout_uninit(&in_layout);
     av_channel_layout_uninit(&out_layout);
@@ -87,7 +87,6 @@ SilenceResult SilenceDetector::analyse(
     w.samples = 0;
   };
 
-  std::vector<float> planar;
   for (const auto& p : packets) {
     if (p.payload.size() < std::size_t(impl_->channels) * 2u) {
       res.decode_errors++;
@@ -97,10 +96,11 @@ SilenceResult SilenceDetector::analyse(
     std::vector<float> interleaved =
         pcm16le_to_float(p.payload, impl_->channels);
     std::size_t frames = interleaved.size() / std::size_t(impl_->channels);
-    // Run the samples through libswresample (identity layout/rate here, but
-    // it normalises format and validates the stream for real ingest).
-    planar.assign(interleaved.size(), 0.0f);
-    u8* out_planes[1] = {reinterpret_cast<u8*>(planar.data())};
+    // FLTP output: one contiguous planar buffer, one pointer per channel.
+    std::vector<float> planar_out(interleaved.size(), 0.0f);
+    u8* out_planes[32] = {};
+    for (u16 c = 0; c < impl_->channels; ++c)
+      out_planes[c] = reinterpret_cast<u8*>(planar_out.data() + c * frames);
     u8 const* in_planes[1] = {
         reinterpret_cast<const u8*>(interleaved.data())};
     int got = 0;
@@ -117,8 +117,9 @@ SilenceResult SilenceDetector::analyse(
     i64 step = pcm_sample_duration_ns(frames, impl_->sample_rate);
     for (u16 c = 0; c < impl_->channels; ++c) {
       double sum_sq = 0.0;
+      const float* ch = planar_out.data() + c * frames;
       for (std::size_t f = 0; f < frames; ++f) {
-        float v = planar[f * std::size_t(impl_->channels) + c];
+        float v = ch[f];
         sum_sq += double(v) * double(v);
       }
       double rms = frames ? std::sqrt(sum_sq / double(frames)) : 0.0;

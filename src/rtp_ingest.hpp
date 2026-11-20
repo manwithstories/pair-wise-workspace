@@ -48,8 +48,10 @@ class RtpIngest {
     explicit Buffer(TrackInfo t) : track(std::move(t)) {}
     TrackInfo track;
     std::map<u64, PacketRecord> pending;  // abs seq -> packet
-    std::optional<u32> last_seq;          // highest raw seq observed
-    u64 high_water = 0;                   // highest abs seq inserted
+    bool seen = false;
+    u32 max_seq = 0;          // highest raw seq observed so far (wrap-aware)
+    u32 wrap_count = 0;       // number of 16-bit wraps observed
+    u64 high_water = 0;       // highest abs seq inserted
     std::optional<u64> next_to_emit;
     IngestStats stats{};
   };
@@ -60,6 +62,7 @@ class RtpIngest {
   std::map<u16, Buffer> buffers_;
   std::map<u32, u16> ssrc_to_track_;
   std::vector<RawRecord> rtcp_;
+  std::vector<PacketRecord> drained_;
   std::vector<ErrorRecord> errors_;
 };
 

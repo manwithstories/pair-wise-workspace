@@ -15,7 +15,7 @@ using u8 = std::uint8_t;
 
 inline constexpr i64 kNsPerSec = 1'000'000'000LL;
 inline constexpr int kRtpVersion = 2;
-inline constexpr std::size_t kMaxPacketBytes = 2048; // reject oversized packets
+inline constexpr std::size_t kMaxPacketBytes = 16384; // reject oversized packets
 inline constexpr u32 kReorderWindow = 64;            // jitter buffer depth
 inline constexpr u32 kSeqMod = 0x10000u;             // RTP sequence modulus
 inline constexpr double kDriftLimitPpm = 1000.0;     // cross-track merge limit

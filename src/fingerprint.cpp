@@ -8,40 +8,32 @@
 namespace mb {
 
 namespace {
-// FNV-1a 64-bit, deterministic and dependency-free.
-u64 fnv1a(const u8* data, std::size_t len, u64 seed) {
-  u64 h = 1469598103934665603ULL ^ seed;
-  for (std::size_t i = 0; i < len; ++i) {
-    h ^= data[i];
-    h *= 1099511628211ULL;
-  }
-  return h;
-}
-
-constexpr std::size_t kFpWords = 8;  // 512-bit content fingerprint
+constexpr std::size_t kFpWords = 8;  // 1 size word + 7 block digest words
 }  // namespace
 
 Fingerprint Fingerprinter::compute(const Segment& s, TrackKind kind) {
   Fingerprint fp;
   fp.sha256 = Sha256::hash(s.normalized);
   fp.bits.resize(kFpWords);
-  // Sample the canonical byte stream at evenly spaced offsets; the stride
-  // differs for video and audio so identical byte noise cannot collide.
-  u64 stride_seed = kind == TrackKind::Video ? 0x9E3779B97F4A7C15ULL
-                                             : 0xD1B54A32D192ED03ULL;
+  u64 kind_seed = kind == TrackKind::Video ? 0x9E3779B97F4A7C15ULL
+                                            : 0xD1B54A32D192ED03ULL;
+  // Leading word: canonical size.
+  fp.bits[0] = u64(s.normalized.size()) * 1099511628211ULL ^ kind_seed;
+  // Block FNV-1a digests over equal-sized canonical chunks. Exact content
+  // matches block-for-block; a localised edit changes only the block(s) it
+  // lands in, so the block-equality ratio is a stable closeness measure and
+  // the SHA-256 above remains the authoritative exact-match test.
+  constexpr std::size_t kBlocks = kFpWords - 1;
   std::size_t n = s.normalized.size();
-  for (std::size_t w = 0; w < kFpWords; ++w) {
-    u64 word = 0;
-    for (std::size_t bit = 0; bit < 64u; ++bit) {
-      std::size_t idx = (w * 64u + bit * 7u +
-                         std::size_t(stride_seed % 97u)) %
-                        (n + 1u);
-      u8 byte = idx < n ? s.normalized[idx] : u8(w * 31u + bit);
-      u8 probe = u8(fnv1a(&byte, 1, stride_seed ^ ((u64(w) << 8) | bit)) &
-                    0xFFu);
-      if ((probe ^ byte) & 0x01u) word |= (u64(1) << bit);
+  for (std::size_t blk = 0; blk < kBlocks; ++blk) {
+    std::size_t begin = n * blk / kBlocks;
+    std::size_t end = n * (blk + 1) / kBlocks;
+    u64 h = 1469598103934665603ULL ^ kind_seed ^ (u64(blk) * 40503ULL);
+    for (std::size_t i = begin; i < end; ++i) {
+      h ^= s.normalized[i];
+      h *= 1099511628211ULL;
     }
-    fp.bits[w] = word;
+    fp.bits[1 + blk] = h;
   }
   return fp;
 }
@@ -49,12 +41,12 @@ Fingerprint Fingerprinter::compute(const Segment& s, TrackKind kind) {
 double Fingerprinter::similarity(const Fingerprint& a, const Fingerprint& b) {
   std::size_t words = std::min(a.bits.size(), b.bits.size());
   if (words == 0) return 0.0;
-  unsigned diff = 0;
-  unsigned total = unsigned(words) * 64u;
-  for (std::size_t i = 0; i < words; ++i) {
-    diff += unsigned(__builtin_popcountll(a.bits[i] ^ b.bits[i]));
-  }
-  return 1.0 - double(diff) / double(total);
+  // Fraction of fingerprint words (size word + block digests) that match.
+  // Localised edits change few blocks; unrelated content changes nearly all.
+  std::size_t equal = 0;
+  for (std::size_t i = 0; i < words; ++i)
+    if (a.bits[i] == b.bits[i]) ++equal;
+  return double(equal) / double(words);
 }
 
 DedupResult Fingerprinter::dedup(

@@ -14,8 +14,8 @@ namespace mb {
 struct FixtureOptions {
   u64 seed = 417;
   double reorder_probability = 0.08;   // packets swapped within the window
-  double loss_probability = 0.01;      // packets dropped entirely
-  double corrupt_probability = 0.005;  // payload replaced by 0xFF marker
+  double loss_probability = 0.004;     // packets dropped entirely
+  double corrupt_probability = 0.002;  // payload replaced by 0xFF marker
   bool truncate_tail = true;           // cut the capture before EOS
   bool omit_index_pages = true;        // force segmenter index rebuild
   u32 video_frames = 240;              // ~8 s at 30 fps

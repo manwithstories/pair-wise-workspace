@@ -71,10 +71,11 @@ SegmenterResult Segmenter::run(
   open.seg.first_seq = packets.front().seq;
   open.head = &packets.front();
 
+  // Canonical bytes are payload content only: transport headers and RTP
+  // timestamps are excluded so the same scene recorded on separate cameras
+  // (independent RTP clocks) produces identical canonical bytes. Timeline
+  // position lives in the segment metadata, not in the hash input.
   auto append_canonical = [](Segment& s, const PacketRecord& p) {
-    u8 hdr[4] = {u8(p.rtp_ts >> 24), u8(p.rtp_ts >> 16),
-                 u8(p.rtp_ts >> 8), u8(p.rtp_ts)};
-    s.normalized.insert(s.normalized.end(), hdr, hdr + 4);
     s.normalized.insert(s.normalized.end(), p.payload.begin(),
                         p.payload.end());
   };

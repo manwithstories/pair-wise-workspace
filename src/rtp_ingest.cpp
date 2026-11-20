@@ -54,14 +54,24 @@ void RtpIngest::push_rtp(u16 track_id, const RawRecord& rec) {
   }
   Buffer& b = buffer_for(track_id, h.ssrc);
   u32 seq = rd16(reinterpret_cast<const u8*>(&h.seq));
-  u64 abs_seq;
-  if (!b.last_seq) {
-    abs_seq = seq;  // first packet anchors the extended sequence space
-  } else {
-    // Modular delta keeps wrap arithmetic inside the 16-bit range.
-    abs_seq = b.high_water + static_cast<u64>(seqDelta(seq, *b.last_seq));
+  // Wrap-aware extension. A forward wrap happens only when the current
+  // maximum sits near the modulus top and the new sequence restarts low;
+  // everything else, however late, stays in the current cycle.
+  if (!b.seen) {
+    b.seen = true;
+    b.max_seq = seq;
+  } else if (b.wrap_count == 0 && seq < kReorderWindow &&
+             b.max_seq > u32(kSeqMod) - kReorderWindow) {
+    b.wrap_count++;
+    // Keep the ceiling at the old cycle's top so late high-seq packets are
+    // not mistaken for a second wrap.
+    b.max_seq = u32(kSeqMod) - 1u;
+  } else if (seq > b.max_seq) {
+    b.max_seq = seq;
   }
+  u64 abs_seq = u64(b.wrap_count) * u64(kSeqMod) + seq;
   if (!b.next_to_emit) b.next_to_emit = abs_seq;
+  if (abs_seq > b.high_water) b.high_water = abs_seq;
   bool corrupt = rec.body[sizeof(h)] == 0xFF;
   if (corrupt) {
     b.stats.corrupt++;
@@ -95,47 +105,38 @@ void RtpIngest::push_rtp(u16 track_id, const RawRecord& rec) {
   p.recovery = corrupt ? Recoverability::Recovered : Recoverability::Ok;
   b.stats.received++;
   b.pending.emplace(abs_seq, std::move(p));
-  if (!b.last_seq || seqDelta(seq, *b.last_seq) > 0) b.last_seq = seq;
-  if (abs_seq > b.high_water) b.high_water = abs_seq;
-  // Expire gaps that have fallen outside the reorder window immediately so
-  // late packets can be classified as unrecoverable on arrival.
-  u64 floor = (b.high_water > kReorderWindow)
-                  ? b.high_water - kReorderWindow + 1
-                  : 0;
-  if (b.next_to_emit && *b.next_to_emit < floor) {
-    u64 old_next = *b.next_to_emit;
-    *b.next_to_emit = floor;
-    b.stats.lost += static_cast<u64>(floor - old_next);
-    for (u64 s = old_next; s < floor; ++s) {
-      errors_.push_back({b.track.track_id, 0, b.track.ssrc,
-                         static_cast<u32>(s % kSeqMod), "rtp.gap",
-                         "sequence gap left reorder window",
-                         Recoverability::Unrecoverable});
-    }
-  }
+  // Drain everything that can now be emitted, ageing out expired gaps.
+  // Output is collected per buffer; finish() concatenates in track order.
+  emit_ready(b, drained_);
 }
 
 void RtpIngest::emit_ready(Buffer& b, std::vector<PacketRecord>& out) {
-  // Walk the ordered map; any missing sequence below the next key is a gap.
-  // Gaps already expired on arrival were counted in push_rtp(), so this loop
-  // only fills holes that were inside the reorder window.
-  for (auto& [seq, pkt] : b.pending) {
-    while (*b.next_to_emit < seq) {
-      // The high-water packet had already arrived when this gap closed, so
-      // the distance measures the reorder depth the buffer absorbed.
-      u32 depth = static_cast<u32>(b.high_water - *b.next_to_emit + 1);
-      b.stats.max_reorder_depth = std::max(b.stats.max_reorder_depth, depth);
+  if (!b.next_to_emit || b.pending.empty()) return;
+  // A gap at sequence S is declared lost only once the buffer has advanced
+  // kReorderWindow packets beyond S, i.e. the high-water mark passes
+  // S + kReorderWindow. Until then a late packet may still fill the hole.
+  u64 expire_floor = (b.high_water >= kReorderWindow)
+                         ? b.high_water - kReorderWindow + 1
+                         : 0;
+  while (!b.pending.empty()) {
+    u64 head = b.pending.begin()->first;
+    while (*b.next_to_emit < head && *b.next_to_emit < expire_floor) {
       b.stats.lost++;
       errors_.push_back({b.track.track_id, 0, b.track.ssrc,
                          static_cast<u32>(*b.next_to_emit % kSeqMod),
-                         "rtp.gap_eos", "gap at end of stream",
+                         "rtp.gap", "sequence gap left reorder window",
                          Recoverability::Unrecoverable});
       (*b.next_to_emit)++;
     }
-    out.push_back(std::move(pkt));
+    if (head != *b.next_to_emit) break;  // gap still inside the window
+    if (b.high_water > head) {
+      u32 depth = static_cast<u32>(b.high_water - head + 1);
+      b.stats.max_reorder_depth = std::max(b.stats.max_reorder_depth, depth);
+    }
+    out.push_back(std::move(b.pending.begin()->second));
+    b.pending.erase(b.pending.begin());
     (*b.next_to_emit)++;
   }
-  b.pending.clear();
 }
 
 void RtpIngest::push(const RawRecord& rec) {
@@ -155,7 +156,6 @@ IngestResult RtpIngest::finish(u64 capture_size) {
   IngestResult r;
   r.rtcp = std::move(rtcp_);
   r.errors = std::move(errors_);
-  (void)capture_size;  // tail gaps reference offset 0; file length known upstream
   for (auto& [id, b] : buffers_) {
     (void)id;
     if (!b.next_to_emit) {
@@ -164,10 +164,30 @@ IngestResult RtpIngest::finish(u64 capture_size) {
     }
     u64 first_seq = *b.next_to_emit;
     emit_ready(b, r.packets);
+    // Anything still buffered at EOS: flush in order, recording tail gaps.
+    while (!b.pending.empty()) {
+      u64 head = b.pending.begin()->first;
+      while (*b.next_to_emit < head) {
+        b.stats.lost++;
+        r.errors.push_back({b.track.track_id, capture_size, b.track.ssrc,
+                            static_cast<u32>(*b.next_to_emit % kSeqMod),
+                            "rtp.gap_eos", "gap at end of stream",
+                            Recoverability::Unrecoverable});
+        (*b.next_to_emit)++;
+      }
+      r.packets.push_back(std::move(b.pending.begin()->second));
+      b.pending.erase(b.pending.begin());
+      (*b.next_to_emit)++;
+    }
     b.stats.first_abs_seq = first_seq;
     b.stats.last_abs_seq = b.high_water;
     r.stats.emplace(b.track.ssrc, b.stats);
   }
+  // Prepend packets drained during push (already in per-buffer seq order).
+  r.packets.insert(r.packets.begin(),
+                   std::make_move_iterator(drained_.begin()),
+                   std::make_move_iterator(drained_.end()));
+  drained_.clear();
   return r;
 }
 

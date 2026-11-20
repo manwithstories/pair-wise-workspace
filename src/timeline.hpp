@@ -70,7 +70,7 @@ class Timeline {
 // Minimal deterministic JSON writer (string escaping included).
 class JsonWriter {
  public:
-  JsonWriter() { text_ = "{"; }
+  JsonWriter();
   void key(std::string_view k);
   void value_string(std::string_view v);
   void value_int(long long v);
