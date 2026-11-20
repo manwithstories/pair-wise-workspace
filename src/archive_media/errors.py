@@ -77,6 +77,16 @@ RECOVERABLE_CODES = frozenset(
     }
 )
 
+# Codes that indicate the segment's own media bytes are damaged or absent.
+MEDIA_DAMAGE_CODES = frozenset(
+    {
+        Code.SEGMENT_TRUNCATED,
+        Code.PACKET_CORRUPT,
+        Code.DECODE_FAILURE,
+        Code.REFERENCE_MISSING,
+    }
+)
+
 _SEVERITY: dict[Code, Severity] = {
     Code.REORDERED_REFERENCE: Severity.WARNING,
     Code.DUPLICATE_REFERENCE: Severity.WARNING,
@@ -214,14 +224,18 @@ class DiagnosticCollector:
 
     @property
     def damaged_segments(self) -> int:
-        """Number of distinct damaged segment sequences seen in the samples."""
+        """Number of distinct segments with actual media or reference damage.
+
+        Padding-only timeline holes (``TIMELINE_GAP``) and hash findings are
+        excluded: they are consequences recorded elsewhere, not the source
+        damage an archivist reconciles against the cold-storage inventory.
+        """
+        damage_codes = MEDIA_DAMAGE_CODES
         return len(
             {
                 d.locator.sequence
                 for d in self.samples
-                if d.locator.sequence is not None
-                and d.code
-                in RECOVERABLE_CODES | {Code.HASH_MISMATCH, Code.TIMELINE_GAP}
+                if d.locator.sequence is not None and d.code in damage_codes
             }
         )
 
@@ -242,6 +256,7 @@ __all__ = [
     "FatalDamageError",
     "Locator",
     "ManifestSyntaxError",
+    "MEDIA_DAMAGE_CODES",
     "RecoveryError",
     "Severity",
     "RECOVERABLE_CODES",

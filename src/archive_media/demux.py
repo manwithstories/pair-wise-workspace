@@ -170,17 +170,21 @@ def demux_segment(segment: SegmentRef) -> SegmentDecodeResult:
         for packet in container.demux(stream):
             saw_packet = True
             result.packets_total += 1
+            # PyAV yields a zero-size flush packet at end-of-stream; it carries
+            # no media and decoding it always "fails", so skip it explicitly.
+            if packet.size == 0:
+                continue
             frames, failure = _decode_packet(container, stream, packet)
             if failure is not None:
                 result.packets_failed += 1
-                code = (
-                    Code.PACKET_CORRUPT
-                    if packet.size and packet.size > 0
-                    else Code.DECODE_FAILURE
-                )
                 result.diagnostics.append(
-                    _diag(code, f"packet decode failed: {failure}", result,
-                          packet_size=packet.size, attempts=MAX_DECODE_RETRIES + 1)
+                    _diag(
+                        Code.PACKET_CORRUPT,
+                        f"packet decode failed: {failure}",
+                        result,
+                        packet_size=packet.size,
+                        attempts=MAX_DECODE_RETRIES + 1,
+                    )
                 )
                 continue
             for frame in frames:
