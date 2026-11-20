@@ -290,6 +290,92 @@ bool WavDemuxer::readSentinel(AudioBlock& out, bool& consumed,
     return true;
 }
 
-bool WavDemuxer::nextBlock(AudioBlock&, MediaError&) { return false; }
+bool WavDemuxer::nextBlock(AudioBlock& out, MediaError& err) {
+    if (eof_) {
+        return false;
+    }
+    // 哨兵优先：块边界处探测 4 字节标记
+    char probe[4];
+    file_.read(probe, 4);
+    if (file_.gcount() == 0) {
+        eof_ = true;
+        return false;
+    }
+    if (file_.gcount() < 4) {
+        // 连 4 字节都不足：属于不完整尾部
+        stats_.tailBytesDropped += static_cast<std::uint64_t>(file_.gcount());
+        eof_ = true;
+        if (file_.gcount() > 0) {
+            stats_.recoverableErrors.push_back(
+                {MediaErrorCode::IncompleteTail,
+                 std::to_string(file_.gcount()) +
+                     " trailing bytes do not form a complete frame",
+                 true});
+        }
+        return false;
+    }
+    const std::uint32_t id = readU32(probe);
+    if (id == tag("MCOR") || id == tag("MGAP") || id == tag("MDUP")) {
+        file_.seekg(-4, std::ios::cur);
+        bool consumed = false;
+        if (!readSentinel(out, consumed, err)) {
+            return false;
+        }
+        stats_.blocksEmitted++;
+        return true;
+    }
+
+    // 普通 PCM 块：先放入已读到的 4 字节，再补齐 blockFrames 帧
+    const int frame = format_.frameBytes();
+    std::size_t cap =
+        static_cast<std::size_t>(config_.blockFrames) * frame;
+    // 声明 dataLength 时不得越界读取
+    if (dataLength_ > 0 && cursor_ + static_cast<ByteOffset>(cap) >
+                               dataLength_) {
+        const ByteOffset remain = dataLength_ - cursor_;
+        cap = static_cast<std::size_t>(remain);
+    }
+    AudioBlock blk;
+    blk.format = format_;
+    blk.startSample = nextSample_;
+    blk.interleavedPcm.resize(cap);
+    std::memcpy(blk.interleavedPcm.data(), probe, 4);
+    std::size_t filled = 4;
+    bool hitEof = false;
+    while (filled < cap) {
+        file_.read(reinterpret_cast<char*>(blk.interleavedPcm.data()) + filled,
+                   static_cast<std::streamsize>(cap - filled));
+        const auto got = file_.gcount();
+        filled += static_cast<std::size_t>(got);
+        if (got == 0) {
+            hitEof = true;
+            break;
+        }
+    }
+    blk.interleavedPcm.resize(filled);
+    const std::size_t dropped = truncateToFrameBoundary(blk.interleavedPcm,
+                                                         format_);
+    if (dropped > 0) {
+        stats_.tailBytesDropped += dropped;
+        blk.kind = BlockKind::IncompleteTail;
+        stats_.recoverableErrors.push_back(
+            {MediaErrorCode::IncompleteTail,
+             std::to_string(dropped) +
+                 " trailing bytes truncated to frame boundary",
+             true});
+    }
+    cursor_ += static_cast<ByteOffset>(filled);
+    if (blk.frameCount() == 0) {
+        eof_ = true;
+        return false;
+    }
+    nextSample_ = blk.endSample();
+    stats_.blocksEmitted++;
+    out = std::move(blk);
+    if (hitEof) {
+        eof_ = true;
+    }
+    return true;
+}
 
 } // namespace mediacore
