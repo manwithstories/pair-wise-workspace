@@ -20,7 +20,8 @@ from .bitstream import (
 from .checkpoint import Block, CheckpointStore, canonical_json, sha256_bytes
 from .clock import MediaClock
 from .digest import config_digest, input_digest, read_json, write_json
-from .errors import ErrorBook, ErrorCode
+from .errors import ErrorBook
+from .recovery import RecoveryCoordinator
 from .safety import ensure_within
 from .segment import Representation, plan_cuts, plan_to_dict
 from .stages import run_audio_stage, run_color_stage
@@ -84,6 +85,9 @@ class Pipeline:
         self.cfg = config
         self.errors = ErrorBook()
         self.store = CheckpointStore("checkpoint", config.workdir, self.errors)
+        self.recovery = RecoveryCoordinator(
+            self.store, config.workdir, self.errors
+        )
         self._quarantine_note = ""
 
 
@@ -92,9 +96,10 @@ class Pipeline:
         started = time.perf_counter()
         inputs = self.cfg.digest_inputs()
         input_sum = input_digest(self.cfg.workdir, inputs)
-        cfg_sum = config_digest(dataclasses.asdict(self.cfg) | {"resume": False})
+        cfg_sum = self._config_digest()
 
-        resume_from = self._prepare_resume(input_sum, cfg_sum)
+        resume_from = self.recovery.prepare_resume(input_sum, cfg_sum)
+        self._quarantine_note = self.recovery.quarantine_note
         if self.errors.any_fatal():
             return self._fail(4, started)
 
@@ -133,41 +138,16 @@ class Pipeline:
         return result
 
 
-    def _prepare_resume(self, input_sum: dict, cfg_sum: str) -> int:
-        meta_path = Path(self.store.dir) / "job.json"
-        if not meta_path.exists():
-            write_json("checkpoint/job.json", self.cfg.workdir,
-                       {"input_digest": input_sum, "config_digest": cfg_sum})
-            return 0
-        try:
-            self.store.verify_blocks()
-        except ValueError:
-            # 块边界损坏：隔离旧检查点，丢弃已被处置的历史致命错误后重算。
-            self._quarantine("已确认块校验和不匹配")
-            return 0
-        previous = self._read_job_meta()
-        if previous.get("input_digest") != input_sum or previous.get("config_digest") != cfg_sum:
-            self._quarantine("输入摘要或配置摘要不匹配")
-            return 0
-        return self.store.committed_count()
-
-    def _read_job_meta(self) -> dict:
-        return read_json("checkpoint/job.json", self.cfg.workdir)
-
-    def _quarantine(self, reason: str) -> None:
-        dest = self.store.quarantine(reason)
-        self._quarantine_note = str(dest)
-        write_json("checkpoint/job.json", self.cfg.workdir,
-                   {"input_digest": None, "config_digest": None})
-        # 先清空（含 verify 阶段的致命错误），再保留一条非致命隔离留痕。
-        self.errors.clear()
-        self.errors.add(
-            ErrorCode.CHECKPOINT_SUMMARY_MISMATCH,
-            f"旧检查点已隔离: {reason}",
-            source=str(dest),
-            fatal=False,
-        )
-
+    def _config_digest(self) -> str:
+        # workdir 是位置标识，resume/interrupt_after 是易失运行控制，
+        # 三者都不构成配置身份；排除后不同目录/中断续跑的摘要仍可比较。
+        volatile = {"workdir", "resume", "interrupt_after"}
+        identity = {
+            key: value
+            for key, value in dataclasses.asdict(self.cfg).items()
+            if key not in volatile
+        }
+        return config_digest(identity)
 
     def _scan_all(self) -> dict:
         from .digest import read_json
@@ -237,8 +217,9 @@ class Pipeline:
         def q(value) -> dict:
             return {"num": value.numerator, "den": value.denominator}
 
-        return [
+        records = [
             {
+                "type": "segment",
                 "sequence": seg.sequence,
                 "start_ms": q(seg.start_ms),
                 "end_ms": q(seg.end_ms),
@@ -246,6 +227,20 @@ class Pipeline:
             }
             for seg in plan.segments
         ]
+        # 追加每个表示层的关键帧索引记录，保证分块数量可支撑多块中断/恢复。
+        for i, payload in sorted(scanned.items()):
+            clock = MediaClock(self.cfg.media_fps)
+            for entry in payload["entries"]:
+                records.append(
+                    {
+                        "type": "keyframe",
+                        "representation": f"rep{i}",
+                        "offset": entry.offset,
+                        "tick": entry.tick,
+                        "time_ms": q(clock.tick_to_ms(entry.tick)),
+                    }
+                )
+        return records
 
     def _commit_blocks(self, records: list[dict], token: CancellationToken,
                        resume_from: int) -> int:
