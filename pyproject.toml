@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "region-media"
+version = "0.1.0"
+description = "Deterministic regional live-media packet repair, normalization and chunked delivery"
+requires-python = ">=3.12"
+dependencies = [
+  "av>=12,<13",
+  "numpy>=2,<3",
+  "soundfile>=0.12,<0.13",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<9"]
+
+[project.scripts]
+region-media = "region_media.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

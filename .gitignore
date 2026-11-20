@@ -71,3 +71,15 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- region_media 本地运行产物 ----
+.venv/
+.tmp/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.coverage
