@@ -28,9 +28,6 @@ struct LadderOptions {
   /// Safety factor applied to the estimate before picking a rendition.
   double safety = 0.8;
   std::size_t cache_limit_bytes = kMaxTrackCacheBytes;
-  /// Extra buffer held for the chosen rendition; limits memory on a drop.
-  std::size_t buffer_frames = 8;
-  std::size_t frame_bytes = 4096;
 };
 
 struct SegmentRendition {

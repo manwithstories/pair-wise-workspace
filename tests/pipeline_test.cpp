@@ -1004,3 +1004,32 @@ TEST_CASE("64-bit manifest numbers survive the JSON round-trip exactly",
   CHECK(reparsed.tracks[0].segments[0].start_us == 9'007'199'254'740'993);
   CHECK(serialize(reparsed) == text);
 }
+
+TEST_CASE("a bandwidth cliff limits cache and records a downgrade reason",
+          "[ladder][cache]") {
+  TrackSegments segments = boundary_segments(6);
+  // Sustained 20 Mbps, then a sudden drop to 400 kbps for the rest.
+  std::vector<BandwidthSample> samples;
+  for (std::size_t i = 0; i < segments.segments.size(); ++i) {
+    samples.push_back(BandwidthSample{segments.segments[i].start_us,
+                                      i < 2 ? 20'000'000ull : 400'000ull});
+  }
+  LadderOptions options = default_ladder();
+  options.window_samples = 1;
+  options.cache_limit_bytes = 64 * 1024;  // tight budget
+  ErrorSink errors;
+  LadderResult result = align_ladder(segments, samples, options, errors);
+  REQUIRE(result.renditions.size() == segments.segments.size());
+  CHECK(result.renditions.front().name == "1080p");
+  CHECK(result.renditions.back().name == "360p");
+  CHECK(result.peak_cache_bytes <= options.cache_limit_bytes);
+  bool clamp_warned = false;
+  for (const auto& event : errors.events()) {
+    if (event.reason.find("cache clamped") != std::string::npos) {
+      clamp_warned = true;
+    }
+  }
+  CHECK(clamp_warned);
+  REQUIRE_FALSE(result.downgrades.empty());
+  CHECK(result.downgrades.back().cache_bytes <= options.cache_limit_bytes);
+}
