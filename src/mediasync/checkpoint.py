@@ -156,7 +156,12 @@ class CheckpointStore:
         )
 
     def verify_blocks(self) -> list[Block]:
-        """校验全部已确认块；损坏块记录致命错误并抛出。"""
+        """校验全部已确认块；损坏块记录致命错误并抛出。
+
+        未确认的 ``.tmp`` 是中断残留，不属于检查点状态，恢复前直接清理。
+        """
+        for stale in self.blocks_dir.glob("*.tmp"):
+            stale.unlink(missing_ok=True)
         verified: list[Block] = []
         for path in sorted(self.blocks_dir.glob("*.json")):
             with open(path, "rb") as handle:
