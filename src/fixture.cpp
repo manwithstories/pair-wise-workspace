@@ -22,67 +22,97 @@ struct PngBytes {
   std::vector<std::uint8_t> data;
 };
 
-PngBytes encode_png(int width, int height, unsigned seed, int camera,
-                    int frame_index) {
-  const AVCodec* codec = avcodec_find_encoder(AV_CODEC_ID_PNG);
-  if (codec == nullptr) {
-    throw std::runtime_error("FFmpeg PNG encoder unavailable");
-  }
-  AVCodecContext* ctx = avcodec_alloc_context3(codec);
-  if (ctx == nullptr) {
-    throw std::runtime_error("avcodec_alloc_context3 failed");
-  }
-  ctx->width = width;
-  ctx->height = height;
-  ctx->pix_fmt = AV_PIX_FMT_RGB24;
-  ctx->time_base = AVRational{1, 1};
-  if (avcodec_open2(ctx, codec, nullptr) < 0) {
-    avcodec_free_context(&ctx);
-    throw std::runtime_error("avcodec_open2(PNG) failed");
-  }
-  AVFrame* frame = av_frame_alloc();
-  if (frame == nullptr) {
-    avcodec_free_context(&ctx);
-    throw std::runtime_error("av_frame_alloc failed");
-  }
-  frame->format = AV_PIX_FMT_RGB24;
-  frame->width = width;
-  frame->height = height;
-  if (av_frame_get_buffer(frame, 32) < 0) {
-    av_frame_free(&frame);
-    avcodec_free_context(&ctx);
-    throw std::runtime_error("av_frame_get_buffer failed");
-  }
-  for (int y = 0; y < height; ++y) {
-    auto* row = static_cast<std::uint8_t*>(frame->data[0]) +
-                static_cast<std::ptrdiff_t>(y) * frame->linesize[0];
-    for (int x = 0; x < width; ++x) {
-      row[3 * x + 0] =
-          static_cast<std::uint8_t>((x * 3 + frame_index + camera * 41 + seed) & 0xff);
-      row[3 * x + 1] = static_cast<std::uint8_t>((y * 5 + camera * 17) & 0xff);
-      row[3 * x + 2] =
-          static_cast<std::uint8_t>((frame_index * 7 + x + y) & 0xff);
+/// Reuses one PNG encoder for a whole run: opening the codec per frame is
+/// correct but needlessly slow for a few hundred frames.
+class PngEncoder {
+ public:
+  PngEncoder(int width, int height) : width_(width), height_(height) {
+    const AVCodec* codec = avcodec_find_encoder(AV_CODEC_ID_PNG);
+    if (codec == nullptr) {
+      throw std::runtime_error("FFmpeg PNG encoder unavailable");
+    }
+    ctx_ = avcodec_alloc_context3(codec);
+    if (ctx_ == nullptr) {
+      throw std::runtime_error("avcodec_alloc_context3 failed");
+    }
+    ctx_->width = width;
+    ctx_->height = height;
+    ctx_->pix_fmt = AV_PIX_FMT_RGB24;
+    ctx_->time_base = AVRational{1, 1};
+    if (avcodec_open2(ctx_, codec, nullptr) < 0) {
+      avcodec_free_context(&ctx_);
+      throw std::runtime_error("avcodec_open2(PNG) failed");
+    }
+    packet_ = av_packet_alloc();
+    if (packet_ == nullptr) {
+      avcodec_free_context(&ctx_);
+      throw std::runtime_error("av_packet_alloc failed");
     }
   }
-  std::vector<std::uint8_t> out;
-  if (avcodec_send_frame(ctx, frame) < 0) {
+
+  ~PngEncoder() {
+    av_packet_free(&packet_);
+    avcodec_free_context(&ctx_);
+  }
+  PngEncoder(const PngEncoder&) = delete;
+  PngEncoder& operator=(const PngEncoder&) = delete;
+
+  PngBytes encode(unsigned seed, int camera, int frame_index) {
+    AVFrame* frame = av_frame_alloc();
+    if (frame == nullptr) {
+      throw std::runtime_error("av_frame_alloc failed");
+    }
+    frame->format = AV_PIX_FMT_RGB24;
+    frame->width = width_;
+    frame->height = height_;
+    if (av_frame_get_buffer(frame, 32) < 0) {
+      av_frame_free(&frame);
+      throw std::runtime_error("av_frame_get_buffer failed");
+    }
+    for (int y = 0; y < height_; ++y) {
+      auto* row = static_cast<std::uint8_t*>(frame->data[0]) +
+                  static_cast<std::ptrdiff_t>(y) * frame->linesize[0];
+      for (int x = 0; x < width_; ++x) {
+        row[3 * x + 0] = static_cast<std::uint8_t>(
+            (x * 3 + frame_index + camera * 41 + seed) & 0xff);
+        row[3 * x + 1] =
+            static_cast<std::uint8_t>((y * 5 + camera * 17) & 0xff);
+        row[3 * x + 2] =
+            static_cast<std::uint8_t>((frame_index * 7 + x + y) & 0xff);
+      }
+    }
+    std::vector<std::uint8_t> out;
+    const bool sent = avcodec_send_frame(ctx_, frame) >= 0;
+    bool ok = sent;
+    if (sent) {
+      while (true) {
+        const int status = avcodec_receive_packet(ctx_, packet_);
+        if (status == AVERROR(EAGAIN) || status == AVERROR_EOF) {
+          break;
+        }
+        if (status < 0) {
+          ok = false;
+          break;
+        }
+        if (out.empty()) {
+          out.assign(packet_->data, packet_->data + packet_->size);
+        }
+        av_packet_unref(packet_);
+      }
+    }
     av_frame_free(&frame);
-    avcodec_free_context(&ctx);
-    throw std::runtime_error("avcodec_send_frame failed");
+    if (!ok || out.empty()) {
+      throw std::runtime_error("PNG encode failed");
+    }
+    return PngBytes{std::move(out)};
   }
-  AVPacket* packet = av_packet_alloc();
-  const bool ok = packet != nullptr && avcodec_receive_packet(ctx, packet) == 0;
-  if (ok) {
-    out.assign(packet->data, packet->data + packet->size);
-  }
-  av_packet_free(&packet);
-  av_frame_free(&frame);
-  avcodec_free_context(&ctx);
-  if (!ok) {
-    throw std::runtime_error("avcodec_receive_packet failed");
-  }
-  return PngBytes{std::move(out)};
-}
+
+ private:
+  int width_ = 0;
+  int height_ = 0;
+  AVCodecContext* ctx_ = nullptr;
+  AVPacket* packet_ = nullptr;
+};
 
 struct ArrivalPlan {
   std::vector<std::uint64_t> ids;
@@ -182,6 +212,7 @@ GeneratedFixture generate(const GenerateOptions& options, ErrorSink& errors) {
     const bool corrupt_here =
         options.corrupt && cam == options.corrupt_camera_index;
     std::ofstream frames(fixture.frames_path, std::ios::binary);
+    PngEncoder encoder(options.width, options.height);
     frames << "RELAYFRAMES 1\n" << "track " << track << "\n"
            << "timebase " << out.timebase.fps_num << '/'
            << out.timebase.fps_den << '\n';
@@ -197,8 +228,8 @@ GeneratedFixture generate(const GenerateOptions& options, ErrorSink& errors) {
       const std::uint32_t raw = static_cast<std::uint32_t>(raw64);
       const std::uint32_t seq = sequence_for(i, seq_cut);
       const bool key = i % options.gop == 0;
-      PngBytes png = encode_png(options.width, options.height, options.seed,
-                                static_cast<int>(cam), i);
+      PngBytes png =
+          encoder.encode(options.seed, static_cast<int>(cam), i);
       std::string digest = sha256_hex(png.data);
       if (corrupt_here && i == options.corrupt_frame && !png.data.empty()) {
         png.data[png.data.size() / 2] ^= 0x5a;
