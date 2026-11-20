@@ -57,7 +57,9 @@ __all__ = [
     "FrameBlock",
     "DecodeStats",
     "LossModel",
+    "LossPolicy",
     "VideoDecoder",
+    "decode_video_blocks",
     "reader_for_codec",
     "probe_stream",
 ]
@@ -460,3 +462,195 @@ class VideoDecoder:
         except (av.error.InvalidDataError, av.error.EOFError):
             pass
         yield from self._drain_pending(force=True)
+
+
+# ==========================================================================
+# Block driver
+# ==========================================================================
+
+
+@dataclass
+class LossPolicy:
+    """How a lost access unit is treated before decoding."""
+
+    model: LossModel | None = None
+    retry: bool = True
+    conceal: bool = True
+    # a retry whose byte range lies beyond EOF is unrecoverable
+    truncate_at_eof: bool = True
+
+
+def _frame_time(pts: int, frame_rate: Fraction) -> Fraction:
+    return Fraction(pts, 1) / frame_rate
+
+
+def decode_video_blocks(
+    path: Path,
+    codec: Codec,
+    frame_rate: Fraction,
+    *,
+    block_frames: int = 8,
+    policy: LossPolicy | None = None,
+    chunk_size: int = 1 << 16,
+    token=None,
+    stats: DecodeStats | None = None,
+    total_units: int | None = None,
+) -> Iterator[FrameBlock]:
+    """Decode a raw stream into fixed-size blocks, applying the loss policy.
+
+    The file is read incrementally; a lost access unit is retried by seeking
+    back to its exact byte range (a local retransmission).  Unrecoverable
+    losses mark the decoder damaged, concealed frames with an explicit gap
+    cover the missing interval, and decoding resumes at the next keyframe.
+    """
+    import time
+
+    path = Path(path)
+    size = path.stat().st_size
+    policy = policy or LossPolicy()
+    if policy.model is not None and total_units is not None:
+        policy.model.configure(total_units)
+    decoder = VideoDecoder(codec, frame_rate)
+    if stats is not None:
+        decoder.stats = stats
+    block: list[DecodedFrame] = []
+    block_index = 0
+    started = time.perf_counter_ns()
+    gap_pending = 0
+    scanner = reader_for_codec(codec)
+
+    def flush_block() -> FrameBlock | None:
+        nonlocal block, block_index, started
+        if not block:
+            return None
+        out = FrameBlock(index=block_index, frames=block, started_ns=started, finished_ns=time.perf_counter_ns())
+        block = []
+        block_index += 1
+        started = time.perf_counter_ns()
+        return out
+
+    def emit(frames: Iterable[DecodedFrame]) -> Iterator[FrameBlock]:
+        for frame in frames:
+            block.append(frame)
+            if len(block) >= block_frames:
+                produced = flush_block()
+                if produced is not None:
+                    yield produced
+
+    def close_gap(*, until_pts: int | None = None) -> Iterator[FrameBlock]:
+        nonlocal gap_pending
+        if gap_pending:
+            gap_ms = _frame_time(gap_pending, frame_rate) * 1000
+            decoder.stats.max_gap_ms = max(decoder.stats.max_gap_ms, gap_ms)
+            yield from emit(decoder.conceal(gap_pending, until_pts=until_pts))
+            gap_pending = 0
+
+    def attempt(au: AccessUnit, payload: bytes, *, recovered: bool, source: str) -> list[DecodedFrame]:
+        try:
+            return list(decoder.feed(au, payload, recovered=recovered, source=source))
+        except QcError:
+            decoder.mark_damaged()
+            return []
+
+    # Two handles: one sequential for scanning, one seekable for payload and
+    # retry reads.  Interleaving seeks with the scanning handle would re-read
+    # or skip bytes.
+    with path.open("rb") as handle, path.open("rb") as payload_handle:
+        def read_unit(au: AccessUnit) -> bytes | None:
+            if au.offset + au.size > size:
+                return None
+            payload_handle.seek(au.offset)
+            payload = payload_handle.read(au.size)
+            return payload if len(payload) == au.size else None
+
+        def handle_unit(au: AccessUnit) -> Iterator[FrameBlock]:
+            nonlocal gap_pending
+            decoder.stats.access_units += 1
+            if token is not None and token.cancelled:
+                return
+            if decoder.damaged and not au.is_keyframe:
+                gap_pending += 1
+                return
+            if decoder.damaged:
+                # Conceal the skipped units only once the resync keyframe is
+                # actually present; clamp so concealment never overlaps it.
+                yield from close_gap(until_pts=au.index)
+
+            lost = policy.model is not None and policy.model.drops(au.index)
+            if lost:
+                decoder.stats.packets_lost += 1
+                if policy.retry and not policy.model.hard(au.index):
+                    payload = read_unit(au)
+                    if payload is not None and validate_access_unit(codec, payload, strict=True) is None:
+                        frames = attempt(au, payload, recovered=True, source=SOURCE_RETRY)
+                        if frames:
+                            decoder.stats.recovered_packets += 1
+                            decoder.stats.delivered += 1
+                            decoder.stats.decoded_frames += len(frames)
+                            yield from emit(frames)
+                            return
+                decoder.stats.unrecoverable_packets += 1
+                decoder.mark_damaged()
+                gap_pending += 1
+                return
+
+            payload = read_unit(au)
+            if payload is None:
+                # the unit's declared range runs past EOF: truncated tail
+                decoder.stats.truncated_units += 1
+                decoder.stats.unrecoverable_packets += 1
+                decoder.mark_damaged()
+                gap_pending += 1
+                return
+            problem = validate_access_unit(codec, payload, strict=True)
+            if problem is not None:
+                # structural conformance failure: an illegal access unit even
+                # if the decoder would silently swallow it.  Not a recovered
+                # packet: there is no picture to recover.
+                decoder.stats.illegal_units += 1
+                decoder.stats.unrecoverable_packets += 1
+                decoder.mark_damaged()
+                gap_pending += 1
+                return
+            frames = attempt(au, payload, recovered=False, source=SOURCE_DECODE)
+            if not frames and decoder.damaged:
+                gap_pending += 1
+                return
+            decoder.stats.delivered += 1
+            decoder.stats.decoded_frames += len(frames)
+            # A decoder may silently discard a corrupt unit (no exception, no
+            # frame).  Detect that as an illegal access unit rather than
+            # letting the display clock drift.
+            if not frames and not au.is_keyframe:
+                decoder.stats.illegal_units += 1
+                decoder.mark_damaged()
+                gap_pending += 1
+                return
+            yield from emit(frames)
+
+        while True:
+            if token is not None and token.cancelled:
+                break
+            chunk = handle.read(chunk_size)
+            if not chunk:
+                try:
+                    tail_units = list(scanner.finish())
+                except QcError as exc:
+                    if exc.category is ErrorCategory.STREAM_EMPTY:
+                        # nothing was ever parseable: an invalid input stream
+                        raise
+                    tail_units = []
+                    decoder.stats.truncated_units += 1
+                for au in tail_units:
+                    yield from handle_unit(au)
+                break
+            for au in scanner.feed(chunk):
+                yield from handle_unit(au)
+
+    yield from close_gap()
+    trailing = list(decoder.flush())
+    decoder.stats.decoded_frames += len(trailing)
+    yield from emit(trailing)
+    produced = flush_block()
+    if produced is not None:
+        yield produced
