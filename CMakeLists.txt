@@ -34,4 +34,8 @@ add_library(mediaqc STATIC ${MEDIAQC_SOURCES})
 target_include_directories(mediaqc PUBLIC include)
 target_link_libraries(mediaqc PUBLIC PkgConfig::FFMPEG)
 
+add_executable(mediaqc_app app/main.cpp)
+set_target_properties(mediaqc_app PROPERTIES OUTPUT_NAME mediaqc)
+target_link_libraries(mediaqc_app PRIVATE mediaqc)
+
 enable_testing()
