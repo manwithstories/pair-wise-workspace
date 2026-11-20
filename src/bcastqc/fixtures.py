@@ -43,6 +43,7 @@ __all__ = [
     "write_audio",
     "damage_drop_access_units",
     "damage_truncate",
+    "damage_corrupt_access_unit",
     "make_bad_index",
 ]
 
@@ -366,6 +367,14 @@ def generate_fixture_set(root: Path, spec: FixtureSpec) -> FixtureSet:
                   notes=[f"cut at byte {cut} ({cut / base.stat().st_size:.0%} of original)"])
     )
 
+    corrupt_path = root / "program_h264_corrupt.bin"
+    corrupt_at = damage_corrupt_access_unit(base, corrupt_path, Codec.H264, min(len(units) - 2, gop + 5))
+    files.append(
+        _describe("video_corrupt", corrupt_path, codec=Codec.H264,
+                  units=split_units(corrupt_path.read_bytes(), Codec.H264),
+                  notes=[f"payload of access unit {corrupt_at} replaced with garbage"])
+    )
+
     bad_index_path = root / "program_h264_bad.index.json"
     make_bad_index(base, bad_index_path, Codec.H264)
     files.append(
@@ -384,3 +393,45 @@ def generate_fixture_set(root: Path, spec: FixtureSpec) -> FixtureSet:
     fixture = FixtureSet(root=root, spec=spec, files=files)
     fixture.write_manifest(root / "fixtures.json")
     return fixture
+
+
+def damage_corrupt_access_unit(source: Path, target: Path, codec: Codec, position: int,
+                               keep_bytes: int = 24) -> int:
+    """Replace the payload of one access unit with random bytes (bit rot).
+
+    The access unit's start code is preserved so the container structure
+    survives, but the payload is garbage, which is what an illegal access unit
+    looks like to the decoder.
+    """
+    del keep_bytes
+    data = bytearray(source.read_bytes())
+    units = split_units(bytes(data), codec)
+    unit = units[position]
+    # Keep the access unit's leading NAL (AUD / sequence header) so the
+    # container boundary survives; corrupt the VCL payload of every following
+    # NAL in the same unit.  The unit keeps its size, so later units stay
+    # byte-aligned exactly as they would after a transport bit flip.
+    start, end = unit.offset, unit.end
+    parser = AnnexBParser(codec) if codec in (Codec.H264, Codec.H265) else None
+    if parser is None:
+        data[start:end] = data[start:start + 2] + b"\xff" * (end - start - 2)
+        target.write_bytes(bytes(data))
+        return unit.index
+    headers = parser._nal_headers(bytes(data[start:end]), end - start)
+    if len(headers) < 2:
+        # no separate VCL NAL to damage; replace the body but keep the header
+        begin = start + headers[0][1] + 1
+        rng = _rng(7, f"corrupt-{position}")
+        data[begin:end] = rng.integers(1, 256, size=end - begin, dtype=np.uint8).tobytes()
+        target.write_bytes(bytes(data))
+        return unit.index
+    # Keep the leading AUD / parameter-set NAL, replace every following NAL
+    # with one bogus slice NAL of the same total length.
+    vcl_start = start + headers[1][1]
+    body_len = end - vcl_start - 6  # room for a 4-byte start code + 2-byte NAL
+    rng = _rng(7, f"corrupt-{position}")
+    nal_header = b"\x00\x00\x00\x01\x41" if codec is Codec.H264 else b"\x00\x00\x00\x01\x02\x01"
+    body = rng.integers(1, 256, size=max(0, body_len), dtype=np.uint8).tobytes()
+    data[vcl_start:end] = nal_header + body
+    target.write_bytes(bytes(data))
+    return unit.index
