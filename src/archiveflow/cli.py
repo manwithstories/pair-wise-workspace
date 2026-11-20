@@ -9,6 +9,7 @@ and statistics.
 from __future__ import annotations
 
 import math
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -17,18 +18,18 @@ import numpy as np
 import soundfile as sf
 
 from .clock import ClockDomain
-from .errors import CapabilityError, UnrecoverableError
+from .errors import CapabilityError, ParameterError, UnrecoverableError
 from .ladder import (SegmentResult, alignment_error_ms, build_ladder,
                      encode_segment, select_representations,
                      simulate_bandwidth)
-from .manifest import (MANIFEST_VERSION, atomic_write_json,
-                       safe_segment_name)
+from .manifest import (MANIFEST_VERSION, atomic_write_json, load_manifest,
+                       safe_segment_name, validate_manifest)
 from .metrics import bitrate_error_pct, psnr_db, ssim, summarize_quality
 from .repair import FrameReassembler, RepairStats, ReorderBuffer
 from .rtp import (RTCP_PT_SR, PacketOrganizer, parse_rtcp_sr, parse_rtp)
 from .segment import plan_segments
 from .stream import Pipeline
-from .synthetic import Bundle, synth_frame
+from .synthetic import Bundle, SyntheticParams, generate, synth_frame
 
 AUDIO_CHUNK = 960  # 20 ms at 48 kHz
 AUDIO_RATE = 48000
@@ -304,3 +305,116 @@ def _write_and_summarize(manifest: dict, out_dir: Path) -> None:
         print(f"{key}: {rec[key]}")
     print(f"peak_queue_items: {manifest['pipeline']['peak_queue_items']}")
     print(f"manifest: {out_dir / 'manifest.json'}")
+
+
+MAX_DURATION_S = 600.0
+MAX_TARGETS = 8
+MAX_QUEUE = 4096
+MAX_SEGMENT_MS = 60_000.0
+
+CORRUPT_PRESETS = {
+    "none": {},
+    "duplicates": {"duplicate_prob": 0.15},
+    "reorder-overflow": {"reorder_span": 128},
+    "loss-burst": {"loss_burst_prob": 0.8},
+    "rtcp-conflict": {"rtcp_conflict": True},
+    "truncated": {"truncate_tail": 0.15},
+    "empty": {"empty": True},
+}
+
+
+def _parse_targets(text: str) -> list[int]:
+    try:
+        targets = [int(t) for t in text.split(",") if t.strip()]
+    except ValueError as exc:
+        raise ParameterError(f"invalid --targets list: {text!r}") from exc
+    if not 1 <= len(targets) <= MAX_TARGETS or any(t <= 0 for t in targets):
+        raise ParameterError("targets must be 1..8 positive bitrates")
+    return targets
+
+
+def _check_finite(name: str, value: float, lo: float, hi: float) -> None:
+    if not math.isfinite(value) or not lo <= value <= hi:
+        raise ParameterError(f"{name} must be finite and within "
+                             f"[{lo}, {hi}], got {value}")
+
+
+def _cmd_demo(args) -> int:
+    targets = _parse_targets(args.targets)
+    _check_finite("--duration", args.duration, 0.5, MAX_DURATION_S)
+    _check_finite("--loss-burst", args.loss_burst, 0.0, 10.0)
+    _check_finite("--segment-ms", args.segment_ms, 250.0, MAX_SEGMENT_MS)
+    if not 1 <= args.reorder_window <= 1024:
+        raise ParameterError("--reorder-window must be within [1, 1024]")
+    if not 1 <= args.queue_size <= MAX_QUEUE:
+        raise ParameterError(f"--queue-size must be within [1, {MAX_QUEUE}]")
+    params = SyntheticParams(
+        duration_s=args.duration, seed=args.seed,
+        loss_burst_prob=args.loss_burst, reorder_span=16,
+        duplicate_prob=0.02,
+        **CORRUPT_PRESETS[args.corrupt])
+    if args.corrupt == "reorder-overflow":
+        params.reorder_span = 2 * args.reorder_window
+    bundle = generate(params)
+    cfg = RecoverConfig(out_dir=Path(args.out), targets=targets,
+                        reorder_window=args.reorder_window,
+                        queue_size=args.queue_size,
+                        segment_ms=args.segment_ms, fps=params.fps)
+    manifest = recover(bundle, cfg)
+    _write_and_summarize(manifest, Path(args.out))
+    return 0
+
+
+def _cmd_verify(args) -> int:
+    path = Path(args.manifest)
+    data = load_manifest(path)
+    problems = validate_manifest(data, path.parent)
+    print(f"segments: {len(data.get('segments', []))}")
+    print(f"representations: {len(data.get('representations', []))}")
+    print(f"duration_ms: {data.get('duration_ms', 0)}")
+    ok = not problems
+    print(f"manifest_ok: {str(ok).lower()}")
+    for problem in problems:
+        print(f"problem: {problem}")
+    return 0 if ok else 1
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="archiveflow",
+        description="RTP/RTCP archive recovery pipeline")
+    sub = parser.add_subparsers(dest="command", required=True)
+    demo = sub.add_parser("demo", help="generate a synthetic capture, "
+                                       "recover it and write a manifest")
+    demo.add_argument("--duration", type=float, default=24.0)
+    demo.add_argument("--loss-burst", type=float, default=0.0,
+                      help="loss bursts per second of media")
+    demo.add_argument("--reorder-window", type=int, default=64)
+    demo.add_argument("--targets", default="500000,1200000,2500000")
+    demo.add_argument("--out", required=True)
+    demo.add_argument("--segment-ms", type=float, default=4000.0)
+    demo.add_argument("--queue-size", type=int, default=256)
+    demo.add_argument("--seed", type=int, default=12772)
+    demo.add_argument("--corrupt", choices=sorted(CORRUPT_PRESETS),
+                      default="none", help="damaged-sample preset")
+    demo.set_defaults(func=_cmd_demo)
+    verify = sub.add_parser("verify", help="validate a written manifest")
+    verify.add_argument("--manifest", required=True)
+    verify.set_defaults(func=_cmd_verify)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        return args.func(args)
+    except ParameterError as exc:
+        print(f"parameter error: {exc}", file=sys.stderr)
+        return 2
+    except (UnrecoverableError, CapabilityError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
