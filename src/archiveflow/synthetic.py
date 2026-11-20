@@ -159,7 +159,7 @@ def _packetize(params: SyntheticParams) -> list[bytes]:
     out: list[bytes] = []
     base_ntp = 3_900_000_000.0
     for i, pkt in enumerate(media):
-        if i and i % sr_every == 0:
+        if i % sr_every == 0:
             t_s = i / len(media) * params.duration_s
             out.append(_rtcp_sr(VIDEO_SSRC, base_ntp + t_s,
                                 int(t_s * CLOCK_RATE)))
@@ -182,12 +182,17 @@ def _apply_impairments(packets: list[bytes], params: SyntheticParams,
         media_idx = [k for k, (_, r) in enumerate(items) if not r]
         n_bursts = int(round(params.loss_burst_prob * params.duration_s))
         drop: set[int] = set()
-        if media_idx and n_bursts:
-            starts = rng.choice(len(media_idx),
-                                size=min(n_bursts, len(media_idx)),
+        # Keep the first GOP worth of packets burst-free so the stream
+        # header survives; a capture that loses its very first packets is
+        # rejected upstream rather than repaired.
+        guard = max(1, len(media_idx) // 20)
+        pool = media_idx[guard:] or media_idx
+        if pool and n_bursts:
+            starts = rng.choice(len(pool), size=min(n_bursts, len(pool)),
                                 replace=False)
             for pos in starts:
-                drop.update(media_idx[pos:pos + params.loss_burst_len])
+                drop.update(media_idx[guard + pos:guard + pos
+                                      + params.loss_burst_len])
         items = [it for k, it in enumerate(items) if k not in drop]
     if params.reorder_span > 1:
         out, buf = [], []

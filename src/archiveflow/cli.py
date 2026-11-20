@@ -95,14 +95,20 @@ def _reassemble(organizer: PacketOrganizer, domain: ClockDomain, ssrc: int,
 
 def _decode_video(frames: dict) -> dict[int, np.ndarray]:
     try:
-        ctx = av.codec.CodecContext.create("mpeg4", "r")
+        av.codec.Codec("mpeg4", "r")
     except Exception as exc:
         raise CapabilityError(f"mpeg4 decoder unavailable: {exc}") from exc
     decoded: dict[int, np.ndarray] = {}
+    ctx = None
     for idx in sorted(frames):
         frame = frames[idx]
         if frame.confidence < 1.0:
             continue  # partial frame: treat as lost, freeze-fill later
+        if frame.keyframe or ctx is None:
+            # Fresh decoder state at each GOP boundary: keyframes carry
+            # the VOL header, so recovery resumes even if earlier GOPs
+            # (including the stream header) were lost.
+            ctx = av.codec.CodecContext.create("mpeg4", "r")
         try:
             for vf in ctx.decode(av.Packet(frame.data)):
                 decoded[idx] = vf.to_ndarray(format="rgb24")
@@ -133,11 +139,11 @@ def _build_timeline(decoded: dict[int, np.ndarray], declared_frames: int):
     return timeline, truncated, freeze, unrecoverable
 
 
-def _encode_ladder(timeline, segments, reps, fps, out_dir: Path):
+def _encode_ladder(timeline, segments, reps, fps, out_dir: Path, time_of):
     by_seg: dict[int, list] = {s.index: [] for s in segments}
     idx_by_seg: dict[int, list[int]] = {s.index: [] for s in segments}
     for idx, frame in timeline:
-        t = idx * 1000.0 / fps
+        t = time_of(idx)
         for s in segments:
             if s.start_ms <= t < s.end_ms:
                 by_seg[s.index].append(frame)
@@ -220,9 +226,26 @@ def recover(bundle: Bundle, cfg: RecoverConfig) -> dict:
     timeline, truncated, freeze, unrecoverable = _build_timeline(
         decoded, bundle.n_frames)
     fps = cfg.fps
-    kf_times = [idx * 1000.0 / fps for idx, f in video_frames.items()
+    frame_dur_ms = 1000.0 / fps
+    # Map every recovered frame through the unified media clock (anchored
+    # by Sender Reports); missing frames interpolate from the nearest
+    # earlier mapped frame.
+    vclock = domain.clock_for(bundle.video_ssrc)
+    frame_ms = {idx: vclock.map(f.timestamp).clock_ms
+                for idx, f in video_frames.items()}
+
+    def time_of(idx: int) -> float:
+        if idx in frame_ms:
+            return frame_ms[idx]
+        earlier = [k for k in frame_ms if k < idx]
+        if not earlier:
+            return idx * frame_dur_ms
+        base = max(earlier)
+        return frame_ms[base] + (idx - base) * frame_dur_ms
+
+    kf_times = [time_of(idx) for idx, f in video_frames.items()
                 if f.keyframe and idx in decoded]
-    media_end_ms = (timeline[-1][0] + 1) * 1000.0 / fps
+    media_end_ms = time_of(timeline[-1][0]) + frame_dur_ms
     segments = plan_segments(media_end_ms, kf_times, cfg.segment_ms,
                              truncated,
                              declared_end_ms=bundle.duration_s * 1000.0)
@@ -230,7 +253,7 @@ def recover(bundle: Bundle, cfg: RecoverConfig) -> dict:
         raise UnrecoverableError("no segments could be planned")
     reps = build_ladder(cfg.targets)
     results, idx_by_seg = _encode_ladder(timeline, segments, reps, fps,
-                                         out_dir)
+                                         out_dir, time_of)
     bandwidth = simulate_bandwidth(len(segments), seed=bundle.seed)
     choices = select_representations(reps, len(segments), bandwidth)
     for r in results:
@@ -349,11 +372,11 @@ def _cmd_demo(args) -> int:
         raise ParameterError("--reorder-window must be within [1, 1024]")
     if not 1 <= args.queue_size <= MAX_QUEUE:
         raise ParameterError(f"--queue-size must be within [1, {MAX_QUEUE}]")
-    params = SyntheticParams(
-        duration_s=args.duration, seed=args.seed,
-        loss_burst_prob=args.loss_burst, reorder_span=16,
-        duplicate_prob=0.02,
-        **CORRUPT_PRESETS[args.corrupt])
+    impairments = {"loss_burst_prob": args.loss_burst, "reorder_span": 16,
+                   "duplicate_prob": 0.02}
+    impairments.update(CORRUPT_PRESETS[args.corrupt])
+    params = SyntheticParams(duration_s=args.duration, seed=args.seed,
+                             **impairments)
     if args.corrupt == "reorder-overflow":
         params.reorder_span = 2 * args.reorder_window
     bundle = generate(params)
