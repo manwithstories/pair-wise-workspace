@@ -1,0 +1,5 @@
+if(EXISTS "/Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/relay_tests-b12d07c_tests.cmake")
+  include("/Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/relay_tests-b12d07c_tests.cmake")
+else()
+  add_test(relay_tests_NOT_BUILT-b12d07c relay_tests_NOT_BUILT-b12d07c)
+endif()

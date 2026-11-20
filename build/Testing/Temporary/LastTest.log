@@ -1,0 +1,43 @@
+Start testing: Nov 21 06:22 CST
+----------------------------------------------------------
+1/2 Testing: structured errors locate stage track and frame
+1/2 Test: structured errors locate stage track and frame
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/relay_tests" "structured errors locate stage track and frame" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/13308/build
+"structured errors locate stage track and frame" start time: Nov 21 06:22 CST
+Output:
+----------------------------------------------------------
+Filters: "structured errors locate stage track and frame"
+Randomness seeded to: 2565108986
+===============================================================================
+All tests passed (7 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"structured errors locate stage track and frame" end time: Nov 21 06:22 CST
+"structured errors locate stage track and frame" time elapsed: 00:00:00
+----------------------------------------------------------
+
+2/2 Testing: timebase converts frames and microseconds symmetrically
+2/2 Test: timebase converts frames and microseconds symmetrically
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/relay_tests" "timebase converts frames and microseconds symmetrically" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/13308/build
+"timebase converts frames and microseconds symmetrically" start time: Nov 21 06:22 CST
+Output:
+----------------------------------------------------------
+Filters: "timebase converts frames and microseconds symmetrically"
+Randomness seeded to: 1197630192
+===============================================================================
+All tests passed (6 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"timebase converts frames and microseconds symmetrically" end time: Nov 21 06:22 CST
+"timebase converts frames and microseconds symmetrically" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Nov 21 06:22 CST

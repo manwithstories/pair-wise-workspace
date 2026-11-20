@@ -1,0 +1,2 @@
+/usr/bin/ar qc librelay_core.a CMakeFiles/relay_core.dir/src/types.cpp.o CMakeFiles/relay_core.dir/src/hash.cpp.o
+/usr/bin/ranlib librelay_core.a

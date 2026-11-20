@@ -1,0 +1,5 @@
+add_test( [==[structured errors locate stage track and frame]==] /Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/relay_tests [==[structured errors locate stage track and frame]==]   [==[--order decl]==] )
+set_tests_properties( [==[structured errors locate stage track and frame]==] PROPERTIES WORKING_DIRECTORY /Users/clearliu/WorkSpace/pair-wise-workspace/13308/build SKIP_RETURN_CODE 4)
+add_test( [==[timebase converts frames and microseconds symmetrically]==] /Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/relay_tests [==[timebase converts frames and microseconds symmetrically]==]   [==[--order decl]==] )
+set_tests_properties( [==[timebase converts frames and microseconds symmetrically]==] PROPERTIES WORKING_DIRECTORY /Users/clearliu/WorkSpace/pair-wise-workspace/13308/build SKIP_RETURN_CODE 4)
+include("/Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/relay_test-list-b12d07c_tests.cmake")
