@@ -152,3 +152,120 @@ class AudioTrack:
                 self._peak = float(np.max(np.abs(samples)))
                 self._rms = float(np.sqrt(np.mean(np.square(samples, dtype=np.float64))))
         return self._peak, self._rms
+
+
+def _read_header(path: Path, size: int = 8192) -> bytes:
+    with path.open("rb") as handle:
+        return handle.read(size)
+
+
+def _first_nal_payloads(data: bytes, limit: int = 6) -> list[int]:
+    """Return the first byte after each Annex-B start code (bounded scan)."""
+
+    payloads: list[int] = []
+    position = 0
+    while len(payloads) < limit:
+        candidates = [data.find(code, position) for code in START_CODES]
+        candidates = [index for index in candidates if index >= 0]
+        if not candidates:
+            break
+        start = min(candidates)
+        code_len = 3 if data.startswith(b"\x00\x00\x01", start) else 4
+        payload = start + code_len
+        if payload >= len(data):
+            break
+        payloads.append(data[payload])
+        position = payload + 1
+    return payloads
+
+
+def sniff_codec(path: Path) -> str:
+    """Classify a raw elementary stream as h264, hevc or av1 from its header.
+
+    Evidence is deliberately conservative: HEVC must expose a VPS or SPS NAL
+    unit, H.264 must expose an SPS, and AV1 must start with a low-overhead OBU.
+    Anything else is reported as an unexplained encoding type instead of being
+    guessed, because a wrong guess would silently mis-time the track.
+    """
+
+    data = _read_header(path)
+    if not data:
+        raise StreamError(f"{path.name}: empty elementary stream")
+    # AV1 low-overhead OBU streams start with a temporal delimiter or a
+    # sequence header OBU.
+    if data[0] in (0x12, 0x0A, 0x32) and data[0] != 0x0A:
+        return "av1"
+    payloads = _first_nal_payloads(data, limit=200)
+    if not payloads:
+        raise StreamError(f"{path.name}: no Annex-B start code found")
+    hevc_types = {value >> 1 for value in payloads if not value & 0x80}
+    h264_types = {value & 0x1F for value in payloads if not value & 0x80}
+    is_hevc = bool(hevc_types & {32, 33}) and bool(h264_types & {7}) is False
+    is_h264 = 7 in h264_types and 8 in h264_types
+    if is_hevc and is_h264:
+        raise CodecConflictError(
+            f"{path.name}: stream carries both H.264 and HEVC parameter sets"
+        )
+    if is_hevc:
+        return "hevc"
+    if is_h264:
+        return "h264"
+    raise CodecConflictError(
+        f"{path.name}: cannot explain elementary stream codec from byte header"
+    )
+
+
+def _verify_decodable(path: Path, codec: str, limits: Limits) -> None:
+    """Decode at most one frame to prove the stream matches its declared codec."""
+
+    try:
+        import av
+    except ImportError as exc:  # pragma: no cover - environment guard
+        raise DependencyError("PyAV is required for stream ingestion") from exc
+
+    try:
+        container = av.open(str(path), format=codec)
+    except Exception as exc:  # noqa: BLE001 - PyAV raises FFmpeg error types
+        raise CodecConflictError(
+            f"{path.name}: cannot open as {codec} ({exc})"
+        ) from exc
+    try:
+        video = container.streams.video[0]
+        decoded = 0
+        for frame in container.decode(video):
+            if frame.width <= 0 or frame.height <= 0:
+                raise StreamError(f"{path.name}: decoded frame has no dimensions")
+            decoded += 1
+            if decoded >= 1:
+                break
+        if decoded == 0:
+            raise StreamError(f"{path.name}: no frames decoded from {codec} stream")
+    except (StreamError, CodecConflictError):
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise CodecConflictError(
+            f"{path.name}: decode failed as {codec} ({exc})"
+        ) from exc
+    finally:
+        container.close()
+
+
+def _load_index(path: Path, limits: Limits) -> dict[str, Any]:
+    try:
+        size = path.stat().st_size
+    except OSError as exc:
+        raise InputError(f"cannot stat index {path}: {exc}") from exc
+    if size > limits.max_index_bytes:
+        raise InputError(
+            f"index {path.name} is {size} bytes, limit is {limits.max_index_bytes}"
+        )
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except OSError as exc:
+        raise InputError(f"cannot read index {path}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise IndexError_(f"index {path.name} is not valid JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise IndexError_(f"index {path.name} must contain a JSON object")
+    return payload
