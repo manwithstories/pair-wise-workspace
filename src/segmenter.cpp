@@ -57,13 +57,14 @@ std::uint32_t keyframe_cadence(const TimelineTrack& track) {
 /// True when a delivery gap is large and well-placed enough to have
 /// swallowed a keyframe that the cadence predicts.
 bool gap_swallows_keyframe(const TimelineTrack& track, int epoch,
-                           std::uint32_t end,
+                           std::uint32_t begin, std::uint32_t end,
                            std::uint32_t cadence, std::uint32_t& lost_sequence) {
   if (cadence == 0) {
     return false;
   }
   for (const auto& loss : track.losses) {
-    if (loss.epoch != epoch || loss.first_sequence >= end) {
+    if (loss.epoch != epoch || loss.first_sequence >= end ||
+        loss.first_sequence + loss.count <= begin) {
       continue;
     }
     for (std::uint32_t q = loss.first_sequence;
@@ -192,9 +193,16 @@ TrackSegments segment_track(const TimelineTrack& track,
         }
       }
     }
+    // Only a gap that falls inside this segment (or right at its start)
+    // can invalidate the index for this segment; a later gap makes a later
+    // segment unseekable, not this one.
     std::uint32_t lost_key = 0;
-    if (gap_swallows_keyframe(track, epoch, segment.end_sequence + 1, cadence,
-                              lost_key)) {
+    // A gap between the last frame of this segment and the first frame of
+    // the next one invalidates the next segment's index, not this one.
+    if (gap_swallows_keyframe(track, epoch, segment.start_sequence,
+                              segment.end_sequence, cadence, lost_key) ||
+        (start_is_key && lost_at(track, epoch, segment.start_sequence) &&
+         [&] { return true; }())) {
       segment.random_access = false;
       segment.keyframe_sequence = 0;  // no fabricated index
       segment.status = SegmentStatus::kUnseekable;

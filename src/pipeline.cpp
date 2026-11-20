@@ -47,6 +47,7 @@ std::string stage_input_digest(const std::string& stage,
 }
 
 void emit_manifest(const PipelineConfig& config, const Timeline& timeline,
+                   const std::vector<TrackInput>& inputs,
                    const std::vector<TrackSegments>& per_track,
                    const LadderResult& ladder, const std::string& input_digest,
                    Manifest& manifest) {
@@ -72,8 +73,12 @@ void emit_manifest(const PipelineConfig& config, const Timeline& timeline,
         segments = &candidate;
       }
     }
+    for (const auto& input : inputs) {
+      if (input.spec.id == node.spec.id) {
+        track.epochs = std::max(1, input.epochs_total);
+      }
+    }
     if (segments != nullptr) {
-      track.epochs = 1;
       for (const auto& segment : segments->segments) {
         ManifestSegment entry;
         entry.track = segment.track;
@@ -322,13 +327,23 @@ PipelineResult run_pipeline(const PipelineConfig& config) {
       streams.clear();
     }
   }
+  if (!streams.empty()) {
+    for (auto& track : read.tracks) {
+      for (const auto& stream : streams) {
+        if (stream.track == track.spec.id) {
+          track.epochs_total = static_cast<int>(stream.epochs.size());
+        }
+      }
+    }
+  }
   if (streams.empty()) {
     if (!reorder_reused) {
       ++result.report.recomputed_stages;
     }
     checkpoints.begin(kStageReorder, reorder_digest, errors);
-    for (const auto& track : read.tracks) {
+    for (auto& track : read.tracks) {
       streams.push_back(reorder_track(track, errors));
+      track.epochs_total = static_cast<int>(streams.back().epochs.size());
     }
     checkpoints.complete(kStageReorder, reorder_digest, read.input_digest,
                          serialize_reorder_cache(streams), errors);
@@ -460,8 +475,8 @@ PipelineResult run_pipeline(const PipelineConfig& config) {
 
   // ---- manifest ---------------------------------------------------------
   Manifest manifest;
-  emit_manifest(config, timeline, per_track, ladder, read.input_digest,
-                manifest);
+  emit_manifest(config, timeline, read.tracks, per_track, ladder,
+                read.input_digest, manifest);
   PipelineReport& report = result.report;
   emit_report(report, timeline, read.tracks, streams, per_track, ladder,
               manifest);

@@ -749,6 +749,11 @@ TEST_CASE("pipeline produces a verified manifest end to end", "[pipeline]") {
   }
   CHECK(std::filesystem::exists(result.manifest_path));
   CHECK(report.stage_order.size() == 6);
+  // Epoch counts in the manifest are real, not a placeholder: the fixture
+  // wraps the timestamp and resets the sequence, so each camera has >1.
+  for (const auto& track : result.manifest.tracks) {
+    CHECK(track.epochs >= 2);
+  }
 }
 
 TEST_CASE("interrupted run resumes to the same manifest digest",
@@ -917,4 +922,53 @@ TEST_CASE("CLI exit codes match the contract", "[cli][exit]") {
       {"resume", "--work", (root / "does-not-exist").string()});
   REQUIRE(missing.error.empty());
   CHECK(cli::execute(missing) == static_cast<int>(ExitCode::kCorrupt));
+}
+
+TEST_CASE("a keyframe gap only invalidates the segment containing it",
+          "[segment][keyframe]") {
+  // Keyframes every 10 frames; a gap at 30..32 swallows keyframe 30.
+  TimelineTrack track;
+  track.id = "cam-a";
+  track.timebase = Timebase{30, 1};
+  for (int i = 0; i < 60; ++i) {
+    if (i >= 30 && i <= 32) {
+      continue;
+    }
+    FrameRecord frame;
+    frame.track = "cam-a";
+    frame.source_frame = static_cast<std::uint64_t>(i);
+    frame.sequence = static_cast<std::uint32_t>(i);
+    frame.pts_us = static_cast<Micros>(i) * 33333;
+    frame.keyframe = i % 10 == 0;
+    frame.sha256 = std::string(64, 'a');
+    track.frames.push_back(frame);
+  }
+  track.losses.push_back(LostRange{"cam-a", 0, 30, 3, "burst loss"});
+  SegmentOptions options;
+  options.target_duration_us = 333'330;  // 10 frames
+  ErrorSink errors;
+  TrackSegments segments = segment_track(track, options, errors);
+  REQUIRE(segments.segments.size() >= 3);
+  // Segments before the gap are unaffected...
+  CHECK(segments.segments[0].random_access);
+  CHECK(segments.segments[1].random_access);
+  // ...the segment whose span holds the lost keyframe is not seekable
+  // (it starts on the nearest frame after the gap, sequence 29)...
+  bool flagged = false;
+  for (const auto& segment : segments.segments) {
+    if (segment.start_sequence == 29) {
+      CHECK_FALSE(segment.random_access);
+      CHECK(segment.keyframe_sequence == 0);
+      CHECK(segment.status_reason.find("keyframe lost") != std::string::npos);
+      flagged = true;
+    }
+  }
+  CHECK(flagged);
+  // ...and later segments still start on their own keyframes (no blast
+  // radius beyond the gap) unless they lost one themselves.
+  for (const auto& segment : segments.segments) {
+    if (segment.start_sequence == 40) {
+      CHECK(segment.random_access);
+    }
+  }
 }

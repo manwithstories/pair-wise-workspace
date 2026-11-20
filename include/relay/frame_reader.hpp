@@ -32,6 +32,9 @@ struct TrackInput {
   std::uint32_t reorder_window = 32;
   std::size_t checksum_failures = 0;
   std::size_t decode_failures = 0;
+  /// Number of timeline epochs observed while reordering; persisted so a
+  /// resumed run's manifest reports the same count.
+  int epochs_total = 1;
   std::string file_digest;
 };
 
