@@ -1,9 +1,11 @@
 #include "relay/fixture.hpp"
 #include "relay/frame_reader.hpp"
 #include "relay/packet_reorder.hpp"
+#include "relay/segmenter.hpp"
 #include "relay/timeline.hpp"
 #include "relay/types.hpp"
 
+#include <cstdlib>
 #include <filesystem>
 
 #include <catch2/catch_test_macros.hpp>
@@ -318,4 +320,113 @@ TEST_CASE("dependency cycles are rejected with the offending chain",
   }
   CHECK(cycle_reported);
   CHECK(timeline.graph.empty());
+}
+
+namespace {
+
+TimelineTrack synthetic_track(const std::string& id, int frames, int gop,
+                              int period = 33333) {
+  TimelineTrack track;
+  track.id = id;
+  track.timebase = Timebase{30, 1};
+  for (int i = 0; i < frames; ++i) {
+    FrameRecord frame;
+    frame.track = id;
+    frame.source_frame = static_cast<std::uint64_t>(i);
+    frame.sequence = static_cast<std::uint32_t>(i);
+    frame.pts_us = static_cast<Micros>(i) * period;
+    frame.keyframe = i % gop == 0;
+    frame.sha256 = std::string(64, 'a');
+    track.frames.push_back(frame);
+  }
+  return track;
+}
+
+}  // namespace
+
+TEST_CASE("segments cut on keyframes near the target duration", "[segment]") {
+  TimelineTrack track = synthetic_track("cam-a", 120, 15);
+  SegmentOptions options;
+  options.target_duration_us = 500'000;  // 15 frames at 30fps
+  ErrorSink errors;
+  TrackSegments segments = segment_track(track, options, errors);
+  REQUIRE(segments.segments.size() == 8);
+  for (const auto& segment : segments.segments) {
+    CHECK(segment.random_access);
+    CHECK(segment.keyframe_sequence == segment.start_sequence);
+    CHECK(segment.frame_count == 15);
+    CHECK(segment.status == SegmentStatus::kComplete);
+  }
+}
+
+TEST_CASE("boundary error never exceeds one source frame", "[segment][boundary]") {
+  TimelineTrack track = synthetic_track("cam-a", 90, 10);
+  SegmentOptions options;
+  options.target_duration_us = 300'000;  // 9 frames; nearest key is 10
+  ErrorSink errors;
+  TrackSegments segments = segment_track(track, options, errors);
+  REQUIRE(segments.segments.size() > 1);
+  for (std::size_t i = 0; i + 1 < segments.segments.size(); ++i) {
+    const auto& segment = segments.segments[i];
+    const Micros duration = segment.end_us - segment.start_us;
+    const Micros error = std::llabs(duration - options.target_duration_us);
+    INFO("segment " << segment.index << " duration " << duration);
+    CHECK(error <= 33333);
+  }
+  // The final segment may be shorter; it must say so.
+  const auto& tail = segments.segments.back();
+  if (tail.end_us - tail.start_us + 33333 < options.target_duration_us) {
+    CHECK(tail.status == SegmentStatus::kTailTruncated);
+  }
+}
+
+TEST_CASE("short tails produce an explainable final segment", "[segment][tail]") {
+  TimelineTrack track = synthetic_track("cam-a", 25, 10);
+  SegmentOptions options;
+  options.target_duration_us = 333'330;  // 10 frames
+  ErrorSink errors;
+  TrackSegments segments = segment_track(track, options, errors);
+  REQUIRE(segments.segments.size() == 3);
+  CHECK(segments.segments[0].frame_count == 10);
+  CHECK(segments.segments[1].frame_count == 10);
+  const Segment& tail = segments.segments.back();
+  CHECK(tail.frame_count == 5);
+  CHECK(tail.status == SegmentStatus::kTailTruncated);
+  CHECK_FALSE(tail.status_reason.empty());
+}
+
+TEST_CASE("a lost keyframe makes the affected segment unseekable",
+          "[segment][keyframe]") {
+  TimelineTrack track = synthetic_track("cam-a", 60, 10);
+  // Remove keyframe 20 and its neighbours, imitating a burst loss.
+  std::vector<FrameRecord> kept;
+  for (const auto& frame : track.frames) {
+    if (frame.sequence >= 18 && frame.sequence <= 21) {
+      continue;
+    }
+    kept.push_back(frame);
+  }
+  track.frames = std::move(kept);
+  track.losses.push_back(LostRange{"cam-a", 0, 18, 4, "burst loss"});
+  SegmentOptions options;
+  options.target_duration_us = 333'330;
+  ErrorSink errors;
+  TrackSegments segments = segment_track(track, options, errors);
+  REQUIRE_FALSE(segments.segments.empty());
+  bool flagged = false;
+  for (const auto& segment : segments.segments) {
+    if (!segment.random_access) {
+      flagged = true;
+      CHECK(segment.status == SegmentStatus::kUnseekable);
+      CHECK(segment.status_reason.find("keyframe") != std::string::npos);
+    }
+  }
+  CHECK(flagged);
+  CHECK(segments.unseekable > 0);
+  // The unseekable segment must not advertise a fabricated index.
+  for (const auto& segment : segments.segments) {
+    if (!segment.random_access) {
+      CHECK(segment.keyframe_sequence == 0);
+    }
+  }
 }
