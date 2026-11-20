@@ -25,6 +25,7 @@ CODES: dict[str, str] = {
     "type-mismatch": "mapped stream has the wrong media type",
     "stream-index-out-of-range": "mapped stream index does not exist",
     "probe-failed": "container could not be opened",
+    "unsupported-container": "container format is not MOV, MP4 or MKV",
     "truncated-container": "container ends before its declared duration",
     "corrupt-packet": "a packet could not be demuxed or decoded",
     "negative-timestamp": "timestamp precedes the timeline origin",
@@ -45,6 +46,7 @@ CODES: dict[str, str] = {
     "stage-hash-mismatch": "resumed stage input changed since it was recorded",
     "stage-missing-input": "a later stage ran without its predecessor's output",
     "verification-failed": "a recorded hash or keyframe index did not verify",
+    "keyframe-index-incomplete": "the source has no keyframe where the index says it should",
     "limit-exceeded": "a configured size/duration/parallelism limit was hit",
     "io": "filesystem operation failed",
 }
