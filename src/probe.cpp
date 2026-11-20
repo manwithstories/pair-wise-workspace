@@ -60,6 +60,10 @@ StreamInfo describeStream(AVFormatContext* fmt, const AVCodecParameters* p,
         s.height = p->height;
         s.frameRate = rat(fmt->streams[index]->avg_frame_rate);
         s.sampleAspect = rat(p->sample_aspect_ratio);
+        s.colorRange = static_cast<int>(p->color_range);
+        s.colorPrimaries = static_cast<int>(p->color_primaries);
+        s.colorTransfer = static_cast<int>(p->color_trc);
+        s.colorSpace = static_cast<int>(p->color_space);
     }
     if (p->codec_type == AVMEDIA_TYPE_AUDIO) {
         s.sampleRate = p->sample_rate;

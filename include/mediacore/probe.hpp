@@ -34,6 +34,11 @@ struct StreamInfo {
     Tick firstPts = 0;
     Tick lastPts = 0;
     Tick durationTicks = 0;
+    // Color metadata; "unknown" sentinels map to ColorMetadata::unknown.
+    int colorRange = 0;        // AVColorRange
+    int colorPrimaries = 0;    // AVColorPrimaries
+    int colorTransfer = 0;     // AVColorTransferCharacteristic
+    int colorSpace = 0;        // AVColorSpace (matrix)
 };
 
 struct KeyframePoint {
