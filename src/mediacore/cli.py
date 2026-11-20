@@ -166,7 +166,38 @@ def _cmd_demo(args: argparse.Namespace, *, resume_only: bool = False) -> int:
 
 
 def _cmd_scan(args: argparse.Namespace) -> int:
-    raise NotImplementedError("scan command is added by the next patch")
+    from .bitstream import scan, chunk_bytes
+
+    path = Path(args.input)
+    if not path.exists():
+        raise MediaInputError(f"input not found: {path}", code="input_missing")
+    data = path.read_bytes()
+    units = []
+    report = None
+    for item in scan(chunk_bytes(data, 65_536), codec=args.codec):
+        if hasattr(item, "units"):
+            report = item
+        else:
+            units.append(item)
+    payload = {
+        "codec": args.codec,
+        "bytes": len(data),
+        "units": len(units),
+        "keyframes": sum(1 for u in units if u.keyframe),
+        "truncated_tail_offset": report.truncated_tail_offset if report else None,
+        "issues": [i.to_dict() for i in (report.issues if report else [])],
+    }
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print(f"codec={payload['codec']} bytes={payload['bytes']} "
+              f"units={payload['units']} keyframes={payload['keyframes']}")
+        for issue in payload["issues"]:
+            print(f"issue code={issue['code']} offset={issue['offset']} "
+                  f"message={issue['message']}")
+    return EXIT_OK
+
+
 
 
 def _cmd_verify(args: argparse.Namespace) -> int:
