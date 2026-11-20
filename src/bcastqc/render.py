@@ -56,6 +56,7 @@ from .timeline import Clip, Timeline, Track, TrackKind
 __all__ = [
     "SourceSpan",
     "RenderedFrame",
+    "SyncTracker",
     "VideoSource",
     "AudioSource",
     "pixel_hash",
@@ -188,3 +189,127 @@ class AudioSource:
 
     def reader(self, channels: int) -> AudioReader:
         return AudioReader(self.track.path, channels=channels)
+
+
+# ==========================================================================
+# Sync tracking
+# ==========================================================================
+
+
+@dataclass
+class SyncTracker:
+    """Records what the QC report needs to measure audio/video alignment.
+
+    Per output frame it keeps:
+
+    * ``frame_hashes`` - the exact pixel hash, so a clean reference pass can
+      establish picture identity (and therefore duplication / displacement)
+      without relying on any similarity heuristic;
+    * ``luma`` and ``audio_centre`` - the marker signals used to measure
+      video and audio displacement independently.
+    """
+
+    frame_times: list[Fraction] = field(default_factory=list)
+    luma: list[float] = field(default_factory=list)
+    audio_level: list[float] = field(default_factory=list)
+    audio_centre: list[float] = field(default_factory=list)
+    frame_hashes: list[str] = field(default_factory=list)
+
+    def add_frame(self, time: Fraction, frame: np.ndarray) -> None:
+        self.frame_times.append(time)
+        array = np.asarray(frame)
+        self.luma.append(float(array.astype(np.float32).mean()))
+        self.frame_hashes.append(pixel_hash(array))
+
+    def add_audio(self, block: np.ndarray | None) -> None:
+        if block is None or block.size == 0:
+            self.audio_level.append(0.0)
+            self.audio_centre.append(0.0)
+            return
+        values = np.asarray(block, dtype=np.float64)
+        self.audio_level.append(float(np.sqrt(np.mean(np.square(values)))))
+        n = values.shape[0]
+        third = max(1, n // 3)
+        centre = values[n // 2 - third // 2: n // 2 + third - third // 2]
+        self.audio_centre.append(float(np.sqrt(np.mean(np.square(centre)))))
+
+    def sync_error_ms(self, max_lag_frames: int = 12, *,
+                     around: int | None = None, radius: int = 2) -> tuple[Fraction | None, int]:
+        """Estimate the audio-video lag by normalised cross-correlation.
+
+        Returns ``(signed_error_ms, lag_frames)``; positive means audio lags
+        video.  The estimate is deterministic (no random resampling).
+        ``None`` is returned for the error when the window has no signal
+        variance, which callers must treat as "no new evidence".
+
+        ``around`` restricts the search to ``around +- radius``.  Short windows
+        have too few samples for a wide search: unrelated lags can score
+        highly by chance.  The caller therefore estimates a coarse global lag
+        once and refines each window locally, which also tracks genuine drift.
+        """
+        n = min(len(self.luma), len(self.audio_level))
+        if n < 4:
+            return None, 0
+        video = np.asarray(self.luma[:n], dtype=np.float64)
+        audio = np.asarray(self.audio_centre[:n], dtype=np.float64)
+        video = video - video.mean()
+        audio = audio - audio.mean()
+        v_norm = np.linalg.norm(video)
+        a_norm = np.linalg.norm(audio)
+        if v_norm == 0 or a_norm == 0:
+            return None, 0
+        video /= v_norm
+        audio /= a_norm
+        if around is None:
+            lags = range(-max_lag_frames, max_lag_frames + 1)
+        else:
+            lags = range(around - radius, around + radius + 1)
+        best_lag = around if around is not None else 0
+        best_score = -np.inf
+        # the zero-lag score is the reference for accepting a refinement
+        zero_score = float(np.dot(video, audio))
+        for lag in lags:
+            if lag >= 0:
+                left = video[: n - lag]
+                right = audio[lag:]
+            else:
+                left = video[-lag:]
+                right = audio[: n + lag]
+            if left.size < max(4, n // 2):
+                continue  # too little overlap: not enough evidence
+            overlap = left.size
+            score = float(np.dot(left, right)) * (n / overlap)  # normalise overlap
+            if score > best_score + 1e-12:
+                best_score = score
+                best_lag = lag
+        if around is not None and best_lag != around:
+            # accept a local shift only when it beats the previous lag by a
+            # clear margin; otherwise keep the established alignment
+            reference = zero_score
+            if best_score < reference + 0.05:
+                best_lag = around
+        if len(self.frame_times) >= 2:
+            step = self.frame_times[1] - self.frame_times[0]
+        else:
+            step = Fraction(1, 25)
+        return step * best_lag * 1000, best_lag
+
+    def _slice(self, start: int, end: int) -> "SyncTracker":
+        """A copy restricted to frames ``[start, end)`` for windowed estimates."""
+        end = min(end, len(self.luma), len(self.audio_level))
+        start = max(0, min(start, end))
+        window = SyncTracker()
+        window.frame_times = list(self.frame_times[start:end])
+        window.luma = list(self.luma[start:end])
+        window.audio_level = list(self.audio_level[start:end])
+        window.audio_centre = list(self.audio_centre[start:end])
+        window.frame_hashes = list(self.frame_hashes[start:end])
+        return window
+
+    def to_json(self) -> dict:
+        error_ms, lag = self.sync_error_ms()
+        return {
+            "samples": len(self.luma),
+            "sync_error_ms": float(error_ms) if error_ms is not None else 0.0,
+            "lag_frames": lag,
+        }
