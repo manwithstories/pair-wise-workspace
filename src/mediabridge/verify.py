@@ -266,3 +266,122 @@ class Verifier:
                 context={"mismatched_chunks": self.summary.chunk_mismatches[:8]},
             )
 
+    def _check_seeks(self, reader: IndexReader, output: Path) -> None:
+        keyframes = reader.keyframes()
+        if not keyframes:
+            raise IndexIncompatibleError("index contains no keyframes to seek to")
+        rng = random.Random(self.config.reseed)
+        video = [row for row in keyframes]
+        targets = video if len(video) <= self.config.sample_targets else rng.sample(
+            video, self.config.sample_targets)
+        targets.sort(key=lambda row: Fraction(row["time_seconds"]))
+        tolerance = 1.0  # seconds; a keyframe must be found at or before +1 s
+        container = av.open(str(output))
+        try:
+            for row in targets:
+                check = self._seek_one(container, output, row, tolerance)
+                self.summary.seeks.append(check.as_dict())
+                self.summary.seek_checks += 1
+                if check.within_tolerance and check.index_offset_valid:
+                    self.summary.seek_checks_passed += 1
+        finally:
+            container.close()
+        if self.summary.seek_checks_passed != self.summary.seek_checks:
+            raise IndexIncompatibleError(
+                "one or more seek targets did not decode where the index promised",
+                context={"seeks": self.summary.seeks},
+            )
+
+    def _seek_one(self, container, output: Path, row: dict, tolerance: float) -> SeekCheck:
+        requested = float(Fraction(row["time_seconds"]))
+        check = SeekCheck(
+            track_index=int(row["track_index"]),
+            target_seconds=requested,
+            requested_bytes=int(row["byte_offset"]),
+        )
+        stream = container.streams.video[0] if container.streams.video else container.streams[0]
+        timestamp = int(Fraction(requested) / stream.time_base)
+        try:
+            container.seek(timestamp, stream=stream, backward=True, any_frame=False)
+            for frame in container.decode(stream):
+                if frame.pts is None:
+                    continue
+                decoded = float(Fraction(frame.pts) * stream.time_base)
+                check.decoded_seconds = decoded
+                check.decoded_packet = int(row["global_packet"])
+                check.within_tolerance = decoded + tolerance >= requested
+                break
+        except av.AVError as exc:
+            check.note = f"decode failed: {type(exc).__name__}"
+        # Validate the recorded byte offset starts a packet payload.
+        try:
+            with open(output, "rb") as handle:
+                handle.seek(int(row["byte_offset"]))
+                payload = handle.read(int(row["byte_size"]))
+            check.index_offset_valid = len(payload) == int(row["byte_size"])
+        except OSError as exc:
+            check.note = f"offset unreadable: {exc}"
+        return check
+
+    def _check_hash(self, reader: IndexReader, output: Path) -> None:
+        recorded = reader.meta().get("output_sha256", "")
+        actual = _sha256(output)
+        self.summary.output_sha256 = actual
+        self.summary.recorded_sha256 = recorded
+        self.summary.hash_matches = (actual == recorded) if recorded else None
+        if recorded and actual != recorded:
+            raise IndexIncompatibleError(
+                "repaired output SHA-256 differs from the value recorded at repair time",
+                context={"recorded": recorded, "actual": actual},
+            )
+
+
+    def _compare_reference(self, reader: IndexReader, reference: Path) -> None:
+        """Prove this run equals another by comparing chunk digests and hashes.
+
+        The spec requires that a resumed run and a full run be identical.
+        Chunk-level digests locate the first divergence if they are not.
+        """
+        self.summary.reference_index = str(reference)
+        with IndexReader(reference) as other:
+            other_output = Path(other.info().output.get("path", ""))
+            if str(other_output) and other_output.exists():
+                self.summary.reference_sha256 = _sha256(other_output)
+                self.summary.hash_matches = (
+                    self.summary.hash_matches
+                    if self.summary.hash_matches is not None
+                    else None
+                )
+            reference_chunks = other.chunks()
+            self.summary.reference_chunks = len(reference_chunks)
+            mine = reader.chunks()
+            self.summary.chunk_digests_match = (
+                len(mine) == len(reference_chunks)
+                and all(a["bytes_sha256"] == b["bytes_sha256"]
+                        and a["rows_sha256"] == b["rows_sha256"]
+                        for a, b in zip(mine, reference_chunks))
+            )
+        if self.summary.reference_sha256:
+            self.summary.hash_matches = (
+                self.summary.output_sha256 == self.summary.reference_sha256
+            )
+        if not self.summary.chunk_digests_match:
+            raise IndexIncompatibleError(
+                "chunk digests differ from the reference run",
+                context={
+                    "reference_chunks": self.summary.reference_chunks,
+                    "chunks": self.summary.chunks_expected,
+                },
+            )
+        if self.summary.hash_matches is False:
+            raise IndexIncompatibleError(
+                "output SHA-256 differs from the reference run",
+                context={
+                    "reference_sha256": self.summary.reference_sha256,
+                    "output_sha256": self.summary.output_sha256,
+                },
+            )
+
+
+def verify(config: VerifyConfig) -> VerifySummary:
+    return Verifier(config).run()
