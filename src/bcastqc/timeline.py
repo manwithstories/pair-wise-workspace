@@ -383,3 +383,172 @@ def load_timeline(path: Path, *, base_dir: Path | None = None, strict: bool = Fa
     validate_timeline(timeline, strict=strict)
     return timeline
 # Graph validation
+# ==========================================================================
+
+
+def find_cycle(nodes: Iterable[str], edges: dict[str, tuple[str, ...]]) -> list[str] | None:
+    """Return one dependency cycle as a node list, or None if acyclic.
+
+    The returned path starts and ends with the same node, e.g.
+    ``["a", "b", "a"]``, which makes the report directly actionable.
+    """
+    WHITE, GREY, BLACK = 0, 1, 2
+    colour = {node: WHITE for node in nodes}
+    stack: list[str] = []
+    position: dict[str, int] = {}
+
+    def visit(node: str) -> list[str] | None:
+        colour[node] = GREY
+        position[node] = len(stack)
+        stack.append(node)
+        for nxt in edges.get(node, ()):
+            if nxt not in colour:
+                colour[nxt] = WHITE
+            if colour[nxt] == GREY:
+                return stack[position[nxt]:] + [nxt]
+            if colour[nxt] == WHITE:
+                found = visit(nxt)
+                if found is not None:
+                    return found
+        stack.pop()
+        position.pop(node, None)
+        colour[node] = BLACK
+        return None
+
+    for node in sorted(colour):
+        if colour[node] == WHITE:
+            found = visit(node)
+            if found is not None:
+                return found
+    return None
+
+
+def topological_order(nodes: Iterable[str], edges: dict[str, tuple[str, ...]]) -> list[str]:
+    """Dependencies first.  Raises a timeline cycle error when one exists."""
+    cycle = find_cycle(nodes, edges)
+    if cycle is not None:
+        raise make_error(
+            ErrorCategory.TIMELINE_CYCLE,
+            "dependency cycle: " + " -> ".join(cycle),
+            cycle=cycle,
+        )
+    order: list[str] = []
+    seen: set[str] = set()
+
+    def visit(node: str) -> None:
+        if node in seen:
+            return
+        seen.add(node)
+        for dep in edges.get(node, ()):
+            visit(dep)
+        order.append(node)
+
+    for node in sorted(nodes):
+        visit(node)
+    return order
+
+
+def validate_timeline(timeline: Timeline, *, strict: bool = False) -> None:
+    """Validate references, cycles, coverage and track usage in place."""
+    track_ids = set(timeline.tracks)
+    clip_ids = {c.id for c in timeline.clips}
+
+    for track in timeline.tracks.values():
+        unknown = [dep for dep in track.depends_on if dep not in track_ids]
+        if unknown:
+            raise make_error(
+                ErrorCategory.TIMELINE_INVALID,
+                f"track {track.id!r} depends on unknown tracks {unknown}",
+                track=track.id,
+            )
+        if track.id in track.depends_on:
+            raise make_error(ErrorCategory.TIMELINE_CYCLE, f"track {track.id!r} depends on itself", track=track.id)
+
+    cycle = find_cycle(track_ids, {tid: t.depends_on for tid, t in timeline.tracks.items()})
+    if cycle is not None:
+        raise make_error(
+            ErrorCategory.TIMELINE_CYCLE,
+            "track dependency cycle: " + " -> ".join(cycle),
+            cycle=cycle,
+        )
+
+    for clip in timeline.clips:
+        if clip.track not in track_ids:
+            raise make_error(
+                ErrorCategory.TIMELINE_INVALID,
+                f"clip {clip.id!r} references unknown track {clip.track!r}",
+                clip=clip.id,
+                track=clip.track,
+            )
+        unknown = [dep for dep in clip.depends_on if dep not in clip_ids]
+        if unknown:
+            raise make_error(
+                ErrorCategory.TIMELINE_INVALID,
+                f"clip {clip.id!r} depends on unknown clips {unknown}",
+                clip=clip.id,
+            )
+        if clip.source_in_ticks < 0:
+            raise make_error(
+                ErrorCategory.TIMELINE_INVALID,
+                f"clip {clip.id!r} has negative source_in",
+                clip=clip.id,
+                source_in_ticks=clip.source_in_ticks,
+            )
+
+    clip_cycle = find_cycle(clip_ids, {c.id: c.depends_on for c in timeline.clips})
+    if clip_cycle is not None:
+        raise make_error(
+            ErrorCategory.TIMELINE_CYCLE,
+            "clip dependency cycle: " + " -> ".join(clip_cycle),
+            cycle=clip_cycle,
+        )
+
+    # clip-level dependencies must not cross track boundaries backwards in time
+    for clip in timeline.clips:
+        for dep_id in clip.depends_on:
+            dep = next(c for c in timeline.clips if c.id == dep_id)
+            if dep.track == clip.track and dep.end_ticks > clip.start_ticks:
+                raise make_error(
+                    ErrorCategory.OVERLAP,
+                    f"clip {clip.id!r} starts before its dependency {dep.id!r} ends",
+                    clip=clip.id,
+                    dependency=dep.id,
+                    overlap_ticks=dep.end_ticks - clip.start_ticks,
+                )
+
+    validate_coverage(timeline)
+    _validate_track_usage(timeline, strict=strict)
+
+
+def validate_coverage(timeline: Timeline) -> None:
+    """Reject overlapping clips on one track, reporting the exact interval."""
+    for track_id in sorted(timeline.tracks):
+        clips = timeline.clips_for(track_id)
+        for prev, nxt in zip(clips, clips[1:]):
+            if nxt.start_ticks < prev.end_ticks:
+                overlap = prev.end_ticks - nxt.start_ticks
+                raise make_error(
+                    ErrorCategory.OVERLAP,
+                    f"clips {prev.id!r} and {nxt.id!r} overlap by {overlap} ticks on track {track_id!r}",
+                    track=track_id,
+                    first=prev.id,
+                    second=nxt.id,
+                    overlap_ticks=overlap,
+                    overlap_start_ticks=nxt.start_ticks,
+                )
+
+
+def _validate_track_usage(timeline: Timeline, *, strict: bool) -> None:
+    referenced = timeline.referenced_tracks()
+    unused = sorted(set(timeline.tracks) - referenced)
+    if unused and strict:
+        raise make_error(
+            ErrorCategory.TRACK_UNREFERENCED,
+            f"tracks declared but not referenced by any clip: {unused}",
+            tracks=unused,
+        )
+    timeline.excluded_tracks = unused
+    if unused:
+        timeline.notes.append(
+            "excluded unreferenced tracks from composition: " + ", ".join(unused)
+        )
