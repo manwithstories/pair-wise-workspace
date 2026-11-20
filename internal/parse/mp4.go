@@ -67,11 +67,11 @@ type trackTable struct {
 
 // MP4File 是已解析索引的 MP4 输入。
 type MP4File struct {
-	Path     string
-	Size     int64
-	f        *os.File
-	tracks   []trackTable
-	total    uint64
+	Path   string
+	Size   int64
+	f      *os.File
+	tracks []trackTable
+	total  uint64
 }
 
 // OpenMP4 打开并解析 MP4 的箱结构与样本表（不读样本负载）。
@@ -239,15 +239,20 @@ func (m *MP4File) buildTrack(trak *mp4.BoxInfo) (trackTable, error) {
 			key[int(n)-1] = true
 		}
 	}
-	var dts uint64
+	// DTS 在 32 位时间戳域累计：stts 的 delta 可跨过 2^32 回绕。
+	var dts uint32
 	tt.samples = make([]model.Sample, count)
 	for i := 0; i < count; i++ {
+		if offsets[i]+uint64(sizes[i]) > uint64(m.Size) {
+			return trackTable{}, fault.New(fault.StageParse, tt.track.ID, int64(offsets[i]), true,
+				fmt.Sprintf("样本 %d 超出文件末尾（输入截断）", i))
+		}
 		isKey := key == nil || key[i]
 		tt.samples[i] = model.Sample{
-			TrackID: tt.track.ID, Seq: uint64(i), DTS: dts, CTS: dts,
+			TrackID: tt.track.ID, Seq: uint64(i), DTS: uint64(dts), CTS: uint64(dts),
 			Duration: deltas[i], Keyframe: isKey, SourceOffset: int64(offsets[i]),
 		}
-		dts += uint64(deltas[i])
+		dts += deltas[i]
 	}
 	tt.sizes = sizes
 	return tt, nil
@@ -273,6 +278,12 @@ func sampleSize(stsz *mp4.Stsz, i int) uint32 {
 // StreamSamples 按 DTS 归并各轨道样本，逐个读取负载并回调。
 // 任一回调错误都会终止遍历；ctx 取消时及时停止。
 func (m *MP4File) StreamSamples(ctx context.Context, emit func(model.Sample) error) error {
+	return m.StreamSamplesFiltered(ctx, nil, emit)
+}
+
+// StreamSamplesFiltered 与 StreamSamples 相同，但仅当 want 返回 true 时读取
+// 样本负载；want 为 nil 时全部读取。断点续跑用它在已验证片段上跳过 I/O。
+func (m *MP4File) StreamSamplesFiltered(ctx context.Context, want func(model.Sample) bool, emit func(model.Sample) error) error {
 	idx := make([]int, len(m.tracks))
 	remaining := m.total
 	buf := make([]byte, 0, 4096)
@@ -299,15 +310,17 @@ func (m *MP4File) StreamSamples(ctx context.Context, emit func(model.Sample) err
 		sz := m.tracks[best].sizes[idx[best]]
 		idx[best]++
 		remaining--
-		if cap(buf) < int(sz) {
-			buf = make([]byte, 0, sz)
+		if want == nil || want(s) {
+			if cap(buf) < int(sz) {
+				buf = make([]byte, 0, sz)
+			}
+			buf = buf[:sz]
+			if _, err := m.f.ReadAt(buf, s.SourceOffset); err != nil {
+				return fault.Wrap(fault.StageParse, s.TrackID, s.SourceOffset, true, "读取样本负载失败", err)
+			}
+			s.Data = make([]byte, len(buf))
+			copy(s.Data, buf)
 		}
-		buf = buf[:sz]
-		if _, err := m.f.ReadAt(buf, s.SourceOffset); err != nil {
-			return fault.Wrap(fault.StageParse, s.TrackID, s.SourceOffset, false, "读取样本负载失败", err)
-		}
-		s.Data = make([]byte, len(buf))
-		copy(s.Data, buf)
 		if err := emit(s); err != nil {
 			return err
 		}
