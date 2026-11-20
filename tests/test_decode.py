@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
 
 from mediacore.bitstream import chunk_bytes, scan
@@ -73,8 +72,6 @@ def test_tail_probe_detects_cut_picture(tmp_path):
 
 
 def test_dropped_payload_is_reread_from_source(stream, tmp_path):
-    from mediacore.bitstream import AccessUnit
-
     _, data, units = stream
     path = tmp_path / "v.h264"
     path.write_bytes(data)

@@ -7,8 +7,7 @@ from fractions import Fraction
 import pytest
 
 from mediacore.clock import (
-    DEFAULT_WRAP_PERIOD, StampDecision, TimeBase, align_audio_to_video,
-    repair_timestamps,
+    DEFAULT_WRAP_PERIOD, TimeBase, align_audio_to_video, repair_timestamps,
 )
 
 

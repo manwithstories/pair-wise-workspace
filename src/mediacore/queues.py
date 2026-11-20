@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import threading
 from collections import OrderedDict
-from dataclasses import dataclass, field
-from typing import Any, Generic, Iterable, Iterator, TypeVar
+from dataclasses import dataclass
+from typing import Any, Generic, Iterator, TypeVar
 
 from .errors import MediaInputError, MEMORY_LIMIT_BYTES
 

@@ -94,8 +94,6 @@ def test_seek_verification_uses_observed_times():
 
 
 def test_random_access_index_reports_max_error_and_empty_case():
-    entries = [IndexEntry(i * 15, i * 100, 10, i * 15, i * 0.5, True)
-               for i in range(2)]
     result = random_access_index(
         [], time_base=TimeBase(1, 30), supplied=None)
     assert result.entries == []

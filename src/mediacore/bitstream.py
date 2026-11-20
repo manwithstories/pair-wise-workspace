@@ -332,7 +332,7 @@ def scan_annexb(chunks: Iterable[bytes], *, codec: str) -> Iterator[AccessUnit |
     tail_reason = ""
 
     def build(complete: bool, reason: str = "") -> AccessUnit | None:
-        nonlocal current, nal_types, key, irap, have_vcl, unit_offset
+        nonlocal current, nal_types, key, irap, have_vcl
         if not current:
             return None
         payload = b"".join(b"\x00\x00\x01" + nal for nal in current)
@@ -414,7 +414,6 @@ def _validate_au(codec: str, unit: AccessUnit) -> list[MediaIssue]:
     data = unit.data
     if not data:
         return [MediaIssue("empty_au", "empty access unit", unit.offset)]
-    n = len(data)
     for start, payload, end in _annexb_nals(data):
         if payload >= end:
             issues.append(MediaIssue(
@@ -457,7 +456,7 @@ def scan_av1(chunks: Iterable[bytes]) -> Iterator[AccessUnit | ScanReport]:
     tail_reason = ""
 
     def close(complete: bool, reason: str = "") -> AccessUnit | None:
-        nonlocal parts, types, key, unit_offset
+        nonlocal parts, types, key
         if not parts:
             return None
         payload = b"".join(parts)

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from fractions import Fraction
-from typing import Any, Iterable
+from typing import Any
 
 from .checkpoint import compact_digest, write_json_atomic
 from .errors import MAX_ALIGNMENT_MS, MAX_BITRATE_DEVIATION_PCT, MediaInputError

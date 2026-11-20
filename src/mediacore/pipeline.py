@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from . import clock as clockmod
-from .audio import AudioAnalysis, align_audio, analyze_wav
+from .audio import AudioAnalysis, align_audio
 from .bitstream import AccessUnit, ScanReport, scan
 from .checkpoint import (
     Checkpoint, fingerprint_inputs, write_json_atomic,
