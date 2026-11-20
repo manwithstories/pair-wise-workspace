@@ -43,7 +43,6 @@ __all__ = [
     "write_audio",
     "damage_drop_access_units",
     "damage_truncate",
-    "damage_corrupt_access_unit",
     "make_bad_index",
 ]
 
@@ -328,3 +327,60 @@ def _describe(role: str, path: Path, *, codec: Codec | None = None, units: list[
         keyframes=keyframes,
         notes=list(notes or []),
     )
+
+
+def generate_fixture_set(root: Path, spec: FixtureSpec) -> FixtureSet:
+    """Generate a complete, self-consistent fixture set under ``root``."""
+    root = Path(root)
+    root.mkdir(parents=True, exist_ok=True)
+    files: list[FixtureFile] = []
+
+    for codec in spec.codecs:
+        path = root / f"program_{codec.value}.bin"
+        encode_video(path, codec, spec)
+        data = path.read_bytes()
+        units = split_units(data, codec)
+        files.append(_describe(f"video_{codec.value}", path, codec=codec, units=units))
+        good_index = root / f"program_{codec.value}.index.json"
+        write_good_index(path, good_index, codec)
+        files.append(_describe(f"index_{codec.value}", good_index, codec=codec))
+
+    # damaged variants of the H.264 program
+    base = root / "program_h264.bin"
+    units = split_units(base.read_bytes(), Codec.H264)
+    gop = max(1, spec.gop)
+    loss_positions = [gop + 3, gop + 4, 2 * gop + 7]
+    dropped_path = root / "program_h264_dropped.bin"
+    dropped = damage_drop_access_units(base, dropped_path, Codec.H264, loss_positions)
+    files.append(
+        _describe("video_dropped", dropped_path, codec=Codec.H264,
+                  units=split_units(dropped_path.read_bytes(), Codec.H264),
+                  notes=[f"removed access units {dropped} from {base.name}"])
+    )
+
+    truncated_path = root / "program_h264_truncated.bin"
+    cut = damage_truncate(base, truncated_path, Codec.H264, 0.6)
+    files.append(
+        _describe("video_truncated", truncated_path, codec=Codec.H264,
+                  units=split_units(truncated_path.read_bytes(), Codec.H264),
+                  notes=[f"cut at byte {cut} ({cut / base.stat().st_size:.0%} of original)"])
+    )
+
+    bad_index_path = root / "program_h264_bad.index.json"
+    make_bad_index(base, bad_index_path, Codec.H264)
+    files.append(
+        _describe("index_bad", bad_index_path, codec=Codec.H264,
+                  notes=["duplicate, out-of-range and out-of-order entries"])
+    )
+
+    # audio at the native rate and a resampled variant
+    audio_path = root / "program_audio.wav"
+    write_audio(audio_path, spec)
+    files.append(_describe("audio", audio_path, notes=[f"{spec.audio_rate} Hz, {spec.channels} ch"]))
+    audio_alt_path = root / "program_audio_44100.wav"
+    write_audio(audio_alt_path, spec, rate=44100)
+    files.append(_describe("audio_44100", audio_alt_path, notes=["44.1 kHz variant for resampling"]))
+
+    fixture = FixtureSet(root=root, spec=spec, files=files)
+    fixture.write_manifest(root / "fixtures.json")
+    return fixture
