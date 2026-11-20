@@ -280,3 +280,130 @@ def _video_moofs(data: bytes, video_track_id: int) -> list[tuple[int, int, int, 
     return results
 
 
+def _patch_tfdt(data: bytearray, offset: int, version: int, value: int) -> None:
+    base = offset + 12
+    if version == 1:
+        struct.pack_into(">Q", data, base, value & 0xFFFFFFFFFFFFFFFF)
+    else:
+        struct.pack_into(">I", data, base, value & 0xFFFFFFFF)
+
+
+def _make_jitter(normal: Path, target: Path) -> SampleSpec:
+    """Introduce clock anomalies by rewriting fragment decode times.
+
+    Encoding timestamps directly would make the source muxer reject
+    non-monotonic dts, so the fixture is built in two passes: a clean
+    fragmented copy, then surgical ``tfdt`` edits.  The result is a valid
+    container whose timestamps jump, repeat and step backwards - exactly the
+    damage repair has to unify.
+    """
+    _fragmented_copy(normal, target)
+    data = bytearray(target.read_bytes())
+    moofs = _video_moofs(bytes(data), 1)
+    if len(moofs) < 4:
+        raise StructuralError("jitter fixture needs at least four video fragments")
+    def read(offset: int, version: int) -> int:
+        end = offset + (20 if version == 1 else 16)
+        return struct.unpack(">Q" if version == 1 else ">I", bytes(data[offset + 12:end]))[0]
+
+    timescale = moofs[0][3]
+    # Fragment 1: +12 s forward clock jump, far beyond the 5 s tolerance.
+    _, offset, version, _ = moofs[1]
+    _patch_tfdt(data, offset, version, read(offset, version) + 12 * timescale)
+    # Fragment 2: -8 s backwards clock jump.
+    _, offset, version, _ = moofs[2]
+    _patch_tfdt(data, offset, version, read(offset, version) - 8 * timescale)
+    # Fragment 3: repeat fragment 2's decode time - a block of duplicates.
+    _, prev_offset, version, _ = moofs[2]
+    _, dup_offset, version, _ = moofs[3]
+    _patch_tfdt(data, dup_offset, version, read(prev_offset, version))
+    target.write_bytes(bytes(data))
+    return SampleSpec("jitter", target, "jitter", {
+        "forward_jump_seconds": 12.0,
+        "backwards_jump_seconds": 8.0,
+        "jump_fragment": 1,
+        "backwards_fragment": 2,
+        "duplicate_fragment": 3,
+        "video_fragments": len(moofs),
+    })
+
+
+def _make_zero_packets(normal: Path, target: Path) -> SampleSpec:
+    """Initialisation segment only: streams described, no samples at all."""
+    temp = target.with_name(target.stem + ".seed.mp4")
+    _fragmented_copy(normal, temp)
+    data = temp.read_bytes()
+    temp.unlink(missing_ok=True)
+    parts = []
+    for box_type, offset, size in iter_boxes(data):
+        if box_type in ("ftyp", "moov"):
+            parts.append(data[offset:offset + size])
+        elif parts:
+            break
+    payload = b"".join(parts)
+    if not payload:
+        raise StructuralError("could not build a zero-packet fixture")
+    target.write_bytes(payload)
+    return SampleSpec("zero_packets", target, "zero_packets", {"bytes": len(payload)})
+
+
+def _make_unsupported(normal: Path, target: Path) -> SampleSpec:
+    """Short MOV encoded with MPEG-4 part 2, which the pipeline refuses.
+
+    Proves the codec check is real: the container is valid, the streams are
+    readable, but the tool must reject the codec instead of copying bytes it
+    cannot validate.
+    """
+    path = target
+    path.parent.mkdir(parents=True, exist_ok=True)
+    container = av.open(str(path), "w", format="mov", options={"fflags": "+bitexact"})
+    try:
+        video = container.add_stream("mpeg4", rate=VIDEO_RATE)
+        video.width = WIDTH
+        video.height = HEIGHT
+        video.pix_fmt = "yuv420p"
+        video.bit_rate = 400_000
+        for index in range(VIDEO_RATE):
+            plane = np.full((HEIGHT, WIDTH, 3), (index * 5) % 256, dtype=np.uint8)
+            frame = av.VideoFrame.from_ndarray(plane, format="rgb24")
+            for packet in video.encode(frame):
+                container.mux(packet)
+        for packet in video.encode():
+            container.mux(packet)
+    finally:
+        container.close()
+    return SampleSpec("unsupported_codec", path, "unsupported_codec", {
+        "codec": "mpeg4",
+        "recoverable": False,
+    })
+
+
+def _make_slow(normal: Path, target: Path, seconds: float = 20.0) -> SampleSpec:
+    _encode_mov(target, seconds)
+    packets = _packet_map(target)
+    return SampleSpec("slow_consumer", target, "slow_consumer", {
+        "packet_count": len(packets),
+        "duration_seconds": seconds,
+    })
+
+
+def generate(out_dir: Path) -> list[SampleSpec]:
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    random.seed(1337)
+
+    specs: list[SampleSpec] = []
+    normal_path = out_dir / "normal.mov"
+    specs.append(_make_normal(normal_path))
+    specs.append(_make_truncated(normal_path, out_dir / "truncated.mov"))
+    specs.append(_make_broken_index(normal_path, out_dir / "broken_index.mov"))
+    specs.append(_make_corrupt(normal_path, out_dir / "corrupt.mov"))
+    specs.append(_make_jitter(normal_path, out_dir / "jitter.mp4"))
+    specs.append(_make_zero_packets(normal_path, out_dir / "zero_packets.mp4"))
+    specs.append(_make_slow(normal_path, out_dir / "slow_consumer.mov"))
+    specs.append(_make_unsupported(normal_path, out_dir / "unsupported_codec.mov"))
+
+    for spec in specs:
+        sidecar = spec.path.with_suffix(spec.path.suffix + ".json")
+        sidecar.write_text(json.dumps(spec.as_dict(), indent=2, sort_keys=True), encoding="utf-8")
+    return specs
