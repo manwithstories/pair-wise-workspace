@@ -275,3 +275,178 @@ class ChunkPlanner:
         self.packet_seq[info.stream_index] += 1
         return emitted
 
+    def finish(self) -> list[PlannedChunk]:
+        emitted: list[PlannedChunk] = []
+        if self.video_damage_start:
+            for stream_index, start in list(self.video_damage_start.items()):
+                meta = self.video_damage_meta.pop(stream_index, {})
+                track = self.track_by_stream[stream_index]
+                self._record_damage(PlannedDamage(
+                    track_index=track.track_index,
+                    start_packet=start,
+                    end_packet=meta.get("last_packet", start),
+                    reason="decoder error; input ended before resynchronisation",
+                    dts=meta.get("dts"), pts=meta.get("pts"),
+                ))
+                self.video_damage_start.pop(stream_index, None)
+        if self.pending:
+            emitted.append(self._flush())
+        return emitted
+
+    # -- internals --------------------------------------------------------
+    def _should_close(self, info: PacketInfo) -> bool:
+        if not self.pending or len(self.pending) < self.chunk_packets:
+            return False
+        if self.video_stream is None:
+            return True
+        return info.stream_index == self.video_stream and info.is_keyframe
+
+    def _validate(self, info: PacketInfo, packet: av.Packet) -> str | None:
+        if not self.detect_damage:
+            return None
+        if info.is_corrupt:
+            return "demuxer flagged a corrupt packet"
+        validator = self.audio_validators.get(info.stream_index)
+        if validator is not None:
+            return validator.check(packet)
+        validator = self.video_validators.get(info.stream_index)
+        if validator is not None:
+            return validator.check(packet)
+        return None
+
+    def _begin_video_skip(self, info: PacketInfo) -> None:
+        if info.stream_index != self.video_stream:
+            return
+        if info.stream_index not in self.video_damage_start:
+            self.video_damage_start[info.stream_index] = info.global_index
+            self.video_damage_meta[info.stream_index] = {
+                "dts": info.dts, "pts": info.pts, "last_packet": info.global_index,
+            }
+        else:
+            self.video_damage_meta.setdefault(info.stream_index, {})["last_packet"] = info.global_index
+        self.video_skip_until_keyframe.add(info.stream_index)
+        validator = self.video_validators.get(info.stream_index)
+        if validator:
+            validator.reset()
+
+    def _close_video_damage(self, info: PacketInfo) -> None:
+        start = self.video_damage_start.pop(info.stream_index, info.global_index)
+        meta = self.video_damage_meta.pop(info.stream_index, {})
+        self._record_damage(PlannedDamage(
+            track_index=info.track_index,
+            start_packet=start,
+            end_packet=info.global_index - 1,
+            reason="decoder error; skipped to the next keyframe",
+            dts=meta.get("dts"),
+            pts=meta.get("pts"),
+            notes={"resynced_at": info.global_index},
+        ))
+        clock = self.clocks[info.stream_index]
+        clock.resync()
+
+    def _observe(self, track: TrackSpec, info: PacketInfo) -> RepairDecision:
+        clock = self.clocks[info.stream_index]
+        return clock.observe(info.as_timestamps())
+
+    def _record_damage(self, damage: PlannedDamage) -> None:
+        """Record one damage interval, merging rows for the same track.
+
+        A video error first produces a single-packet row, then a wider
+        "skipped to the next keyframe" row for the same start.  The row may
+        also be emitted after the chunk holding its first packet has already
+        been committed.  Merging across committed, pending and restored rows
+        keeps the index honest: exactly one interval per damaged region, with
+        the earliest offending packet preserved for ``first_error_packet``.
+        """
+        for row in self.pending_damage + self.committed_damage + self.damage:
+            if row.track_index != damage.track_index:
+                continue
+            if row.start_packet <= damage.start_packet <= row.end_packet + 1:
+                if row in self.pending_damage:
+                    # Extend a row that has not been committed yet.
+                    row.start_packet = min(row.start_packet, damage.start_packet)
+                    row.end_packet = max(row.end_packet, damage.end_packet)
+                    if damage.notes:
+                        merged = dict(row.notes or {})
+                        merged.update(damage.notes)
+                        row.notes = merged
+                    if damage.reason:
+                        row.reason = damage.reason
+                # A row already written to the index (or restored from it)
+                # must not be inserted twice; the existing row is authoritative.
+                if self.first_error_packet is None:
+                    self.first_error_packet = row.start_packet
+                return
+        self.pending_damage.append(DamageRow(
+            track_index=damage.track_index,
+            start_packet=damage.start_packet,
+            end_packet=damage.end_packet,
+            reason=damage.reason,
+            dts=damage.dts,
+            pts=damage.pts,
+            notes=damage.notes,
+        ))
+        if self.first_error_packet is None:
+            self.first_error_packet = damage.start_packet
+
+    def _flush(self) -> PlannedChunk:
+        packets = self.pending
+        self.pending = []
+        damage = self.pending_damage
+        self.pending_damage = []
+
+        # Snapshot the boundary state *before* ``ingest`` observes the next
+        # packet, so the checkpoint describes exactly the committed bytes.
+        clock_state = self.clock_state()
+        packet_seq = dict(self.packet_seq)
+        origin = self.clocks[self.tracks[0].stream_index].origin if self.tracks else None
+
+        assembled = assemble_chunk(
+            chunk_index=self.chunk_index,
+            packets=packets,
+            encoder=self.encoder,
+            timescales=self.timescales,
+            track_by_stream=self.track_by_stream,
+            video_stream=self.video_stream,
+            audio_index_stride=self.audio_index_stride,
+            clock_state=clock_state,
+            packet_seq=packet_seq,
+            origin=origin,
+        )
+        chunk = PlannedChunk(
+            chunk_index=self.chunk_index,
+            packets=packets,
+            damage=damage,
+            samples=assembled.samples,
+            fragment=assembled.fragment,
+            init_segment=assembled.fragment.init_segment(),
+            body=assembled.fragment.body(),
+            start_seconds=assembled.start_seconds,
+            first_global_packet=packets[0].info.global_index,
+            last_global_packet=packets[-1].info.global_index,
+            first_packet_seq=min(p.packet_seq for p in packets),
+            last_packet_seq=max(p.packet_seq for p in packets),
+            clock_state=clock_state,
+            packet_seq=packet_seq,
+            origin=origin,
+            damage_count=len(self.damage) + len(self.pending_damage),
+        )
+        self.samples_written += len(assembled.samples)
+        self.packets_written += len(packets)
+        self.chunk_index += 1
+        self.committed_chunks.append(chunk)
+        self.committed_damage.extend(damage)
+        return chunk
+
+    def all_damage(self) -> list[DamageRow]:
+        """Every skipped interval seen by this planner (committed + pending)."""
+        return self.damage + self.committed_damage + self.pending_damage
+
+    def reset_for_boundary(self) -> None:
+        """Reset chunk-scoped decoder state at a committed boundary."""
+        for validator in self.video_validators.values():
+            validator.reset()
+
+
+def audio_only(tracks: list[TrackSpec]) -> bool:
+    return all(spec.kind != "video" for spec in tracks)
