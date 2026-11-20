@@ -749,3 +749,130 @@ def index_digest(index: KeyframeIndex) -> str:
 # ==========================================================================
 # Access-unit conformance
 # ==========================================================================
+
+
+class _BitReader:
+    """Minimal MSB-first bit reader for slice-header prefix checks."""
+
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+        self._pos = 0
+
+    def bit(self) -> int | None:
+        byte_index, bit_index = divmod(self._pos, 8)
+        if byte_index >= len(self._data):
+            return None
+        self._pos += 1
+        return (self._data[byte_index] >> (7 - bit_index)) & 1
+
+    def ue(self) -> int | None:
+        zeros = 0
+        while True:
+            value = self.bit()
+            if value is None:
+                return None
+            if value:
+                break
+            zeros += 1
+            if zeros > 31:
+                return None
+        suffix = 0
+        for _ in range(zeros):
+            value = self.bit()
+            if value is None:
+                return None
+            suffix = (suffix << 1) | value
+        return (1 << zeros) - 1 + suffix
+
+
+def _h264_slice_prefix_problem(rbsp: bytes) -> str | None:
+    """Check ``first_mb_in_slice == 0`` and a legal ``slice_type``."""
+    reader = _BitReader(rbsp)
+    first_mb = reader.ue()
+    if first_mb is None:
+        return "slice header truncated"
+    if first_mb != 0:
+        return f"first_mb_in_slice is {first_mb} (expected 0)"
+    slice_type = reader.ue()
+    if slice_type is None:
+        return "slice_type missing"
+    if slice_type > 9:
+        return f"illegal slice_type {slice_type}"
+    return None
+
+
+def _hevc_slice_prefix_problem(rbsp: bytes) -> str | None:
+    """Check ``first_slice_segment_in_pic_flag == 1``."""
+    if not rbsp:
+        return "slice header truncated"
+    if not (rbsp[0] & 0x80):
+        return "first_slice_segment_in_pic_flag is 0"
+    return None
+
+
+def validate_access_unit(codec: Codec, payload: bytes, *, strict: bool = False) -> str | None:
+    """Cheap structural conformance check on a single access unit's bytes.
+
+    Returns a short reason string when the unit is malformed, or ``None``.
+    This is deliberately syntactic - it catches the damage a bitstream
+    parser can see without decoding (truncated NAL headers, NAL length
+    overruns, missing slice data, OBU size overruns), which is what lets the
+    pipeline report an illegal access unit even when the decoder would
+    silently emit nothing.
+
+    With ``strict=True`` an access unit that contains no VCL / frame payload
+    is also rejected; ``strict=False`` accepts parameter-set-only units, which
+    are legal at the start of a group.
+    """
+    if not payload:
+        return "empty access unit"
+    if codec in (Codec.H264, Codec.H265):
+        parser = AnnexBParser(codec)
+        first = _first_nal_offset(payload)
+        if first is None:
+            return "no Annex B start code"
+        if first >= len(payload) or _forbidden_bit(payload[first]):
+            return "forbidden_zero_bit set"
+        headers = parser._nal_headers(payload, len(payload))
+        if not headers:
+            return "no Annex B start code"
+        vcl = (
+            H264_FIRST_SLICE_NAL if codec is Codec.H264
+            else frozenset(range(0, 10)) | frozenset(range(16, 22))
+        )
+        has_vcl = False
+        checked_prefix = False
+        for start, nal_off, nal_type, payload_end in headers:
+            if nal_off + 1 > payload_end:
+                return f"truncated NAL header at {start}"
+            if nal_type in vcl:
+                has_vcl = True
+                # a slice NAL carries at least a 1-byte header, 1 byte of slice
+                # header and some macroblock data; a handful of bytes means the
+                # unit was cut or corrupted
+                if payload_end - nal_off < 8:
+                    return f"slice NAL too short at {start} ({payload_end - nal_off} bytes)"
+                if not checked_prefix:
+                    checked_prefix = True
+                    header_len = 1 if codec is Codec.H264 else 2
+                    rbsp = payload[nal_off + header_len:payload_end]
+                    if codec is Codec.H264:
+                        problem = _h264_slice_prefix_problem(rbsp)
+                    else:
+                        problem = _hevc_slice_prefix_problem(rbsp)
+                    if problem is not None:
+                        return f"{problem} at {start}"
+        if strict and not has_vcl:
+            return "access unit has no slice payload"
+        return None
+    # AV1 low-overhead OBU stream
+    parser = Av1ObuParser()
+    try:
+        obus = parser._scan(payload, strict=True)
+    except BitstreamError as exc:
+        return str(exc)
+    if not obus:
+        return "no AV1 OBUs"
+    if strict and not any(entry[0] in (Av1ObuParser.OBU_FRAME, Av1ObuParser.OBU_FRAME_HEADER) for entry in obus):
+        return "access unit has no frame OBU"
+    return None
