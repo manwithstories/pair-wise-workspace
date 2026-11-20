@@ -30,6 +30,9 @@ find_package(Catch2 3 REQUIRED)
 add_library(mediacore STATIC
   src/core_types.cpp
   src/path_guard.cpp
+  src/wav_demuxer.cpp
+  src/fixture.cpp
+  src/track_mapper.cpp
 )
 target_include_directories(mediacore PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
