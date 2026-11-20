@@ -91,16 +91,50 @@ def _ensure_encoder(name: str) -> None:
 
 
 def _procedural_frame(
-    width: int, height: int, index: int, base: np.ndarray
+    width: int,
+    height: int,
+    index: int,
+    base: np.ndarray,
+    *,
+    noise: "NoiseField | None" = None,
+    noise_fraction: float = 0.0,
 ) -> np.ndarray:
-    """A deterministic, mildly moving frame (no per-frame randomness)."""
+    """A deterministic, mildly moving frame with optional coded noise.
+
+    ``noise_fraction`` replaces that fraction of pixels with pre-seeded random
+    values.  Efficient codecs (HEVC, AV1) otherwise compress a synthetic
+    ramp below any realistic bitrate budget, so entropy is a fixture input:
+    the encoder must be able to *spend* the requested bits honestly.
+    """
 
     yy, xx = np.mgrid[0:height, 0:width]
     frame = base.copy()
     frame[:, :, 0] = ((xx // 3 + index * 2) % 256).astype(np.uint8)
     frame[:, :, 1] = ((yy // 4 + index * 3) % 256).astype(np.uint8)
     frame[:, :, 2] = (((xx * 3 + yy * 2) // 7 + index * 7) % 256).astype(np.uint8)
+    if noise is not None and noise_fraction > 0:
+        order = min(index, noise.masks.shape[0] - 1)
+        mask = noise.masks[order] < int(noise_fraction * 1000)
+        pixels = (noise.pixels * 255).astype(np.uint8)
+        for channel in range(3):
+            plane = frame[:, :, channel]
+            plane[mask] = pixels[mask]
     return frame
+
+
+@dataclass(frozen=True)
+class NoiseField:
+    """Pre-seeded entropy: one 0..999 mask per frame plus one pixel field."""
+
+    masks: np.ndarray
+    pixels: np.ndarray
+
+    @classmethod
+    def build(cls, seed: int, height: int, width: int, frames: int) -> "NoiseField":
+        rng = np.random.default_rng(seed * 7919 + 13)
+        masks = rng.integers(0, 1000, (max(frames, 1), height, width), dtype=np.int16)
+        pixels = rng.random((height, width))
+        return cls(masks=masks, pixels=pixels)
 
 
 def _encoder_options(codec: str, bitrate: int) -> dict[str, str]:
@@ -111,23 +145,26 @@ def _encoder_options(codec: str, bitrate: int) -> dict[str, str]:
             "bf": "0",
             "g": "30",
             "threads": "1",
+            # x264 honours CBR through nal-hrd filler, so the wire rate is
+            # exact whenever the content is at or below the requested budget.
             "bitrate": str(bitrate),
             "maxrate": str(bitrate),
             "bufsize": str(max(bitrate // 2, 1)),
             "x264-params": "nal-hrd=cbr:force-cfr=1:filler=1",
         }
     if codec == "hevc":
+        # x265 ignores the AVCodecContext bitrate when ``x265-params`` sets
+        # its own rate control, so the parameters are stated once, in full.
         return {
             "preset": "ultrafast",
             "tune": "zerolatency",
             "bf": "0",
             "threads": "1",
-            "bitrate": str(bitrate),
-            "maxrate": str(bitrate),
-            "bufsize": str(max(bitrate // 2, 1)),
             "x265-params": (
                 "bframes=0:keyint=30:log-level=error:"
-                f"vbv-maxrate={bitrate // 1000}:vbv-bufsize={bitrate // 2000}:"
+                f"bitrate={bitrate // 1000}:"
+                f"vbv-maxrate={bitrate // 1000}:"
+                f"vbv-bufsize={max(bitrate // 1000, 1)}:"
                 "strict-cbr=1"
             ),
         }
@@ -148,9 +185,17 @@ def _encoder_options(codec: str, bitrate: int) -> dict[str, str]:
 
 
 def encode_raw_stream(
-    path: Path, config: FixtureConfig, *, bitrate: int | None = None
+    path: Path,
+    config: FixtureConfig,
+    *,
+    bitrate: int | None = None,
+    noise_fraction: float = 0.0,
 ) -> int:
-    """Encode a procedural clip and return its on-disk size in bytes."""
+    """Encode a procedural clip and return its on-disk size in bytes.
+
+    ``noise_fraction`` controls how much of each frame is replaced by seeded
+    noise so an efficient codec can actually reach a requested bitrate.
+    """
 
     av = _require_pyav()
     encoder, container_format = ENCODER_BY_CODEC[config.codec]
@@ -161,6 +206,11 @@ def encode_raw_stream(
         raise InputError("fixture frame rate must round to a positive integer")
     rng = np.random.default_rng(config.seed)
     base = rng.integers(0, 256, (config.height, config.width, 3), dtype=np.uint8)
+    noise = (
+        NoiseField.build(config.seed, config.height, config.width, config.frames)
+        if noise_fraction > 0
+        else None
+    )
     options = _encoder_options(config.codec, bitrate)
     try:
         with av.open(str(path), "w", format=container_format) as container:
@@ -172,7 +222,14 @@ def encode_raw_stream(
                 stream.options[key] = value
             for index in range(config.frames):
                 frame = av.VideoFrame.from_ndarray(
-                    _procedural_frame(config.width, config.height, index, base),
+                    _procedural_frame(
+                        config.width,
+                        config.height,
+                        index,
+                        base,
+                        noise=noise,
+                        noise_fraction=noise_fraction,
+                    ),
                     format="rgb24",
                 )
                 frame.pts = index
@@ -389,13 +446,16 @@ def build_video_fixture(
     anchors_seconds: Sequence[float] = (),
     bitrate: int | None = None,
     capture_offset_ticks: int = 0,
+    noise_fraction: float = 0.0,
 ) -> VideoFixture:
     """Encode one raw stream, scan it and write a matching index."""
 
     root.mkdir(parents=True, exist_ok=True)
     suffix = SUFFIX_BY_CODEC[config.codec]
     path = root / f"{track_id}{suffix}"
-    size = encode_raw_stream(path, config, bitrate=bitrate)
+    size = encode_raw_stream(
+        path, config, bitrate=bitrate, noise_fraction=noise_fraction
+    )
     packets = scan_packets(path, config.codec)
     entries = make_timestamps(
         len(packets),
