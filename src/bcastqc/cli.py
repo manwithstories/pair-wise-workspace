@@ -177,3 +177,55 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--max-buffer", type=int, default=8 * 1024 * 1024)
     scan.add_argument("--verbose", action="store_true")
     scan.set_defaults(func=_cmd_scan)
+
+    index = sub.add_parser("index", help="validate a keyframe index")
+    index.add_argument("--stream", required=True)
+    index.add_argument("--index", required=True)
+    index.add_argument("--codec", choices=["h264", "h265", "av1"])
+    index.add_argument("--policy", choices=["scan", "reject"], default="scan")
+    index.add_argument("--no-scan", action="store_true", help="validate offsets only")
+    index.add_argument("--write-recovered", help="write the scanned index here")
+    index.set_defaults(func=_cmd_index)
+
+    run = sub.add_parser("run", help="run a timeline end to end")
+    run.add_argument("--timeline", required=True)
+    run.add_argument("--out", required=True)
+    run.add_argument("--seed", type=int, default=41)
+    run.add_argument("--drop-rate", type=float, default=0.0)
+    run.add_argument("--hard-loss-rate", type=float, default=0.0)
+    run.add_argument("--block-frames", type=int, default=8)
+    run.add_argument("--queue-blocks", type=int, default=1)
+    run.add_argument("--consumer-timeout", type=float, default=30.0)
+    run.add_argument("--resume", action="store_true")
+    run.add_argument("--strict", action="store_true", help="reject unreferenced tracks")
+    run.set_defaults(func=_cmd_run)
+
+    verify = sub.add_parser("verify", help="re-hash frames recorded in a manifest")
+    verify.add_argument("--manifest", required=True)
+    verify.set_defaults(func=_cmd_verify)
+
+    demo = sub.add_parser("demo", help="generate fixtures and run the acceptance scenario")
+    demo.add_argument("--seed", type=int, default=41)
+    demo.add_argument("--drop-rate", type=float, default=0.02)
+    demo.add_argument("--queue-frames", type=int, default=8)
+    demo.add_argument("--consumer-delay-ms", type=float, default=15.0)
+    demo.add_argument("--frames", type=int, default=75)
+    demo.add_argument("--out", default="/tmp/bcastqc-demo")
+    demo.add_argument("--keep-existing", action="store_true")
+    demo.set_defaults(func=_cmd_demo)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        return int(args.func(args))
+    except QcError as exc:
+        return _fail(exc)
+    except BrokenPipeError:  # pragma: no cover - terminal closed
+        return EXIT_RESOURCE
+
+
+if __name__ == "__main__":  # pragma: no cover - module entry point
+    raise SystemExit(main())
