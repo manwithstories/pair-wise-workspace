@@ -132,6 +132,24 @@ class TestExitStatusContract:
                      "--manifest", str(out / "manifest.json")]) == 1
 
 
+    def test_missing_encoder_reports_capability_exit_one(
+            self, tmp_path: Path, monkeypatch):
+        import av
+        real_codec = av.codec.Codec
+
+        def fake_codec(name, mode=None):
+            if mode == "w":
+                raise av.codec.codec.UnknownCodecError(
+                    "simulated missing encoder", -1)
+            return real_codec(name, mode)
+
+        monkeypatch.setattr(av.codec, "Codec", fake_codec)
+        out = tmp_path / "noencoder"
+        # Missing codec is a capability failure (exit 1), not a crash.
+        assert run_demo(out) == 1
+        assert not (out / "manifest.json").exists()
+
+
 class TestAtomicManifest:
     def test_failed_run_preserves_previous_complete_manifest(
             self, tmp_path: Path):

@@ -65,6 +65,14 @@ class TestMediaClock:
         with pytest.raises(Exception):
             clk.add_sender_report(sr(1, float("nan"), 0), 0)
 
+    def test_non_finite_clock_output_rejected(self):
+        clk = MediaClock(RATE)
+        clk.set_origin(0)
+        # A finite RTP timestamp always maps to a finite, non-negative ms.
+        sample = clk.map(RATE)
+        assert sample.clock_ms >= 0.0
+        assert sample.clock_ms == 1000.0
+
     def test_clock_domain_tracks_per_ssrc_and_max_uncertainty(self):
         domain = ClockDomain()
         domain.clock_for(1).note_missing_reports()
