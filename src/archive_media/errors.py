@@ -199,8 +199,28 @@ class DiagnosticCollector:
         self.limit = limit
         self.counts: dict[Code, int] = {}
         self.samples: list[Diagnostic] = []
+        # The two pipeline passes re-observe the same decode diagnostics; the
+        # signature set keeps the audit trail at one row per distinct finding.
+        self._seen: set[tuple[object, ...]] = set()
+
+    @staticmethod
+    def _signature(diag: Diagnostic) -> tuple[object, ...]:
+        locator = diag.locator
+        return (
+            diag.code,
+            locator.manifest_path,
+            locator.representation,
+            locator.sequence,
+            locator.segment_ref,
+            diag.message,
+            tuple(sorted(diag.detail.items())),
+        )
 
     def add(self, diag: Diagnostic) -> None:
+        signature = self._signature(diag)
+        if signature in self._seen:
+            return
+        self._seen.add(signature)
         self.counts[diag.code] = self.counts.get(diag.code, 0) + 1
         if len(self.samples) < self.limit:
             self.samples.append(diag)
