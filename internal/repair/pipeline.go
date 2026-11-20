@@ -4,7 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strconv"
 
 	"mediaroute/internal/index"
 	"mediaroute/internal/packet"
@@ -16,6 +18,44 @@ import (
 type Config struct {
 	Window   uint32 `json:"window"`
 	DriftPPM uint32 `json:"drift_ppm"`
+}
+
+// ErrMediaBoundary marks media-boundary corruption (dependency
+// cycles, missing dependencies); the CLI maps it to exit code 3.
+var ErrMediaBoundary = errors.New("media boundary corruption")
+
+// BuildGraph validates the session's track graph and returns tracks
+// in dependency order.
+func BuildGraph(sess *packet.Session) ([]*timeline.Track, error) {
+	g := timeline.NewGraph()
+	for _, td := range sess.Tracks {
+		if err := g.Add(&timeline.Track{
+			SSRC: td.SSRC, ClockRate: td.ClockRate, Kind: td.Kind, DependsOn: td.DependsOn,
+		}); err != nil {
+			return nil, err
+		}
+	}
+	order, err := g.TopoOrder()
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrMediaBoundary, err)
+	}
+	return order, nil
+}
+
+// TrackMetas derives output track metadata in dependency order.
+func TrackMetas(sess *packet.Session) ([]index.TrackMeta, error) {
+	order, err := BuildGraph(sess)
+	if err != nil {
+		return nil, err
+	}
+	metas := make([]index.TrackMeta, len(order))
+	for i, t := range order {
+		metas[i] = index.TrackMeta{
+			TrackID: t.TrackID, SSRC: t.SSRC,
+			Timescale: t.ClockRate, MediaType: t.Kind,
+		}
+	}
+	return metas, nil
 }
 
 // SHA256 returns the config digest used in checkpoints and manifests.
@@ -61,22 +101,18 @@ type Pipeline struct {
 	nonRAStart map[uint32]int64
 	pendLoss   map[uint32]bool
 	pendReord  map[uint32]bool
+
+	// OnFragment, if set, is called after each fragment commits;
+	// used to checkpoint at complete media boundaries.
+	OnFragment func()
 }
 
 // NewPipeline builds the track graph (rejecting cycles and missing
 // dependencies) and prepares repair/index state.
 func NewPipeline(cfg Config, sess *packet.Session, idxw *index.Writer) (*Pipeline, error) {
-	g := timeline.NewGraph()
-	for _, td := range sess.Tracks {
-		if err := g.Add(&timeline.Track{
-			SSRC: td.SSRC, ClockRate: td.ClockRate, Kind: td.Kind, DependsOn: td.DependsOn,
-		}); err != nil {
-			return nil, err
-		}
-	}
-	order, err := g.TopoOrder()
+	order, err := BuildGraph(sess)
 	if err != nil {
-		return nil, err // media boundary error: caller maps to exit 3
+		return nil, err
 	}
 	ts := NewTSRepair(cfg.DriftPPM)
 	bySSRC := map[uint32]*timeline.Track{}
@@ -99,6 +135,22 @@ func (p *Pipeline) Manifest() *provenance.Manifest { return p.man }
 
 // Records returns the number of input records processed.
 func (p *Pipeline) Records() int { return p.records }
+
+// OutputOffset returns the committed output byte count.
+func (p *Pipeline) OutputOffset() int64 { return p.idx.Offset() }
+
+// TimeBases reports the time-base source of each track.
+func (p *Pipeline) TimeBases() map[string]string {
+	m := map[string]string{}
+	for _, tr := range p.order {
+		tb := "rtcp-sr"
+		if p.ts.Estimated(tr.SSRC) {
+			tb = "estimated"
+		}
+		m[strconv.FormatUint(uint64(tr.SSRC), 10)] = tb
+	}
+	return m
+}
 
 // Process handles one input record.
 func (p *Pipeline) Process(rec *packet.Record) error {
@@ -301,6 +353,9 @@ func (p *Pipeline) flushFragment() error {
 		})
 	}
 	p.frag = map[uint32]*fragTrack{}
+	if p.OnFragment != nil {
+		p.OnFragment()
+	}
 	return nil
 }
 
