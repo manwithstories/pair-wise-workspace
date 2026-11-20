@@ -244,3 +244,297 @@ def parse_moof(data: bytes, moof_offset: int, moof_size: int,
     return samples, headers
 
 
+def track_table(init: bytes) -> tuple[dict[int, int], dict[int, int], dict[int, int]]:
+    """Read ``trak`` order, ``tkhd`` ids and ``mdhd`` timescales from ``moov``.
+
+    Returns ``(track_id -> track order, track_id -> timescale,
+    track order -> track_id)``.
+    """
+    moov = find_box(init, ("moov",))
+    if moov is None:
+        raise StructuralError("initialisation segment has no moov box")
+    offset, size = moov
+    order: dict[int, int] = {}
+    timescales: dict[int, int] = {}
+    by_order: dict[int, int] = {}
+    track_index = 0
+    for box_type, box_offset, box_size in iter_children(init, offset, size):
+        if box_type != "trak":
+            continue
+        track_id = None
+        timescale = None
+        for child_type, child_offset, child_size in iter_children(init, box_offset, box_size):
+            if child_type == "tkhd":
+                version = init[child_offset + 8]
+                track_id = _versioned_u32(init, child_offset, version, 8, 16)
+            elif child_type == "mdia":
+                for media_type, media_offset, media_size in iter_children(init, child_offset, child_size):
+                    if media_type == "mdhd":
+                        version = init[media_offset + 8]
+                        timescale = _versioned_u32(init, media_offset, version, 8, 16)
+        if track_id is not None:
+            order[track_id] = track_index
+            by_order[track_index] = track_id
+            if timescale:
+                timescales[track_id] = timescale
+        track_index += 1
+    return order, timescales, by_order
+
+
+# ---------------------------------------------------------------------------
+# Encoding
+# ---------------------------------------------------------------------------
+@dataclass
+class EncodedFragment:
+    data: bytes
+    samples: list[SampleRef]
+    first_times: dict[int, int]
+    timescales: dict[int, int]
+    timescales_by_stream: dict[int, int]
+
+    def body(self) -> bytes:
+        """Everything except ``ftyp``/``moov``/``mfra`` (used after chunk 0)."""
+        parts = []
+        for box_type, offset, size in iter_boxes(self.data):
+            if box_type in ("moof", "mdat"):
+                parts.append(self.data[offset:offset + size])
+        return b"".join(parts)
+
+    def init_segment(self) -> bytes:
+        parts = []
+        for box_type, offset, size in iter_boxes(self.data):
+            if box_type in ("ftyp", "moov"):
+                parts.append(self.data[offset:offset + size])
+        return b"".join(parts)
+
+
+class ChunkEncoder:
+    """Encode one chunk of packets into a self-contained MP4 fragment.
+
+    ``templates`` are the source streams, so codec parameters and extradata
+    pass through unchanged; nothing is transcoded.  ``track_ids`` is learned
+    from the first fragment and reused, guaranteeing stable ``track_id``
+    values across chunks.
+    """
+
+    def __init__(self, templates: Iterable[av.stream.Stream]):
+        self.templates = list(templates)
+        self.track_ids: dict[int, int] = {}
+        self.stream_by_track: dict[int, int] = {}
+        self.timescales_by_stream: dict[int, int] = {}
+
+    def encode(self, packets: Iterable[av.Packet],
+               absolute_start: dict[int, int] | None = None) -> EncodedFragment:
+        """Mux one chunk.
+
+        ``packets`` must carry chunk-relative timestamps in their source time
+        base.  ``absolute_start`` maps stream index to the repaired chunk
+        start in the output media timescale; every ``tfdt`` of that track is
+        rebased so samples land on the global timeline.  Omit it to keep
+        chunk-local times (used for probing).
+        """
+        buffer = io.BytesIO()
+        try:
+            container = av.open(buffer, "w", format="mp4", options=dict(MUX_OPTIONS))
+        except Exception as exc:  # pragma: no cover - environmental
+            raise StructuralError(f"cannot open fragment muxer: {exc}") from exc
+        for template in self.templates:
+            container.add_stream(template=template)
+        try:
+            for packet in packets:
+                if packet.stream is None:
+                    raise StructuralError("packet is not associated with a stream")
+                packet.stream = container.streams[packet.stream.index]
+                container.mux(packet)
+            container.close()
+        except Exception as exc:
+            try:
+                container.close()
+            except Exception:
+                pass
+            raise IndexWriteError(f"could not encode chunk: {exc}") from exc
+        data = buffer.getvalue()
+        if not data:
+            raise IndexWriteError("fragment muxer produced no output")
+
+        init = self._init_segment(data)
+        order, timescales, by_order = track_table(init)
+        self.track_ids = {stream: track for track, stream in order.items()}
+        self.stream_by_track = {track: stream for track, stream in order.items()}
+        self.timescales_by_stream = {
+            stream: timescales[track] for track, stream in order.items() if track in timescales
+        }
+
+        if absolute_start:
+            data = rebase_tfdt(data, absolute_start, self.track_ids)
+
+        samples: list[SampleRef] = []
+        first_times: dict[int, int] = {}
+        first_moof = None
+        for box_type, offset, size in iter_boxes(data):
+            if box_type != "moof":
+                continue
+            if first_moof is None:
+                first_moof = offset
+            moof_samples, headers = parse_moof(
+                data, offset, size, self.stream_by_track, first_moof
+            )
+            samples.extend(moof_samples)
+            for header in headers:
+                if header.decode_time is not None:
+                    first_times.setdefault(header.track_id, header.decode_time)
+        return EncodedFragment(
+            data=data,
+            samples=samples,
+            first_times=first_times,
+            timescales=timescales,
+            timescales_by_stream=dict(self.timescales_by_stream),
+        )
+
+    @staticmethod
+    def _init_segment(data: bytes) -> bytes:
+        parts = []
+        for box_type, offset, size in iter_boxes(data):
+            if box_type in ("ftyp", "moov"):
+                parts.append(data[offset:offset + size])
+        return b"".join(parts)
+
+
+def rebase_tfdt(data: bytes, absolute_start: dict[int, int],
+                stream_to_track: dict[int, int]) -> bytes:
+    """Shift every ``tfdt`` of a fragment onto the global timeline.
+
+    ``absolute_start`` is the repaired chunk start per stream in output media
+    ticks.  The first ``traf`` of each track supplies the chunk-local start
+    (normally zero); subsequent ``traf`` boxes of the same track are shifted
+    by the same delta so the fragment keeps its internal spacing.
+    """
+    track_start = {stream_to_track[stream]: ticks
+                   for stream, ticks in absolute_start.items() if stream in stream_to_track}
+    if not track_start:
+        return data
+    buffer = bytearray(data)
+    base_by_track: dict[int, int] = {}
+    for box_type, offset, size in iter_boxes(data):
+        if box_type != "moof":
+            continue
+        for traf_type, traf_offset, traf_size in iter_children(data, offset, size):
+            if traf_type != "traf":
+                continue
+            track_id = None
+            tfdt_offset = None
+            for child_type, child_offset, _ in iter_children(data, traf_offset, traf_size):
+                if child_type == "tfhd":
+                    track_id = struct.unpack(">I", data[child_offset + 12:child_offset + 16])[0]
+                elif child_type == "tfdt":
+                    tfdt_offset = child_offset
+            if track_id is None or tfdt_offset is None or track_id not in track_start:
+                continue
+            version = data[tfdt_offset + 8]
+            base = tfdt_offset + 12
+            if version == 1:
+                current = struct.unpack(">Q", data[base:base + 8])[0]
+            else:
+                current = struct.unpack(">I", data[base:base + 4])[0]
+            if track_id not in base_by_track:
+                base_by_track[track_id] = current
+            delta = track_start[track_id] - base_by_track[track_id]
+            new_value = current + delta
+            if version == 1:
+                struct.pack_into(">Q", buffer, base, new_value & 0xFFFFFFFFFFFFFFFF)
+            else:
+                struct.pack_into(">I", buffer, base, new_value & 0xFFFFFFFF)
+    return bytes(buffer)
+
+
+def read_init_segment(path) -> bytes:
+    """Return the leading ``ftyp``/``moov`` boxes of a repaired file."""
+    from pathlib import Path
+    path = Path(path)
+    with open(path, "rb") as handle:
+        head = handle.read(4 << 20)
+        parts = []
+        for box_type, offset, size in iter_boxes(head):
+            if box_type in ("ftyp", "moov"):
+                parts.append(head[offset:offset + size])
+            else:
+                break
+        return b"".join(parts)
+
+
+def patch_durations(init: bytes, durations: dict[int, int], movie_duration: int,
+                    movie_timescale: int | None = None) -> bytes:
+    """Rewrite ``mvhd``/``tkhd``/``mdhd`` durations in the init segment.
+
+    The muxer writes durations from the packets it saw per chunk, but when
+    the timeline is rebased (clock jumps repaired) or assembled from many
+    fragments, the totals must describe the final file.  If the container
+    advertises a duration shorter than its last sample, libavformat refuses
+    to seek - which would break the random-access guarantee.
+    """
+    buffer = bytearray(init)
+    moov = find_box(init, ("moov",))
+    if moov is None:
+        return init
+    offset, size = moov
+    for box_type, box_offset, box_size in iter_children(init, offset, size):
+        if box_type == "mvhd":
+            version = init[box_offset + 8]
+            base = box_offset + 12
+            timescale_field = base + (16 if version == 1 else 8)
+            if movie_timescale is not None:
+                struct.pack_into(">I", buffer, timescale_field, movie_timescale)
+            actual_timescale = struct.unpack(
+                ">I", init[timescale_field:timescale_field + 4])[0] or 1000
+            ticks = max(0, int(round(movie_duration * actual_timescale)))
+            if version == 1:
+                struct.pack_into(">Q", buffer, base + 20, ticks)
+            else:
+                struct.pack_into(">I", buffer, base + 12, min(ticks, 0xFFFFFFFF))
+        elif box_type == "trak":
+            track_id = None
+            mdhd_offset = None
+            tkhd_offset = None
+            mdhd_version = 0
+            for child_type, child_offset, child_size in iter_children(init, box_offset, box_size):
+                if child_type == "tkhd":
+                    tkhd_offset = child_offset
+                    version = init[child_offset + 8]
+                    base = child_offset + 12
+                    track_id = struct.unpack(
+                        ">I", init[base + (16 if version == 1 else 8):base + (20 if version == 1 else 12)]
+                    )[0]
+                elif child_type == "mdia":
+                    for media_type, media_offset, media_size in iter_children(init, child_offset, child_size):
+                        if media_type == "mdhd":
+                            mdhd_offset = media_offset
+                            mdhd_version = init[media_offset + 8]
+            if track_id is None or track_id not in durations:
+                continue
+            seconds = durations[track_id]
+            if mdhd_offset is not None:
+                timescale_field = mdhd_offset + 12 + (16 if mdhd_version == 1 else 8)
+                timescale = struct.unpack(">I", init[timescale_field:timescale_field + 4])[0] or 1
+                ticks = int(round(seconds * timescale))
+                duration_field = mdhd_offset + 12 + (24 if mdhd_version == 1 else 16)
+                if mdhd_version == 1:
+                    struct.pack_into(">Q", buffer, duration_field, ticks)
+                else:
+                    struct.pack_into(">I", buffer, duration_field, min(ticks, 0xFFFFFFFF))
+            if tkhd_offset is not None:
+                version = init[tkhd_offset + 8]
+                base = tkhd_offset + 12
+                # tkhd uses the movie timescale taken from mvhd.
+                movie_ts = movie_timescale or 1000
+                movie_ticks = int(round(seconds * movie_ts))
+                if version == 1:
+                    struct.pack_into(">Q", buffer, base + 24, movie_ticks)
+                else:
+                    struct.pack_into(">I", buffer, base + 16, min(movie_ticks, 0xFFFFFFFF))
+    return bytes(buffer)
+
+
+def discover_timescales(encoder: ChunkEncoder, sample_packets: Iterable[av.Packet]) -> dict[int, int]:
+    """Learn the muxer's output timescale per stream from a probe fragment."""
+    fragment = encoder.encode(list(sample_packets))
+    return dict(fragment.timescales_by_stream)
