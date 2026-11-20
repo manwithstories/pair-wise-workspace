@@ -185,6 +185,22 @@ def _validate_shared_axis(manifest: Manifest, log: ErrorLog) -> None:
                 break
 
 
+def max_boundary_divergence_ms(manifest: Manifest) -> float:
+    """Largest cross-representation start/end boundary divergence in ms."""
+    worst = 0.0
+    for shared_seg in manifest.shared_segments:
+        for rep in manifest.representations:
+            seg = next((s for s in rep["segments"]
+                        if s["index"] == shared_seg["index"]), None)
+            if seg is None:
+                continue
+            worst = max(
+                worst,
+                abs(seg["start_ms"] - shared_seg["start_ms"]),
+                abs(seg["end_ms"] - shared_seg["end_ms"]))
+    return round(worst, 3)
+
+
 def first_inconsistency(manifest: Manifest) -> dict | None:
     """Return the first issue as a structured record, or None when clean."""
     if not manifest.issues:

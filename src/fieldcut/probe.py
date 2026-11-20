@@ -1,17 +1,9 @@
-"""Stream-probe MP4/MOV containers: tracks, time bases, cadence, damage.
+"""Stream-probe MP4/MOV: tracks, time bases, cadence and damage ranges.
 
-The probe never buffers whole media: packets are demuxed one at a time and
-frames are decoded only to (a) confirm readability and (b) locate the first
-media time at which a damaged packet fails. A later keyframe that decodes
-again ends the damaged range, so everything after a hole stays available.
-
-Two timestamp views are kept per video stream:
-
-* the container's own PTS converted to 90 kHz ticks (the decode timeline);
-* the capture clock from an optional sidecar
-  ``<file>.clock.json`` (``{"wrap_modulus": m, "pts_mod": [...]}``), which the
-  sample synthesizer uses to inject wraps, drift and VFR without making the
-  MP4 itself undecodable.
+Packets are demuxed one at a time; a damaged packet's media time is recorded
+and the next decodable keyframe closes the damaged range. Two timestamp views
+per video: the container PTS in 90 kHz ticks, and an optional capture-clock
+sidecar (``<file>.clock.json``) carrying injected wrap/drift/VFR.
 """
 
 from __future__ import annotations
