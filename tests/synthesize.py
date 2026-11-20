@@ -173,12 +173,17 @@ def _apply_truncation(path: str) -> None:
 
 
 def _apply_bad_packet(path: str) -> int | None:
-    """Corrupt a mid-file non-keyframe H.264 packet's payload bytes."""
+    """Corrupt a mid-size non-keyframe H.264 packet's full payload.
+
+    The MP4 ``pos`` points at the 4-byte length header; the H.264 NAL unit
+    begins at ``pos + 4``. Corrupting the whole payload (not just a few bytes)
+    guarantees a decoder-visible error even when error concealment is active.
+    """
     container = av.open(path)
     target = None
     for pkt in container.demux():
-        if pkt.stream.type == "video" and not pkt.is_keyframe \
-                and pkt.pos and pkt.size > 80:
+        if (pkt.stream.type == "video" and not pkt.is_keyframe
+                and pkt.pos and 400 < pkt.size < 20_000):
             target = (pkt.pos, pkt.size)
             break
     container.close()
@@ -187,9 +192,10 @@ def _apply_bad_packet(path: str) -> int | None:
     pos, size = target
     with open(path, "r+b") as f:
         f.seek(pos + 4)
-        blob = bytes((b ^ 0xA5) for b in f.read(min(size - 4, 96)))
+        payload = f.read(size - 4)
+        corrupted = bytes(b ^ 0x5A for b in payload)
         f.seek(pos + 4)
-        f.write(blob)
+        f.write(corrupted)
     return pos
 
 
