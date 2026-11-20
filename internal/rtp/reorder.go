@@ -49,6 +49,10 @@ type Frame struct {
 	Timestamp uint32 // RTP 32-bit timestamp
 	Keyframe  bool
 	Size      int // retained payload size, used for the byte budget
+	// Hash and Expected carry the payload digest through reordering so the
+	// verifier can compare them without retaining payload bytes.
+	Hash     string
+	Expected string
 }
 
 // Gap is a run of missing extended sequence numbers, inclusive.
@@ -107,6 +111,9 @@ type Reorderer struct {
 
 	emitted map[uint64]bool
 	lateSet map[uint64]bool
+
+	drained       int // number of entries in res.Ordered already drained
+	drainedFaults int // number of entries in res.Faults already drained
 
 	res Result
 }
@@ -383,6 +390,33 @@ func (r *Reorderer) recordGap(from, to uint64) {
 		Message:  fmt.Sprintf("%s: %d frame(s) missing (ext seq %d..%d)", severity, g.Missing, from, to),
 		Expected: fmt.Sprintf("ext seq %d", from), Actual: fmt.Sprintf("next %d", to+1),
 	})
+}
+
+// Drain returns frames delivered since the previous call, in order. Callers
+// using Push incrementally (rather than Finish) drain after every push.
+func (r *Reorderer) Drain() []Frame {
+	out := r.res.Ordered[r.drained:]
+	r.drained = len(r.res.Ordered)
+	return out
+}
+
+// DrainFaults returns faults recorded since the previous call.
+func (r *Reorderer) DrainFaults() fault.List {
+	out := r.res.Faults[r.drainedFaults:]
+	r.drainedFaults = len(r.res.Faults)
+	return out
+}
+
+// Buffered reports how many frames are currently held for reordering.
+func (r *Reorderer) Buffered() int { return len(r.buf) }
+
+// Flush flushes all buffered frames and returns every not-yet-drained frame
+// plus the faults recorded while flushing. It is the incremental analogue of
+// Finish for stream consumers.
+func (r *Reorderer) Flush() ([]Frame, fault.List) {
+	r.flushAll()
+	frames := r.Drain()
+	return frames, r.DrainFaults()
 }
 
 // Finish flushes the buffer and returns the final result.
