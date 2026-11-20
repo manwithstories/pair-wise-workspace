@@ -107,15 +107,29 @@ class StageStore:
                 detail={"recorded": recorded, "current": expected_input},
             )
         output = payload.get("output")
-        return output if isinstance(output, dict) else None
+        if not isinstance(output, dict):
+            return None
+        recorded_output = payload.get("output_sha256")
+        if recorded_output:
+            actual = stage_input_digest(output=output)
+            if actual != recorded_output:
+                raise MediaError(
+                    "stage-hash-mismatch",
+                    f"stage {name} record is internally inconsistent: its output "
+                    f"hashes to {actual[:16]}, the record says {recorded_output[:16]}",
+                    stage="archive", path=str(record_path),
+                    detail={"recorded": recorded_output, "actual": actual},
+                )
+        return output
 
-    def save(self, name: str, input_sha: str, output_sha: str, output: dict[str, Any]) -> None:
+    def save(self, name: str, input_sha: str, output: dict[str, Any]) -> None:
+        """Persist a stage; the output digest always covers the stored payload."""
         atomic_write_json(
             self.path(name),
             {
                 "stage": name,
                 "input_sha256": input_sha,
-                "output_sha256": output_sha,
+                "output_sha256": stage_input_digest(output=output),
                 "output": output,
             },
         )
@@ -728,11 +742,7 @@ def _archive_inner(
             input_path, mapping,
             limits={"max_file_bytes": limits.max_file_bytes},
         )
-        store.save(
-            "probe", probe_input,
-            stage_input_digest(probe=result.source_sha256, errors=len(result.errors)),
-            result.to_dict(),
-        )
+        store.save("probe", probe_input, result.to_dict())
 
     # -- stage: timeline ---------------------------------------------------
     timeline_input = stage_input_digest(
@@ -754,7 +764,6 @@ def _archive_inner(
         )
         store.save(
             "timeline", timeline_input,
-            stage_input_digest(timeline=timeline.to_dict()),
             {
                 "timeline": timeline.to_dict(),
                 "errors": [e.to_dict() for e in timeline_errors],
@@ -805,7 +814,6 @@ def _archive_inner(
         report.recovered_segments = recovered
         store.save(
             "transform", transform_input,
-            stage_input_digest(segments=[_digest_view(r) for r in records]),
             {
                 "segments": [r.to_dict() for r in records],
                 "recovered_segments": recovered,

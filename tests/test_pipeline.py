@@ -668,6 +668,21 @@ class PipelineTests(unittest.TestCase):
                 )
             self.assertEqual(caught.exception.code, "stage-hash-mismatch")
 
+    def test_resume_refuses_a_tampered_stage_payload(self):
+        import json as _json
+
+        with Workspace() as work:
+            common = dict(work_dir=str(work / "work"), limits=Limits(jobs=1))
+            archive(str(fixtures() / "good.mkv"), str(work / "m.json"), **common)
+            record_path = work / "work" / "stages" / "timeline.json"
+            record = _json.loads(record_path.read_text())
+            record["output"]["timeline"]["segments"][0]["end_ticks"] += 1_000
+            record_path.write_text(_json.dumps(record))
+            with self.assertRaises(MediaError) as caught:
+                archive(str(fixtures() / "good.mkv"), str(work / "m.json"),
+                        resume=True, **common)
+            self.assertEqual(caught.exception.code, "stage-hash-mismatch")
+
     def test_damaged_input_isolates_the_affected_segment(self):
         with Workspace() as work:
             report = archive(
