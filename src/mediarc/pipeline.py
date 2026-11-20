@@ -814,6 +814,7 @@ def archive(
             "segments": len(records),
             "failed": len(failed),
             "recovered_segments": report.recovered_segments,
+            "isolated": sorted(s.segment_id for s in failed),
         },
     ))
     manifest.record_stage(StageRecord(
