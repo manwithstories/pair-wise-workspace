@@ -53,12 +53,14 @@ func goodVTT() string {
 }
 
 // boundarySRT exercises the edge of every clock range: a cue at time zero,
-// a zero-duration cue from a missing end time and an end-before-start cue.
+// a zero-duration cue from a missing end time, an end-before-start cue and a
+// cue that overflows the pipeline's 60 s merge horizon (rejected outright).
 func boundarySRT() string {
 	return "1\n00:00:00,000 --> 00:00:00,500\nat-midnight\n\n" +
 		"2\n00:00:02,000 --> \nmissing-end\n\n" +
 		"3\n00:00:05,000 --> 00:00:04,000\nend-before-start\n\n" +
-		"4\n00:00:06,000 --> 00:00:07,000\nrecovered-cue\n"
+		"4\n00:00:06,000 --> 00:00:07,000\nrecovered-cue\n\n" +
+		"5\n00:01:01,000 --> 00:01:02,000\nbeyond-horizon\n"
 }
 
 // truncatedSRT cuts a cue mid-line and includes invalid UTF-8 bytes plus a
