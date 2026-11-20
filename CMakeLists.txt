@@ -19,6 +19,7 @@ find_package(Catch2 3 REQUIRED)
 
 # Source files are appended per module below so each committed stage builds.
 set(MEDIAQC_SOURCES
+  src/pipeline.cpp
   src/checkpoint.cpp
   src/manifest.cpp
   src/repack.cpp
