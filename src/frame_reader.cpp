@@ -172,6 +172,12 @@ bool verify_decoded_frame(const std::vector<std::uint8_t>& payload,
     return false;
   }
   AVFormatContext* format = avformat_alloc_context();
+  if (format == nullptr) {
+    av_free(avio->buffer);
+    avio_context_free(&avio);
+    reason = "avformat_alloc_context failed";
+    return false;
+  }
   format->pb = avio;
   format->flags |= AVFMT_FLAG_CUSTOM_IO;
   const int opened = avformat_open_input(&format, nullptr, nullptr, nullptr);

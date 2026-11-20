@@ -483,24 +483,48 @@ PipelineResult run_pipeline(const PipelineConfig& config) {
   report.input_digest = read.input_digest;
   report.config_digest = config_digest;
 
+  // Round-trip verification first, on a staged file: a manifest is only
+  // published once it has been read back and hashed identically.  Input
+  // errors (checksum failures, blocked tracks) also block publication so
+  // an unverified manifest is never handed to the edit team.
   const std::filesystem::path manifest_path =
       config.work_dir / "out" / "manifest.json";
+  const std::filesystem::path staged_path =
+      config.work_dir / "out" / "manifest.json.pending";
   std::error_code ec;
   std::filesystem::create_directories(manifest_path.parent_path(), ec);
   std::string store_error;
-  const bool stored = store_manifest(manifest_path, manifest, store_error);
-  result.manifest_path = manifest_path;
-  if (!stored) {
+  const bool staged = store_manifest(staged_path, manifest, store_error);
+  if (!staged) {
     errors.fail("manifest", "", 0, store_error);
   }
-  // Round-trip verification of what was actually written.
   Manifest reloaded;
-  ManifestParseResult reload = load_manifest(manifest_path, reloaded);
-  if (!stored || !reload.ok ||
-      manifest_digest(reloaded) != report.manifest_digest) {
+  ManifestParseResult reload = load_manifest(staged_path, reloaded);
+  const bool verified =
+      staged && reload.ok &&
+      manifest_digest(reloaded) == report.manifest_digest;
+  if (!verified) {
     errors.fail("manifest", "", 0,
                 "manifest failed round-trip verification; not published");
     report.roundtrip_rate = 0.0;
+  }
+  const bool input_ok = !errors.has_errors();
+  if (verified && input_ok) {
+    std::filesystem::rename(staged_path, manifest_path, ec);
+    if (ec) {
+      errors.fail("manifest", "", 0,
+                  "cannot publish manifest: " + ec.message());
+      result.manifest_path.clear();
+    } else {
+      result.manifest_path = manifest_path;
+    }
+  } else {
+    std::filesystem::remove(staged_path, ec);
+    result.manifest_path.clear();
+    if (verified && !input_ok) {
+      errors.fail("manifest", "", 0,
+                  "input had unrecoverable records; manifest withheld");
+    }
   }
   const std::string manifest_stage_digest =
       stage_input_digest(kStageManifest, report.manifest_digest);

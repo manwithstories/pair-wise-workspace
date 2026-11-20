@@ -872,6 +872,11 @@ TEST_CASE("a corrupted frame surface as exit code 3 with no manifest",
   PipelineResult result = run_demo(config);
   CHECK(result.report.checksum_failures == 1);
   CHECK(result.exit_code == static_cast<int>(ExitCode::kCorrupt));
+  // An input error withholds the manifest rather than publishing an
+  // unverified one.
+  CHECK_FALSE(std::filesystem::exists(result.manifest_path));
+  CHECK_FALSE(std::filesystem::exists(
+      config.work_dir / "out" / "manifest.json.pending"));
   bool located = false;
   for (const auto& event : result.errors) {
     if (event.severity == Severity::kError && event.ids.track == "cam-b" &&
