@@ -491,16 +491,23 @@ def run_pipeline(
             )
         sync_report.tracks.append(align_audio_only(audio, 0, config=sync_config))
 
-        unrecovered_seqs: dict[str, set[int]] = {video.track_id: set() for video, _f, _j in results}
+        # Bitrate describes the encoded program that was produced, not the
+        # transport casualties: loss is accounted separately below so a
+        # recoverable transmission never masquerades as an encoder fault.
+        encoded_bytes = audio_size + sum(
+            fixture.size_bytes for _v, fixture, _j in results
+        )
+        unrecovered_seqs: dict[str, set[int]] = {
+            video.track_id: set() for video, _f, _j in results
+        }
         for segment in recovery.segments:
             unrecovered_seqs[segment.track_id].update(segment.loss_seqs)
-        delivered_bytes = audio_size
-        for video, fixture, jitter in results:
+        lost_bytes = 0
+        for video, _fixture, _jitter in results:
             sizes = {packet.seq: packet.size for packet in video.packets}
-            lost_bytes = sum(
+            lost_bytes += sum(
                 sizes.get(seq, 0) for seq in unrecovered_seqs[video.track_id]
             )
-            delivered_bytes += max(0, fixture.size_bytes - lost_bytes)
 
         loss_total = sum(len(jitter.missing) for _v, _f, jitter in results)
         recovered_total = recovery.recovered
@@ -519,7 +526,7 @@ def run_pipeline(
         manifest = build_manifest(
             seed=config.seed,
             target_bps=config.target_bps,
-            total_bytes=delivered_bytes,
+            total_bytes=encoded_bytes,
             duration_ticks=duration_ticks,
             tracks=entries,
             gaps=[gap.to_dict() for gap in _dedupe(recovery.gaps)],
@@ -532,6 +539,7 @@ def run_pipeline(
                 "reordered": sum(jitter.reordered for _v, _f, jitter in results),
                 "late": sum(len(jitter.late) for _v, _f, jitter in results),
                 "conflicts": sum(len(jitter.conflicts) for _v, _f, jitter in results),
+                "lost_bytes": lost_bytes,
             },
             audio={
                 "sample_rate": audio.sample_rate,
