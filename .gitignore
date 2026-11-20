@@ -75,6 +75,9 @@ AGENTS.md.local
 # ---- Python mediasync 工程 ----
 .venv/
 demo-out/
+demo-*/
+cmp_*/
+st_*/
 *.egg-info/
 __pycache__/
 .pytest_cache/
