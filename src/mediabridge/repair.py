@@ -549,3 +549,231 @@ class Repairer:
 
         self._finalise(planner, committed_bytes)
 
+    def _should_skip(self, planner: ChunkPlanner, info: probe.PacketInfo) -> bool:
+        """Skip packets already committed by a previous run.
+
+        Chunk boundaries are a pure function of the packet stream, so every
+        packet below ``next_global_packet`` belongs to a committed chunk and
+        can be dropped without touching clocks.  The video validator is
+        reset when the first new packet arrives: a chunk always begins at a
+        keyframe, so a fresh decoder sees exactly what an uninterrupted run
+        would.
+        """
+        if not self.config.resume:
+            return False
+        if info.global_index < self._resume_skip_until(planner):
+            return True
+        if not self._resume_primed:
+            self._resume_primed = True
+            planner.reset_for_boundary()
+        return False
+
+    def _resume_skip_until(self, planner: ChunkPlanner) -> int:
+        if self.checkpoint is None:
+            return 0
+        return int(self.checkpoint.cursor.get("next_global_packet", 0))
+
+    def _commit_chunk(self, chunk: PlannedChunk, output, committed_bytes: int,
+                      first_chunk: bool, planner: ChunkPlanner) -> int:
+        payload = chunk.body
+        if first_chunk:
+            payload = chunk.init_segment + chunk.body
+        output.write(payload)
+        output.flush()
+        os.fsync(output.fileno())
+        body_offset = committed_bytes + (len(chunk.init_segment) if first_chunk else 0)
+        record, samples = self._chunk_rows(chunk, payload, body_offset)
+        assert self.index_writer is not None
+        self.index_writer.commit_chunk(record, samples, chunk.damage)
+        new_committed = committed_bytes + len(payload)
+        self._write_checkpoint(chunk, new_committed, planner)
+        self.summary.chunks_committed += 1
+        self._last_committed_global = chunk.last_global_packet + 1
+        self._last_committed_bytes = new_committed
+        return new_committed
+
+    def _chunk_rows(self, chunk: PlannedChunk, payload: bytes, body_offset: int):
+        """Build the index rows for one chunk.
+
+        ``body_offset`` is where this chunk's ``body`` starts in the output;
+        every sample's ``frag_offset`` is relative to the first ``moof`` of
+        the fragment, which is exactly where the body begins.
+        """
+        samples = []
+        for sample in chunk.samples:
+            sample.byte_offset = body_offset + sample.byte_offset
+            samples.append(sample)
+        record = ChunkRecord(
+            chunk_index=chunk.chunk_index,
+            first_global_packet=chunk.first_global_packet,
+            last_global_packet=chunk.last_global_packet,
+            first_packet_seq=chunk.first_packet_seq,
+            last_packet_seq=chunk.last_packet_seq,
+            packet_count=chunk.packet_count,
+            file_offset=body_offset,
+            file_length=len(chunk.body),
+            rows_sha256=rows_digest([s.as_dict() for s in samples]),
+            bytes_sha256=hashlib.sha256(chunk.body).hexdigest(),
+            start_seconds=str(chunk.start_seconds),
+        )
+        return record, samples
+
+    def _write_checkpoint(self, chunk: PlannedChunk, committed_bytes: int,
+                          planner: ChunkPlanner) -> None:
+        # ``chunk.clock_state`` is the planner state captured at flush time,
+        # which is the committed byte boundary.  Using the live planner state
+        # here would be one packet ahead (``ingest`` observes the next packet
+        # before returning the closed chunk).
+        self._committed_clock_state = chunk.clock_state
+        self._committed_packet_seq = dict(chunk.packet_seq)
+        assert self.checkpoint is not None
+        origin_raw = chunk.origin
+        self.checkpoint.cursor = {
+            "chunk_index": chunk.chunk_index + 1,
+            "next_global_packet": chunk.last_global_packet + 1,
+            "resume_seconds": str(chunk.start_seconds),
+            "origin": str(origin_raw) if origin_raw is not None else None,
+            "packet_seq": {str(k): v for k, v in chunk.packet_seq.items()},
+            "first_error_packet": planner.first_error_packet,
+            "packets_dropped": planner.packets_dropped + self._prior_dropped,
+            "completed": False,
+        }
+        self.checkpoint.output = {"path": str(self.config.output), "committed_bytes": committed_bytes}
+        self.checkpoint.clocks = chunk.clock_state
+        self.checkpoint.state = "running"
+        save_checkpoint(self.config.checkpoint_path, self.checkpoint)
+
+    def _persist_interruption(self, planner: ChunkPlanner, committed_bytes: int, acked: int) -> None:
+        """Record the last *committed* boundary, never the read-ahead one.
+
+        ``acked`` names the last packet the consumer saw, which may belong to
+        a chunk that was never committed.  The cursor must point at the last
+        committed chunk so resume re-reads (and rewrites) that boundary.
+        """
+        assert self.checkpoint is not None
+        next_packet = self._last_committed_global
+        committed_seq = self._committed_packet_seq or {}
+        self.checkpoint.cursor = {
+            "chunk_index": int(self.checkpoint.cursor.get("chunk_index", 0)),
+            "next_global_packet": next_packet,
+            "acked_packet": acked,
+            "resume_seconds": self.checkpoint.cursor.get("resume_seconds"),
+            "origin": self.checkpoint.cursor.get("origin"),
+            "packet_seq": {str(k): v for k, v in committed_seq.items()},
+            "first_error_packet": self.checkpoint.cursor.get("first_error_packet"),
+            "packets_dropped": self.summary.packets_dropped,
+            "completed": False,
+        }
+        # Only clock state that belongs to the last committed byte boundary is
+        # safe to restore: everything after it will be re-read from the source.
+        self.checkpoint.clocks = self._committed_clock_state or {}
+        self.checkpoint.output = {"path": str(self.config.output),
+                                  "committed_bytes": self._last_committed_bytes}
+        self.checkpoint.state = "interrupted"
+        save_checkpoint(self.config.checkpoint_path, self.checkpoint)
+
+    def _finalise(self, planner: ChunkPlanner, committed_bytes: int) -> None:
+        self.summary.timestamp_repairs = list(planner.timestamp_repairs)
+        self._rewrite_durations(planner)
+        assert self.checkpoint is not None
+        if self.index_writer is None:
+            raise IndexWriteError("index writer already closed")
+        self.summary.index_rows = planner.samples_offset + planner.samples_written
+        self.summary.packets_written = planner.packets_written
+        output_path = Path(self.config.output).resolve()
+        output_sha = sha256_file(self.config.output)
+        self.index_writer.finish(
+            state="complete",
+            packet_count=str(planner.packets_written),
+            sample_count=str(planner.samples_offset + planner.samples_written),
+            source_packet_count=str(planner.packets_seen),
+            first_error_packet=str(planner.first_error_packet) if planner.first_error_packet is not None else "",
+            output=json.dumps({"path": str(output_path), "bytes": output_path.stat().st_size},
+                              sort_keys=True),
+            output_sha256=output_sha,
+            resume_start_packet=str(self.summary.resume_start_packet)
+            if self.summary.resume_start_packet is not None else "",
+        )
+        self.index_writer = None
+        self.checkpoint.cursor = {
+            "chunk_index": planner.chunk_index,
+            "next_global_packet": self._last_global(planner),
+            "first_error_packet": planner.first_error_packet,
+            "completed": True,
+        }
+        self.checkpoint.clocks = planner.clock_state()
+        self.checkpoint.output = {"path": str(self.config.output), "committed_bytes": committed_bytes}
+        self.checkpoint.state = "complete"
+        save_checkpoint(self.config.checkpoint_path, self.checkpoint)
+        self.summary.output_sha256 = output_sha
+        self.summary.status = "ok"
+        self.summary.exit_code = EXIT_OK
+
+    def _rewrite_durations(self, planner: ChunkPlanner) -> None:
+        """Make the container advertise the repaired timeline's true length.
+
+        Each fragment is muxed in its own session, so the init segment's
+        ``mvhd``/``tkhd``/``mdhd`` durations reflect only the first chunk.
+        After a clock rebase (or simply because later chunks extend the
+        timeline) the declared length is wrong, which misleads players and
+        tools that trust the header.  Patch the fields in place to the last
+        kept sample's end time; this never moves a byte, so chunk offsets and
+        digests stay valid.
+
+        The end time is taken from the *packets the planner actually kept*
+        (last decision per stream), not from the clock's prediction, which is
+        one frame ahead and would overstate the duration.
+        """
+        output = Path(self.config.output)
+        if not output.exists():
+            return
+        init = read_init_segment(output)
+        if not init:
+            return
+        last_by_stream: dict[int, Fraction] = {}
+        for chunk in planner.committed_chunks:
+            for planned in chunk.packets:
+                last_by_stream[planned.info.stream_index] = planned.decision.dts_seconds
+        if not last_by_stream:
+            # Nothing was written in this session (e.g. a resume that found
+            # every chunk already committed).  Leave the durations alone
+            # rather than zeroing them.
+            return
+        durations: dict[int, int] = {}
+        longest = Fraction(0)
+        for stream_index, last in last_by_stream.items():
+            timescale = planner.timescales.get(stream_index, 1000)
+            span = last + Fraction(1, timescale)  # include the final sample
+            durations[stream_index + 1] = int(round(span * timescale))
+            longest = max(longest, span)
+        patched = patch_durations(init, durations, int(round(longest * 1000)))
+        if patched != init:
+            with open(output, "r+b") as handle:
+                handle.seek(0)
+                handle.write(patched)
+                handle.flush()
+                os.fsync(handle.fileno())
+
+    @staticmethod
+    def _last_global(planner: ChunkPlanner) -> int:
+        return planner.packets_seen
+
+    @staticmethod
+    def _damage_dict(row) -> dict:
+        payload = {
+            "track_index": row.track_index,
+            "start_packet": row.start_packet,
+            "end_packet": row.end_packet,
+            "reason": row.reason,
+        }
+        if row.dts is not None:
+            payload["dts"] = row.dts
+        if row.pts is not None:
+            payload["pts"] = row.pts
+        if row.notes:
+            payload["notes"] = row.notes
+        return payload
+
+
+def repair(config: RepairConfig) -> RepairSummary:
+    return Repairer(config).run()
