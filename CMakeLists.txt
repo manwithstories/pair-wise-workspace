@@ -19,6 +19,8 @@ add_library(mediacore STATIC
   src/version.cpp
   src/time.cpp
   src/error.cpp
+  src/pathutil.cpp
+  src/json.cpp
 )
 target_include_directories(mediacore PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -27,3 +29,7 @@ target_link_libraries(mediacore PUBLIC
 
 enable_testing()
 include(CTest)
+
+add_executable(test_core tests/test_core.cpp)
+target_link_libraries(test_core PRIVATE mediacore Catch2::Catch2WithMain)
+add_test(NAME core COMMAND test_core)
