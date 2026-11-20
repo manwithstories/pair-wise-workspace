@@ -47,6 +47,7 @@ class VideoProbe:
     frame_decoded: int
     profile: object
     pts_ticks: list[int] = field(default_factory=list)
+    capture_ticks: list[int] = field(default_factory=list)
     keyframe_ticks: list[int] = field(default_factory=list)
     readable_start_ticks: int = 0
     readable_end_ticks: int = 0
@@ -227,6 +228,7 @@ def _apply_capture_clock(probe: VideoProbe, sidecar: dict | None,
     unwrap = unwrap_timestamps(raw, modulus)
     probe.wrap_indices = unwrap.wrap_indices
     probe.regression_indices = unwrap.regression_indices
+    probe.capture_ticks = list(unwrap.values)
     for idx in unwrap.wrap_indices:
         log.add(Stage.PROBE, probe.camera,
                 f"timestamp wrap at frame {idx}; unwrapped onto monotonic axis",
