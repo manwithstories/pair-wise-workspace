@@ -176,6 +176,31 @@ def decode_prefix(
         yield _picture_from_frame(frame, unit.index)
 
 
+def decode_prefix_cached(
+    units: Sequence[AccessUnit], codec: str, *, limit: int,
+    cache_bytes: int = 0,
+) -> tuple[Iterable[DecodedPicture], Any]:
+    """Decode the prefix while retaining recent pictures in a byte-bounded LRU.
+
+    Returns the picture iterator and the cache object, so the caller can report
+    the cache's eviction statistics in the manifest.  Memory still has a hard
+    ceiling (``cache_bytes``) regardless of clip length; the cache exists so a
+    consumer that needs to revisit recently decoded pictures does not re-decode.
+    """
+    if cache_bytes <= 0:
+        return decode_prefix(units, codec, limit=limit), None
+    from .queues import FrameCache
+
+    cache: FrameCache[DecodedPicture] = FrameCache(cache_bytes, name="quality")
+
+    def generator() -> Iterable[DecodedPicture]:
+        for position, picture in enumerate(decode_prefix(units, codec, limit=limit)):
+            cache.put(position, picture)
+            yield picture
+
+    return generator(), cache
+
+
 def _psnr(reference: np.ndarray, decoded: np.ndarray) -> float:
     ref = reference.astype(np.float64)
     dec = decoded.astype(np.float64)
@@ -188,6 +213,7 @@ def _psnr(reference: np.ndarray, decoded: np.ndarray) -> float:
 @dataclass
 class QualityStats:
     frames: int = 0
+    cache_stats: dict[str, Any] | None = None
     psnr_sum: float = 0.0
     psnr_min: float = 99.0
     psnr_max: float = 0.0
@@ -202,11 +228,13 @@ class QualityStats:
 
     def to_dict(self) -> dict[str, Any]:
         if not self.frames:
-            return {"frames": 0, "psnr_db": 0.0, "psnr_min_db": 0.0,
+            return {"frames": 0, "frame_cache": self.cache_stats,
+                    "psnr_db": 0.0, "psnr_min_db": 0.0,
                     "psnr_max_db": 0.0, "luma_mse": 0.0, "finite": False}
         psnr = self.psnr_sum / self.frames
         return {
             "frames": self.frames,
+            "frame_cache": self.cache_stats,
             "psnr_db": round(psnr, 3),
             "psnr_min_db": round(self.psnr_min, 3),
             "psnr_max_db": round(self.psnr_max, 3),
@@ -221,6 +249,7 @@ def score_quality(
     reference_of: Sequence[np.ndarray] | Callable[[int], np.ndarray],
     *,
     limit: int,
+    cache_bytes: int = 0,
 ) -> QualityStats:
     """Compare decoded luma with the deterministic reference frames.
 
@@ -231,7 +260,9 @@ def score_quality(
     """
     stats = QualityStats()
     lookup = reference_of if callable(reference_of) else reference_of.__getitem__
-    for picture in decode_prefix(units, codec, limit=limit):
+    pictures, cache = decode_prefix_cached(
+        units, codec, limit=limit, cache_bytes=cache_bytes)
+    for picture in pictures:
         try:
             reference = lookup(picture.unit_index)
         except (IndexError, KeyError):
@@ -240,6 +271,8 @@ def score_quality(
             continue
         mse = float(np.mean((reference.astype(np.float64) - picture.y) ** 2))
         stats.add(_psnr(reference, picture.y), mse)
+    if cache is not None:
+        stats.cache_stats = cache.stats.to_dict()
     return stats
 
 

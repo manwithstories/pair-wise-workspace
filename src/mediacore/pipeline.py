@@ -408,7 +408,8 @@ def run_pipeline(
     quality_started = time.perf_counter()
     quality_limit = min(config.quality_limit, len(units))
     quality = score_quality(
-        units, config.codec, _reference_lookup(config), limit=quality_limit).to_dict()
+        units, config.codec, _reference_lookup(config), limit=quality_limit,
+        cache_bytes=FRAME_CACHE_BYTES).to_dict()
     timings["quality"] = time.perf_counter() - quality_started
 
     # Payloads are no longer needed: the scanner metadata, timeline records and
