@@ -13,8 +13,8 @@ import (
 const TimelineVersion = "mediarepair-timeline/v1"
 
 type timelineJSON struct {
-	Version     string `json:"version"`
-	Tracks      []struct {
+	Version string `json:"version"`
+	Tracks  []struct {
 		ID        uint32 `json:"id"`
 		Kind      string `json:"kind"`
 		Timescale uint32 `json:"timescale"`
@@ -26,6 +26,8 @@ type timelineJSON struct {
 		Index        int    `json:"index"`
 		StartTick    uint64 `json:"start_tick"`
 		DurationTick uint64 `json:"duration_tick"`
+		FirstSample  uint64 `json:"first_sample"`
+		SampleCount  uint64 `json:"sample_count"`
 	} `json:"clips"`
 	Transitions []struct {
 		ID           string `json:"id"`
@@ -34,7 +36,10 @@ type timelineJSON struct {
 		ToClipID     string `json:"to_clip_id"`
 		StartTick    uint64 `json:"start_tick"`
 		DurationTick uint64 `json:"duration_tick"`
+		FirstSample  uint64 `json:"first_sample"`
+		SampleCount  uint64 `json:"sample_count"`
 	} `json:"transitions"`
+	RTPTrackID uint32 `json:"rtp_track_id"`
 }
 
 // LoadTimeline 读取时间线 sidecar JSON，校验必需标记与时间基准上限。
@@ -64,14 +69,17 @@ func LoadTimeline(path string) (*model.Timeline, error) {
 		tl.Clips = append(tl.Clips, model.Clip{
 			ID: c.ID, TrackID: c.TrackID, Index: c.Index,
 			StartTick: c.StartTick, DurationTick: c.DurationTick,
+			FirstSample: c.FirstSample, SampleCount: c.SampleCount,
 		})
 	}
 	for _, tr := range tj.Transitions {
 		tl.Transitions = append(tl.Transitions, model.Transition{
 			ID: tr.ID, TrackID: tr.TrackID, FromClipID: tr.FromClipID, ToClipID: tr.ToClipID,
 			StartTick: tr.StartTick, DurationTick: tr.DurationTick,
+			FirstSample: tr.FirstSample, SampleCount: tr.SampleCount,
 		})
 	}
+	tl.RTPTrackID = tj.RTPTrackID
 	if err := tl.Validate(); err != nil {
 		return nil, fault.Wrap(fault.StageParse, 0, 0, false, "时间线校验失败", err)
 	}

@@ -40,12 +40,16 @@ type Track struct {
 }
 
 // Clip 是时间线上的一段连续素材，时间以所属轨道时钟计。
+// FirstSample/SampleCount 给出该剪辑在轨道样本表中的样本区间，用于把
+// 样本归属到片段；区间在同一轨道内不得重叠。
 type Clip struct {
 	ID           string
 	TrackID      uint32
 	Index        int    // 在轨道上的顺序
-	StartTick    uint64 // 轨道时钟起点
+	StartTick    uint64 // 轨道时钟起点（逻辑时间线）
 	DurationTick uint64 // 轨道时钟长度
+	FirstSample  uint64 // 轨道内首个样本序号
+	SampleCount  uint64 // 样本数量
 }
 
 // Transition 描述两个剪辑之间的转场片段。
@@ -56,13 +60,17 @@ type Transition struct {
 	ToClipID     string
 	StartTick    uint64 // 轨道时钟起点
 	DurationTick uint64 // 轨道时钟长度
+	FirstSample  uint64 // 轨道内首个样本序号
+	SampleCount  uint64 // 样本数量
 }
 
 // Timeline 聚合轨道、剪辑与转场。
+// RTPTrackID 非零时，repair 会把同目录 rtp.dump 的时间戳映射到该轨道。
 type Timeline struct {
 	Tracks      []Track
 	Clips       []Clip
 	Transitions []Transition
+	RTPTrackID  uint32
 }
 
 // Validate 检查时间线是否满足上限与引用完整性。
@@ -85,11 +93,59 @@ func (tl *Timeline) Validate() error {
 		if _, ok := trackByID[c.TrackID]; !ok {
 			return fmt.Errorf("model: 剪辑 %s 引用未知轨道 %d", c.ID, c.TrackID)
 		}
+		if c.SampleCount != 0 && c.FirstSample+c.SampleCount < c.FirstSample {
+			return fmt.Errorf("model: 剪辑 %s 样本区间溢出", c.ID)
+		}
 		clipByID[c.ID] = true
 	}
 	for _, tr := range tl.Transitions {
 		if !clipByID[tr.FromClipID] || !clipByID[tr.ToClipID] {
 			return fmt.Errorf("model: 转场 %s 引用未知剪辑", tr.ID)
+		}
+		if _, ok := trackByID[tr.TrackID]; !ok {
+			return fmt.Errorf("model: 转场 %s 引用未知轨道 %d", tr.ID, tr.TrackID)
+		}
+		if tr.SampleCount != 0 && tr.FirstSample+tr.SampleCount < tr.FirstSample {
+			return fmt.Errorf("model: 转场 %s 样本区间溢出", tr.ID)
+		}
+	}
+	if err := tl.validateRanges(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// sampleRange 是一个待校验的样本区间。
+type sampleRange struct {
+	id     string
+	track  uint32
+	first  uint64
+	count  uint64
+	report bool
+}
+
+// validateRanges 拒绝同一轨道内样本区间重叠，避免样本归属歧义。
+func (tl *Timeline) validateRanges() error {
+	byTrack := make(map[uint32][]sampleRange)
+	for _, c := range tl.Clips {
+		byTrack[c.TrackID] = append(byTrack[c.TrackID], sampleRange{c.ID, c.TrackID, c.FirstSample, c.SampleCount, false})
+	}
+	for _, tr := range tl.Transitions {
+		byTrack[tr.TrackID] = append(byTrack[tr.TrackID], sampleRange{tr.ID, tr.TrackID, tr.FirstSample, tr.SampleCount, true})
+	}
+	for tid, rs := range byTrack {
+		for i := 0; i < len(rs); i++ {
+			if rs[i].count == 0 {
+				continue
+			}
+			for j := i + 1; j < len(rs); j++ {
+				if rs[j].count == 0 {
+					continue
+				}
+				if rs[i].first < rs[j].first+rs[j].count && rs[j].first < rs[i].first+rs[i].count {
+					return fmt.Errorf("model: 轨道 %d 的片段 %s 与 %s 样本区间重叠", tid, rs[i].id, rs[j].id)
+				}
+			}
 		}
 	}
 	return nil
@@ -127,7 +183,7 @@ func ToUnified(timescale uint32, tick uint64) (uint64, error) {
 	if tick > math.MaxUint64/mul {
 		return 0, fmt.Errorf("%w: tick=%d timescale=%d", ErrOverflow, tick, timescale)
 	}
-	return tick / div * mul + (tick%div)*mul/div, nil
+	return tick/div*mul + (tick%div)*mul/div, nil
 }
 
 // MustUnified 是 ToUnified 的便捷封装，溢出时返回 0（仅用于已校验输入）。
@@ -137,6 +193,22 @@ func MustUnified(timescale uint32, tick uint64) uint64 {
 		return 0
 	}
 	return v
+}
+
+// FromUnified 把统一时间基准换算回轨道时钟 tick（四舍五入到最近 tick），
+// 用于往返校验。溢出时报错。
+func FromUnified(timescale uint32, unified uint64) (uint64, error) {
+	if timescale == 0 || timescale > MaxTimescale {
+		return 0, fmt.Errorf("%w: 非法时钟频率 %d", ErrOverflow, timescale)
+	}
+	ts := uint64(timescale)
+	g := gcd(UnifiedTimescale, ts)
+	mul := ts / g
+	div := UnifiedTimescale / g
+	if unified > math.MaxUint64/mul {
+		return 0, fmt.Errorf("%w: unified=%d timescale=%d", ErrOverflow, unified, timescale)
+	}
+	return (unified*mul + div/2) / div, nil
 }
 
 func gcd(a, b uint64) uint64 {
@@ -154,13 +226,15 @@ type Sample struct {
 	CTS          uint64 // 原始显示时间戳（轨道时钟）
 	Duration     uint32 // 轨道时钟长度
 	Keyframe     bool
-	SourceOffset int64 // 输入文件中的原始字节偏移
+	SourceOffset int64  // 输入文件中的原始字节偏移
 	Data         []byte // 样本负载（尺寸受 MaxSampleSize 约束）
 }
 
 // RepairedSample 携带修复后的统一时间基准时间戳与审计信息。
 type RepairedSample struct {
 	Sample
+	RepairedDTS  uint64 // 修复后轨道时钟 DTS（展开回绕后的 64 位域）
+	RepairedCTS  uint64 // 修复后轨道时钟 CTS
 	UnifiedDTS   uint64 // 修复后统一时间基准 DTS
 	UnifiedCTS   uint64
 	OriginalDTS  uint64 // 修复前原始值，供审计
