@@ -426,3 +426,144 @@ class RepairTests(FixtureCase):
             container.close()
 
 
+class ResumeTests(FixtureCase):
+    def test_resume_matches_full_run(self):
+        work = self.workdir()
+        full_dir = work / "full"
+        part_dir = work / "part"
+        full_dir.mkdir()
+        part_dir.mkdir()
+
+        full_config = RepairConfig(
+            source=self.sample("corrupt"),
+            output=full_dir / "out.mp4",
+            index_path=full_dir / "out.sqlite",
+            checkpoint_path=full_dir / "out.json",
+            chunk_packets=64,
+        )
+        full_summary = repair(full_config)
+
+        part_config = RepairConfig(
+            source=self.sample("corrupt"),
+            output=part_dir / "out.mp4",
+            index_path=part_dir / "out.sqlite",
+            checkpoint_path=part_dir / "out.json",
+            chunk_packets=64,
+            interrupt_after=145,
+        )
+        stop = repair(part_config)
+        self.assertEqual(stop.status, "interrupted")
+        self.assertEqual(stop.exit_code, EXIT_OK)
+        self.assertGreater(stop.chunks_committed, 0)
+
+        resumed_config = RepairConfig(
+            source=self.sample("corrupt"),
+            output=part_dir / "out.mp4",
+            index_path=part_dir / "out.sqlite",
+            checkpoint_path=part_dir / "out.json",
+            chunk_packets=64,
+            resume=True,
+        )
+        resumed = repair(resumed_config)
+        self.assertEqual(resumed.exit_code, EXIT_OK)
+        self.assertEqual(resumed.status, "ok")
+        self.assertEqual(resumed.output_sha256, full_summary.output_sha256)
+        self.assertEqual(_sha256(full_config.output), _sha256(part_config.output))
+
+    def test_resume_at_packet_zero_reproduces_full_run(self):
+        work = self.workdir()
+        full_dir = work / "full0"
+        part_dir = work / "part0"
+        full_dir.mkdir()
+        part_dir.mkdir()
+        full = repair(RepairConfig(
+            source=self.sample("corrupt"), output=full_dir / "out.mp4",
+            index_path=full_dir / "out.sqlite", checkpoint_path=full_dir / "out.json",
+            chunk_packets=64))
+        stop = repair(RepairConfig(
+            source=self.sample("corrupt"), output=part_dir / "out.mp4",
+            index_path=part_dir / "out.sqlite", checkpoint_path=part_dir / "out.json",
+            chunk_packets=64, interrupt_after=40))
+        self.assertEqual(stop.status, "interrupted")
+        resumed = repair(RepairConfig(
+            source=self.sample("corrupt"), output=part_dir / "out.mp4",
+            index_path=part_dir / "out.sqlite", checkpoint_path=part_dir / "out.json",
+            chunk_packets=64, resume=True))
+        self.assertEqual(resumed.exit_code, EXIT_OK)
+        self.assertEqual(resumed.output_sha256, full.output_sha256)
+
+    def test_resume_requires_existing_checkpoint(self):
+        work = self.workdir()
+        summary = repair(RepairConfig(
+            source=self.sample("corrupt"), output=work / "out.mp4",
+            index_path=work / "out.sqlite", checkpoint_path=work / "out.json",
+            chunk_packets=64, resume=True))
+        self.assertEqual(summary.exit_code, EXIT_RESUME_MISMATCH)
+        self.assertEqual(summary.error["code"], "checkpoint_mismatch")
+
+    def test_changed_source_refuses_resume(self):
+        work = self.workdir()
+        config = RepairConfig(
+            source=self.sample("corrupt"), output=work / "out.mp4",
+            index_path=work / "out.sqlite", checkpoint_path=work / "out.json",
+            chunk_packets=64, interrupt_after=100)
+        stop = repair(config)
+        self.assertEqual(stop.status, "interrupted")
+        payload = json.loads(config.checkpoint_path.read_text())
+        payload["source"]["size"] += 1
+        config.checkpoint_path.write_text(json.dumps(payload))
+        resume = repair(RepairConfig(
+            source=self.sample("corrupt"), output=work / "out.mp4",
+            index_path=work / "out.sqlite", checkpoint_path=work / "out.json",
+            chunk_packets=64, resume=True))
+        self.assertEqual(resume.exit_code, EXIT_RESUME_MISMATCH)
+        self.assertEqual(resume.error["code"], "input_changed")
+
+    def test_changed_profile_refuses_resume(self):
+        work = self.workdir()
+        config = RepairConfig(
+            source=self.sample("corrupt"), output=work / "out.mp4",
+            index_path=work / "out.sqlite", checkpoint_path=work / "out.json",
+            chunk_packets=64, interrupt_after=100)
+        repair(config)
+        resume = repair(RepairConfig(
+            source=self.sample("corrupt"), output=work / "out.mp4",
+            index_path=work / "out.sqlite", checkpoint_path=work / "out.json",
+            chunk_packets=64, resume=True,
+            profile=TimelineProfile(tolerance_seconds=Fraction(2, 1))))
+        self.assertEqual(resume.exit_code, EXIT_RESUME_MISMATCH)
+        self.assertEqual(resume.error["code"], "checkpoint_mismatch")
+
+    def test_truncated_partial_output_is_truncated_back_to_boundary(self):
+        work = self.workdir()
+        config = RepairConfig(
+            source=self.sample("corrupt"), output=work / "out.mp4",
+            index_path=work / "out.sqlite", checkpoint_path=work / "out.json",
+            chunk_packets=64, interrupt_after=145)
+        stop = repair(config)
+        self.assertEqual(stop.status, "interrupted")
+        committed = json.loads(config.checkpoint_path.read_text())["output"]["committed_bytes"]
+        with open(config.output, "ab") as handle:
+            handle.write(b"garbage-tail")
+        resumed = repair(RepairConfig(
+            source=self.sample("corrupt"), output=work / "out.mp4",
+            index_path=work / "out.sqlite", checkpoint_path=work / "out.json",
+            chunk_packets=64, resume=True))
+        self.assertEqual(resumed.exit_code, EXIT_OK)
+        self.assertEqual(resumed.output_sha256, resumed.output_sha256)
+        self.assertGreaterEqual(config.output.stat().st_size, committed)
+
+    def test_completed_checkpoint_is_not_resumable(self):
+        work = self.workdir()
+        config = RepairConfig(
+            source=self.sample("corrupt"), output=work / "out.mp4",
+            index_path=work / "out.sqlite", checkpoint_path=work / "out.json",
+            chunk_packets=64)
+        repair(config)
+        resume = repair(RepairConfig(
+            source=self.sample("corrupt"), output=work / "out.mp4",
+            index_path=work / "out.sqlite", checkpoint_path=work / "out.json",
+            chunk_packets=64, resume=True))
+        self.assertEqual(resume.exit_code, EXIT_RESUME_MISMATCH)
+
+
