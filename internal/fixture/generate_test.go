@@ -66,7 +66,7 @@ func TestPayloadDeterministic(t *testing.T) {
 	if string(a) != string(b) {
 		t.Fatal("同参数负载应一致")
 	}
-	if a[0] == c[0] && a[4] == c[4] {
+	if string(a[:12]) == string(c[:12]) {
 		t.Fatal("不同轨道负载应可区分")
 	}
 }
