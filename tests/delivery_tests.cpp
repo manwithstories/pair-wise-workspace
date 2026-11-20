@@ -172,6 +172,21 @@ TEST_CASE("null capture_ticks means the timestamp is missing", "[delivery]") {
   CHECK_FALSE(result.frame.has_capture);
 }
 
+TEST_CASE("keyframe accepts booleans and integers alike", "[delivery]") {
+  std::string sha = std::string(64, 'f');
+  auto as_bool = parse_frame_metadata(
+      R"({"seq":1,"capture_ticks":0,"keyframe":true,"sha256":")" + sha + R"("})",
+      1, 0, video_track());
+  REQUIRE(as_bool.ok);
+  CHECK(as_bool.frame.keyframe);
+
+  auto as_int = parse_frame_metadata(
+      R"({"seq":1,"capture_ticks":0,"keyframe":0,"sha256":")" + sha + R"("})",
+      1, 0, video_track());
+  REQUIRE(as_int.ok);
+  CHECK_FALSE(as_int.frame.keyframe);
+}
+
 TEST_CASE("malformed checksum and JSON carry exact offsets", "[delivery]") {
   {
     std::string line = R"({"seq":1,"capture_ticks":0,"sha256":"nothex"})";

@@ -29,7 +29,10 @@ find_package(Threads REQUIRED)
 add_library(mediaqc_core STATIC
   src/checksum.cpp
   src/delivery.cpp
+  src/frame_reader.cpp
+  src/generate.cpp
   src/json.cpp
+  src/media_writer.cpp
   src/timeline.cpp
   src/track_graph.cpp
   src/types.cpp
@@ -50,6 +53,7 @@ if(BUILD_TESTING)
     tests/timeline_tests.cpp
     tests/track_graph_tests.cpp
     tests/delivery_tests.cpp
+    tests/generate_tests.cpp
     tests/fixture_factory.cpp
   )
   target_link_libraries(mediaqc_tests PRIVATE mediaqc_core Catch2::Catch2WithMain)

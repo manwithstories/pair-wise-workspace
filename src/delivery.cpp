@@ -492,13 +492,19 @@ FrameParseResult parse_frame_metadata(std::string_view line,
     frame.capture_ticks = capture->as_int();
   }
 
-  auto keyframe = get_int(object, "keyframe", result.error, "frame");
-  if (!result.error.message.empty()) {
-    result.error.track = track.id;
-    set_offset(result.error, offset);
-    return result;
+  // keyframe accepts a JSON boolean or 0/1 integer; both appear in the wild.
+  const Json* keyframe = object.find("keyframe");
+  if (keyframe) {
+    if (keyframe->is_bool()) {
+      frame.keyframe = keyframe->as_bool();
+    } else if (keyframe->is_int()) {
+      frame.keyframe = keyframe->as_int() != 0;
+    } else {
+      return fail(ErrorCategory::kInvalidInput, "field_type",
+                  "line " + std::to_string(line_no) +
+                      ": keyframe must be a boolean or 0/1");
+    }
   }
-  frame.keyframe = keyframe.has_value() && *keyframe != 0;
 
   const Json* pix = object.find("pix_fmt");
   if (pix) {
@@ -568,6 +574,7 @@ FrameParseResult parse_frame_metadata(std::string_view line,
 
 bool load_frame_metadata(const std::string& path, const TrackDesc& track,
                          std::vector<FrameMetadata>& out, Error& error) {
+  error = Error{};
   std::ifstream in(path, std::ios::binary);
   if (!in) {
     error = make_error(ErrorCategory::kIo, "read_failed",
