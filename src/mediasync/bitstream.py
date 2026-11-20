@@ -78,11 +78,24 @@ def _h265_is_key(nal_type: int) -> bool:
     return nal_type in (19, 20, 21)
 
 
+def _av1_leb128_size(body: bytes) -> int:
+    """读取 AV1 OBU 的 leb128 长度字段，返回占用字节数。"""
+    shift = 0
+    used = 0
+    for byte in body:
+        used += 1
+        if byte < 0x80:
+            return used
+        shift += 7
+    return used
+
+
 def _av1_is_key(obu_type: int, body: bytes) -> bool:
-    # OBU_FRAME=6 / OBU_FRAME_HEADER=3；frame_type 2 bit，KEY_FRAME=0。
+    # OBU_FRAME=6 / OBU_FRAME_HEADER=3；帧头前 3 bit 为
+    # show_existing_frame(1) + frame_type(2)，frame_type=KEY_FRAME(0) 时为 0b000。
     if obu_type not in (3, 6) or not body:
         return False
-    return (body[0] & 0xC0) == 0x00
+    return (body[0] & 0xE0) == 0x00
 
 
 def scan_bitstream(
@@ -120,9 +133,22 @@ def scan_bitstream(
             continue
         if codec is Codec.AV1:
             header = payload[0]
+            if header & 0x80:
+                book.add(
+                    ErrorCode.BITSTREAM_CORRUPT,
+                    f"{source}: 偏移 {offset + sc_len} 处 OBU forbidden 位为 1",
+                    source=source,
+                    offset=offset + sc_len,
+                    fatal=True,
+                )
             obu_type = (header >> 3) & 0x0F
-            # low-overhead 格式无 obu_size 字段，body 即剩余字节。
-            key = _av1_is_key(obu_type, payload[1:])
+            extension = bool(header & 0x04)
+            has_size = bool(header & 0x02)
+            cursor = 1 + (1 if extension else 0)
+            if has_size:
+                cursor += _av1_leb128_size(payload[cursor:])
+            # low-overhead 经 Annex B 包装后，跳过头部与长度，body 即帧头。
+            key = _av1_is_key(obu_type, payload[cursor:])
             nal_type = obu_type
         else:
             nal_type = (
@@ -131,9 +157,9 @@ def scan_bitstream(
             if payload[0] & 0x80:
                 book.add(
                     ErrorCode.BITSTREAM_CORRUPT,
-                    f"{source}: 偏移 {offset} 处 NAL 禁止位为 1",
+                    f"{source}: 偏移 {offset + sc_len} 处 NAL 禁止位为 1",
                     source=source,
-                    offset=offset,
+                    offset=offset + sc_len,
                     fatal=True,
                 )
             key = (
