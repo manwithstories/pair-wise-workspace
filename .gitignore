@@ -71,3 +71,8 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- C++ build output and generated fixtures ----
+build/
+*.o
+*.a
