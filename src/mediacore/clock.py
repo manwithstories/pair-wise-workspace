@@ -152,17 +152,232 @@ class TimelineRepair:
         }
 
 
-def _round_half_up(value: Fraction) -> int:
-    """Round a rational to the nearest integer, halves toward +infinity."""
-    if value.denominator == 1:
-        return value.numerator
-    floor = value.numerator // value.denominator
-    frac = value - floor
-    return floor + (1 if frac >= Fraction(1, 2) else 0)
+def _unwrap(raw: Sequence[int | None], period: int) -> tuple[list[int | None], list[bool], int]:
+    """Track wraps of a fixed-width counter.
+
+    Returns the epoch-extended values, a per-item flag telling whether the value
+    crossed a wrap boundary, and the number of wrap events.  Small backward
+    jitter is left untouched so it can be classified as reordering later.
+    """
+    out: list[int | None] = []
+    wrapped: list[bool] = []
+    wraps = 0
+    epochs = 0
+    previous: int | None = None
+    span = period // 2
+    for value in raw:
+        if value is None:
+            out.append(None)
+            wrapped.append(False)
+            continue
+        v = value + period if value < 0 else value
+        crossed = False
+        if previous is not None:
+            delta = v - previous
+            if delta < -span:
+                epochs += 1
+                wraps += 1
+                crossed = True
+            elif delta > span:
+                epochs -= 1
+        out.append(v + epochs * period)
+        wrapped.append(crossed)
+        previous = v
+    return out, wrapped, wraps
 
 
-def _median_step(ticks: Sequence[int]) -> int:
-    steps = [b - a for a, b in zip(ticks, ticks[1:]) if b != a]
-    if not steps:
-        return 1
-    return max(1, int(statistics.median_low(steps)))
+def repair_timestamps(
+    raw_values: Sequence[int | None],
+    *,
+    time_base: TimeBase | None = None,
+    wrap_period: int | None = DEFAULT_WRAP_PERIOD,
+    nominal_step: int | None = None,
+    reorder_window: int | None = None,
+    gap_threshold: int | None = None,
+    offsets: Sequence[int] | None = None,
+) -> TimelineRepair:
+    """Map raw stream timestamps onto a monotonic, gap-preserving timeline.
+
+    Handled defects: wrap-around, duplicates, non-monotonic/reordered values and
+    missing values.  ``fixed`` is always strictly increasing.  ``uncertain`` is
+    set where ordering cannot be decided uniquely: large discontinuities and
+    absent timestamps carry an explicit ``[window_lo, window_hi]`` interval.
+    """
+    n = len(raw_values)
+    tb = time_base or TimeBase()
+    offsets = list(offsets) if offsets is not None else [0] * n
+    issues: list[MediaIssue] = []
+    if n == 0:
+        return TimelineRepair(time_base=tb, decisions=[], issues=issues)
+
+    valid = sorted(v for v in raw_values if v is not None and v >= 0)
+    step = int(nominal_step) if nominal_step else _median_step(valid)
+    step = max(1, step)
+    window = int(reorder_window) if reorder_window else 4 * step
+    gap_limit = int(gap_threshold) if gap_threshold else max(4 * step, 2 * window)
+
+    if wrap_period:
+        unwrapped, wrapped, wraps = _unwrap(raw_values, int(wrap_period))
+    else:
+        unwrapped = [None if v is None else (v + 2**63 if v < 0 else v) for v in raw_values]
+        wrapped = [False] * n
+        wraps = 0
+
+    decisions: list[StampDecision] = []
+    seen: dict[int, int] = {}
+    previous: int | None = None
+
+    def emit(decision: StampDecision) -> None:
+        nonlocal previous
+        if previous is not None and decision.fixed <= previous:
+            # Hard guarantee: the output timeline must stay monotonic.
+            decision.fixed = previous + step
+        previous = decision.fixed
+        decisions.append(decision)
+
+    for i in range(n):
+        raw = raw_values[i]
+        off = offsets[i] if i < len(offsets) else 0
+        value = unwrapped[i]
+
+        if value is None:
+            base = (previous + step) if previous is not None else 0
+            uncertainty = window if window > 0 else step
+            reason = "missing_filled" if previous is not None else "missing_leading"
+            note = ("timestamp absent; placed on expected grid"
+                    if previous is not None else
+                    "leading timestamp absent; timeline origin unknown")
+            lo = max(previous + 1 if previous is not None else 0, base - uncertainty)
+            emit(StampDecision(
+                raw=None, fixed=base, reason=reason, uncertain=True,
+                window_lo=lo, window_hi=base + uncertainty,
+                note=note))
+            issues.append(MediaIssue(
+                "timestamp_missing" if previous is not None else "timestamp_missing_leading",
+                note, off, severity="warning", detail={"index": i}))
+            continue
+
+        if raw is not None and raw in seen:
+            original = seen[raw]
+            first_fixed = decisions[original].fixed
+            candidate = max(first_fixed + step, (previous + step) if previous is not None else step)
+            emit(StampDecision(
+                raw=raw, fixed=candidate, reason="duplicate", uncertain=True,
+                window_lo=candidate, window_hi=candidate + window,
+                duplicate_of=original,
+                note="duplicate timestamp; kept and shifted after its first occurrence"))
+            issues.append(MediaIssue(
+                "timestamp_duplicate",
+                f"duplicate timestamp value {raw}; shifted after first occurrence",
+                off, severity="warning", detail={"index": i, "duplicate_of": original}))
+            continue
+
+        if previous is None:
+            emit(StampDecision(raw=raw, fixed=value, reason="ok"))
+        elif value > previous:
+            gap = value - previous
+            if gap > gap_limit:
+                emit(StampDecision(
+                    raw=raw, fixed=value, reason="gap", uncertain=True,
+                    window_lo=previous + step, window_hi=value,
+                    note="discontinuity larger than expected step; interval uncertain"))
+                issues.append(MediaIssue(
+                    "timestamp_gap", f"timestamp discontinuity of {gap} ticks",
+                    off, severity="warning", detail={"index": i, "gap": gap}))
+            elif wrapped[i]:
+                emit(StampDecision(
+                    raw=raw, fixed=value, reason="wrapped",
+                    note="timestamp counter wrapped; epoch restored"))
+            else:
+                emit(StampDecision(raw=raw, fixed=value, reason="ok"))
+        else:
+            distance = previous - value
+            if distance > window:
+                emit(StampDecision(
+                    raw=raw, fixed=previous + step, reason="reordered_large", uncertain=True,
+                    window_lo=value, window_hi=previous,
+                    note="timestamp far behind its position; exact ordering ambiguous"))
+                issues.append(MediaIssue(
+                    "timestamp_reordered", "large backward jump; ordering ambiguous",
+                    off, severity="warning",
+                    detail={"index": i, "distance": distance}))
+            else:
+                emit(StampDecision(
+                    raw=raw, fixed=previous + step, reason="reordered",
+                    note="out-of-order timestamp re-sequenced by arrival order"))
+                issues.append(MediaIssue(
+                    "timestamp_reordered", "non-monotonic timestamp re-sequenced",
+                    off, severity="warning", detail={"index": i, "distance": distance}))
+
+        if raw is not None:
+            seen[raw] = len(decisions) - 1
+
+    return TimelineRepair(
+        time_base=tb, decisions=decisions, issues=issues,
+        wrap_count=wraps, unit_ticks=step)
+
+
+def align_audio_to_video(
+    audio_seconds: Sequence[Fraction | float],
+    video_seconds: Sequence[Fraction | float],
+    *,
+    sample_rate: int,
+    tolerance_ms: float = 40.0,
+) -> dict[str, Any]:
+    """Measure how well audio block boundaries line up with video frame times.
+
+    Returns the best-fit offset (audio minus video), its residual spread and the
+    maximum nearest-boundary distance in milliseconds.  A positive offset means
+    audio starts later than video.
+    """
+    av = [Fraction(x) for x in audio_seconds]
+    vv = [Fraction(x) for x in video_seconds]
+    if not av or not vv:
+        return {"offset_ms": 0.0, "max_alignment_ms": 0.0, "mean_alignment_ms": 0.0,
+                "within_tolerance": True, "pairs": 0}
+    frame_period = (vv[-1] - vv[0]) / max(1, len(vv) - 1) if len(vv) > 1 else Fraction(1, 25)
+    # Estimate offset by the median of each block start minus its nearest frame
+    # start, limited to one frame period; this is robust to dropped blocks.
+    raw_offsets = []
+    for a in av:
+        nearest = min(vv, key=lambda v: abs(v - a))
+        delta = a - nearest
+        if abs(delta) <= frame_period:
+            raw_offsets.append(delta)
+    if not raw_offsets:
+        raw_offsets = [av[0] - vv[0]]
+    offset = statistics.median(sorted(raw_offsets))
+    residuals = []
+    for a in av:
+        target = a - offset
+        nearest = min(vv, key=lambda v: abs(v - target))
+        residuals.append(abs(target - nearest))
+    max_res = max(residuals) if residuals else Fraction(0)
+    mean_res = sum(residuals, Fraction(0)) / len(residuals) if residuals else Fraction(0)
+    max_ms = float(max_res) * 1000.0
+    mean_ms = float(mean_res) * 1000.0
+    return {
+        "offset_ms": float(offset) * 1000.0,
+        "max_alignment_ms": max_ms,
+        "mean_alignment_ms": mean_ms,
+        "within_tolerance": max_ms <= tolerance_ms,
+        "pairs": len(residuals),
+        "frame_period_ms": float(frame_period) * 1000.0,
+        "sample_rate": sample_rate,
+        "sample_offset": _round_half_up(offset * sample_rate),
+    }
+
+
+def jitter_stats(seconds: Iterable[Fraction | float]) -> dict[str, float]:
+    """Summarise inter-frame spacing in milliseconds for manifest quality data."""
+    values = sorted(Fraction(x) for x in seconds)
+    if len(values) < 2:
+        return {"frames": len(values), "mean_ms": 0.0, "max_ms": 0.0, "min_ms": 0.0}
+    deltas = [(b - a) * 1000 for a, b in zip(values, values[1:])]
+    floats = [float(d) for d in deltas]
+    return {
+        "frames": len(values),
+        "mean_ms": sum(floats) / len(floats),
+        "max_ms": max(floats),
+        "min_ms": min(floats),
+    }
