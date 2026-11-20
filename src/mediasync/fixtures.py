@@ -205,3 +205,103 @@ def scan_packets(path: Path, codec: str) -> list[dict[str, object]]:
     if not packets:
         raise StreamError(f"generated {codec} stream produced no packets")
     return packets
+
+
+def make_timestamps(
+    count: int,
+    fps: Fraction,
+    *,
+    restart_at: int | None = None,
+    wrap_at: int | None = None,
+    wrap_size: int = 1 << 33,
+    drift_ppm: float = 0.0,
+    vfr_every: int | None = None,
+) -> list[dict[str, int]]:
+    """Build per-frame timing with optional wrap, restart, drift and VFR.
+
+    ``restart_at`` models an encoder reboot: from that frame on the capture
+    clock restarts near zero.  ``wrap_at`` folds the wire PTS through a
+    ``wrap_size`` modulus.  ``vfr_every`` stretches every Nth frame by 50 %.
+    """
+
+    if count <= 0:
+        raise InputError("frame count must be positive")
+    if fps <= 0:
+        raise InputError("frame rate must be positive")
+    if wrap_size <= 1:
+        raise InputError("wrap size must exceed one")
+    for label, value in (("restart_at", restart_at), ("wrap_at", wrap_at)):
+        if value is not None and not 0 <= value < count:
+            raise InputError(f"{label} must be within 0..{count - 1}")
+    if vfr_every is not None and vfr_every <= 0:
+        raise InputError("vfr_every must be positive")
+    nominal = ticks_from_rate(1, fps)
+    drift = 1.0 + drift_ppm / 1_000_000.0
+    entries: list[dict[str, int]] = []
+    media_offset = 0
+    segment_start = 0
+    for index in range(count):
+        if restart_at is not None and index == restart_at:
+            segment_start = media_offset
+        duration = nominal
+        if vfr_every and index > 0 and index % vfr_every == 0:
+            duration = int(round(nominal * 1.5))
+        capture = int(round((media_offset - segment_start) * drift))
+        wire = capture % wrap_size
+        if wrap_at is not None and index >= wrap_at:
+            wire = (wire + wrap_size - (wrap_size - 1000)) % wrap_size
+        entries.append(
+            {
+                "pts_ticks": wire,
+                "duration_ticks": duration,
+                "unwrapped_ticks": capture,
+            }
+        )
+        media_offset += duration
+    return entries
+
+
+def build_index_payload(
+    *,
+    track_id: str,
+    role: str,
+    codec: str,
+    stream_name: str,
+    stream_size: int,
+    width: int,
+    height: int,
+    fps: Fraction,
+    keyframe_interval: int,
+    packets: Sequence[dict[str, object]],
+    entries: Sequence[dict[str, int]],
+    anchors: Sequence[dict[str, object]] = (),
+) -> dict[str, object]:
+    if len(packets) != len(entries):
+        raise InputError(
+            f"packet count {len(packets)} and timestamp count {len(entries)} differ"
+        )
+    index_packets = []
+    for position, (packet, entry) in enumerate(zip(packets, entries)):
+        index_packets.append(
+            {
+                "offset": int(packet["offset"]),
+                "size": int(packet["size"]),
+                "pts_ticks": int(entry["pts_ticks"]),
+                "duration_ticks": int(entry["duration_ticks"]),
+                "keyframe": bool(packet["keyframe"]),
+                "seq": position,
+            }
+        )
+    return {
+        "track_id": track_id,
+        "role": role,
+        "codec": codec,
+        "stream": stream_name,
+        "stream_size": int(stream_size),
+        "width": int(width),
+        "height": int(height),
+        "nominal_rate": f"{fps.numerator}/{fps.denominator}",
+        "keyframe_interval": keyframe_interval,
+        "packets": index_packets,
+        "anchors": list(anchors),
+    }
