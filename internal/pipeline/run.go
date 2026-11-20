@@ -270,16 +270,30 @@ func buildResult(opts Options, tl *model.Timeline, clock *repair.Clock, ix *inde
 	if rtTotal > 0 {
 		res.RoundtripMatch = float64(rtHit) / float64(rtTotal)
 	}
-	res.KeyframeHitRate = measureHitRate(ix, tl, restored)
-	seeks, hits := ix.Stats()
+	perTrack := measureHitRate(ix, restored)
+	var totalHit, totalAll uint64
+	for _, c := range perTrack {
+		totalHit += c.hit
+		totalAll += c.total
+	}
+	if totalAll == 0 {
+		res.KeyframeHitRate = 1
+	} else {
+		res.KeyframeHitRate = float64(totalHit) / float64(totalAll)
+	}
 
 	for _, t := range tl.Tracks {
 		ts := byTrack[t.ID]
+		c := perTrack[t.ID]
+		rate := 1.0
+		if c.total > 0 {
+			rate = float64(c.hit) / float64(c.total)
+		}
 		res.Tracks = append(res.Tracks, report.TrackReport{
 			TrackID: t.ID, Timescale: t.Timescale, Kind: string(t.Kind),
 			Samples: ts.Samples, Wraps: ts.Wraps, Duplicates: ts.Duplicates,
 			Regressions: ts.Regressions, ClipJumps: ts.ClipJumps, Drifts: ts.Drifts,
-			Keyframes: keyCount[t.ID], Seeks: seeks, Hits: hits, HitRate: ix.HitRate(),
+			Keyframes: keyCount[t.ID], Seeks: c.total, Hits: c.hit, HitRate: rate,
 		})
 	}
 	sort.Slice(res.Tracks, func(i, j int) bool { return res.Tracks[i].TrackID < res.Tracks[j].TrackID })
@@ -292,21 +306,24 @@ func buildResult(opts Options, tl *model.Timeline, clock *repair.Clock, ix *inde
 	return res
 }
 
+// hitCount 是单轨的关键帧命中计数。
+type hitCount struct {
+	hit, total uint64
+}
+
 // measureHitRate 对每个样本查询最近关键帧，命中条件为：存在条目且该条目
-// 归属同一片段（转场/剪辑内可随机访问）。无样本时返回 1。
-func measureHitRate(ix *index.Index, tl *model.Timeline, samples []model.RepairedSample) float64 {
-	if len(samples) == 0 {
-		return 1
-	}
-	var hit, total uint64
+// 归属同一片段（转场/剪辑内可随机访问）。返回逐轨计数。
+func measureHitRate(ix *index.Index, samples []model.RepairedSample) map[uint32]hitCount {
+	out := make(map[uint32]hitCount)
 	for _, s := range samples {
-		total++
-		e, ok := ix.Seek(s.TrackID, s.UnifiedDTS)
-		if ok && e.SegmentID == s.SegmentID {
-			hit++
+		c := out[s.TrackID]
+		c.total++
+		if e, ok := ix.Seek(s.TrackID, s.UnifiedDTS); ok && e.SegmentID == s.SegmentID {
+			c.hit++
 		}
+		out[s.TrackID] = c
 	}
-	return float64(hit) / float64(total)
+	return out
 }
 
 func sleepCtx(ctx context.Context, ms int) error {
