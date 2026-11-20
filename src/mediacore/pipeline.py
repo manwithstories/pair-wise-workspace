@@ -220,6 +220,57 @@ def scan_stream(path: Path, codec: str, *, chunk: int = READ_CHUNK,
     return result
 
 
+def analyze_wav_queued(path: Path, *, block_frames: int,
+                       queue_depth: int = QUEUE_MAX_AUDIO_BLOCKS):
+    """Run audio analysis with a bounded queue between reader and analyser.
+
+    A producer thread reads PCM blocks with ``soundfile`` and blocks when the
+    queue is full; the analysis stage consumes them directly.  The queue depth
+    (``QUEUE_MAX_AUDIO_BLOCKS``) is therefore the ceiling on how much decoded
+    PCM can be resident at once, independent of clip length.
+    """
+    from .audio import analyze_wav
+
+    queue: BoundedQueue[Any] = BoundedQueue(queue_depth, name="audio")
+    error: list[BaseException] = []
+
+    def producer() -> None:
+        try:
+            import soundfile as sf
+
+            for block in sf.blocks(str(path), blocksize=block_frames,
+                                   dtype="float64", always_2d=True):
+                queue.put(block)
+        except BaseException as exc:
+            error.append(exc)
+        finally:
+            queue.close()
+
+    thread = __import__("threading").Thread(
+        target=producer, name="mediacore-audio-reader", daemon=True)
+    thread.start()
+
+    def blocks():
+        while True:
+            try:
+                item = queue.get(timeout=30.0)
+            except TimeoutError as exc:
+                raise MediaInputError(
+                    "audio reader stalled", code="reader_stalled") from exc
+            if item is None:
+                return
+            yield item
+
+    try:
+        analysis = analyze_wav(path, block_frames=block_frames,
+                               collect_block_starts=0, block_iter=blocks())
+    finally:
+        thread.join(timeout=10.0)
+    if error:
+        raise error[0]
+    return analysis, queue.stats()
+
+
 def repair_timeline(units: list[AccessUnit], *, fps: int):
     """Synthesise and repair presentation timestamps.
 
@@ -370,9 +421,9 @@ def run_pipeline(
 
     # ---- Stage 4: audio ----------------------------------------------------
     audio_started = time.perf_counter()
-    audio = analyze_wav(
+    audio, audio_queue_stats = analyze_wav_queued(
         audio_path, block_frames=config.audio_block_frames,
-        collect_block_starts=0)
+        queue_depth=QUEUE_MAX_AUDIO_BLOCKS)
     timings["audio"] = time.perf_counter() - audio_started
     alignment = align_audio(audio, [float(x) for x in pts_seconds], tolerance_ms=40.0)
 
@@ -456,6 +507,8 @@ def run_pipeline(
         "scan_peak_read_buffer_bytes": stage.peak_read_buffer_bytes,
         "frame_cache_bytes": FRAME_CACHE_BYTES,
         "audio_queue_max_blocks": QUEUE_MAX_AUDIO_BLOCKS,
+        "audio_queue_high_water": audio_queue_stats.get("high_water", 0),
+        "audio_queue_blocked_puts": audio_queue_stats.get("blocked_puts", 0),
         "payload_bytes_released": released,
         "python": platform.python_version(),
     })

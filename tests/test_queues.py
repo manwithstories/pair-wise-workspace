@@ -99,3 +99,26 @@ def test_invalid_cache_size_is_rejected():
         FrameCache(limit_bytes=0)
     with pytest.raises(MediaInputError):
         BoundedQueue(max_items=0)
+
+
+def test_pipeline_audio_queue_stays_bounded(tmp_path):
+    from mediacore.audio import analyze_wav
+    from mediacore.fixtures import FixtureSpec, make_fixtures
+    from mediacore.pipeline import PipelineConfig, run_pipeline
+
+    spec = FixtureSpec(duration_s=2, bitrate=600_000, seed=5)
+    files = make_fixtures(tmp_path / "in", spec)
+    config = PipelineConfig(codec="h264", target_bps=600_000, duration_s=2,
+                            seed=5, audio_block_frames=4096)
+    result = run_pipeline(files["video_path"], files["audio"]["path"],
+                          tmp_path / "run", config)
+    resource = result.manifest.resource
+    assert resource["audio_queue_high_water"] <= resource["audio_queue_max_blocks"]
+    assert resource["read_queue_high_water"] <= resource["read_queue_max_items"]
+    assert resource["payload_bytes_released"] > 0
+    # Audio results must match the plain, single-threaded analysis exactly.
+    direct = analyze_wav(files["audio"]["path"], block_frames=4096)
+    # manifest.json stores RMS rounded to 6 decimals
+    assert result.manifest.audio["rms"] == round(direct.rms, 6)
+    assert result.manifest.audio["silence_intervals"] == [
+        i.to_dict() for i in direct.silence_intervals]

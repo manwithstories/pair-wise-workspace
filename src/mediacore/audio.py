@@ -106,6 +106,7 @@ def analyze_wav(
     silence_db: float = DEFAULT_SILENCE_DB,
     min_silence_s: float = DEFAULT_MIN_SILENCE_S,
     collect_block_starts: int = 0,
+    block_iter=None,
 ) -> AudioAnalysis:
     """Measure a WAV file in bounded blocks.
 
@@ -153,9 +154,11 @@ def analyze_wav(
                 truncated = True
         run_start = None
 
+    if block_iter is None:
+        block_iter = sf.blocks(str(path), blocksize=block_frames, dtype="float64",
+                               always_2d=True, fill_value=0.0)
     try:
-        for block in sf.blocks(str(path), blocksize=block_frames, dtype="float64",
-                               always_2d=True, fill_value=0.0):
+        for block in block_iter:
             if block.size == 0:
                 continue
             # soundfile pads the final block to full size when fill_value is
