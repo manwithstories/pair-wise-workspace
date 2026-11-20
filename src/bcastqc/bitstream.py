@@ -491,3 +491,261 @@ class StreamScanner:
 
 
 @dataclass(frozen=True)
+class KeyframeEntry:
+    offset: int
+    size: int = 0
+    index: int | None = None
+    timestamp: int | None = None
+
+    def to_json(self) -> dict:
+        payload = {"offset": self.offset, "size": self.size}
+        if self.index is not None:
+            payload["index"] = self.index
+        if self.timestamp is not None:
+            payload["timestamp"] = self.timestamp
+        return payload
+
+
+@dataclass(frozen=True)
+class IndexIssue:
+    kind: str  # duplicate | out_of_order | out_of_range | malformed
+    entry_position: int  # position in the submitted index (0-based)
+    offset: int
+    message: str
+    source_byte: int | None = None  # byte position in the index file
+    recoverable: bool = True
+
+    def to_json(self) -> dict:
+        payload = {
+            "kind": self.kind,
+            "entry_position": self.entry_position,
+            "offset": self.offset,
+            "message": self.message,
+            "recoverable": self.recoverable,
+        }
+        if self.source_byte is not None:
+            payload["source_byte"] = self.source_byte
+        return payload
+
+
+@dataclass
+class KeyframeIndex:
+    entries: list[KeyframeEntry]
+    raw_text: str | None = None
+
+    @classmethod
+    def from_json(cls, payload: object, raw_text: str | None = None) -> "KeyframeIndex":
+        if isinstance(payload, dict):
+            if "keyframes" in payload:
+                payload = payload["keyframes"]
+            elif "index" in payload:
+                payload = payload["index"]
+        if not isinstance(payload, list):
+            raise make_error(ErrorCategory.INDEX_MALFORMED, "keyframe index must be a list")
+        entries: list[KeyframeEntry] = []
+        for pos, item in enumerate(payload):
+            if isinstance(item, int):
+                entries.append(KeyframeEntry(offset=item))
+                continue
+            if not isinstance(item, dict) or "offset" not in item:
+                raise make_error(
+                    ErrorCategory.INDEX_MALFORMED,
+                    "index entry must be an integer or an object with an offset",
+                    entry_position=pos,
+                )
+            offset = item["offset"]
+            size = item.get("size", 0)
+            if not isinstance(offset, int) or not isinstance(size, int) or offset < 0 or size < 0:
+                raise make_error(
+                    ErrorCategory.INDEX_MALFORMED,
+                    "offset and size must be non-negative integers",
+                    entry_position=pos,
+                    offset=offset,
+                    size=size,
+                )
+            entries.append(KeyframeEntry(offset=offset, size=size, index=item.get("index"), timestamp=item.get("timestamp")))
+        return cls(entries=entries, raw_text=raw_text)
+
+    @classmethod
+    def from_file(cls, path: Path) -> "KeyframeIndex":
+        import json
+
+        text = path.read_text(encoding="utf-8")
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise make_error(
+                ErrorCategory.INDEX_MALFORMED,
+                f"index is not valid JSON: {exc.msg}",
+                line=exc.lineno,
+                column=exc.colno,
+            ) from exc
+        return cls.from_json(payload, raw_text=text)
+
+    def to_json(self) -> list[dict]:
+        return [entry.to_json() for entry in self.entries]
+
+
+@dataclass
+class IndexValidation:
+    accepted: bool
+    issues: list[IndexIssue]
+    recovered_index: KeyframeIndex | None = None
+    reasons: list[str] = field(default_factory=list)
+
+    @property
+    def rejected(self) -> bool:
+        return not self.accepted
+
+    def to_json(self) -> dict:
+        payload = {
+            "accepted": self.accepted,
+            "issues": [issue.to_json() for issue in self.issues],
+            "reasons": list(self.reasons),
+        }
+        if self.recovered_index is not None:
+            payload["recovered_entries"] = len(self.recovered_index.entries)
+        return payload
+
+
+def validate_index(
+    index: KeyframeIndex,
+    stream_size: int,
+    *,
+    keyframes: Iterable[AccessUnit] | None = None,
+    policy: str = "scan",
+) -> IndexValidation:
+    """Validate a keyframe index against the real stream.
+
+    ``policy`` is ``"scan"`` (recover by scanning the stream when possible) or
+    ``"reject"`` (any structural issue invalidates the index).  Out-of-range
+    offsets are never recoverable through the index itself; they only become
+    usable by scanning.
+    """
+    issues: list[IndexIssue] = []
+    last_offset = -1
+    seen: dict[int, int] = {}
+    for pos, entry in enumerate(index.entries):
+        if entry.offset >= stream_size:
+            issues.append(
+                IndexIssue(
+                    kind="out_of_range",
+                    entry_position=pos,
+                    offset=entry.offset,
+                    message=f"offset {entry.offset} is outside the {stream_size}-byte stream",
+                    source_byte=entry.offset,
+                    recoverable=True,
+                )
+            )
+        if entry.size and entry.offset + entry.size > stream_size:
+            issues.append(
+                IndexIssue(
+                    kind="out_of_range",
+                    entry_position=pos,
+                    offset=entry.offset,
+                    message=f"entry end {entry.offset + entry.size} exceeds stream size {stream_size}",
+                    source_byte=entry.offset,
+                    recoverable=True,
+                )
+            )
+        if entry.offset in seen:
+            issues.append(
+                IndexIssue(
+                    kind="duplicate",
+                    entry_position=pos,
+                    offset=entry.offset,
+                    message=f"duplicate offset {entry.offset} (first at entry {seen[entry.offset]})",
+                    source_byte=entry.offset,
+                    recoverable=True,
+                )
+            )
+        else:
+            seen[entry.offset] = pos
+        if entry.offset < last_offset:
+            issues.append(
+                IndexIssue(
+                    kind="out_of_order",
+                    entry_position=pos,
+                    offset=entry.offset,
+                    message=f"offset {entry.offset} follows larger offset {last_offset}",
+                    source_byte=entry.offset,
+                    recoverable=True,
+                )
+            )
+        last_offset = max(last_offset, entry.offset)
+
+    if not issues:
+        if keyframes is not None:
+            known = {au.offset for au in keyframes if au.is_keyframe}
+            for pos, entry in enumerate(index.entries):
+                if entry.offset not in known:
+                    issues.append(
+                        IndexIssue(
+                            kind="not_keyframe",
+                            entry_position=pos,
+                            offset=entry.offset,
+                            message=f"offset {entry.offset} is not a keyframe access unit",
+                            source_byte=entry.offset,
+                            recoverable=True,
+                        )
+                    )
+        if not issues:
+            return IndexValidation(accepted=True, issues=[])
+
+    fatal = [issue for issue in issues if not issue.recoverable]
+    if policy == "reject" or fatal:
+        return IndexValidation(
+            accepted=False,
+            issues=issues,
+            reasons=[issue.message for issue in issues],
+        )
+    if keyframes is None:
+        return IndexValidation(
+            accepted=False,
+            issues=issues,
+            reasons=["index issues require a stream scan to recover"],
+        )
+    recovered = compute_index(list(keyframes))
+    return IndexValidation(
+        accepted=True,
+        issues=issues,
+        recovered_index=recovered,
+        reasons=[f"recovered by scanning: {len(recovered.entries)} keyframes"],
+    )
+
+
+def compute_index(access_units: Iterable[AccessUnit]) -> KeyframeIndex:
+    """Build a canonical keyframe index from scanned access units."""
+    entries = [
+        KeyframeEntry(offset=au.offset, size=au.size, index=au.index, timestamp=au.timestamp)
+        for au in access_units
+        if au.is_keyframe
+    ]
+    return KeyframeIndex(entries=entries)
+
+
+def file_digest_slices(path: Path, *, chunk_size: int = 1 << 20) -> tuple[str, int]:
+    """Return ``(sha256 hex, size)`` of a file without loading it into memory."""
+    digest = hashlib.sha256()
+    size = 0
+    with path.open("rb") as handle:
+        while True:
+            block = handle.read(chunk_size)
+            if not block:
+                break
+            digest.update(block)
+            size += len(block)
+    return digest.hexdigest(), size
+
+
+def index_digest(index: KeyframeIndex) -> str:
+    """Stable digest of index geometry (offsets and sizes only)."""
+    digest = hashlib.sha256()
+    for entry in index.entries:
+        digest.update(f"{entry.offset}:{entry.size};".encode())
+    return digest.hexdigest()
+
+
+# ==========================================================================
+# Access-unit conformance
+# ==========================================================================
