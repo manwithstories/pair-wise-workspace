@@ -28,13 +28,17 @@ find_package(Threads REQUIRED)
 
 add_library(mediaqc_core STATIC
   src/checksum.cpp
+  src/checkpoint.cpp
+  src/cli.cpp
   src/delivery.cpp
   src/frame_reader.cpp
   src/generate.cpp
   src/index.cpp
   src/index_writer.cpp
   src/json.cpp
+  src/manifest.cpp
   src/media_writer.cpp
+  src/pipeline.cpp
   src/timeline.cpp
   src/track_graph.cpp
   src/types.cpp

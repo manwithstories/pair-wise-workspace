@@ -175,7 +175,9 @@ TrackTimeline::Mapping TrackTimeline::map(bool has_ticks, std::int64_t ticks) {
 
   if (delta <= 0) {
     // The device clock moved backwards or repeated.  Keep the output
-    // timeline strictly increasing and flag the defect.
+    // timeline strictly increasing, flag this frame, and re-anchor the drift
+    // reference so the single bad reading does not make every later frame
+    // look drifted.
     reasons = reasons | RepairReason::kNonMonotonic;
     step = 1;
   } else if (step < 1) {
@@ -185,6 +187,13 @@ TrackTimeline::Mapping TrackTimeline::map(bool has_ticks, std::int64_t ticks) {
 
   const std::int64_t slot = state_.last_slot + step;
   const Ns ideal = slot_to_ns(slot);
+
+  if (reasons & static_cast<RepairMask>(RepairReason::kNonMonotonic)) {
+    // Align the device reference with the slot this frame lands on, so drift
+    // is measured from here rather than from the original anchor.
+    state_.device_zero_ns = device_time - static_cast<Ns>(slot) * interval_ns_;
+  }
+
   const Ns raw_ns = config_.origin_ns + (device_time - state_.device_zero_ns);
 
   if (std::llabs(raw_ns - ideal) > tolerance_ns_) {

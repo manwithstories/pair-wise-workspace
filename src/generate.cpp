@@ -98,17 +98,31 @@ void apply_scenario(Scenario scenario, std::uint64_t frames,
       // Handled by chopping the media container after metadata is written.
       break;
     case Scenario::kBoundary:
-      // A little of everything, at fixed, well-separated offsets.
+      // A little of everything, at fixed, well-separated offsets.  The video
+      // clock is a 32-bit 90 kHz counter set to wrap early; the device ticks
+      // are converted from the timeline so the baseline cadence stays exact.
       video.clock = ClockSpec{90000, 32};
-      if (n > 20) {
-        video.has_capture[15] = false;
-        video.capture_ticks[15] = 0;
-      }
-      if (n > 30) {
-        video.capture_ticks[29] = video.capture_ticks[28];  // duplicate clock
-      }
-      if (n > 40) {
-        std::swap(video.capture_ticks[39], video.capture_ticks[40]);  // reorder
+      {
+        const std::uint64_t modulus = 1ULL << 32;
+        const std::uint64_t ticks_per_frame = 3600;  // 90 kHz / 25 fps
+        const std::uint64_t start =
+            modulus - static_cast<std::uint64_t>(ticks_per_frame) * 8;
+        video.capture_ticks.assign(n, 0);
+        for (std::uint64_t i = 0; i < n; ++i) {
+          video.capture_ticks[static_cast<std::size_t>(i)] =
+              static_cast<std::int64_t>(
+                  (start + i * ticks_per_frame) % modulus);
+        }
+        if (n > 20) {
+          video.has_capture[15] = false;
+          video.capture_ticks[15] = 0;
+        }
+        if (n > 30) {
+          video.capture_ticks[29] = video.capture_ticks[28];  // duplicate clock
+        }
+        if (n > 41) {
+          std::swap(video.capture_ticks[39], video.capture_ticks[40]);  // reorder
+        }
       }
       if (n > 50) {
         video.damaged_lines = {51};
