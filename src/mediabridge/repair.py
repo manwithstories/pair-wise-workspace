@@ -262,3 +262,290 @@ class Repairer:
         self.summary.peak_queue_depth = self._peaks
         return self.summary
 
+    def _abort(self) -> None:
+        if self.index_writer is not None:
+            self.index_writer.abort()
+            self.index_writer = None
+        if self.checkpoint is not None:
+            self.checkpoint.state = "aborted"
+            try:
+                save_checkpoint(self.config.checkpoint_path, self.checkpoint)
+            except Exception:
+                pass
+
+    # -- core ------------------------------------------------------------
+    def _validate_paths(self) -> None:
+        """Refuse to overwrite the source or touch anything outside the cwd tree.
+
+        Media archives are frequently symlinked and shared across nodes, so a
+        repair must never write over its own input, and a path that resolves
+        outside the user's working tree is treated as a mistake (typo or
+        attempt at path escape) rather than silently honoured.
+        """
+        source = Path(self.config.source).resolve()
+        output = Path(self.config.output).resolve()
+        if source == output:
+            raise StructuralError(
+                "repaired output would overwrite the source file",
+                context={"source": str(source), "output": str(output)},
+            )
+        if source.exists() and output.exists():
+            if os.path.samefile(source, output):
+                raise StructuralError(
+                    "repaired output is a hard link to the source file",
+                    context={"source": str(source), "output": str(output)},
+                )
+
+    def _run(self) -> None:
+        cfg = self.config
+        self._validate_paths()
+        fingerprint = probe.file_fingerprint(cfg.source)
+        probe_result = probe.probe(cfg.source)
+
+        checkpoint: Checkpoint | None = None
+        resume = cfg.resume
+        if resume:
+            checkpoint = load_checkpoint(cfg.checkpoint_path)
+            index_meta = None
+            if cfg.index_path.exists():
+                try:
+                    with IndexReader(cfg.index_path, require_complete=False) as reader:
+                        index_meta = reader.meta()
+                except IndexIncompatibleError:
+                    index_meta = None
+            validate_resume(checkpoint, fingerprint=fingerprint,
+                            profile=cfg.profile, tool_version=TOOL_VERSION,
+                            index_version=INDEX_VERSION, index_meta=index_meta)
+            if index_meta is None:
+                raise IndexIncompatibleError(
+                    "resume requires a partially committed index",
+                    context={"index": str(cfg.index_path)},
+                )
+            committed = output_matches(checkpoint, cfg.output)
+            truncate_output(cfg.output, committed)
+            self.resume_offset_bytes = committed
+            self.summary.resume_start_packet = checkpoint.cursor.get("next_global_packet")
+            if checkpoint.cursor.get("resume_seconds") is not None:
+                self.summary.resume_seconds = float(load_fraction(checkpoint.cursor["resume_seconds"]))
+        else:
+            # A fresh run owns its index.  Reusing an index built for another
+            # source/run would mix committed chunks from two repairs, so an
+            # existing index is only replaced when it is ours to replace.
+            existing_index = Path(cfg.index_path)
+            if existing_index.exists():
+                try:
+                    with IndexReader(existing_index) as reader:
+                        recorded = reader.info().source
+                except IndexIncompatibleError:
+                    recorded = None
+                if recorded and recorded.get("digest") not in (
+                        None, fingerprint["digest"]):
+                    raise IndexIncompatibleError(
+                        "index belongs to a different source; pass a fresh --index path "
+                        "or delete it before rebuilding",
+                        context={"index": str(existing_index),
+                                 "indexed_source": recorded.get("path")},
+                    )
+                existing_index.unlink()
+            output_path = Path(cfg.output)
+            if output_path.exists():
+                output_path.unlink()
+
+        # Build the planner and discover output timescales.
+        container = probe.open_container(cfg.source)
+        try:
+            streams = list(container.streams)
+            planner = ChunkPlanner(probe_result, streams, cfg.profile,
+                                   chunk_packets=cfg.chunk_packets,
+                                   detect_damage=cfg.detect_damage,
+                                   consumer_delay=cfg.consumer_delay,
+                                   audio_index_stride=cfg.audio_index_stride)
+            timescales = self._discover_timescales(probe_result, streams, cfg)
+            planner.set_timescales(timescales)
+
+            self.summary.packets_total = probe_result.packet_count
+
+            if resume and checkpoint is not None:
+                self._prepare_resume(planner, checkpoint, timescales)
+            else:
+                self._prepare_fresh(planner, probe_result, fingerprint, timescales)
+
+            self._consume(container, planner)
+        finally:
+            container.close()
+
+    # -- setup helpers ----------------------------------------------------
+    def _discover_timescales(self, probe_result, streams, cfg):
+        """Probe the muxer's output timescales with two real packets.
+
+        Encoding must happen while the source container is still open: an
+        ``av.Packet`` keeps a reference to its ``AVStream``, and using it
+        after the container is closed is a use-after-free (observed as a
+        segfault or a bogus ``stream.index``).
+        """
+        container = probe.open_container(cfg.source)
+        try:
+            sample: list[av.Packet] = []
+            for info, packet in probe.iter_packets(container, probe_result.tracks):
+                if packet is not None and len(sample) < 2:
+                    packet.time_base = info.time_base
+                    sample.append(packet)
+                if len(sample) >= 2:
+                    break
+            encoder = ChunkEncoder(streams)
+            return discover_timescales(encoder, sample)
+        finally:
+            container.close()
+
+    def _prepare_fresh(self, planner: ChunkPlanner, probe_result, fingerprint, timescales):
+        writer = IndexWriter(self.config.index_path)
+        writer.set_meta(
+            index_version=INDEX_VERSION,
+            tool_version=TOOL_VERSION,
+            state="running",
+            source=json.dumps(fingerprint, sort_keys=True),
+            profile=json.dumps(self.config.profile.as_dict(), sort_keys=True),
+            timescales=json.dumps(timescales, sort_keys=True),
+        )
+        writer.add_tracks(probe_result.tracks, timescales)
+        self.index_writer = writer
+        self.checkpoint = Checkpoint(
+            tool_version=TOOL_VERSION,
+            source=fingerprint,
+            profile=self.config.profile.as_dict(),
+            output={"path": str(self.config.output), "committed_bytes": 0},
+            cursor={"chunk_index": 0, "next_global_packet": 0, "completed": False},
+            clocks={},
+            state="running",
+        )
+
+    def _prepare_resume(self, planner: ChunkPlanner, checkpoint: Checkpoint, timescales):
+        writer = IndexWriter.open_existing(self.config.index_path)
+        self.index_writer = writer
+        chunk_index = int(checkpoint.cursor.get("chunk_index", 0))
+        packet_seq = {int(k): int(v) for k, v in checkpoint.cursor.get("packet_seq", {}).items()}
+        origin_raw = checkpoint.cursor.get("origin")
+        origin = load_fraction(origin_raw) if origin_raw is not None else None
+        committed_samples = 0
+        committed_damage: list[DamageRow] = []
+        try:
+            with IndexReader(self.config.index_path, require_complete=False) as reader:
+                committed_samples = reader.info().sample_count
+                for row in reader.damage():
+                    committed_damage.append(DamageRow(
+                        track_index=int(row["track_index"]),
+                        start_packet=int(row["start_packet"]),
+                        end_packet=int(row["end_packet"]),
+                        reason=row["reason"],
+                        dts=row["dts"],
+                        pts=row["pts"],
+                        notes=json.loads(row["notes"]) if row["notes"] else None,
+                    ))
+        except IndexIncompatibleError:
+            committed_samples = 0
+        planner.set_resume_state(
+            chunk_index=chunk_index,
+            packet_seq=packet_seq,
+            origin=origin,
+            samples_written=0,
+            samples_offset=committed_samples,
+            first_error_packet=checkpoint.cursor.get("first_error_packet"),
+            clocks=checkpoint.clocks,
+            # Damage already in the index must stay in the operator summary;
+            # the resumed run only records what it newly finds.
+            damage=committed_damage,
+        )
+        self.summary.first_error_packet = checkpoint.cursor.get("first_error_packet")
+        self._prior_dropped = int(checkpoint.cursor.get("packets_dropped", 0))
+        self.checkpoint = checkpoint
+        checkpoint.state = "running"
+
+    # -- consumer ---------------------------------------------------------
+    def _consume(self, container, planner: ChunkPlanner) -> None:
+        cfg = self.config
+        q: "queue.Queue" = queue.Queue(maxsize=max(1, cfg.queue_size))
+        cancel = threading.Event()
+        producer = _Producer(container, planner.probe.tracks, q, cancel, self._note_depth)
+        producer.start()
+
+        output = open(cfg.output, "r+b" if cfg.resume else "wb")
+        if cfg.resume:
+            output.seek(0, os.SEEK_END)
+        else:
+            output.seek(0)
+        committed_bytes = self.resume_offset_bytes
+        # The init segment (``ftyp``+``moov``) is written exactly once, with
+        # chunk 0.  On resume it is only absent when no chunk was committed,
+        # i.e. the committed byte boundary is still zero.
+        first_chunk = committed_bytes == 0
+        consumed = 0
+        interrupted = False
+        acked = 0
+
+        try:
+            while True:
+                try:
+                    item = q.get(timeout=0.1)
+                except queue.Empty:
+                    if producer.error is not None or not producer.is_alive():
+                        break
+                    if cancel.is_set():
+                        break
+                    continue
+                if item is _Producer._STOP:
+                    break
+                info, packet = item
+                if packet is None:
+                    # Demuxer-level corruption: report and continue.
+                    planner.ingest(info, None)
+                    consumed += 1
+                    continue
+                acked = info.global_index
+                if cfg.interrupt_after is not None and acked >= cfg.interrupt_after:
+                    cancel.set()
+                    interrupted = True
+                    break
+                if self._should_skip(planner, info):
+                    consumed += 1
+                    continue
+                chunks = planner.ingest(info, packet)
+                consumed += 1
+                for chunk in chunks:
+                    committed_bytes = self._commit_chunk(chunk, output, committed_bytes,
+                                                         first_chunk, planner)
+                    first_chunk = False
+            if producer.error is not None:
+                raise StructuralError(f"demux failed: {producer.error}") from producer.error
+            if not interrupted:
+                for chunk in planner.finish():
+                    committed_bytes = self._commit_chunk(chunk, output, committed_bytes,
+                                                         first_chunk, planner)
+                    first_chunk = False
+        finally:
+            cancel.set()
+            try:
+                while True:
+                    q.get_nowait()
+            except queue.Empty:
+                pass
+            producer.join(timeout=2.0)
+            output.flush()
+            os.fsync(output.fileno())
+            output.close()
+
+        self.summary.packets_dropped = planner.packets_dropped + self._prior_dropped
+        self.summary.damage = [self._damage_dict(row) for row in planner.all_damage()]
+        if planner.first_error_packet is not None:
+            self.summary.first_error_packet = planner.first_error_packet
+
+        if interrupted:
+            self._persist_interruption(planner, committed_bytes, acked)
+            self.summary.status = "interrupted"
+            self.summary.exit_code = EXIT_OK
+            if self.index_writer is not None:
+                self.index_writer.finish(state="partial")
+                self.index_writer = None
+            return
+
+        self._finalise(planner, committed_bytes)
+
