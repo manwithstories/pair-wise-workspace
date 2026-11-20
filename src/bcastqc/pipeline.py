@@ -288,3 +288,228 @@ def _block_hash(entries: list[dict]) -> str:
         digest.update(entry["pixel_hash"].encode())
         digest.update(b"\n")
     return digest.hexdigest()
+
+
+# ==========================================================================
+# Pipeline
+# ==========================================================================
+
+
+def run_pipeline(
+    timeline: Timeline,
+    output_dir: Path,
+    params: RunParams,
+    *,
+    token: CancellationToken | None = None,
+    resume: bool = False,
+) -> PipelineResult:
+    """Run one program through the QC pipeline and write the manifest."""
+    started = time.perf_counter()
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = _manifest_path(output_dir)
+    token = token or CancellationToken()
+    signature = input_signature(timeline, params)
+
+    resumed_from = 0
+    retained_blocks: list[dict] = []
+    if resume and manifest_path.exists():
+        prior = read_manifest(manifest_path)
+        _check_resume(prior, signature)
+        resumed_from = int(prior.get("complete_blocks", 0))
+        retained_blocks = list(prior.get("blocks", []))[:resumed_from]
+        # Drop any frames past the last trusted block: a partially written
+        # block must not survive into the resumed output.
+        frames_dir = output_dir / "frames"
+        for stale in frames_dir.glob("frame_*.png"):
+            try:
+                number = int(stale.stem.split("_")[1])
+            except (IndexError, ValueError):
+                continue
+            if number >= resumed_from * params.block_frames:
+                stale.unlink()
+
+    policies: dict[str, LossPolicy] = {}
+    unit_counts: dict[str, int] = {}
+    if params.drop_rate > 0 or params.hard_loss_rate > 0:
+        for track_id, track in timeline.active_tracks().items():
+            if track.codec is None:
+                continue
+            units = _read_access_units(track.path, track.codec)
+            unit_counts[track_id] = len(units)
+            model = LossModel(params.seed, params.drop_rate, params.hard_loss_rate).configure(len(units))
+            policies[track_id] = LossPolicy(model=model)
+
+    renderer = Renderer(timeline, policies=policies, block_frames=params.block_frames)
+    for track_id, source in renderer.video.items():
+        source.unit_count = unit_counts.get(track_id)
+    renderer.resume_from_frame = resumed_from * params.block_frames
+    frames_expected = renderer.frame_count()
+    writer = _FrameWriter(output_dir, params.block_frames)
+    writer.blocks = retained_blocks
+    tracker = SyncTracker()
+    latency = LatencyRecorder()
+    queue_blocks = max(1, params.queue_blocks)
+
+    # Seed the tracker from retained blocks so alignment on a resumed run
+    # still covers the whole output, not just the newly rendered frames.
+    for block in retained_blocks:
+        for entry in block.get("entries", []):
+            tracker.frame_hashes.append(entry["pixel_hash"])
+            tracker.luma.append(0.0)
+            tracker.audio_centre.append(0.0)
+            tracker.audio_level.append(0.0)
+            tracker.frame_times.append(Fraction(entry["time_ticks"], 1) * timeline.time_base.seconds_per_tick)
+    counters = {
+        "written": sum(block["frames"] for block in retained_blocks),
+        "recovered": 0,
+        "concealed": 0,
+        "concealed_gap_ms": 0.0,
+    }
+
+    block_produced_at: dict[int, int] = {}
+    block_sequence = 0
+
+    def produce(_token: CancellationToken) -> Iterator[list[RenderedFrame]]:
+        nonlocal block_sequence
+        block: list[RenderedFrame] = []
+        for frame in renderer.frames():
+            if token.cancelled:
+                break
+            block.append(frame)
+            if len(block) >= params.block_frames:
+                block_produced_at[block_sequence] = time.perf_counter_ns()
+                block_sequence += 1
+                yield block
+                block = []
+        if block:
+            block_produced_at[block_sequence] = time.perf_counter_ns()
+            block_sequence += 1
+            yield block
+
+    completed_blocks = 0
+
+    def consume(blocks: Iterator[list[RenderedFrame]]) -> None:
+        nonlocal completed_blocks
+        for block in blocks:
+            if token.cancelled:
+                break
+            for frame in block:
+                writer.write(frame)
+                tracker.add_frame(frame.time_seconds, frame.array)
+                tracker.add_audio(frame.audio)
+                counters["written"] += 1
+                counters["recovered"] += int(frame.recovered)
+                if frame.concealed:
+                    counters["concealed"] += 1
+                    for span in frame.spans:
+                        if span.concealed:
+                            counters["concealed_gap_ms"] = max(
+                                counters["concealed_gap_ms"], float(span.gap_ms)
+                            )
+            writer.flush_block()
+            if params.consumer_delay_ms > 0:
+                time.sleep(params.consumer_delay_ms / 1000.0)
+            produced_ns = block_produced_at.get(completed_blocks)
+            if produced_ns is not None:
+                latency.add((time.perf_counter_ns() - produced_ns) / 1e6)
+            completed_blocks += 1
+
+    try:
+        _, queue_stats = run_stages(
+            produce,
+            consume,
+            capacity=queue_blocks,
+            slow_consumer_timeout=params.slow_consumer_timeout,
+            token=token,
+            name="frames",
+        )
+    finally:
+        writer.close()
+
+    decode_stats = [source.stats for source in renderer.video.values()]
+    sync_errors = sync_errors_from_tracker(tracker)
+    alignment = alignment_from_duplicates(tracker)
+    if params.reference and params.reference_hashes:
+        alignment["placement"] = measure_placement(tracker, params.reference_hashes)
+    if params.reference_signals is not None:
+        luma, audio = params.reference_signals
+        class _Ref:  # minimal duck type for measure_av_placement
+            pass
+        reference = _Ref()
+        reference.luma = list(luma)
+        reference.audio_centre = list(audio)
+        alignment["av_placement"] = measure_av_placement(tracker, reference)
+    verified, mismatches = verify_written_frames(writer.blocks, output_dir)
+    elapsed = time.perf_counter() - started
+
+    thresholds = Thresholds(peak_queue_frames=queue_blocks * params.block_frames)
+    report = build_report(
+        decode_stats=decode_stats,
+        latency=latency,
+        sync_errors_ms=sync_errors,
+        peak_queue_blocks=queue_stats.peak_depth,
+        queue_capacity_blocks=queue_blocks,
+        block_frames=params.block_frames,
+        frames_rendered=counters["written"],
+        frames_verified=verified,
+        frame_hash_mismatches=mismatches,
+        recovered_frames=counters["recovered"],
+        concealed_frames=counters["concealed"],
+        concealed_gap_ms=counters["concealed_gap_ms"],
+        duration_seconds=float(timeline.duration().seconds()),
+        tracks=len(timeline.active_tracks()),
+        excluded_tracks=timeline.excluded_tracks,
+        notes=list(timeline.notes),
+    )
+    verdicts = evaluate_thresholds(report, thresholds)
+    # Only blocks with every frame present and hash-verified are resumable.
+    complete_blocks = count_complete_blocks(writer.blocks)
+    exit_code, exit_notes = derive_exit_code(
+        input_valid=True,
+        rendered=counters["written"],
+        decoded=report.decoded_frames if decode_stats else counters["written"],
+        unrecoverable=report.unrecoverable_packets,
+        frames_expected=frames_expected if resumed_from == 0 else 0,
+        thresholds_met=all(verdict["pass"] for verdict in verdicts.values()),
+        media_error=mismatches > 0 or counters["concealed"] > 0,
+    )
+    report.exit_code = exit_code
+    report.ok = exit_code == EXIT_OK
+    report.notes.extend(exit_notes)
+
+    manifest = {
+        "version": MANIFEST_VERSION,
+        "signature": signature,
+        "params": params.to_json(),
+        "timeline": timeline.to_json(),
+        "frames_expected": frames_expected,
+        "frames_written": counters["written"],
+        "complete_blocks": complete_blocks,
+        "blocks": writer.blocks,
+        "report": report.to_json(),
+        "thresholds": thresholds.to_json(),
+        "verdicts": verdicts,
+        "excluded_tracks": list(timeline.excluded_tracks),
+        "elapsed_seconds": round(elapsed, 3),
+    }
+    if alignment is not None:
+        manifest["alignment"] = alignment
+    manifest["loss_models"] = {
+        track_id: policy.model.to_json()
+        for track_id, policy in policies.items()
+        if policy.model is not None
+    }
+    _write_manifest(manifest_path, manifest)
+    return PipelineResult(
+        report=report,
+        manifest_path=manifest_path,
+        output_dir=output_dir,
+        verification={"frames": verified, "mismatches": mismatches},
+        resumed_from_block=resumed_from,
+        frames_written=counters["written"],
+        elapsed_seconds=elapsed,
+    )
+
+
+@dataclass
