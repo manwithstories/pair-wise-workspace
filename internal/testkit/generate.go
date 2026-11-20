@@ -28,7 +28,7 @@ func (o *Options) normalize() {
 }
 
 const (
-	segmentSeconds = 4
+	segmentSeconds  = 4
 	durationSeconds = 600
 	segmentsPerRep  = durationSeconds / segmentSeconds
 )

@@ -36,7 +36,7 @@ type mpdXML struct {
 	Duration string   `xml:"mediaPresentationDuration,attr"`
 	Periods  []struct {
 		Sets []struct {
-			ContentType string             `xml:"contentType,attr"`
+			ContentType string              `xml:"contentType,attr"`
 			Reps        []representationXML `xml:"Representation"`
 		} `xml:"AdaptationSet"`
 	} `xml:"Period"`

@@ -27,8 +27,8 @@ type SegmentRef struct {
 
 // Representation is one bitrate rung of a track.
 type Representation struct {
-	ID        string       `json:"id"`
-	Bandwidth int          `json:"bandwidth"`
+	ID        string `json:"id"`
+	Bandwidth int    `json:"bandwidth"`
 	// StartOffset is the declared presentation start (90 kHz ticks),
 	// from EXT-X-START or a DASH presentation offset; 0 when absent.
 	StartOffset int64        `json:"start_offset_ticks"`

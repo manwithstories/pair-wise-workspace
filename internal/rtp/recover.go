@@ -17,12 +17,12 @@ const (
 
 // Stats summarizes one recovered stream.
 type Stats struct {
-	Received   int     `json:"received"`    // unique packets emitted, in-order arrivals
-	Recovered  int     `json:"recovered"`   // filled a gap before it expired
-	Lost       int     `json:"lost"`        // gap expired, unrecoverable
-	Late       int     `json:"late"`        // arrived after being declared lost
-	Duplicates int     `json:"duplicates"`  // already accounted; never re-counted
-	Runs       int     `json:"runs"`        // contiguous usable intervals emitted
+	Received    int     `json:"received"`   // unique packets emitted, in-order arrivals
+	Recovered   int     `json:"recovered"`  // filled a gap before it expired
+	Lost        int     `json:"lost"`       // gap expired, unrecoverable
+	Late        int     `json:"late"`       // arrived after being declared lost
+	Duplicates  int     `json:"duplicates"` // already accounted; never re-counted
+	Runs        int     `json:"runs"`       // contiguous usable intervals emitted
 	RecoveryPct float64 `json:"recovery_pct"`
 }
 

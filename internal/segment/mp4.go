@@ -25,11 +25,11 @@ type Box struct {
 
 // Info is what the pipeline needs out of a segment.
 type Info struct {
-	Init       bool   `json:"init"`       // moov observed
-	Keyframe   bool   `json:"keyframe"`   // styp declares msix
+	Init       bool   `json:"init"`        // moov observed
+	Keyframe   bool   `json:"keyframe"`    // styp declares msix
 	DecodeTime int64  `json:"decode_time"` // tfdt base time, -1 when absent
-	Sequence   uint32 `json:"sequence"`   // mfhd sequence, 0 when absent
-	DataBytes  int64  `json:"data_bytes"` // mdat payload present
+	Sequence   uint32 `json:"sequence"`    // mfhd sequence, 0 when absent
+	DataBytes  int64  `json:"data_bytes"`  // mdat payload present
 	Boxes      []Box  `json:"boxes"`
 }
 

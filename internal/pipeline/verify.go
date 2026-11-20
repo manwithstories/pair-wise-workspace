@@ -10,9 +10,9 @@ import (
 
 // Acceptance ranges for the demo metrics.
 var metricRanges = []struct {
-	name          string
-	lo, hi        float64
-	get           func(Summary) float64
+	name   string
+	lo, hi float64
+	get    func(Summary) float64
 }{
 	{"av_sync_ms", 2.0, 20.0, func(s Summary) float64 { return s.AVSyncMs }},
 	{"packet_recovery_pct", 70.0, 99.0, func(s Summary) float64 { return s.PacketRecoveryPct }},
