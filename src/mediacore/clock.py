@@ -244,6 +244,7 @@ def repair_timestamps(
     reorder_window: int | None = None,
     gap_threshold: int | None = None,
     offsets: Sequence[int] | None = None,
+    strict: bool = True,
 ) -> TimelineRepair:
     """Map raw stream timestamps onto a monotonic, gap-preserving timeline.
 
@@ -280,12 +281,12 @@ def repair_timestamps(
     seen: dict[int, int] = {}
     previous: int | None = None
 
-    def emit(decision: StampDecision) -> None:
+    def emit(decision: StampDecision, bump: bool = True) -> None:
         nonlocal previous
-        if previous is not None and decision.fixed <= previous:
-            # Hard guarantee: the output timeline must stay monotonic.
+        if bump and previous is not None and decision.fixed <= previous:
+            # Hard guarantee: the display timeline stays monotonic.
             decision.fixed = previous + step
-        previous = decision.fixed
+        previous = decision.fixed if decision.fixed > (previous if previous is not None else -1) else previous
         decisions.append(decision)
 
     for i in range(n):
@@ -313,12 +314,19 @@ def repair_timestamps(
         if raw is not None and raw in seen:
             original = seen[raw]
             first_fixed = decisions[original].fixed
-            candidate = max(first_fixed + step, (previous + step) if previous is not None else step)
+            if strict:
+                candidate = max(first_fixed + step,
+                                (previous + step) if previous is not None else step)
+                window_lo, window_hi = candidate, candidate + window
+                note = "duplicate timestamp; kept and shifted after its first occurrence"
+            else:
+                candidate = first_fixed
+                window_lo, window_hi = first_fixed, first_fixed + step
+                note = "duplicate timestamp; same presentation slot as first occurrence"
             emit(StampDecision(
                 raw=raw, fixed=candidate, reason="duplicate", uncertain=True,
-                window_lo=candidate, window_hi=candidate + window,
-                duplicate_of=original,
-                note="duplicate timestamp; kept and shifted after its first occurrence"))
+                window_lo=window_lo, window_hi=window_hi,
+                duplicate_of=original, note=note), bump=strict)
             issues.append(MediaIssue(
                 "timestamp_duplicate",
                 f"duplicate timestamp value {raw}; shifted after first occurrence",
