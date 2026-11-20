@@ -90,30 +90,28 @@ FixtureLayout generate(const fs::path& root) {
           "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"a0\",NAME=\"narration\","
           "URI=\"audio.m3u8\"\n");
 
-    // ---- DASH fixture with a damaged tail ---------------------------
+    // ---- DASH fixture: healthy chunks + damaged tail + missing ------
+    // Chunks 1-4 are healthy (enough readable segments for >=4 hashes),
+    // chunk 5 has a damaged tail, chunk 6 is declared but never written.
     makeDashChunk(root / "dash" / "init.m4s",
                   root / "dash" / "chunk-1.m4s", 2);
-    makeVideoSegment(root / "dash" / "chunk-2.ts", 2);
-    // Rename second chunk to an mp4 container for template consistency.
-    write(root / "dash" / "chunk-2.m4s", "");
-    fs::copy_file(root / "dash" / "chunk-2.ts",
-                  root / "dash" / "chunk-2.m4s",
-                  fs::copy_options::overwrite_existing);
-    fs::remove(root / "dash" / "chunk-2.ts");
+    for (int i = 2; i <= 4; ++i)
+        makeVideoSegment(root / ("dash/chunk-" + std::to_string(i) +
+                                 ".m4s"),
+                         2, "640x360", 25, i);
+    makeVideoSegment(root / "dash" / "chunk-5.m4s", 2, "640x360", 25, 5);
     // Corrupt the tail: keep 55% so duration-coverage detection fires.
-    truncateFile(root / "dash" / "chunk-2.m4s", 0.55);
-    // A declared-but-missing chunk-3 exercises SegmentMissing.
+    truncateFile(root / "dash" / "chunk-5.m4s", 0.55);
+    // chunk-6 is referenced by the timeline but intentionally absent.
     write(
         root / "broken.mpd",
         R"(<?xml version="1.0"?>
-<MPD type="static" mediaPresentationDuration="PT6S">
+<MPD type="static" mediaPresentationDuration="PT12S">
   <AdaptationSet contentType="video" mimeType="video/mp4">
     <SegmentTemplate media="dash/chunk-$Number$.m4s"
       initialization="dash/init.m4s" timescale="1000" startNumber="1">
       <SegmentTimeline>
-        <S t="0" d="2000"/>
-        <S t="2000" d="2000"/>
-        <S t="4000" d="2000"/>
+        <S t="0" d="2000" r="5"/>
       </SegmentTimeline>
     </SegmentTemplate>
     <Representation id="bcam" bandwidth="1500000" codecs="avc1.64001f"
