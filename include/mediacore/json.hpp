@@ -53,6 +53,7 @@ private:
 std::string escape(const std::string& s);
 std::string dump(const Value& v, int indent = 2);
 std::string dumpInline(const Value& v);
+bool parse(const std::string& text, Value& out);
 
 // Convenience builder for ordered objects.
 class ObjectBuilder {
