@@ -27,7 +27,5 @@ func TestGenerateSmoke(t *testing.T) {
 	t.Logf("clips=%d transitions=%d", len(tl.Clips), len(tl.Transitions))
 	if _, err := parse.OpenMP4(files.Corrupt); err == nil {
 		t.Fatal("corrupt 应当解析失败")
-	} else {
-		t.Logf("corrupt err: %v", err)
 	}
 }
