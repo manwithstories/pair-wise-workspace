@@ -269,11 +269,13 @@ def align_track(
             anchors=len(pairs),
         )
 
+    # Media-zero origin: a capture offset must show up as an alignment error,
+    # not be absorbed into the display baseline.
     display = build_display_track(
         [packet.pts_ticks for packet in video.packets],
         nominal_step_ticks=nominal_step,
         wrap=config.wrap_ticks,
-        origin_ticks=video.packets[0].pts_ticks if video.packets else 0,
+        origin_ticks=0,
     )
     display_ticks = display.display_ticks
     anchor_video: list[int] = []
