@@ -144,7 +144,7 @@ func Fixtures() []Fixture {
 		strings.Repeat("长", 2000) + "\n\n" +
 		"2\n00:00:03,000 --> 00:00:04,000\n仍有效\n"
 	badVTT := "WEBVTT\n\n" +
-		"00:00:01.500 --> 00:00:02.000\n毫秒位非法\n\n" +
+		"00:00:01.5000 --> 00:00:02.000\n毫秒位非法\n\n" +
 		"00:00:03.000 --> 00:00:04.000\n仍有效\n"
 	return []Fixture{
 		{Name: "truncated_srt", Kind: "srt", Data: []byte(truncated)},
