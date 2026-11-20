@@ -298,3 +298,188 @@ class TestTimeline:
         assert timeline.ticks_to_samples(90000, 48000) == 48000
         assert timeline.ticks_to_samples(90000, 44100) == 44100
         assert timeline.samples_to_ticks(44100, 44100) == 90000
+
+
+# ==========================================================================
+# Stream / back-pressure
+# ==========================================================================
+
+
+class TestStream:
+    def test_slow_consumer_times_out(self):
+        queue = BoundedQueue(1, slow_consumer_timeout=0.05)
+        queue.put("a")
+        with pytest.raises(QcError) as excinfo:
+            queue.put("b")
+        assert excinfo.value.category is ErrorCategory.QUEUE_TIMEOUT
+        assert excinfo.value.exit_code == 4
+        assert queue.stats.timed_out
+
+    def test_peak_depth_bounded(self):
+        def produce(_token):
+            for value in range(500):
+                yield value
+
+        def consume(items):
+            for _ in items:
+                pass
+
+        _, stats = run_stages(produce, consume, capacity=4)
+        assert stats.peak_depth <= 4
+        assert stats.total_put == 500
+
+    def test_producer_error_propagates(self):
+        def produce(_token):
+            yield 1
+            raise make_error(ErrorCategory.DECODE_FAILURE, "boom", offset=7)
+
+        with pytest.raises(QcError) as excinfo:
+            run_stages(produce, lambda items: list(items), capacity=2)
+        assert excinfo.value.category is ErrorCategory.DECODE_FAILURE
+        assert excinfo.value.details["offset"] == 7
+
+    def test_cancellation_stops_producer(self):
+        token = CancellationToken()
+        stopped = []
+
+        def produce(_token):
+            try:
+                for value in range(10**6):
+                    yield value
+            finally:
+                stopped.append(True)
+
+        def consume(items):
+            next(items)
+            token.cancel()
+            raise RuntimeError("consumer failed")
+
+        with pytest.raises(RuntimeError):
+            run_stages(produce, consume, capacity=2, token=token)
+        assert stopped
+
+
+# ==========================================================================
+# Decode
+# ==========================================================================
+
+
+class TestDecode:
+    def test_clean_decode_is_ordered_and_unique(self, fixture_root):
+        blocks = list(
+            decode_video_blocks(fixture_root / "program_h264.bin", Codec.H264, Fraction(25), block_frames=8)
+        )
+        frames = [frame for block in blocks for frame in block.frames]
+        assert len(frames) == FRAMES
+        assert [frame.pts for frame in frames] == list(range(FRAMES))
+        assert all(len(block) <= 8 for block in blocks)
+
+    def test_retry_recovers_and_matches_clean(self, fixture_root):
+        path = fixture_root / "program_h264.bin"
+        clean = {
+            frame.pts: pixel_hash(frame.array)
+            for block in decode_video_blocks(path, Codec.H264, Fraction(25))
+            for frame in block.frames
+        }
+        model = LossModel(SEED, 0.1).configure(FRAMES)
+        stats = DecodeStats()
+        lossy = {}
+        for block in decode_video_blocks(
+            path, Codec.H264, Fraction(25), policy=LossPolicy(model=model), stats=stats, total_units=FRAMES
+        ):
+            for frame in block.frames:
+                lossy[frame.pts] = (pixel_hash(frame.array), frame.recovered, frame.source)
+        dropped = [i for i in range(FRAMES) if model.drops(i)]
+        assert dropped, "loss model must drop at least one unit"
+        assert stats.recovered_packets == len(dropped)
+        assert stats.recovery_rate == 1
+        for pts in dropped:
+            assert lossy[pts][1] is True
+            assert lossy[pts][2] == "retry"
+            assert lossy[pts][0] == clean[pts]
+
+    def test_hard_loss_conceals_and_is_not_recovered(self, fixture_root):
+        path = fixture_root / "program_h264.bin"
+        model = LossModel(SEED, 0.1, 1.0).configure(FRAMES)
+        stats = DecodeStats()
+        frames = []
+        for block in decode_video_blocks(
+            path, Codec.H264, Fraction(25), policy=LossPolicy(model=model), stats=stats, total_units=FRAMES
+        ):
+            frames.extend(block.frames)
+        concealed = [frame for frame in frames if frame.source == "concealed"]
+        assert concealed
+        assert all(frame.recovered is False for frame in concealed)
+        assert stats.unrecoverable_packets > 0
+        assert stats.concealed_frames == len(concealed)
+
+    def test_loss_model_is_count_accurate(self):
+        for total in (10, 50, 200):
+            model = LossModel(7, 0.1).configure(total)
+            assert len([i for i in range(total) if model.drops(i)]) == round(0.1 * total)
+
+    def test_audio_channel_alignment_and_tail_padding(self, fixture_root):
+        reader = AudioReader(fixture_root / "program_audio.wav", channels=1)
+        block = next(reader.read_blocks(1024))
+        assert block.samples.shape == (1024, 1)
+        tail, padded = reader.read_window(reader.frames_total - 10, 100)
+        assert tail.shape == (100, 1)
+        assert padded == 90
+        assert np.allclose(tail[10:], 0.0)
+        reader.close()
+
+    def test_resample_exact_length(self):
+        one_second_down = np.zeros((48000, 2), dtype=np.float32)
+        one_second_up = np.zeros((44100, 2), dtype=np.float32)
+        assert resample_window(one_second_down, 48000, 44100).shape == (44100, 2)
+        assert resample_window(one_second_up, 44100, 48000).shape == (48000, 2)
+
+
+# ==========================================================================
+# Render
+# ==========================================================================
+
+
+class TestRender:
+    def test_source_spans_record_byte_ranges(self, fixture_root):
+        timeline = load_timeline(_write_timeline(fixture_root, _simple_document(), "render.json"))
+        renderer = Renderer(timeline)
+        frames = list(renderer.frames())
+        assert len(frames) == FRAMES
+        for frame in frames:
+            video_spans = [span for span in frame.spans if span.track == "v"]
+            assert len(video_spans) == 1
+            span = video_spans[0]
+            assert span.source_size > 0
+            assert span.source_index == frame.number
+            assert span.recovered is False
+
+    def test_sync_error_detects_known_offset(self, fixture_root):
+        document = _simple_document()
+        document["clips"][1]["start_ticks"] = 3600  # audio 40 ms late
+        document["clips"][1]["duration_ticks"] -= 3600
+        timeline = load_timeline(_write_timeline(fixture_root, document, "sync.json"))
+        tracker = SyncTracker()
+        for frame in Renderer(timeline).frames():
+            tracker.add_frame(frame.time_seconds, frame.array)
+            tracker.add_audio(frame.audio)
+        error_ms, lag = tracker.sync_error_ms()
+        assert error_ms is not None
+        assert abs(float(error_ms) - 40.0) <= 1.0
+        assert lag == 1
+
+    def test_resampling_track_renders(self, fixture_root):
+        document = _simple_document(audio="program_audio_44100.wav", audio_rate=44100)
+        timeline = load_timeline(_write_timeline(fixture_root, document, "resample.json"))
+        tracker = SyncTracker()
+        for frame in Renderer(timeline).frames():
+            tracker.add_frame(frame.time_seconds, frame.array)
+            tracker.add_audio(frame.audio)
+        error_ms, _ = tracker.sync_error_ms()
+        assert error_ms is not None
+        assert abs(float(error_ms)) <= 50.0
+
+
+# ==========================================================================
+# Pipeline
+# ==========================================================================
