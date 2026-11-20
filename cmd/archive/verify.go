@@ -1,91 +1,104 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
-	"time"
+	"encoding/hex"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"os"
+	"path/filepath"
 
-	"archive/internal/mapping"
-	"archive/internal/mp4"
-	"archive/internal/report"
+	"archive/internal/index"
+	"archive/internal/model"
 )
 
-func elapsedMs(start time.Time) float64 {
-	return float64(time.Since(start).Microseconds()) / 1000
+// runVerify independently re-checks the committed output: each segment
+// file is re-hashed and compared to the report, and the index manifest and
+// chunk checksums are revalidated. No in-memory state from the demo run is
+// trusted.
+func runVerify(_ context.Context, args []string) int {
+	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
+	outDir := fs.String("out", "", "output directory produced by demo")
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintln(os.Stderr, "parameter error:", err)
+		return exitParam
+	}
+	if *outDir == "" {
+		fmt.Fprintln(os.Stderr, "parameter error: --out is required")
+		return exitParam
+	}
+
+	rep, err := readReport(*outDir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "verify failed:", err)
+		return exitCorrupt
+	}
+	if err := verifySegments(*outDir, rep); err != nil {
+		fmt.Fprintln(os.Stderr, "verify failed:", err)
+		return exitCorrupt
+	}
+	if err := verifyIndex(*outDir); err != nil {
+		fmt.Fprintln(os.Stderr, "verify failed:", err)
+		return exitCorrupt
+	}
+	fmt.Println("verification=PASS")
+	printReport(*rep)
+	return exitOK
 }
 
-// countSamples totals the demuxed samples across all segments.
-func countSamples(demuxed [][]mp4.Track) int {
-	n := 0
-	for _, tracks := range demuxed {
-		for _, t := range tracks {
-			n += len(t.Samples)
-		}
+func readReport(outDir string) (*report, error) {
+	data, err := os.ReadFile(filepath.Join(outDir, "report.json"))
+	if err != nil {
+		return nil, model.New(model.KindIndex, "report.json", "cannot read report", err)
 	}
-	return n
+	var r report
+	if err := json.Unmarshal(data, &r); err != nil {
+		return nil, model.New(model.KindIndex, "report.json", "corrupt report json", err)
+	}
+	return &r, nil
 }
 
-// payloadHash combines per-track payload hashes in track order; it must
-// match remux.Result.PayloadHash for a lossless run.
-func payloadHash(tracks []mp4.Track) [sha256.Size]byte {
-	final := sha256.New()
-	for _, t := range tracks {
-		h := sha256.New()
-		for _, s := range t.Samples {
-			h.Write(s.Data)
+func verifySegments(outDir string, r *report) error {
+	segDir := filepath.Join(outDir, "segments")
+	found := 0
+	for i := 0; i < r.Segments; i++ {
+		name := filepath.Join(segDir, fmt.Sprintf("segment_%04d.m4s", i))
+		data, err := os.ReadFile(name)
+		if err != nil {
+			return model.New(model.KindIO, name, "segment missing", err)
 		}
-		final.Write(h.Sum(nil))
+		sum := sha256.Sum256(data)
+		got := hex.EncodeToString(sum[:])
+		if i >= len(r.SegmentSHA256) || got != r.SegmentSHA256[i] {
+			return model.Newf(model.KindIndex, name, "segment hash mismatch: got %s", got)
+		}
+		found++
 	}
-	var out [sha256.Size]byte
-	copy(out[:], final.Sum(nil))
-	return out
+	if found != r.Segments {
+		return model.Newf(model.KindIndex, "segments", "expected %d segments, found %d", r.Segments, found)
+	}
+	return nil
 }
 
-// expectedPayloadHash hashes the input payloads per output track (mapped
-// order, all segments), matching what a lossless remux must produce.
-func expectedPayloadHash(demuxed [][]mp4.Track) [sha256.Size]byte {
-	final := sha256.New()
-	for _, m := range mapping.Map(demuxed[0]) {
-		h := sha256.New()
-		for _, segTracks := range demuxed {
-			for _, t := range segTracks {
-				if t.ID == m.SourceID {
-					for _, s := range t.Samples {
-						h.Write(s.Data)
-					}
-				}
-			}
-		}
-		final.Write(h.Sum(nil))
+func verifyIndex(outDir string) error {
+	dir := filepath.Join(outDir, "index")
+	manifest, err := index.LoadManifest(dir)
+	if err != nil {
+		return err
 	}
-	var out [sha256.Size]byte
-	copy(out[:], final.Sum(nil))
-	return out
-}
-
-// syncErrors measures |video PTS - nearest audio PTS| in milliseconds.
-func syncErrors(tracks []mp4.Track) []float64 {
-	var video, audio *mp4.Track
-	for i := range tracks {
-		switch tracks[i].Type {
-		case "video":
-			if video == nil {
-				video = &tracks[i]
-			}
-		case "audio":
-			if audio == nil {
-				audio = &tracks[i]
-			}
-		}
+	if manifest == nil {
+		return model.New(model.KindIndex, "manifest.json", "index manifest missing", nil)
 	}
-	if video == nil || audio == nil {
-		return nil
+	res, err := index.VerifyAndResume(dir, manifest.InputDigest, manifest.ParamDigest)
+	if err != nil {
+		return err
 	}
-	pts := func(t *mp4.Track) []int64 {
-		out := make([]int64, len(t.Samples))
-		for i, s := range t.Samples {
-			out[i] = s.DTS + int64(s.CTSOffset)
-		}
-		return out
+	if res.CompleteChunks != index.CountCompleteChunks(manifest) {
+		return model.Newf(model.KindIndex, "chunks",
+			"complete chunk mismatch: verified=%d manifest=%d", res.CompleteChunks,
+			index.CountCompleteChunks(manifest))
 	}
-	return report.AVSyncErrors(pts(video), pts(audio))
+	return nil
 }
