@@ -74,8 +74,8 @@ def synth_frame(index: int, width: int, height: int, seed: int) -> np.ndarray:
     # Drifting bright block gives motion vectors something to track.
     bx, by = (t * 5) % max(width - 200, 1), (t * 3) % max(height - 200, 1)
     frame[by:by + 200, bx:bx + 200] = 255 - frame[by:by + 200, bx:bx + 200]
-    noise = rng.integers(0, 14, size=frame.shape, dtype=np.uint8)
-    return np.clip(frame.astype(np.int16) + noise - 7, 0, 255).astype(np.uint8)
+    noise = rng.integers(0, 6, size=frame.shape, dtype=np.uint8)
+    return np.clip(frame.astype(np.int16) + noise - 3, 0, 255).astype(np.uint8)
 
 
 def synth_audio(duration_s: float, rate: int, seed: int) -> np.ndarray:
@@ -176,10 +176,16 @@ def _apply_impairments(packets: list[bytes], params: SyntheticParams,
     rng = np.random.default_rng(params.seed + 11)
     items = list(zip(packets, is_rtcp))
     if params.loss_burst_prob > 0:
+        # loss_burst_prob is bursts per second of media; each burst drops
+        # loss_burst_len consecutive media packets.
         media_idx = [k for k, (_, r) in enumerate(items) if not r]
+        n_bursts = int(round(params.loss_burst_prob * params.duration_s))
         drop: set[int] = set()
-        for pos, k in enumerate(media_idx):
-            if rng.random() < params.loss_burst_prob:
+        if media_idx and n_bursts:
+            starts = rng.choice(len(media_idx),
+                                size=min(n_bursts, len(media_idx)),
+                                replace=False)
+            for pos in starts:
                 drop.update(media_idx[pos:pos + params.loss_burst_len])
         items = [it for k, it in enumerate(items) if k not in drop]
     if params.reorder_span > 1:

@@ -58,6 +58,7 @@ class ReorderBuffer:
         self.window = window
         self.stats = stats
         self._next: int | None = None  # next expected extended seq
+        self._committed = False  # any position committed yet?
         self._buf: dict[int, RtpPacket] = {}
         self._seen: set[int] = set()
 
@@ -70,26 +71,41 @@ class ReorderBuffer:
             self.stats.duplicates += 1
             return out
         if seq < self._next:
-            # Position already committed: late arrival, never rewrite.
-            self.stats.late_packets += 1
-            self._seen.add(seq)
-            return out
+            if not self._committed:
+                # Warm-up: nothing committed yet, so the stream simply
+                # started below the first arrival; rebase, do not judge.
+                self._next = seq
+            else:
+                # Position already committed: late arrival, never rewrite.
+                self.stats.late_packets += 1
+                self._seen.add(seq)
+                return out
         self._seen.add(seq)
         self._buf[seq] = pkt
-        # Emit while the head is available or the window is full.
-        while self._next in self._buf or len(self._buf) >= self.window:
+        return self._drain()
+
+    def _drain(self) -> list[Emitted]:
+        """Commit positions the window has slid past. Every position gets
+        ``window`` packets of grace before it is committed as present or
+        lost, so reordering inside the window is absorbed."""
+        out: list[Emitted] = []
+        while self._buf:
+            hi = max(self._buf)
+            if hi - self._next < self.window:
+                break
             if self._next in self._buf:
                 out.append(Emitted(seq=self._next,
                                    packet=self._buf.pop(self._next)))
                 self._next += 1
+                self._committed = True
             else:
-                # Find how far the gap runs (up to the next buffered seq).
                 nxt = min(s for s in self._buf if s > self._next)
                 gap = nxt - self._next
                 for s in range(self._next, nxt):
                     out.append(Emitted(seq=s, packet=None))
                 self.stats.record_loss(self._next, gap)
                 self._next = nxt
+                self._committed = True
         return out
 
     def flush(self) -> list[Emitted]:
