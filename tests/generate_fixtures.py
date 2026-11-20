@@ -136,8 +136,9 @@ def build_subtitles(out: Path, truth: dict) -> None:
     )
     bad_path = subs / "damaged.srt"
     bad_path.write_text(bad)
-    bad_offset = bad.index("99:99:99")
-    bad_line = bad[:bad_offset].count("\n") + 1
+    # The parser locates the whole offending record at its cue-block start.
+    bad_offset = bad.index("2\n99:99:99")
+    bad_line = bad[:bad_offset].count("\n") + 1  # line of the cue index
     truth["subtitle_damage"] = {
         "file": str(bad_path.name),
         "true_offset_bytes": bad_offset,
