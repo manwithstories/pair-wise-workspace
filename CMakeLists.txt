@@ -47,4 +47,12 @@ target_link_libraries(mediacore PUBLIC PkgConfig::FFMPEG)
 add_executable(media_tool app/main.cpp)
 target_link_libraries(media_tool PRIVATE mediacore)
 
+# ---- Catch2 单元/端到端测试（夹具由 C++ 自生成）----
+add_executable(pipeline_tests tests/pipeline_tests.cpp)
+target_link_libraries(pipeline_tests PRIVATE mediacore Catch2::Catch2WithMain)
+
 enable_testing()
+
+include(CTest)
+include(Catch)
+catch_discover_tests(pipeline_tests)
