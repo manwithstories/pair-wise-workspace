@@ -75,5 +75,7 @@ AGENTS.md.local
 # ---- mediaqc C++ 构建产物 ----
 /build/
 /build-*/
+/build_*/
 *.o
 *.a
+*.bak
