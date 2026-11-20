@@ -34,11 +34,23 @@ func cmdVerify(args []string, stdout, stderr io.Writer) int {
 		return exitCodeOf(err)
 	}
 	defer mf.Close()
+	if err := mf.ValidateSamples(); err != nil {
+		if fe, ok := asFault(err); ok {
+			fmt.Fprintf(stdout, "verified=false error_stage=%s source_offset=%d recoverable=%v\n",
+				fe.Stage, fe.Offset, fe.Recoverable)
+		}
+		reportError(stderr, err)
+		return exitCodeOf(err)
+	}
 	tlPath := *timeline
 	if tlPath == "" {
 		tlPath = defaultTimelinePath(*input)
 	}
 	if _, err := parse.LoadTimeline(tlPath); err != nil {
+		if fe, ok := asFault(err); ok {
+			fmt.Fprintf(stdout, "verified=false error_stage=%s source_offset=%d recoverable=%v\n",
+				fe.Stage, fe.Offset, fe.Recoverable)
+		}
 		reportError(stderr, err)
 		return exitCodeOf(err)
 	}

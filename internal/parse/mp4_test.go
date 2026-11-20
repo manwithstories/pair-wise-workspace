@@ -56,10 +56,12 @@ func TestStreamSamplesReadsPayload(t *testing.T) {
 		if len(s.Data) == 0 {
 			return errEmpty
 		}
-		if s.DTS < lastDTS {
+		k, _ := mf.TrackByID(s.TrackID)
+		u := model.MustUnified(k.Timescale, s.DTS)
+		if u < lastDTS {
 			return errOrder
 		}
-		lastDTS = s.DTS
+		lastDTS = u
 		n++
 		return nil
 	})
@@ -187,5 +189,50 @@ func TestLoadTimelineRoundtrip(t *testing.T) {
 	}
 	if tl.RTPTrackID != 1 {
 		t.Fatalf("RTP 轨道 %d", tl.RTPTrackID)
+	}
+}
+
+func TestValidateSamplesTailTruncation(t *testing.T) {
+	files := genFixtures(t, fixture.DefaultSpec())
+	mf, err := parse.OpenMP4(files.TailTruncated)
+	if err != nil {
+		t.Fatalf("箱头完整的截断样例应能打开: %v", err)
+	}
+	defer mf.Close()
+	err = mf.ValidateSamples()
+	if err == nil {
+		t.Fatal("越界样本应被校验发现")
+	}
+	fe, ok := fault.As(err)
+	if !ok || !fe.Recoverable || fe.Offset <= 0 {
+		t.Fatalf("应为可恢复且带偏移的错误: %v", err)
+	}
+}
+
+func TestMergeUsesUnifiedTime(t *testing.T) {
+	// 视频 90kHz、音频 48kHz：若按原始 tick 比较会错序。流式输出必须按统一
+	// 时间基准单调不减。
+	files := genFixtures(t, fixture.DefaultSpec())
+	mf, err := parse.OpenMP4(files.Timeline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mf.Close()
+	var last uint64
+	first := true
+	err = mf.StreamSamples(context.Background(), func(s model.Sample) error {
+		track, ok := mf.TrackByID(s.TrackID)
+		if !ok {
+			t.Fatalf("未知轨道 %d", s.TrackID)
+		}
+		u := model.MustUnified(track.Timescale, s.DTS)
+		if !first && u < last {
+			t.Fatalf("按统一时间输出应单调: %d -> %d", last, u)
+		}
+		last, first = u, false
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

@@ -1,11 +1,7 @@
 package fixture
 
 import (
-	"os"
-
 	mp4 "github.com/abema/go-mp4"
-
-	"mediarepair/internal/fault"
 )
 
 // ftyp 写出文件类型盒。
@@ -283,24 +279,4 @@ func mergeDeltas(samples []samplePlan) []mp4.SttsEntry {
 		out = append(out, mp4.SttsEntry{SampleCount: 1, SampleDelta: s.delta})
 	}
 	return out
-}
-
-// writeCorrupt 生成截断样例：保留 moov 与 mdat 头，截掉尾部数据。
-func writeCorrupt(dst, src string) error {
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return fault.Wrap(fault.StageIO, 0, -1, false, "读取有效夹具失败", err)
-	}
-	if len(data) < 64 {
-		return fault.New(fault.StageIO, 0, -1, false, "有效夹具过小，无法构造截断样例")
-	}
-	keep := len(data) * 2 / 3
-	if keep >= len(data)-16 {
-		keep = len(data) - 16
-	}
-	cut := append([]byte(nil), data[:keep]...)
-	if err := os.WriteFile(dst, cut, 0o644); err != nil {
-		return fault.Wrap(fault.StageIO, 0, -1, false, "写截断样例失败", err)
-	}
-	return nil
 }

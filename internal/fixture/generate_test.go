@@ -90,3 +90,18 @@ func TestRTPDumpParseable(t *testing.T) {
 		t.Fatalf("RTP 记录长度异常: %d", n)
 	}
 }
+
+func TestCorruptSetKinds(t *testing.T) {
+	files, err := Generate(t.TempDir(), DefaultSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range CorruptKinds {
+		if files.Corrupts[kind] == "" {
+			t.Fatalf("缺少损坏种类 %s 的 MP4", kind)
+		}
+	}
+	if files.TailTruncated == "" {
+		t.Fatal("缺少尾部截断样例")
+	}
+}

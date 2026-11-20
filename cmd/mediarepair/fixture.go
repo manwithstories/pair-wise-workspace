@@ -39,5 +39,8 @@ func cmdFixture(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "timeline=%s\ncorrupt=%s\nsidecar=%s\nrtp_dump=%s\n",
 		files.Timeline, files.Corrupt, files.Sidecar, files.RTPDump)
 	fmt.Fprintf(stdout, "pattern=%s video_samples=%d audio_samples=%d\n", spec.Pattern, spec.VideoSamples, spec.AudioSamples)
+	for _, kind := range fixture.CorruptKinds {
+		fmt.Fprintf(stdout, "corrupt kind=%s mp4=%s timeline=%s\n", kind, files.Corrupts[kind], files.CorruptSides[kind])
+	}
 	return 0
 }

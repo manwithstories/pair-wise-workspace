@@ -4,6 +4,7 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"path/filepath"
 	"sort"
@@ -71,7 +72,6 @@ func Run(opts Options) (*Outcome, error) {
 	out := &Outcome{Timeline: tl}
 
 	skip := resumeSet(tl, opts.ResumeFrom)
-	verified := make(map[string]bool)
 	var restored []model.RepairedSample
 	var roundtripHit, roundtripTotal uint64
 
@@ -122,9 +122,6 @@ func Run(opts Options) (*Outcome, error) {
 		meta := rs
 		meta.Data = nil
 		restored = append(restored, meta)
-		if rs.SegmentID != "" {
-			verified[rs.SegmentID] = true
-		}
 		if opts.SlowConsumer > 0 {
 			if err := sleepCtx(ctx, opts.SlowConsumer); err != nil {
 				runErr = fault.Wrap(fault.StageIO, rs.TrackID, -1, false, "流水线已取消", err)
@@ -138,8 +135,30 @@ func Run(opts Options) (*Outcome, error) {
 	if runErr == nil && prodErrVal != nil {
 		runErr = prodErrVal
 	}
+	// 完整性核对：即便生产者未报错（如取消后提前收尾），缺失样本的片段
+	// 也不得被当作已验证片段输出。
+	if runErr == nil {
+		if err := verifyCompleteness(tl, restored, skip); err != nil {
+			runErr = err
+		}
+	}
 	if runErr == nil && ctx.Err() != nil {
 		runErr = fault.Wrap(fault.StageIO, 0, -1, false, "流水线已取消", ctx.Err())
+	}
+	// 仅保留样本数达到预期的片段（跳过的续跑片段除外）。
+	complete := completeSegments(tl, restored, skip)
+	if len(complete) != len(restored) {
+		filtered := restored[:0]
+		for _, rs := range restored {
+			if complete[rs.SegmentID] {
+				filtered = append(filtered, rs)
+			}
+		}
+		out.Verified = append(out.Verified, sortedComplete(complete)...)
+		restored = filtered
+		hasher = reportRebuild(restored)
+	} else {
+		out.Verified = sortedComplete(complete)
 	}
 
 	rtpRep, rtpErr := processRTP(ctx, opts.Input, tl, opts.Strategy)
@@ -151,13 +170,14 @@ func Run(opts Options) (*Outcome, error) {
 	// 已验证片段仍可输出：先汇总已处理部分，再按需返回错误。
 	ix.Finalize()
 	out.Segments = clock.Segments()
-	for _, s := range out.Segments {
-		if verified[s.ID] {
-			out.Verified = append(out.Verified, s.ID)
-		}
-	}
 	out.Stats = q.Stats()
-	res := buildResult(opts, tl, clock, ix, hasher.Finalize(), out, restored, roundtripHit, roundtripTotal)
+	// 可恢复错误（如输入截断）不妨碍已验证片段输出：此时报告标记失败，
+	// 同时保留其余完整片段的哈希与统计。
+	rtMatch := 1.0
+	if roundtripTotal > 0 {
+		rtMatch = float64(roundtripHit) / float64(roundtripTotal)
+	}
+	res := buildResult(opts, tl, clock, ix, hasher.Finalize(), out, restored, rtMatch)
 	res.RTP = &out.RTP
 	if runErr != nil {
 		markFailure(res, runErr)
@@ -229,6 +249,81 @@ func segmentEnd(tl *model.Timeline, boundary string) (uint64, bool) {
 	return 0, false
 }
 
+// verifyCompleteness 检查每个未跳过片段是否收到全部预期样本。
+func verifyCompleteness(tl *model.Timeline, restored []model.RepairedSample, skip map[string]bool) error {
+	got := make(map[string]uint64)
+	for _, rs := range restored {
+		got[rs.SegmentID]++
+	}
+	check := func(id string, first, count uint64, trackID uint32) error {
+		if skip[id] || count == 0 {
+			return nil
+		}
+		if got[id] < count {
+			return fault.New(fault.StageParse, trackID, -1, true,
+				fmt.Sprintf("片段 %s 只收到 %d/%d 个样本", id, got[id], count))
+		}
+		return nil
+	}
+	for _, c := range tl.Clips {
+		if err := check(c.ID, c.FirstSample, c.SampleCount, c.TrackID); err != nil {
+			return err
+		}
+	}
+	for _, tr := range tl.Transitions {
+		if err := check(tr.ID, tr.FirstSample, tr.SampleCount, tr.TrackID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// completeSegments 返回样本数达到预期的片段集合。
+func completeSegments(tl *model.Timeline, restored []model.RepairedSample, skip map[string]bool) map[string]bool {
+	got := make(map[string]uint64)
+	for _, rs := range restored {
+		got[rs.SegmentID]++
+	}
+	want := make(map[string]uint64)
+	for _, c := range tl.Clips {
+		want[c.ID] = c.SampleCount
+	}
+	for _, tr := range tl.Transitions {
+		want[tr.ID] = tr.SampleCount
+	}
+	out := make(map[string]bool)
+	for id, n := range want {
+		if skip[id] {
+			continue
+		}
+		if n == 0 || got[id] >= n {
+			if got[id] > 0 {
+				out[id] = true
+			}
+		}
+	}
+	return out
+}
+
+// sortedComplete 返回排序后的片段 ID 列表，保证输出确定。
+func sortedComplete(m map[string]bool) []string {
+	ids := make([]string, 0, len(m))
+	for id := range m {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// reportRebuild 按给定样本重新累积片段哈希。
+func reportRebuild(samples []model.RepairedSample) *report.Hasher {
+	h := report.NewHasher()
+	for _, rs := range samples {
+		_ = h.Add(rs)
+	}
+	return h
+}
+
 // segmentOfSample 按样本区间查找所属片段。
 func segmentOfSample(tl *model.Timeline, s model.Sample) string {
 	for _, c := range tl.Clips {
@@ -247,7 +342,7 @@ func segmentOfSample(tl *model.Timeline, s model.Sample) string {
 // buildResult 汇总修复、索引命中、缓冲与哈希统计。
 func buildResult(opts Options, tl *model.Timeline, clock *repair.Clock, ix *index.Index,
 	hashes []report.SegmentHash, out *Outcome, restored []model.RepairedSample,
-	rtHit, rtTotal uint64) *report.Result {
+	rtMatch float64) *report.Result {
 
 	stats := clock.Stats()
 	byTrack := make(map[uint32]repair.TrackStats, len(stats))
@@ -267,9 +362,7 @@ func buildResult(opts Options, tl *model.Timeline, clock *repair.Clock, ix *inde
 		SegmentHashes:     hashes,
 		SegmentHashCount:  len(hashes),
 	}
-	if rtTotal > 0 {
-		res.RoundtripMatch = float64(rtHit) / float64(rtTotal)
-	}
+	res.RoundtripMatch = rtMatch
 	perTrack := measureHitRate(ix, restored)
 	var totalHit, totalAll uint64
 	for _, c := range perTrack {

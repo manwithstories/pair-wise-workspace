@@ -126,12 +126,13 @@ func writeMP4(path string, spec Spec, lay *layout) error {
 	if err != nil {
 		return fault.Wrap(fault.StageIO, 0, -1, false, "定位 mdat 负载失败", err)
 	}
+	audioOff := dataOff
 	for i, sp := range lay.video {
 		if _, err := mw.w.Write(payloadFor(1, uint64(i), sp.size)); err != nil {
 			return fault.Wrap(fault.StageIO, 0, -1, false, "写视频样本失败", err)
 		}
 	}
-	audioOff := dataOff + int64(len(lay.video))*int64(videoPayload)
+	audioOff = dataOff + int64(len(lay.video))*int64(videoPayload)
 	for i, sp := range lay.audio {
 		if _, err := mw.w.Write(payloadFor(2, uint64(i), sp.size)); err != nil {
 			return fault.Wrap(fault.StageIO, 0, -1, false, "写音频样本失败", err)

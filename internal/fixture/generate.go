@@ -60,10 +60,13 @@ func (s Spec) Validate() error {
 
 // Files 是生成结果的路径集合。
 type Files struct {
-	Timeline string // 有效多轨时间线 MP4
-	Corrupt  string // 截断的 MP4
-	Sidecar  string // 时间线 sidecar JSON
-	RTPDump  string // RTP 时间戳 dump
+	Timeline      string            // 有效多轨时间线 MP4
+	Corrupt       string            // 截断的 MP4（兼容旧名）
+	Corrupts      map[string]string // 损坏种类 -> MP4 路径
+	CorruptSides  map[string]string // 损坏种类 -> 对应 sidecar 路径
+	TailTruncated string            // 箱头完整、样本越界的可恢复截断样例
+	Sidecar       string            // 时间线 sidecar JSON
+	RTPDump       string            // RTP 时间戳 dump
 }
 
 // Generate 在 dir 下生成全部夹具，返回路径集合。
@@ -87,11 +90,28 @@ func Generate(dir string, spec Spec) (Files, error) {
 	if err := writeMP4(files.Timeline, spec, lay); err != nil {
 		return Files{}, err
 	}
-	if err := writeCorrupt(files.Corrupt, files.Timeline); err != nil {
-		return Files{}, err
-	}
 	if err := writeSidecar(files.Sidecar, tl); err != nil {
 		return Files{}, err
+	}
+	if err := writeTruncated(files.Corrupt, files.Timeline); err != nil {
+		return Files{}, err
+	}
+	files.TailTruncated = filepath.Join(dir, "corrupt_tail.mp4")
+	if _, err := writeTailTruncated(files.TailTruncated, files.Timeline); err != nil {
+		return Files{}, err
+	}
+	corrupts, err := writeCorruptSet(dir, files.Timeline, files.Sidecar)
+	if err != nil {
+		return Files{}, err
+	}
+	files.Corrupts = make(map[string]string, len(CorruptKinds))
+	files.CorruptSides = make(map[string]string, len(CorruptKinds))
+	for path, kind := range corrupts {
+		if filepath.Ext(path) == ".json" {
+			files.CorruptSides[kind] = path
+		} else {
+			files.Corrupts[kind] = path
+		}
 	}
 	if err := writeRTPDump(files.RTPDump, spec); err != nil {
 		return Files{}, err

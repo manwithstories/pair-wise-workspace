@@ -58,11 +58,15 @@ func WalkBoxes(rs io.ReadSeeker, fileSize int64) error {
 	return nil
 }
 
+// wrapDomain 是 32 位时间戳域大小。
+const wrapDomain = uint64(1) << 32
+
 // trackTable 是一条轨道的样本表。
 type trackTable struct {
 	track   model.Track
 	samples []model.Sample // Data 字段为空，按需从文件读取
 	sizes   []uint32
+	keys    []uint64 // 回绕展开后的统一时间基准 DTS，用于跨轨归并
 }
 
 // MP4File 是已解析索引的 MP4 输入。
@@ -111,6 +115,32 @@ func (m *MP4File) Tracks() []model.Track {
 
 // TotalSamples 返回样本总数。
 func (m *MP4File) TotalSamples() uint64 { return m.total }
+
+// ValidateSamples 校验所有样本区间落在文件内。越界视为可恢复的输入截断，
+// 返回首个违规样本的原始字节偏移与轨道。
+func (m *MP4File) ValidateSamples() error {
+	for _, tt := range m.tracks {
+		for i := range tt.samples {
+			off := uint64(tt.samples[i].SourceOffset)
+			sz := uint64(tt.sizes[i])
+			if off+sz < off || off+sz > uint64(m.Size) {
+				return fault.New(fault.StageParse, tt.track.ID, tt.samples[i].SourceOffset, true,
+					fmt.Sprintf("样本 %d 超出文件末尾（输入截断）", i))
+			}
+		}
+	}
+	return nil
+}
+
+// TrackByID 查找轨道。
+func (m *MP4File) TrackByID(id uint32) (model.Track, bool) {
+	for _, tt := range m.tracks {
+		if tt.track.ID == id {
+			return tt.track, true
+		}
+	}
+	return model.Track{}, false
+}
 
 // TrackSampleCount 返回指定轨道的样本数。
 func (m *MP4File) TrackSampleCount(trackID uint32) int {
@@ -250,18 +280,25 @@ func (m *MP4File) buildTrack(trak *mp4.BoxInfo) (trackTable, error) {
 		}
 	}
 	// DTS 在 32 位时间戳域累计：stts 的 delta 可跨过 2^32 回绕。
-	var dts uint32
+	// 样本越界不在此处拒绝：流式读取时会以可恢复错误精确报告，从而允许
+	// 已验证片段继续输出。verify 可调用 ValidateSamples 做前置全量校验。
 	tt.samples = make([]model.Sample, count)
+	tt.keys = make([]uint64, count)
+	var dts uint32
+	var wrapBase uint64
 	for i := 0; i < count; i++ {
-		if offsets[i]+uint64(sizes[i]) > uint64(m.Size) {
-			return trackTable{}, fault.New(fault.StageParse, tt.track.ID, int64(offsets[i]), true,
-				fmt.Sprintf("样本 %d 超出文件末尾（输入截断）", i))
+		if i > 0 {
+			prev := uint64(tt.samples[i-1].DTS)
+			if uint64(dts) < prev && prev-uint64(dts) > wrapDomain {
+				wrapBase += uint64(1) << 32
+			}
 		}
 		isKey := key == nil || key[i]
 		tt.samples[i] = model.Sample{
 			TrackID: tt.track.ID, Seq: uint64(i), DTS: uint64(dts), CTS: uint64(dts),
 			Duration: deltas[i], Keyframe: isKey, SourceOffset: int64(offsets[i]),
 		}
+		tt.keys[i] = model.MustUnified(tt.track.Timescale, uint64(dts)+wrapBase)
 		dts += deltas[i]
 	}
 	tt.sizes = sizes
@@ -301,16 +338,16 @@ func (m *MP4File) StreamSamplesFiltered(ctx context.Context, want func(model.Sam
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		// 找当前 DTS 最小的轨道。
+		// 按统一时间基准（回绕展开后）归并各轨道样本，避免跨 timescale 误比。
 		best := -1
-		var bestDTS uint64
+		var bestKey uint64
 		for ti, tt := range m.tracks {
 			if idx[ti] >= len(tt.samples) {
 				continue
 			}
-			d := tt.samples[idx[ti]].DTS
-			if best < 0 || d < bestDTS || (d == bestDTS && tt.track.ID < m.tracks[best].track.ID) {
-				best, bestDTS = ti, d
+			k := tt.keys[idx[ti]]
+			if best < 0 || k < bestKey || (k == bestKey && tt.track.ID < m.tracks[best].track.ID) {
+				best, bestKey = ti, k
 			}
 		}
 		if best < 0 {
