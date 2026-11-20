@@ -23,7 +23,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Sequence
 
-from .errors import MediaError, ProbeError
+from .errors import ProbeError
 from .probe_model import DamageReport, PacketInfo, TrackScan
 from .probe_container import (
     _av,
@@ -38,7 +38,7 @@ from .probe_container import (
     _Unwrapper,
 )
 from .integrity import file_sha256, structural_integrity
-from .timebase import DriftMeter, Timebase, Us, round_half_away
+from .timebase import Timebase, Us, round_half_away
 
 __all__ = [
     "PacketInfo",
@@ -51,17 +51,9 @@ __all__ = [
 
 DamageKind = str  # "truncated" | "corrupt" | "index_gap" | "index_missing"
 
-
 # ---------------------------------------------------------------------------
 # container access
 # ---------------------------------------------------------------------------
-
-
-
-
-
-
-
 
 def probe_track(
     path: str | Path,
@@ -183,17 +175,6 @@ def probe_track(
     assert scan is not None
     return scan
 
-
-
-
-
-
-
-
-
-
-
-
 def _locate_faults(
     scan: TrackScan,
     *,
@@ -205,7 +186,6 @@ def _locate_faults(
     """Populate ``scan.damage`` in priority order (gap, truncation, corrupt)."""
     declared = scan.expected_packets
     demuxed = scan.packet_count
-    interval_us = scan.interval_us()
 
     # --- index gaps vs truncation ---------------------------------------
     # Both look like "fewer packets than the sample table promises".  The
@@ -217,10 +197,13 @@ def _locate_faults(
     incomplete_file = not structural_integrity(scan.path).get("complete", True)
 
     first_gap = None
-    if shortfall and demux_error is None and not incomplete_file:
+    # A wholly demuxable-nothing file is "index missing", not a gap: reporting
+    # both would give recovery two contradictory repair strategies.
+    nothing_demuxed = demuxed == 0 and declared > 0
+    if shortfall and not nothing_demuxed and demux_error is None and not incomplete_file:
         ordinal, pts_us, missing = _first_missing_index(scan, declared)
         first_gap = (ordinal, pts_us, missing)
-    if first_gap is None and demux_error is None:
+    if first_gap is None and not nothing_demuxed and demux_error is None:
         # A PTS discontinuity in an otherwise complete file is also an index
         # gap, even when the sample count happens to match.
         first_gap = _find_first_gap(scan)
@@ -243,8 +226,10 @@ def _locate_faults(
         )
 
     # --- truncation: the file itself ends early -------------------------
-    truncated = demux_error is not None or incomplete_file or (
-        shortfall and first_gap is None
+    truncated = (
+        demux_error is not None
+        or incomplete_file
+        or (shortfall and first_gap is None and not nothing_demuxed)
     )
     if truncated:
         ordinal, pts_us, missing = _first_missing_index(scan, declared)
@@ -305,7 +290,6 @@ def _locate_faults(
             )
         )
 
-
 def _find_first_gap(scan: TrackScan) -> tuple[int, Us, int] | None:
     """Locate a presentation jump: a gap in the sample-time table.
 
@@ -338,28 +322,31 @@ def _find_first_gap(scan: TrackScan) -> tuple[int, Us, int] | None:
             return previous.ordinal + 1, previous.pts_us + nominal, missing
     return None
 
-
 def _corruption_scan_limit(scan: TrackScan) -> int:
-    """Cap decode work while still covering typical (demo-sized) media.
+    """Upper bound on packets to decode when looking for corruption.
 
-    Callers can extend the scan by probing with ``max_packets``; the default
-    cap keeps a 10-minute, 30 fps file from paying 18 000 decodes during
-    probing.  Corruption in the first two thousand packets — the common
-    "transport dropped a slice" failure — is always found.
+    Decoding is far more expensive than demuxing, so a 10-minute, 30 fps file
+    (18 000 packets) is not decoded in full during a probe.  The limit is the
+    smaller of the packet count and a fixed budget, so demo-sized media are
+    scanned exhaustively while long files stay bounded.  Corruption later than
+    the budget is caught when that packet is actually rendered.
     """
-    return max(scan.packet_count, 2000)
-
+    return min(scan.packet_count, 4000) or 4000
 
 def _first_missing_index(scan: TrackScan, declared: int) -> tuple[int, Us, int | None]:
+    """Locate the first absent packet: ordinal, expected PTS, missing count.
+
+    The first packet that did *not* demux has ordinal ``demuxed`` (one past
+    the last good one), and its expected PTS is one interval after the last
+    good packet's.  Reporting the last *present* packet instead would point
+    the operator one frame behind the actual fault.
+    """
     if not scan.packets:
         return 0, scan.start_us, declared or None
     last = scan.packets[-1]
     step = scan.interval_us()
     missing = max(declared - scan.packet_count, 0)
-    return last.ordinal, last.pts_us + step, missing
-
-
-
+    return last.ordinal + 1, last.pts_us + step, missing
 
 def scan_tracks(tracks: Sequence[Any], *, max_packets: int | None = None) -> DamageReport:
     """Probe every :class:`~mediacore.timeline.TrackSpec` in order."""
@@ -378,19 +365,7 @@ def scan_tracks(tracks: Sequence[Any], *, max_packets: int | None = None) -> Dam
         report.add(scan)
     return report
 
-
 # ---------------------------------------------------------------------------
 # structural integrity (container box walk, independent of libavformat)
 # ---------------------------------------------------------------------------
-
-
-
-
-
-
-
-
-
-
-
 

@@ -64,30 +64,58 @@ def _corrupt_packet(source: Path, target: Path) -> Path:
 
 
 def _drop_stco_entry(source: Path, target: Path) -> Path:
-    """Remove one video sample-to-chunk entry, creating an index gap.
+    """Remove one video *sample* from the index, creating a PTS-visible gap.
 
-    Only the video track's ``stco`` is shortened.  Deleting four bytes from
-    inside ``moov`` moves ``mdat`` four bytes earlier, so *all* tracks' chunk
-    offsets at or after the deletion are relocated — otherwise the audio
-    tracks would point into the wrong bytes and the fixture would be corrupt
-    in a way it was never designed to be.
+    A real "index gap" means the container's sample tables disagree with the
+    media: one sample is missing from the sample-to-chunk table (``stco``) and
+    from the sample-size table (``stsz``), but its *duration* remains in the
+    time-to-sample table (``stts``).  The effect is exactly what a damaged
+    transport stream looks like: the PTS interval across the hole is two
+    packet durations, so the gap is locatable to the frame.
+
+    Dropping only the ``stco`` entry (without ``stsz``) would renumber the
+    surviving samples and hide the gap from timestamps — not what we want to
+    test.  ``stts`` keeps its total duration, so the shortfall is visible both
+    as a PTS jump and as ``declared > demuxed``.
     """
     data = source.read_bytes()
-    found = list(_find_boxes(data, "stco"))
-    if not found:
-        raise ParameterError("fixture has no stco box", path=str(source))
-    _, offset, size, header = found[0]  # track 0 == video
-    count = struct.unpack(">I", data[offset + header + 4 : offset + header + 8])[0]
+    stco = list(_find_boxes(data, "stco"))
+    stsz = list(_find_boxes(data, "stsz"))
+    if not stco or not stsz:
+        raise ParameterError("fixture lacks stco/stsz", path=str(source))
+    _, stco_off, _, stco_hdr = stco[0]  # track 0 == video
+    count = struct.unpack(">I", data[stco_off + stco_hdr + 4 : stco_off + stco_hdr + 8])[0]
     if count < 25:
         raise ParameterError("fixture stco too small", path=str(source), count=count)
-    index = count // 2
-    entry = offset + header + 8 + index * 4
-    removed_at = entry
+    index = count - 1  # drop the *last* sample: a tail index gap
+
+    # Remove the stsz sample-size entry.  stsz layout: version/flags (4),
+    # sample_size (4), sample_count (4), then one 4-byte size per sample.
+    _, stsz_off, _, stsz_hdr = stsz[0]
+    stsz_count_at = stsz_off + stsz_hdr + 8
+    stsz_entries = stsz_count_at + 4
+    size_entry = stsz_entries + index * 4
+    # Remove the stco chunk-offset entry.
+    stco_entry = stco_off + stco_hdr + 8 + index * 4
+
+    # Patch the two count fields *before* deleting, while the original offsets
+    # are still valid (deleting the stsz entry shifts the later stco box).
     mutated = bytearray(data)
-    del mutated[entry : entry + 4]
-    struct.pack_into(">I", mutated, offset + header + 4, count - 1)
-    _fix_ancestor_sizes(mutated, data, "stco", -4)
-    _relocate_chunk_offsets(mutated, removed_at, -4)
+    struct.pack_into(">I", mutated, stsz_count_at, count - 1)
+    struct.pack_into(">I", mutated, stco_off + stco_hdr + 4, count - 1)
+    # Each box also shrinks by one 4-byte entry; patch its own size field.
+    struct.pack_into(">I", mutated, stsz_off, struct.unpack(">I", data[stsz_off:stsz_off+4])[0] - 4)
+    struct.pack_into(">I", mutated, stco_off, struct.unpack(">I", data[stco_off:stco_off+4])[0] - 4)
+    # Delete the later range first so the earlier offset stays valid.
+    cut_a, cut_b = sorted((size_entry, stco_entry))
+    del mutated[cut_b : cut_b + 4]
+    del mutated[cut_a : cut_a + 4]
+    # Every ancestor of the stbl (moov/trak/mdia/minf/stbl) shrinks by 8.
+    _fix_ancestor_sizes(mutated, data, "stsz", -8)
+    # ``mdat`` moved 8 bytes earlier, so every remaining chunk offset that
+    # pointed into it must shift by -8 (the deleted stco entry is already gone
+    # from the relocated table).
+    _relocate_chunk_offsets(mutated, 0, -8)
     target.write_bytes(mutated)
     return target
 

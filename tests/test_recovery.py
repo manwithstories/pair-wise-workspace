@@ -74,7 +74,9 @@ def test_index_gap_is_detected_in_a_structurally_complete_file(fixtures):
 def test_missing_index_reports_zero_packets(fixtures):
     scan = _video_scan(fixtures, "index_missing")
     codes = {d.code for d in scan.damage}
-    assert "probe.index_missing" in codes
+    # A wholly un-indexed stream is reported as exactly one fault, not also as
+    # a gap or truncation (those would give recovery contradictory strategies).
+    assert codes == {"probe.index_missing"}
     assert scan.packet_count == 0
 
 
