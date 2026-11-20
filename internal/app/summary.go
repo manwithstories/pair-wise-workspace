@@ -4,8 +4,10 @@
 package app
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 
 	"mediagraph/internal/checkpoint"
 	"mediagraph/internal/process"
@@ -133,12 +135,18 @@ func summarize(state *checkpoint.State, log *provenance.Log) Summary {
 }
 
 // outputHash 按完成顺序对全部步骤结果做联合 SHA-256，与执行计时无关。
+// 结果先规范化（compact），保证续跑加载的检查点与本轮新结果字节一致。
 func outputHash(state *checkpoint.State) string {
 	h := sha256.New()
+	var norm bytes.Buffer
 	for _, id := range state.Completed {
+		norm.Reset()
+		if err := json.Compact(&norm, state.Results[id]); err != nil {
+			norm.Write(state.Results[id]) // 理论不可达：结果均由 json.Marshal 产生
+		}
 		h.Write([]byte(id))
 		h.Write([]byte{0})
-		h.Write(state.Results[id])
+		h.Write(norm.Bytes())
 		h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil))
