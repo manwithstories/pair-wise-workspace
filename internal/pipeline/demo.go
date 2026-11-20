@@ -20,37 +20,37 @@ import (
 
 // DemoConfig 是演示运行的全部参数。
 type DemoConfig struct {
-	Codec          stream.Codec
+	Codec           stream.Codec
 	Representations int
-	Frames         int
-	BlockFrames    int
-	CorruptFrame   int    // >=0 时在第 0 表示层该帧注入损坏
-	InterruptBlock int    // >=0 时在完成该块后模拟中断
-	Resume         bool
-	WorkDir        string
+	Frames          int
+	BlockFrames     int
+	CorruptFrame    int // >=0 时在第 0 表示层该帧注入损坏
+	InterruptBlock  int // >=0 时在完成该块后模拟中断
+	Resume          bool
+	WorkDir         string
 	SegmentTargetUS int64
-	MaxDriftUS     int64
+	MaxDriftUS      int64
 }
 
 // Metrics 是验收要求打印的关键指标。
 type Metrics struct {
-	CorruptOffset    int64  `json:"corrupt_offset_bytes"`
-	LocationError    int64  `json:"location_error_bytes"`
-	ResumeMS         int64  `json:"resume_ms"`
-	Segments         int    `json:"segments"`
-	AlignmentMaxMS   int64  `json:"alignment_max_ms"`
-	ManifestSHA256   string `json:"manifest_sha256"`
-	ExitCode         int    `json:"-"`
+	CorruptOffset  int64  `json:"corrupt_offset_bytes"`
+	LocationError  int64  `json:"location_error_bytes"`
+	ResumeMS       int64  `json:"resume_ms"`
+	Segments       int    `json:"segments"`
+	AlignmentMaxMS int64  `json:"alignment_max_ms"`
+	ManifestSHA256 string `json:"manifest_sha256"`
+	ExitCode       int    `json:"-"`
 }
 
 // TrackArtifacts 汇总单条表示层的中间产物。
 type TrackArtifacts struct {
-	Spec    fixture.Spec
-	Data    []byte
-	Meta    *fixture.MetaLike
-	Scan    *stream.ScanResult
-	Timeline *clock.Timeline
-	Index   *index.Index
+	Spec        fixture.Spec
+	Data        []byte
+	Meta        *fixture.MetaLike
+	Scan        *stream.ScanResult
+	Timeline    *clock.Timeline
+	Index       *index.Index
 	IndexStatus index.Status
 }
 

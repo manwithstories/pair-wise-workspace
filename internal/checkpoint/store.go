@@ -50,10 +50,10 @@ const (
 
 // LoadResult 携带恢复判定与可安全复用的块数。
 type LoadResult struct {
-	Outcome      LoadOutcome
-	Reusable     map[int][]stream.BlockRecord // trackID -> 已验证块
-	Store        *Store
-	ResetReason  string
+	Outcome     LoadOutcome
+	Reusable    map[int][]stream.BlockRecord // trackID -> 已验证块
+	Store       *Store
+	ResetReason string
 }
 
 // path 构造检查点文件路径。

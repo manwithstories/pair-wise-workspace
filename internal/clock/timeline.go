@@ -64,9 +64,9 @@ type FrameMark struct {
 
 // 漂移滑动窗口样本数与 VFR 判定阈值。
 const (
-	driftWindow   = 64
-	vfrMinFrac    = 0.25 // 偏离中位时长的帧占比超过 25% 即判 VFR
-	vfrRelTol     = 0.05 // 帧间滴答相对偏差超过 5% 视为不同时长
+	driftWindow = 64
+	vfrMinFrac  = 0.25 // 偏离中位时长的帧占比超过 25% 即判 VFR
+	vfrRelTol   = 0.05 // 帧间滴答相对偏差超过 5% 视为不同时长
 )
 
 // Timeline 维护单条轨道的统一时间轴。

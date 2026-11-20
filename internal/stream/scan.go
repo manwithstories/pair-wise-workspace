@@ -38,21 +38,21 @@ type IssueKind string
 
 // 扫描阶段可产生的错误类别。
 const (
-	IssueTruncated     IssueKind = "truncated_unit"      // 单元被截断
-	IssueForbiddenNAL  IssueKind = "forbidden_nal_bit"   // NAL forbidden_zero_bit 被置 1
-	IssueIllegalOBU    IssueKind = "illegal_obu_header"  // OBU 头非法（禁用位/保留位）
-	IssueEmptyUnit     IssueKind = "empty_unit"          // 零长度单元
-	IssueUnterminated  IssueKind = "unterminated_stream" // 流尾部存在不完整单元
+	IssueTruncated    IssueKind = "truncated_unit"      // 单元被截断
+	IssueForbiddenNAL IssueKind = "forbidden_nal_bit"   // NAL forbidden_zero_bit 被置 1
+	IssueIllegalOBU   IssueKind = "illegal_obu_header"  // OBU 头非法（禁用位/保留位）
+	IssueEmptyUnit    IssueKind = "empty_unit"          // 零长度单元
+	IssueUnterminated IssueKind = "unterminated_stream" // 流尾部存在不完整单元
 )
 
 // Issue 是一条结构化错误记录，携带轨道、字节偏移、块号与类别。
 type Issue struct {
-	TrackID  int       `json:"track_id"`
-	Offset   int64     `json:"offset_bytes"`
-	End      int64     `json:"end_bytes"`
-	Block    int       `json:"block"`
-	Kind     IssueKind `json:"kind"`
-	Message  string    `json:"message"`
+	TrackID int       `json:"track_id"`
+	Offset  int64     `json:"offset_bytes"`
+	End     int64     `json:"end_bytes"`
+	Block   int       `json:"block"`
+	Kind    IssueKind `json:"kind"`
+	Message string    `json:"message"`
 }
 
 // AccessUnit 是一个访问单元的扫描记录。
@@ -75,12 +75,12 @@ type BlockRecord struct {
 
 // ScanResult 是整条流的扫描结果。
 type ScanResult struct {
-	Codec    Codec
-	TrackID  int
-	AUs      []AccessUnit
-	Issues   []Issue
-	Blocks   []BlockRecord
-	Size     int64
+	Codec   Codec
+	TrackID int
+	AUs     []AccessUnit
+	Issues  []Issue
+	Blocks  []BlockRecord
+	Size    int64
 }
 
 // unit 是 Annex-B / 低开销 OBU 流中的一个语法单元（NAL 或 OBU）。
@@ -149,17 +149,17 @@ func findStartCode(b []byte, from int64) (pos, length int64, ok bool) {
 
 // Scanner 按可配置块大小增量扫描单条裸流。
 type Scanner struct {
-	codec      Codec
-	trackID    int
+	codec       Codec
+	trackID     int
 	blockFrames int
-	aus        []AccessUnit
-	issues     []Issue
-	blocks     []BlockRecord
-	blockStart int64
-	blockAU    int
-	blockHash  hash.Hash
-	blockIndex int
-	pos        int64
+	aus         []AccessUnit
+	issues      []Issue
+	blocks      []BlockRecord
+	blockStart  int64
+	blockAU     int
+	blockHash   hash.Hash
+	blockIndex  int
+	pos         int64
 }
 
 // NewScanner 创建扫描器。blockFrames 为每块期望帧数（按 AU 计数）。

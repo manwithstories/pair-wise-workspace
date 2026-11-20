@@ -72,14 +72,14 @@ demo 参数:
 }
 
 type demoFlags struct {
-	codec          string
+	codec           string
 	representations int
-	frames         int
-	blockFrames    int
-	corruptAt      int
-	interruptBlock int
-	resume         bool
-	workDir        string
+	frames          int
+	blockFrames     int
+	corruptAt       int
+	interruptBlock  int
+	resume          bool
+	workDir         string
 }
 
 func parseDemoFlags(args []string) (*demoFlags, error) {

@@ -6,8 +6,8 @@ import (
 
 // Corruption 描述一次注入的损坏及其精确字节位置。
 type Corruption struct {
-	Offset int64             // 损坏字节的绝对偏移
-	Kind   stream.IssueKind  // 期望被检出的错误类别
+	Offset int64            // 损坏字节的绝对偏移
+	Kind   stream.IssueKind // 期望被检出的错误类别
 }
 
 // InjectCorruptionAtFrame 在第 frameIndex 帧的语法单元头字节注入损坏，

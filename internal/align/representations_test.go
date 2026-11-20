@@ -29,7 +29,7 @@ func TestAlignWithinThreshold(t *testing.T) {
 	// 层间最大抖动 20ms，落在 40ms 阈值内。
 	reps := buildReps([]int64{0, 10_000, 20_000})
 	res, err := Align(reps, Options{
-		MaxDriftMicros: 40_000,
+		MaxDriftMicros:  40_000,
 		TargetSegmentUS: 10_000_000,
 	})
 	if err != nil {

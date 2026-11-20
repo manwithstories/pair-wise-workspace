@@ -17,13 +17,13 @@ import (
 
 // Segment 是清单中的一个分片。
 type Segment struct {
-	Index        int                      `json:"index"`
-	StartMicros  int64                    `json:"start_micros"`
-	EndMicros    int64                    `json:"end_micros"`
-	DurationUS   int64                    `json:"duration_micros"`
-	Representations map[string]ByteRange  `json:"representations"`
-	Errors       []stream.Issue           `json:"error_summary"`
-	SHA256       string                   `json:"sha256"`
+	Index           int                  `json:"index"`
+	StartMicros     int64                `json:"start_micros"`
+	EndMicros       int64                `json:"end_micros"`
+	DurationUS      int64                `json:"duration_micros"`
+	Representations map[string]ByteRange `json:"representations"`
+	Errors          []stream.Issue       `json:"error_summary"`
+	SHA256          string               `json:"sha256"`
 }
 
 // ByteRange 是某表示层在该分片中的源字节区间。
@@ -34,21 +34,21 @@ type ByteRange struct {
 
 // Manifest 是完整分片清单。
 type Manifest struct {
-	Version      int               `json:"version"`
-	Codec        string            `json:"codec"`
-	SegmentCount int               `json:"segment_count"`
-	Segments     []Segment         `json:"segments"`
-	ErrorKinds   map[string]int    `json:"error_kinds"`
-	SHA256       string            `json:"sha256"`
+	Version      int            `json:"version"`
+	Codec        string         `json:"codec"`
+	SegmentCount int            `json:"segment_count"`
+	Segments     []Segment      `json:"segments"`
+	ErrorKinds   map[string]int `json:"error_kinds"`
+	SHA256       string         `json:"sha256"`
 }
 
 // BuildInput 是清单生成输入。CutPoints 为对齐切点（微秒+每层帧字节范围），
 // Issues 为各轨道诊断，按字节区间归入相应分片。
 type BuildInput struct {
-	Codec    string
+	Codec     string
 	CutPoints []CutPoint
-	Issues   []stream.Issue
-	RepIDs   []string
+	Issues    []stream.Issue
+	RepIDs    []string
 }
 
 // CutPoint 是一个对齐切点的边界信息。

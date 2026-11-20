@@ -21,14 +21,14 @@ type FrameMeta struct {
 
 // Meta 是 sidecar 文件的完整元数据负载。
 type Meta struct {
-	Codec        string      `json:"codec"`
-	TrackID      int         `json:"track_id"`
-	Timescale    uint32      `json:"timescale"`     // 每秒滴答数（通常 90000）
-	NominalStep  uint32      `json:"nominal_step"`  // 恒定帧率每帧滴答
-	KeyframeEvery int        `json:"keyframe_every"`
-	Frames       []FrameMeta `json:"frames"`
-	StreamSize   int64       `json:"stream_size"`
-	StreamSHA256 string      `json:"stream_sha256"`
+	Codec         string      `json:"codec"`
+	TrackID       int         `json:"track_id"`
+	Timescale     uint32      `json:"timescale"`    // 每秒滴答数（通常 90000）
+	NominalStep   uint32      `json:"nominal_step"` // 恒定帧率每帧滴答
+	KeyframeEvery int         `json:"keyframe_every"`
+	Frames        []FrameMeta `json:"frames"`
+	StreamSize    int64       `json:"stream_size"`
+	StreamSHA256  string      `json:"stream_sha256"`
 }
 
 // 自定义顶层盒类型，避免与标准盒冲突。
@@ -52,8 +52,8 @@ func Write(w io.WriteSeeker, m *Meta) error {
 		return err
 	}
 	ftyp := &mp4.Ftyp{
-		MajorBrand:     [4]byte{'m', 'a', 'u', 'd'},
-		MinorVersion:   1,
+		MajorBrand:   [4]byte{'m', 'a', 'u', 'd'},
+		MinorVersion: 1,
 		CompatibleBrands: []mp4.CompatibleBrandElem{
 			{CompatibleBrand: mp4.BrandISO8()},
 		},

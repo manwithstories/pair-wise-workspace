@@ -37,7 +37,7 @@ type JobResult struct {
 
 // Config 控制批处理行为。
 type Config struct {
-	Concurrency int
+	Concurrency   int
 	CheckpointDir string
 }
 

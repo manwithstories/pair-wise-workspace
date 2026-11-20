@@ -28,34 +28,34 @@ type Representation struct {
 
 // Cut 是一个跨所有表示层的共同切点。
 type Cut struct {
-	Index       int                    `json:"index"`
-	AnchorMicros int64                 `json:"anchor_micros"`
-	MaxDriftMicros int64               `json:"max_drift_micros"`
-	Points      map[string]FramePoint  `json:"points"`
+	Index          int                   `json:"index"`
+	AnchorMicros   int64                 `json:"anchor_micros"`
+	MaxDriftMicros int64                 `json:"max_drift_micros"`
+	Points         map[string]FramePoint `json:"points"`
 }
 
 // FramePoint 是某表示层在该切点上实际选用的帧。
 type FramePoint struct {
-	AUIndex      int   `json:"au_index"`
-	Micros       int64 `json:"micros"`
-	DriftMicros  int64 `json:"drift_micros"`
-	ByteStart    int64 `json:"byte_start"`
-	ByteEnd      int64 `json:"byte_end"`
+	AUIndex     int   `json:"au_index"`
+	Micros      int64 `json:"micros"`
+	DriftMicros int64 `json:"drift_micros"`
+	ByteStart   int64 `json:"byte_start"`
+	ByteEnd     int64 `json:"byte_end"`
 }
 
 // Failure 描述一次无法对齐的切点及其原因。
 type Failure struct {
-	NearMicros int64  `json:"near_micros"`
-	Reason     string `json:"reason"`
-	DriftMicros int64 `json:"drift_micros"`
+	NearMicros  int64  `json:"near_micros"`
+	Reason      string `json:"reason"`
+	DriftMicros int64  `json:"drift_micros"`
 }
 
 // Result 是对齐结果。
 type Result struct {
-	Cuts         []Cut
-	Failures     []Failure
-	MaxDrift     int64 // 所有成功切点中的最大层间偏差
-	ThresholdUS  int64
+	Cuts        []Cut
+	Failures    []Failure
+	MaxDrift    int64 // 所有成功切点中的最大层间偏差
+	ThresholdUS int64
 }
 
 // Options 控制对齐行为。

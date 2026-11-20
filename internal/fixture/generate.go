@@ -18,7 +18,7 @@ type Spec struct {
 	Timescale     uint32 // 通常 90000
 	NominalStep   uint32 // 恒定帧率每帧滴答
 	KeyframeEvery int
-	JitterTicks   int32  // 每帧时间戳的确定性抖动（滴答），用于多表示层微偏
+	JitterTicks   int32 // 每帧时间戳的确定性抖动（滴答），用于多表示层微偏
 	Seed          uint64
 	// VFRPattern 非空时按该模式循环修改帧步长（模拟真实可变帧率）。
 	VFRPattern []uint32
@@ -132,7 +132,7 @@ func (b *bitstreamBuilder) obu(obuType byte, forbidden bool, payload []byte) {
 }
 
 // framePayload 生成带帧序号的确定性净荷，并施加 Annex-B 竞争防止
-//（emulation prevention），保证净荷内不出现裸 00 00 00/01/02/03，
+// （emulation prevention），保证净荷内不出现裸 00 00 00/01/02/03，
 // 从而不会被扫描器误判为起始码。
 func framePayload(idx int, rnd uint64) []byte {
 	return emulationPrevent(rawFramePayload(idx, rnd))

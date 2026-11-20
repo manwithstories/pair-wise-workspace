@@ -30,20 +30,20 @@ type Status string
 
 // 索引校验状态。
 const (
-	StatusValid     Status = "valid"      // 与扫描结果完全一致
-	StatusMissing   Status = "rebuilt"    // 索引缺失，已安全重建
-	StatusRebuilt   Status = "rebuilt"    // 别名：过期/损坏后重建
+	StatusValid      Status = "valid"      // 与扫描结果完全一致
+	StatusMissing    Status = "rebuilt"    // 索引缺失，已安全重建
+	StatusRebuilt    Status = "rebuilt"    // 别名：过期/损坏后重建
 	StatusSuspicious Status = "suspicious" // 无法确认，给出最小可疑范围
 )
 
 // Problem 是索引层面的结构化问题。
 type Problem struct {
-	Kind     string `json:"kind"`
-	Frame    int    `json:"frame"`
-	Offset   int64  `json:"offset_bytes"`
-	RangeLo  int64  `json:"suspect_lo"`
-	RangeHi  int64  `json:"suspect_hi"`
-	Message  string `json:"message"`
+	Kind    string `json:"kind"`
+	Frame   int    `json:"frame"`
+	Offset  int64  `json:"offset_bytes"`
+	RangeLo int64  `json:"suspect_lo"`
+	RangeHi int64  `json:"suspect_hi"`
+	Message string `json:"message"`
 }
 
 // 索引问题类别。
