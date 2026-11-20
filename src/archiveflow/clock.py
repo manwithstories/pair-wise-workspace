@@ -1,11 +1,12 @@
 """Unified 90 kHz media clock with RTCP Sender Report mapping.
 
-Maps extended RTP timestamps onto a monotonically increasing media clock
-in milliseconds. Sender Reports anchor RTP timestamps to NTP wall-clock
-time; when reports are missing or mutually conflicting the most recent
-trusted mapping is kept and an uncertainty estimate is reported instead of
-silently switching reference. The mapper never emits negative or
-non-finite timestamps.
+Extended RTP timestamps are mapped onto a monotonically increasing media
+clock in milliseconds, anchored at an explicit origin (the earliest
+timestamp seen on the stream). Sender Reports anchor the RTP timeline to
+NTP wall-clock time and validate the mapping; when reports are missing or
+mutually conflicting, the most recent trusted mapping is kept and an
+uncertainty estimate is reported instead of silently switching reference.
+The mapper never emits negative or non-finite timestamps.
 """
 
 from __future__ import annotations
@@ -20,7 +21,6 @@ from .rtp import RtcpSR
 # Two SRs conflict when their implied RTP<->NTP offset differs by more
 # than this many seconds.
 CONFLICT_TOLERANCE_S = 0.5
-# Uncertainty grows by this much per conflict and per missing expected SR.
 CONFLICT_UNCERTAINTY_MS = 250.0
 MISSING_SR_UNCERTAINTY_MS = 100.0
 
@@ -36,9 +36,8 @@ class MediaClock:
 
     def __init__(self, clock_rate: int = CLOCK_RATE) -> None:
         self.clock_rate = clock_rate
-        self._anchor_rtp: int | None = None  # extended RTP ts at anchor
-        self._anchor_ntp: float | None = None  # NTP seconds at anchor
-        self._origin_ms: float = 0.0  # media clock at anchor
+        self._origin_rtp: int | None = None
+        self._trusted_offset: float | None = None  # ntp - rtp/rate seconds
         self._uncertainty_ms: float = 0.0
         self.conflicts: int = 0
         self.reports: int = 0
@@ -47,45 +46,42 @@ class MediaClock:
     def uncertainty_ms(self) -> float:
         return self._uncertainty_ms
 
-    def _offset(self) -> float | None:
-        if self._anchor_rtp is None or self._anchor_ntp is None:
-            return None
-        return self._anchor_ntp - self._anchor_rtp / self.clock_rate
+    def set_origin(self, rtp_ts_ext: int) -> None:
+        """Pin the media-clock origin to the earliest stream timestamp."""
+        if self._origin_rtp is None or rtp_ts_ext < self._origin_rtp:
+            self._origin_rtp = rtp_ts_ext
 
     def add_sender_report(self, sr: RtcpSR, rtp_ts_ext: int) -> None:
         """Fold a Sender Report into the mapping.
 
-        ``rtp_ts_ext`` is the SR's RTP timestamp extended into the same
-        64-bit domain as the packet stream. Conflicting reports are
-        counted and ignored; the last trusted mapping stays in effect.
+        Conflicting reports are counted and ignored; the last trusted
+        mapping stays in effect and uncertainty grows instead.
         """
         if not math.isfinite(sr.ntp_seconds) or sr.ntp_seconds < 0:
             raise UnrecoverableError("non-finite NTP time in Sender Report")
         self.reports += 1
-        new_offset = sr.ntp_seconds - rtp_ts_ext / self.clock_rate
-        offset = self._offset()
-        if offset is not None and abs(new_offset - offset) > CONFLICT_TOLERANCE_S:
+        offset = sr.ntp_seconds - rtp_ts_ext / self.clock_rate
+        if self._trusted_offset is None:
+            self._trusted_offset = offset
+            return
+        if abs(offset - self._trusted_offset) > CONFLICT_TOLERANCE_S:
             self.conflicts += 1
             self._uncertainty_ms += CONFLICT_UNCERTAINTY_MS
             return  # keep last trusted mapping
-        if offset is None:
-            self._origin_ms = 0.0
-        self._anchor_rtp = rtp_ts_ext
-        self._anchor_ntp = sr.ntp_seconds
+        self._trusted_offset = offset
 
-    def note_missing_report(self) -> None:
-        """Record that an expected Sender Report never arrived."""
+    def note_missing_reports(self) -> None:
+        """Record that no usable Sender Report anchored this stream."""
         self._uncertainty_ms += MISSING_SR_UNCERTAINTY_MS
 
     def map(self, rtp_ts_ext: int) -> ClockSample:
         """Map an extended RTP timestamp to media-clock milliseconds."""
-        if self._anchor_rtp is None or self._anchor_ntp is None:
-            # No mapping yet: treat first seen timestamp as origin.
-            self._anchor_rtp = rtp_ts_ext
-            self._anchor_ntp = rtp_ts_ext / self.clock_rate
-            self._uncertainty_ms += MISSING_SR_UNCERTAINTY_MS
-        delta_s = (rtp_ts_ext - self._anchor_rtp) / self.clock_rate
-        clock_ms = self._origin_ms + delta_s * 1000.0
+        if self._origin_rtp is None:
+            self._origin_rtp = rtp_ts_ext
+        if self._trusted_offset is None and self.reports == 0:
+            self.note_missing_reports()
+            self.reports = -1  # only note once
+        clock_ms = (rtp_ts_ext - self._origin_rtp) / self.clock_rate * 1000.0
         if not math.isfinite(clock_ms):
             raise UnrecoverableError("non-finite media clock value")
         return ClockSample(clock_ms=max(0.0, clock_ms),

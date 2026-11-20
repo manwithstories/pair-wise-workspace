@@ -161,5 +161,11 @@ class PacketOrganizer:
         st.packets.append(ext)
         return ext
 
+    def extend_ts(self, ssrc: int, ts32: int) -> int:
+        """Extend a 32-bit RTP timestamp (e.g. from an RTCP SR) into the
+        stream's current 64-bit cycle."""
+        st = self._streams.get(ssrc)
+        return _extend(ts32, TS_MOD, st.prev_ts_ext if st else None)
+
     def streams(self) -> dict[int, list[RtpPacket]]:
         return {ssrc: st.packets for ssrc, st in self._streams.items()}
