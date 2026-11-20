@@ -46,6 +46,11 @@ class DecodedPicture:
     def luma_mean(self) -> float:
         return float(self.y.mean())
 
+    @property
+    def nbytes(self) -> int:
+        """Resident size of the retained luma plane, used by the frame cache."""
+        return int(self.y.nbytes)
+
 
 def decoder_name(codec: str) -> str:
     try:

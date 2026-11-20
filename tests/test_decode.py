@@ -39,6 +39,12 @@ def test_quality_matches_reference_and_is_bounded(stream):
     assert payload["finite"] is True
     assert payload["psnr_db"] > 25.0
     assert payload["frame_cache"]["bytes_current"] <= 1 << 20
+    # The cache accounts for real luma sizes (320x180 = 57600 bytes each, so 18
+    # fit in 1 MiB).  Inserting 20 therefore evicts at least two pictures, which
+    # proves the limit is enforced rather than relying on a small fixture.
+    assert payload["frame_cache"]["inserted"] == 20
+    assert payload["frame_cache"]["evicted"] >= 2
+    assert payload["frame_cache"]["bytes_current"] <= 1 << 20
     assert payload["frame_cache"]["inserted"] == 20
 
 

@@ -295,18 +295,45 @@ def verify_manifest(
     if expected_digest is not None and expected_digest != manifest.digest:
         failures.append(
             f"manifest digest mismatch: stored {expected_digest}, recomputed {manifest.digest}")
+    if not manifest.segments:
+        failures.append("manifest records no segments")
+    previous: Segment | None = None
     for segment in manifest.segments:
-        # Segment rates are validated for internal consistency: bytes recorded in
-        # the segment must reproduce the recorded actual_bps, and switch points
-        # must be keyframes.  GOP-level deviation legitimately varies and is
-        # reported per segment, not enforced (the overall rate is enforced below).
+        # Segment rates are validated for internal consistency: the recorded
+        # byte count must reproduce the recorded actual_bps.  GOP-level
+        # deviation legitimately varies and is reported per segment, not
+        # enforced (the overall rate is enforced below).
         recomputed = segment.bytes * 8.0 / max(segment.seconds, 1e-6)
         if abs(recomputed - segment.actual_bps) > 0.5:
             failures.append(
                 f"segment {segment.ordinal} rate is inconsistent with its byte count")
-        recorded = segment.to_dict().get("digest")
-        if recorded is not None and recorded != segment.digest:
-            failures.append(f"segment {segment.ordinal} digest mismatch")
+        if segment.bytes != segment.byte_end - segment.byte_start:
+            failures.append(
+                f"segment {segment.ordinal} byte range does not match its byte count")
+        if segment.keyframe_count < 1 or not segment.keyframe_offsets:
+            failures.append(
+                f"segment {segment.ordinal} has no keyframe switch point")
+        for offset in segment.keyframe_offsets:
+            if not (segment.byte_start <= offset < segment.byte_end):
+                failures.append(
+                    f"segment {segment.ordinal} keyframe offset {offset} is outside "
+                    f"its byte range")
+        if previous is not None:
+            # Switch boundaries must be seamless: both the time tiles and the
+            # unit/byte ranges continue exactly where the previous segment ended.
+            if abs(previous.end_s - segment.start_s) > 1e-6:
+                failures.append(
+                    f"segment {segment.ordinal} does not start where segment "
+                    f"{previous.ordinal} ended")
+            if previous.unit_end != segment.unit_start:
+                failures.append(
+                    f"segment {segment.ordinal} unit range does not continue "
+                    f"segment {previous.ordinal}")
+            if previous.byte_end != segment.byte_start:
+                failures.append(
+                    f"segment {segment.ordinal} byte range does not continue "
+                    f"segment {previous.ordinal}")
+        previous = segment
     if abs(manifest.deviation_pct) > deviation_limit_pct:
         failures.append(
             f"overall bitrate deviation {manifest.deviation_pct:.2f}% exceeds "
