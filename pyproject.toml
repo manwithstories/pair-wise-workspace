@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "stageflow"
+name = "archiveflow"
 version = "0.1.0"
-description = "Multicamera sync review media pipeline for live-show delivery"
+description = "RTP/RTCP archive recovery pipeline for incomplete program material"
 requires-python = ">=3.12"
 dependencies = [
     "av==12.3.0",
@@ -14,10 +14,16 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = []
+test = [
+    "pytest>=8.0",
+]
 
 [project.scripts]
-stageflow = "stageflow.cli:main"
+archiveflow = "archiveflow.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["archiveflow*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
