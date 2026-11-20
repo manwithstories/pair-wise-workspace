@@ -26,6 +26,7 @@ from mediasync.jitter import TransportPacket, dejitter, JitterConfig
 from mediasync.pipeline import PipelineConfig, run_pipeline
 from mediasync.report import load_manifest, verify_manifest
 from mediasync.timeline import Interval, build_timeline
+from conftest import record_scenario
 
 
 def scenario_manifest(tmp_path: Path, **overrides) -> dict:
@@ -55,6 +56,12 @@ def test_success_scenario_exits_zero(tmp_path: Path) -> None:
     assert payload["transport"]["unrecoverable"] == 0
     assert payload["video"]["frames"] > 0
     assert abs(payload["bitrate"]["deviation"]) <= 0.05
+    record_scenario(
+        "success",
+        status=payload["status"],
+        frames=payload["video"]["frames"],
+        deviation_pct=payload["bitrate"]["deviation_pct"],
+    )
 
 
 def test_loss_scenario_recovers_within_budget(tmp_path: Path) -> None:
@@ -64,6 +71,12 @@ def test_loss_scenario_recovers_within_budget(tmp_path: Path) -> None:
     assert transport["recovered"] + transport["unrecoverable"] == transport["loss"]
     assert transport["unrecoverable"] == 0
     assert payload["status"] == "PASS"
+    record_scenario(
+        "loss",
+        loss=transport["loss"],
+        recovered=transport["recovered"],
+        unrecoverable=transport["unrecoverable"],
+    )
 
 
 def test_unrecoverable_loss_exits_three(tmp_path: Path) -> None:
@@ -73,6 +86,12 @@ def test_unrecoverable_loss_exits_three(tmp_path: Path) -> None:
     existing = tmp_path / "manifest.json"
     code = main(["verify", str(existing)])
     assert code == 3
+    record_scenario(
+        "unrecoverable",
+        unrecoverable=payload["transport"]["unrecoverable"],
+        gaps=len(payload["gaps"]),
+        verify_exit=code,
+    )
 
 
 def test_wrap_scenario_generates_reversible_timestamps(tmp_path: Path) -> None:
@@ -84,6 +103,9 @@ def test_wrap_scenario_generates_reversible_timestamps(tmp_path: Path) -> None:
     expected = [entry["unwrapped_ticks"] for entry in entries]
     offsets = {actual - target for actual, target in zip(unwrapped, expected)}
     assert len(offsets) == 1, "the wrap must expand to a single constant epoch"
+    record_scenario(
+        "wrap", timestamps=len(wire), crossed_zero=sum(v > wrap // 2 for v in wire)
+    )
 
 
 def test_wrap_fixture_keeps_display_monotonic(tmp_path: Path) -> None:
@@ -144,6 +166,12 @@ def test_truncated_index_scenario_uses_boundary_repair(tmp_path: Path) -> None:
             config=cfg,
         )
     report = recover_timeline(timeline, recoveries)
+    record_scenario(
+        "truncation",
+        truncated_packets=len(video.truncated_indices),
+        repairs=len(report.repairs),
+        gaps=len(report.gaps),
+    )
     assert report.repairs, "a truncated index must produce an explicit repair record"
     assert all(report.repairs), "every repair record must describe real damage"
     assert report.gaps, "the damaged tail must be written as a gap"
@@ -176,6 +204,7 @@ def test_cycle_scenario_is_rejected() -> None:
     with pytest.raises(PlanError) as excinfo:
         build_timeline([[first, second]])
     assert "cycle" in str(excinfo.value)
+    record_scenario("cycle", detected=excinfo.value.__class__.__name__, message=str(excinfo.value))
 
 
 def test_restart_scenario_keeps_raw_and_display_separate(tmp_path: Path) -> None:

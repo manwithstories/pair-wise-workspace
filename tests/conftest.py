@@ -103,3 +103,32 @@ class Bundle:
 
     def clean_copy(self) -> None:  # pragma: no cover - diagnostic helper
         shutil.rmtree(self.root, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Scenario statistics
+# ---------------------------------------------------------------------------
+# The acceptance run asks for a summary of the success, wrap, truncation and
+# cycle scenarios.  Each scenario test records its measured facts here and a
+# session-scoped hook prints the table after the run.
+
+SCENARIO_STATS: dict[str, dict[str, object]] = {}
+
+
+def record_scenario(name: str, **facts: object) -> None:
+    SCENARIO_STATS[name] = facts
+
+
+@pytest.fixture(scope="session")
+def scenario_stats() -> dict[str, dict[str, object]]:
+    return SCENARIO_STATS
+
+
+def pytest_terminal_summary(terminalreporter) -> None:
+    if not SCENARIO_STATS:
+        return
+    terminalreporter.section("mediasync scenarios")
+    for name in sorted(SCENARIO_STATS):
+        facts = SCENARIO_STATS[name]
+        rendered = " ".join(f"{key}={value}" for key, value in sorted(facts.items()))
+        terminalreporter.write_line(f"{name}: {rendered}")
