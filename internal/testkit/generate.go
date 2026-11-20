@@ -41,6 +41,17 @@ func All() []string {
 	return []string{GoodSRT, CorruptSRT, GoodVTT, RTPGood, RTPCorrupt, MP4Good, MP4Corrupt, Timecodes, Levels}
 }
 
+// Meta 返回夹具的常量元数据而不重新生成文件，供 resume 复用已有工作目录。
+func Meta(dir string) *Fixtures {
+	return &Fixtures{
+		Dir:         dir,
+		Files:       All(),
+		BucketTicks: 500 * 27000, // 500ms
+		MediaTicks:  60 * 500 * 27000,
+		LevelCount:  60,
+	}
+}
+
 // Generate 在 dir 下生成全部样例；同一种子输出逐字节一致。
 func Generate(dir string, seed int64) (*Fixtures, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
