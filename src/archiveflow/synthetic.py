@@ -32,7 +32,11 @@ class SyntheticParams:
     width: int = 1920
     height: int = 1080
     audio_rate: int = 48000
-    gop: int = 30
+    # Intra-only (GOP=1) archival source: every frame is a keyframe. A lost
+    # packet then corrupts only its own frame, which freeze-fill replaces;
+    # inter-frame coding would propagate the loss through the whole GOP and
+    # drag PSNR below the recovery threshold even when most packets survive.
+    gop: int = 1
     seed: int = 12772
     source_bitrate: int = 8_000_000
     duplicate_prob: float = 0.0
