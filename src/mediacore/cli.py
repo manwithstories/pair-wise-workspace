@@ -201,7 +201,86 @@ def _cmd_scan(args: argparse.Namespace) -> int:
 
 
 def _cmd_verify(args: argparse.Namespace) -> int:
-    raise NotImplementedError("verify command is added by the next patch")
+    from .manifest import Manifest, verify_manifest
+    from .errors import MAX_ALIGNMENT_MS, MAX_BITRATE_DEVIATION_PCT
+
+    manifest_path = Path(args.manifest)
+    if not manifest_path.exists():
+        raise MediaInputError(f"manifest not found: {manifest_path}", code="input_missing")
+    manifest = Manifest.load(str(manifest_path))
+    stored_digest = getattr(manifest, "_stored_digest", None)
+    if manifest.video.get("truncated_tail_offset") is not None:
+        offset = manifest.video["truncated_tail_offset"]
+        reason = manifest.video.get("truncated_tail_reason", "truncated tail")
+        raise MediaCorruptError(
+            f"recorded input is truncated: {reason}", offset=offset)
+    failures = verify_manifest(
+        manifest,
+        deviation_limit_pct=args.deviation_pct or MAX_BITRATE_DEVIATION_PCT,
+        alignment_limit_ms=args.alignment_ms or MAX_ALIGNMENT_MS,
+        random_access_limit_ms=args.alignment_ms or MAX_ALIGNMENT_MS,
+        expected_digest=stored_digest)
+    index_summary = None
+    if args.index is not None:
+        index_path = Path(args.index)
+        if not index_path.exists():
+            raise MediaInputError(f"index not found: {index_path}", code="input_missing")
+        rebuilt = _read_json(index_path)
+        entries = rebuilt.get("entries") if isinstance(rebuilt, dict) else rebuilt
+        if not isinstance(entries, list) or not entries:
+            failures.append("supplied index has no entries")
+        else:
+            offsets = {e.get("offset") for e in entries if isinstance(e, dict)}
+            manifest_offsets = {
+                o for seg in manifest.segments for o in seg.keyframe_offsets}
+            missing = sorted(manifest_offsets - offsets)
+            if missing:
+                failures.append(
+                    f"index is missing {len(missing)} keyframe offsets recorded in "
+                    f"the manifest (first: {missing[0]})")
+            index_summary = {
+                "entries": len(entries),
+                "manifest_keyframes": len(manifest_offsets),
+                "missing_offsets": len(missing),
+                "random_access_max_ms": rebuilt.get("random_access_max_ms")
+                if isinstance(rebuilt, dict) else None,
+            }
+    summary = {
+        "manifest": str(manifest_path),
+        "manifest_digest": manifest.digest,
+        "stored_digest": stored_digest,
+        "digest_matches": stored_digest == manifest.digest,
+        "target_bps": manifest.target_bps,
+        "actual_bps": round(manifest.actual_bps, 1),
+        "deviation_pct": round(manifest.deviation_pct, 3),
+        "manifest_alignment_max_ms": round(manifest.manifest_alignment_max_ms, 3),
+        "random_access_max_ms": round(manifest.random_access_max_ms, 3),
+        "video_psnr_db": manifest.quality["video"].get("psnr_db"),
+        "audio_rms": round(manifest.audio.get("rms", 0.0), 6),
+        "segments": len(manifest.segments),
+        "issues": len(manifest.issues),
+        "index": index_summary,
+        "failures": failures,
+    }
+    if args.json:
+        print(json.dumps(summary, indent=2, sort_keys=True))
+    else:
+        print(f"target_bps={summary['target_bps']} actual_bps={summary['actual_bps']} "
+              f"deviation_pct={summary['deviation_pct']}")
+        print(f"video_psnr_db={summary['video_psnr_db']} audio_rms={summary['audio_rms']}")
+        print(f"manifest_alignment_max_ms={summary['manifest_alignment_max_ms']} "
+              f"random_access_max_ms={summary['random_access_max_ms']}")
+        print(f"manifest_digest={summary['manifest_digest']} "
+              f"digest_matches={summary['digest_matches']} "
+              f"segments={summary['segments']} issues={summary['issues']}")
+        for failure in failures:
+            print(f"verify_failed: {failure}", file=sys.stderr)
+    if failures:
+        raise MetricsExceeded(
+            f"{len(failures)} verification check(s) failed", code="metrics_exceeded")
+    return EXIT_OK
+
+
 
 
 def _read_json(path: Path) -> Any:
