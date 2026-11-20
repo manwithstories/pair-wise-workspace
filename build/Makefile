@@ -226,6 +226,30 @@ src/caption_parser.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/caption_parser.cpp.s
 .PHONY : src/caption_parser.cpp.s
 
+src/checkpoint_store.o: src/checkpoint_store.cpp.o
+.PHONY : src/checkpoint_store.o
+
+# target to build an object file
+src/checkpoint_store.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/checkpoint_store.cpp.o
+.PHONY : src/checkpoint_store.cpp.o
+
+src/checkpoint_store.i: src/checkpoint_store.cpp.i
+.PHONY : src/checkpoint_store.i
+
+# target to preprocess a source file
+src/checkpoint_store.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/checkpoint_store.cpp.i
+.PHONY : src/checkpoint_store.cpp.i
+
+src/checkpoint_store.s: src/checkpoint_store.cpp.s
+.PHONY : src/checkpoint_store.s
+
+# target to generate assembly for a file
+src/checkpoint_store.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/checkpoint_store.cpp.s
+.PHONY : src/checkpoint_store.cpp.s
+
 src/sha256.o: src/sha256.cpp.o
 .PHONY : src/sha256.o
 
@@ -340,6 +364,9 @@ help:
 	@echo "... src/caption_parser.o"
 	@echo "... src/caption_parser.i"
 	@echo "... src/caption_parser.s"
+	@echo "... src/checkpoint_store.o"
+	@echo "... src/checkpoint_store.i"
+	@echo "... src/checkpoint_store.s"
 	@echo "... src/sha256.o"
 	@echo "... src/sha256.i"
 	@echo "... src/sha256.s"
