@@ -274,6 +274,30 @@ src/sha256.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/sha256.cpp.s
 .PHONY : src/sha256.cpp.s
 
+src/stream_probe.o: src/stream_probe.cpp.o
+.PHONY : src/stream_probe.o
+
+# target to build an object file
+src/stream_probe.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/stream_probe.cpp.o
+.PHONY : src/stream_probe.cpp.o
+
+src/stream_probe.i: src/stream_probe.cpp.i
+.PHONY : src/stream_probe.i
+
+# target to preprocess a source file
+src/stream_probe.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/stream_probe.cpp.i
+.PHONY : src/stream_probe.cpp.i
+
+src/stream_probe.s: src/stream_probe.cpp.s
+.PHONY : src/stream_probe.s
+
+# target to generate assembly for a file
+src/stream_probe.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/stream_probe.cpp.s
+.PHONY : src/stream_probe.cpp.s
+
 src/transport_reorder.o: src/transport_reorder.cpp.o
 .PHONY : src/transport_reorder.o
 
@@ -370,6 +394,9 @@ help:
 	@echo "... src/sha256.o"
 	@echo "... src/sha256.i"
 	@echo "... src/sha256.s"
+	@echo "... src/stream_probe.o"
+	@echo "... src/stream_probe.i"
+	@echo "... src/stream_probe.s"
 	@echo "... src/transport_reorder.o"
 	@echo "... src/transport_reorder.i"
 	@echo "... src/transport_reorder.s"

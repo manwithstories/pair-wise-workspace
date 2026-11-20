@@ -21,6 +21,7 @@ add_library(relay_core
   src/caption_parser.cpp
   src/sha256.cpp
   src/checkpoint_store.cpp
+  src/stream_probe.cpp
 )
 target_include_directories(relay_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(relay_core PUBLIC PkgConfig::FFMPEG)
