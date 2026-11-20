@@ -128,7 +128,41 @@ def _print_summary(summary: dict[str, Any], *, quiet: bool, as_json: bool) -> No
 
 
 def _cmd_demo(args: argparse.Namespace, *, resume_only: bool = False) -> int:
-    raise NotImplementedError("demo command is added by the next patch")
+    from .fixtures import make_fixtures
+    from .manifest import verify_manifest
+    from .pipeline import run_pipeline
+
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    spec = _spec_from_args(args)
+    fixture_info = make_fixtures(out / "input", spec)
+    config = _config_from_args(args)
+    index_payload = None
+    if args.index is not None:
+        index_payload = _read_json(args.index)
+    result = run_pipeline(
+        fixture_info["video_path"], fixture_info["audio"]["path"],
+        out / "run", config, index_payload=index_payload)
+    manifest = result.manifest
+    manifest.save(str(out / "manifest.json"))
+    (out / "index.json").write_text(
+        json.dumps(result.index.to_dict(), indent=2, sort_keys=True) + "\n")
+    failures = verify_manifest(manifest)
+    summary = _summary(manifest, out=out)
+    summary["resumed"] = result.resumed
+    _print_summary(summary, quiet=args.quiet, as_json=args.json)
+    if manifest.video.get("truncated_tail_offset") is not None:
+        offset = manifest.video["truncated_tail_offset"]
+        reason = manifest.video.get("truncated_tail_reason", "truncated tail")
+        print(f"error (corrupt_input) at offset {offset}: {reason}", file=sys.stderr)
+        return EXIT_INPUT
+    if failures:
+        for failure in failures:
+            print(f"verify_failed: {failure}", file=sys.stderr)
+        raise MetricsExceeded("; ".join(failures), code="metrics_exceeded")
+    return EXIT_OK
+
+
 
 
 def _cmd_scan(args: argparse.Namespace) -> int:
