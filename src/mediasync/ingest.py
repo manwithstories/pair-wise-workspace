@@ -342,3 +342,99 @@ def _parse_packets(
     if not any(packet.keyframe for packet in packets if packet.index not in truncated):
         raise IndexError_(f"{track_id}: index contains no usable keyframe")
     return tuple(packets), frozenset(truncated)
+
+
+def _parse_anchors(raw: Any, track_id: str) -> tuple[Anchor, ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise IndexError_(f"{track_id}: anchors must be a list")
+    anchors: list[Anchor] = []
+    for entry in raw:
+        if not isinstance(entry, dict) or "label" not in entry:
+            raise IndexError_(f"{track_id}: anchor entries need a label")
+        video = entry.get("video_index")
+        audio = entry.get("audio_sample")
+        for value in (video, audio):
+            if value is not None and (
+                not isinstance(value, int) or isinstance(value, bool) or value < 0
+            ):
+                raise IndexError_(f"{track_id}: anchor positions must be non-negative")
+        anchors.append(Anchor(str(entry["label"]), video, audio))
+    return tuple(anchors)
+
+
+def load_video_track(
+    index_path: str | Path,
+    *,
+    limits: Limits | None = None,
+    allow_truncated: bool = False,
+    verify_decode: bool = True,
+) -> VideoTrack:
+    """Load and validate one raw video stream plus its keyframe index."""
+
+    limits = limits or Limits()
+    index_path = Path(index_path)
+    payload = _load_index(index_path, limits)
+    track_id = payload.get("track_id")
+    if not isinstance(track_id, str) or not track_id:
+        raise IndexError_(f"{index_path.name}: missing track_id")
+    codec = payload.get("codec")
+    if not isinstance(codec, str) or codec.lower() not in SUPPORTED_VIDEO_CODECS:
+        raise CodecConflictError(
+            f"{track_id}: unsupported codec {codec!r}; expected one of "
+            f"{', '.join(SUPPORTED_VIDEO_CODECS)}"
+        )
+    codec = codec.lower()
+    stream_name = payload.get("stream")
+    if not isinstance(stream_name, str) or not stream_name:
+        raise IndexError_(f"{track_id}: missing stream file name")
+    stream_path = index_path.parent / stream_name
+    try:
+        actual_size = stream_path.stat().st_size
+    except OSError as exc:
+        raise InputError(f"{track_id}: cannot stat stream {stream_path}: {exc}") from exc
+    if actual_size > limits.max_stream_bytes:
+        raise InputError(
+            f"{track_id}: stream is {actual_size} bytes, limit is "
+            f"{limits.max_stream_bytes}"
+        )
+    declared_size = payload.get("stream_size", actual_size)
+    if not isinstance(declared_size, int) or declared_size < 0:
+        raise IndexError_(f"{track_id}: stream_size must be a non-negative integer")
+    sniffed = sniff_codec(stream_path)
+    if sniffed != codec:
+        raise CodecConflictError(
+            f"{track_id}: index declares {codec} but stream looks like {sniffed}"
+        )
+    effective_size = min(declared_size, actual_size) if allow_truncated else actual_size
+    packets, truncated = _parse_packets(
+        payload.get("packets"),
+        track_id=track_id,
+        stream_size=effective_size,
+        limits=limits,
+        allow_truncated=allow_truncated,
+    )
+    if verify_decode:
+        _verify_decodable(stream_path, codec, limits)
+    rate_raw = payload.get("nominal_rate", payload.get("fps", "30"))
+    nominal_rate = parse_fps(str(rate_raw))
+    width = int(payload.get("width", 0))
+    height = int(payload.get("height", 0))
+    if width <= 0 or height <= 0:
+        raise IndexError_(f"{track_id}: width and height must be positive")
+    role = payload.get("role", "camera")
+    return VideoTrack(
+        track_id=track_id,
+        role=str(role),
+        codec=codec,
+        path=stream_path,
+        stream_size=actual_size,
+        nominal_rate=nominal_rate,
+        width=width,
+        height=height,
+        packets=packets,
+        anchors=_parse_anchors(payload.get("anchors"), track_id),
+        truncated_indices=truncated,
+        declared_stream_size=declared_size,
+    )
