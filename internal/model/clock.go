@@ -29,6 +29,9 @@ type Clock struct {
 	// AnchorMasterTS is the master-clock timestamp at AnchorSeq, fixed when
 	// the project timeline is established.
 	AnchorMasterTS uint64
+	// FrameStep is the device-clock distance between two consecutive frames
+	// (e.g. 3000 ticks at 90kHz for 30fps, 48 ticks at 48kHz for 1ms audio).
+	FrameStep uint64
 }
 
 // ToMaster converts a raw device tick count into master-clock ticks using the
@@ -38,10 +41,10 @@ func (c Clock) ToMaster(deviceTS uint64) uint64 {
 }
 
 // ExpectedMaster returns the master timestamp the frame carrying seq should
-// have given the anchor and the per-frame duration of its own rate.
-func (c Clock) ExpectedMaster(seq, frameDurationTicks uint64) uint64 {
+// have given the anchor and the per-frame device-clock step.
+func (c Clock) ExpectedMaster(seq uint64) uint64 {
 	delta := seq - c.AnchorSeq
-	return c.AnchorMasterTS + c.ToMaster(delta*frameDurationTicks)
+	return c.AnchorMasterTS + c.ToMaster(delta*c.FrameStep)
 }
 
 // Unwrap resolves a 32-bit RTP timestamp that may have rolled over relative
@@ -55,7 +58,9 @@ func Unwrap(prev, raw uint64) uint64 {
 	switch {
 	case cand > prev:
 		// Large forward jump means raw is actually from the previous cycle.
-		if cand-prev > RTPMod/2 {
+		// The guard keeps early readings near the modulus on a fresh clock:
+		// unwrapped time must never go negative.
+		if cand-prev > RTPMod/2 && cand >= RTPMod {
 			cand -= RTPMod
 		}
 	case prev > cand:
@@ -68,10 +73,12 @@ func Unwrap(prev, raw uint64) uint64 {
 	return cand
 }
 
-// IsRollover reports whether raw is a forward 32-bit rollover relative to the
-// previously unwrapped timestamp prev.
+// IsRollover reports whether raw, seen after the unwrapped timestamp prev, is
+// a forward 32-bit rollover: unwrapping it must advance the clock while the
+// raw 32-bit value is smaller than the low word of the previous value.
 func IsRollover(prev, raw uint64) bool {
-	return Unwrap(prev, raw) >= prev && raw < prev%RTPMod
+	unwrapped := Unwrap(prev, raw)
+	return unwrapped > prev && raw < prev%RTPMod
 }
 
 // NanoToMaster converts a duration expressed in nanoseconds to master ticks.

@@ -48,13 +48,13 @@ type ColorMeta struct {
 
 // rawRecord is the on-disk JSONL wire format.
 type rawRecord struct {
-	TrackID  string          `json:"track_id"`
-	Seq      uint64          `json:"frame_seq"`
-	DeviceTS uint64          `json:"device_ts"`
-	Rate     uint64          `json:"rate"`
-	RTPB64   string          `json:"rtp_b64"`
-	SHA      string          `json:"sha256"`
-	Color    *ColorMeta      `json:"color,omitempty"`
+	TrackID  string     `json:"track_id"`
+	Seq      uint64     `json:"frame_seq"`
+	DeviceTS uint64     `json:"device_ts"`
+	Rate     uint64     `json:"rate"`
+	RTPB64   string     `json:"rtp_b64"`
+	SHA      string     `json:"sha256"`
+	Color    *ColorMeta `json:"color,omitempty"`
 }
 
 // Reader streams frames from one JSONL file. It is safe only for single

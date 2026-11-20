@@ -40,9 +40,9 @@ const (
 type Severity int
 
 const (
-	SeverityInfo     Severity = iota // repaired automatically, evidence kept
-	SeverityRecoverable              // repairable under an explicit policy
-	SeverityFatal                    // pipeline must stop the affected branch
+	SeverityInfo        Severity = iota // repaired automatically, evidence kept
+	SeverityRecoverable                 // repairable under an explicit policy
+	SeverityFatal                       // pipeline must stop the affected branch
 )
 
 // Recoverable mirrors severity as the JSON-facing boolean pair.
@@ -69,7 +69,7 @@ type Fault struct {
 	Message     string         `json:"message"`
 	Expected    string         `json:"expected,omitempty"`
 	Actual      string         `json:"actual,omitempty"`
-	Inferred    bool           `json:"inferred"`     // value was inferred, not read
+	Inferred    bool           `json:"inferred"`      // value was inferred, not read
 	SourceCheck string         `json:"source_sha256"` // never rewritten
 }
 
