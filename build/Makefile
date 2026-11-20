@@ -197,6 +197,54 @@ app/main.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay.dir/build.make CMakeFiles/relay.dir/app/main.cpp.s
 .PHONY : app/main.cpp.s
 
+src/fixture.o: src/fixture.cpp.o
+.PHONY : src/fixture.o
+
+# target to build an object file
+src/fixture.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/fixture.cpp.o
+.PHONY : src/fixture.cpp.o
+
+src/fixture.i: src/fixture.cpp.i
+.PHONY : src/fixture.i
+
+# target to preprocess a source file
+src/fixture.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/fixture.cpp.i
+.PHONY : src/fixture.cpp.i
+
+src/fixture.s: src/fixture.cpp.s
+.PHONY : src/fixture.s
+
+# target to generate assembly for a file
+src/fixture.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/fixture.cpp.s
+.PHONY : src/fixture.cpp.s
+
+src/frame_reader.o: src/frame_reader.cpp.o
+.PHONY : src/frame_reader.o
+
+# target to build an object file
+src/frame_reader.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/frame_reader.cpp.o
+.PHONY : src/frame_reader.cpp.o
+
+src/frame_reader.i: src/frame_reader.cpp.i
+.PHONY : src/frame_reader.i
+
+# target to preprocess a source file
+src/frame_reader.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/frame_reader.cpp.i
+.PHONY : src/frame_reader.cpp.i
+
+src/frame_reader.s: src/frame_reader.cpp.s
+.PHONY : src/frame_reader.s
+
+# target to generate assembly for a file
+src/frame_reader.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/frame_reader.cpp.s
+.PHONY : src/frame_reader.cpp.s
+
 src/hash.o: src/hash.cpp.o
 .PHONY : src/hash.o
 
@@ -284,6 +332,12 @@ help:
 	@echo "... app/main.o"
 	@echo "... app/main.i"
 	@echo "... app/main.s"
+	@echo "... src/fixture.o"
+	@echo "... src/fixture.i"
+	@echo "... src/fixture.s"
+	@echo "... src/frame_reader.o"
+	@echo "... src/frame_reader.i"
+	@echo "... src/frame_reader.s"
 	@echo "... src/hash.o"
 	@echo "... src/hash.i"
 	@echo "... src/hash.s"

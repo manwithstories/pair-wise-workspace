@@ -100,19 +100,51 @@ CMakeFiles/relay_core.dir/src/hash.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/relay_core.dir/src/hash.cpp.s"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/clearliu/WorkSpace/pair-wise-workspace/13308/src/hash.cpp -o CMakeFiles/relay_core.dir/src/hash.cpp.s
 
+CMakeFiles/relay_core.dir/src/fixture.cpp.o: CMakeFiles/relay_core.dir/flags.make
+CMakeFiles/relay_core.dir/src/fixture.cpp.o: /Users/clearliu/WorkSpace/pair-wise-workspace/13308/src/fixture.cpp
+CMakeFiles/relay_core.dir/src/fixture.cpp.o: CMakeFiles/relay_core.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_3) "Building CXX object CMakeFiles/relay_core.dir/src/fixture.cpp.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/relay_core.dir/src/fixture.cpp.o -MF CMakeFiles/relay_core.dir/src/fixture.cpp.o.d -o CMakeFiles/relay_core.dir/src/fixture.cpp.o -c /Users/clearliu/WorkSpace/pair-wise-workspace/13308/src/fixture.cpp
+
+CMakeFiles/relay_core.dir/src/fixture.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/relay_core.dir/src/fixture.cpp.i"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /Users/clearliu/WorkSpace/pair-wise-workspace/13308/src/fixture.cpp > CMakeFiles/relay_core.dir/src/fixture.cpp.i
+
+CMakeFiles/relay_core.dir/src/fixture.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/relay_core.dir/src/fixture.cpp.s"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/clearliu/WorkSpace/pair-wise-workspace/13308/src/fixture.cpp -o CMakeFiles/relay_core.dir/src/fixture.cpp.s
+
+CMakeFiles/relay_core.dir/src/frame_reader.cpp.o: CMakeFiles/relay_core.dir/flags.make
+CMakeFiles/relay_core.dir/src/frame_reader.cpp.o: /Users/clearliu/WorkSpace/pair-wise-workspace/13308/src/frame_reader.cpp
+CMakeFiles/relay_core.dir/src/frame_reader.cpp.o: CMakeFiles/relay_core.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "Building CXX object CMakeFiles/relay_core.dir/src/frame_reader.cpp.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/relay_core.dir/src/frame_reader.cpp.o -MF CMakeFiles/relay_core.dir/src/frame_reader.cpp.o.d -o CMakeFiles/relay_core.dir/src/frame_reader.cpp.o -c /Users/clearliu/WorkSpace/pair-wise-workspace/13308/src/frame_reader.cpp
+
+CMakeFiles/relay_core.dir/src/frame_reader.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/relay_core.dir/src/frame_reader.cpp.i"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /Users/clearliu/WorkSpace/pair-wise-workspace/13308/src/frame_reader.cpp > CMakeFiles/relay_core.dir/src/frame_reader.cpp.i
+
+CMakeFiles/relay_core.dir/src/frame_reader.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/relay_core.dir/src/frame_reader.cpp.s"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/clearliu/WorkSpace/pair-wise-workspace/13308/src/frame_reader.cpp -o CMakeFiles/relay_core.dir/src/frame_reader.cpp.s
+
 # Object files for target relay_core
 relay_core_OBJECTS = \
 "CMakeFiles/relay_core.dir/src/types.cpp.o" \
-"CMakeFiles/relay_core.dir/src/hash.cpp.o"
+"CMakeFiles/relay_core.dir/src/hash.cpp.o" \
+"CMakeFiles/relay_core.dir/src/fixture.cpp.o" \
+"CMakeFiles/relay_core.dir/src/frame_reader.cpp.o"
 
 # External object files for target relay_core
 relay_core_EXTERNAL_OBJECTS =
 
 librelay_core.a: CMakeFiles/relay_core.dir/src/types.cpp.o
 librelay_core.a: CMakeFiles/relay_core.dir/src/hash.cpp.o
+librelay_core.a: CMakeFiles/relay_core.dir/src/fixture.cpp.o
+librelay_core.a: CMakeFiles/relay_core.dir/src/frame_reader.cpp.o
 librelay_core.a: CMakeFiles/relay_core.dir/build.make
 librelay_core.a: CMakeFiles/relay_core.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_3) "Linking CXX static library librelay_core.a"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_5) "Linking CXX static library librelay_core.a"
 	$(CMAKE_COMMAND) -P CMakeFiles/relay_core.dir/cmake_clean_target.cmake
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/relay_core.dir/link.txt --verbose=$(VERBOSE)
 

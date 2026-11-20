@@ -19,6 +19,8 @@ find_package(Catch2 3 REQUIRED)
 add_library(relay_core STATIC
   src/types.cpp
   src/hash.cpp
+  src/fixture.cpp
+  src/frame_reader.cpp
 )
 target_include_directories(relay_core PUBLIC include)
 target_link_libraries(relay_core PUBLIC PkgConfig::FFMPEG OpenSSL::Crypto)

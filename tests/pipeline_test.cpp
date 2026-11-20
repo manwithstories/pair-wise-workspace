@@ -1,4 +1,8 @@
+#include "relay/fixture.hpp"
+#include "relay/frame_reader.hpp"
 #include "relay/types.hpp"
+
+#include <filesystem>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -29,4 +33,74 @@ TEST_CASE("structured errors locate stage track and frame", "[errors]") {
   REQUIRE(text.find("track=cam-a") != std::string::npos);
   REQUIRE(text.find("frame=42") != std::string::npos);
   REQUIRE(text.find("verify<-read<-cam-a") != std::string::npos);
+}
+
+namespace {
+
+std::filesystem::path make_scratch(const std::string& name) {
+  const auto root = std::filesystem::temp_directory_path() / "relay-tests" / name;
+  std::filesystem::remove_all(root);
+  std::filesystem::create_directories(root);
+  return root;
+}
+
+}  // namespace
+
+TEST_CASE("fixture frames pass SHA-256 and FFmpeg decode", "[reader]") {
+  auto root = make_scratch("reader-ok");
+  fixture::GenerateOptions options;
+  options.root = root;
+  options.frames = 12;
+  options.gop = 4;
+  options.cameras = {"cam-a", "cam-b"};
+  options.loss_burst = 1;
+  ErrorSink generator_errors;
+  auto generated = fixture::generate(options, generator_errors);
+  REQUIRE(generated.cameras.size() == 2);
+
+  ErrorSink errors;
+  ReadResult read = read_frame_inputs(root / "inputs", errors);
+  REQUIRE_FALSE(errors.has_errors());
+  REQUIRE(read.tracks.size() == 2);
+  for (const auto& track : read.tracks) {
+    CHECK(track.catalog.size() == 12);
+    for (const auto& frame : track.catalog) {
+      INFO("track=" << track.spec.id << " frame=" << frame.record.source_frame);
+      CHECK(frame.verified);
+      CHECK(frame.record.pixel_format == "rgb24");
+      CHECK(frame.record.width == 96);
+    }
+    CHECK_FALSE(track.arrivals.empty());
+  }
+}
+
+TEST_CASE("corrupt payload is quarantined with camera and frame number",
+          "[reader][corrupt]") {
+  auto root = make_scratch("reader-corrupt");
+  fixture::GenerateOptions options;
+  options.root = root;
+  options.frames = 12;
+  options.gop = 4;
+  options.cameras = {"cam-a", "cam-b"};
+  options.corrupt = true;
+  options.corrupt_camera_index = 1;
+  options.corrupt_frame = 5;
+  ErrorSink generator_errors;
+  fixture::generate(options, generator_errors);
+
+  ErrorSink errors;
+  ReadResult read = read_frame_inputs(root / "inputs", errors);
+  REQUIRE(errors.has_errors());
+  REQUIRE(read.checksum_failures == 1);
+  const RelayError* located = nullptr;
+  for (const auto& event : errors.events()) {
+    if (event.ids.track == "cam-b" && event.ids.frame == 5) {
+      located = &event;
+    }
+  }
+  REQUIRE(located != nullptr);
+  CHECK(located->reason.find("SHA-256") != std::string::npos);
+  const auto& cam_b = read.tracks.at(1);
+  CHECK_FALSE(cam_b.catalog.at(5).verified);
+  CHECK(cam_b.checksum_failures == 1);
 }

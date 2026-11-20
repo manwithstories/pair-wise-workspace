@@ -1,34 +1,14 @@
-Start testing: Nov 21 06:22 CST
+Start testing: Nov 21 06:35 CST
 ----------------------------------------------------------
-1/2 Testing: structured errors locate stage track and frame
-1/2 Test: structured errors locate stage track and frame
-Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/relay_tests" "structured errors locate stage track and frame" "--order decl"
-Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/13308/build
-"structured errors locate stage track and frame" start time: Nov 21 06:22 CST
-Output:
-----------------------------------------------------------
-Filters: "structured errors locate stage track and frame"
-Randomness seeded to: 2565108986
-===============================================================================
-All tests passed (7 assertions in 1 test case)
-
-<end of output>
-Test time =   0.02 sec
-----------------------------------------------------------
-Test Passed.
-"structured errors locate stage track and frame" end time: Nov 21 06:22 CST
-"structured errors locate stage track and frame" time elapsed: 00:00:00
-----------------------------------------------------------
-
-2/2 Testing: timebase converts frames and microseconds symmetrically
-2/2 Test: timebase converts frames and microseconds symmetrically
+4/4 Testing: timebase converts frames and microseconds symmetrically
+4/4 Test: timebase converts frames and microseconds symmetrically
 Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/relay_tests" "timebase converts frames and microseconds symmetrically" "--order decl"
 Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/13308/build
-"timebase converts frames and microseconds symmetrically" start time: Nov 21 06:22 CST
+"timebase converts frames and microseconds symmetrically" start time: Nov 21 06:35 CST
 Output:
 ----------------------------------------------------------
 Filters: "timebase converts frames and microseconds symmetrically"
-Randomness seeded to: 1197630192
+Randomness seeded to: 1132774815
 ===============================================================================
 All tests passed (6 assertions in 1 test case)
 
@@ -36,8 +16,68 @@ All tests passed (6 assertions in 1 test case)
 Test time =   0.02 sec
 ----------------------------------------------------------
 Test Passed.
-"timebase converts frames and microseconds symmetrically" end time: Nov 21 06:22 CST
+"timebase converts frames and microseconds symmetrically" end time: Nov 21 06:35 CST
 "timebase converts frames and microseconds symmetrically" time elapsed: 00:00:00
 ----------------------------------------------------------
 
-End testing: Nov 21 06:22 CST
+3/4 Testing: structured errors locate stage track and frame
+3/4 Test: structured errors locate stage track and frame
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/relay_tests" "structured errors locate stage track and frame" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/13308/build
+"structured errors locate stage track and frame" start time: Nov 21 06:35 CST
+Output:
+----------------------------------------------------------
+Filters: "structured errors locate stage track and frame"
+Randomness seeded to: 817687207
+===============================================================================
+All tests passed (7 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"structured errors locate stage track and frame" end time: Nov 21 06:35 CST
+"structured errors locate stage track and frame" time elapsed: 00:00:00
+----------------------------------------------------------
+
+1/4 Testing: corrupt payload is quarantined with camera and frame number
+1/4 Test: corrupt payload is quarantined with camera and frame number
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/relay_tests" "corrupt payload is quarantined with camera and frame number" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/13308/build
+"corrupt payload is quarantined with camera and frame number" start time: Nov 21 06:35 CST
+Output:
+----------------------------------------------------------
+Filters: "corrupt payload is quarantined with camera and frame number"
+Randomness seeded to: 1138621888
+===============================================================================
+All tests passed (6 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"corrupt payload is quarantined with camera and frame number" end time: Nov 21 06:35 CST
+"corrupt payload is quarantined with camera and frame number" time elapsed: 00:00:00
+----------------------------------------------------------
+
+2/4 Testing: fixture frames pass SHA-256 and FFmpeg decode
+2/4 Test: fixture frames pass SHA-256 and FFmpeg decode
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/relay_tests" "fixture frames pass SHA-256 and FFmpeg decode" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/13308/build
+"fixture frames pass SHA-256 and FFmpeg decode" start time: Nov 21 06:35 CST
+Output:
+----------------------------------------------------------
+Filters: "fixture frames pass SHA-256 and FFmpeg decode"
+Randomness seeded to: 3155323543
+===============================================================================
+All tests passed (79 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"fixture frames pass SHA-256 and FFmpeg decode" end time: Nov 21 06:35 CST
+"fixture frames pass SHA-256 and FFmpeg decode" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Nov 21 06:35 CST

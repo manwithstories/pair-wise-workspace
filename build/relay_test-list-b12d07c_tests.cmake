@@ -1,1 +1,1 @@
-set(relay_tests_TESTS [==[structured errors locate stage track and frame]==] [==[timebase converts frames and microseconds symmetrically]==])
+set(relay_tests_TESTS [==[corrupt payload is quarantined with camera and frame number]==] [==[fixture frames pass SHA-256 and FFmpeg decode]==] [==[structured errors locate stage track and frame]==] [==[timebase converts frames and microseconds symmetrically]==])

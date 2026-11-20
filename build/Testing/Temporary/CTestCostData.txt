@@ -1,3 +1,5 @@
-structured errors locate stage track and frame 2 0.0172663
-timebase converts frames and microseconds symmetrically 1 0.0176378
+structured errors locate stage track and frame 3 0.01737
+timebase converts frames and microseconds symmetrically 2 0.0175024
+corrupt payload is quarantined with camera and frame number 1 0.0217552
+fixture frames pass SHA-256 and FFmpeg decode 1 0.0215828
 ---

@@ -1,3 +1,7 @@
+add_test( [==[corrupt payload is quarantined with camera and frame number]==] /Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/relay_tests [==[corrupt payload is quarantined with camera and frame number]==]   [==[--order decl]==] )
+set_tests_properties( [==[corrupt payload is quarantined with camera and frame number]==] PROPERTIES WORKING_DIRECTORY /Users/clearliu/WorkSpace/pair-wise-workspace/13308/build SKIP_RETURN_CODE 4)
+add_test( [==[fixture frames pass SHA-256 and FFmpeg decode]==] /Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/relay_tests [==[fixture frames pass SHA-256 and FFmpeg decode]==]   [==[--order decl]==] )
+set_tests_properties( [==[fixture frames pass SHA-256 and FFmpeg decode]==] PROPERTIES WORKING_DIRECTORY /Users/clearliu/WorkSpace/pair-wise-workspace/13308/build SKIP_RETURN_CODE 4)
 add_test( [==[structured errors locate stage track and frame]==] /Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/relay_tests [==[structured errors locate stage track and frame]==]   [==[--order decl]==] )
 set_tests_properties( [==[structured errors locate stage track and frame]==] PROPERTIES WORKING_DIRECTORY /Users/clearliu/WorkSpace/pair-wise-workspace/13308/build SKIP_RETURN_CODE 4)
 add_test( [==[timebase converts frames and microseconds symmetrically]==] /Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/relay_tests [==[timebase converts frames and microseconds symmetrically]==]   [==[--order decl]==] )

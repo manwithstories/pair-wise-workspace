@@ -1,4 +1,8 @@
 file(REMOVE_RECURSE
+  "CMakeFiles/relay_core.dir/src/fixture.cpp.o"
+  "CMakeFiles/relay_core.dir/src/fixture.cpp.o.d"
+  "CMakeFiles/relay_core.dir/src/frame_reader.cpp.o"
+  "CMakeFiles/relay_core.dir/src/frame_reader.cpp.o.d"
   "CMakeFiles/relay_core.dir/src/hash.cpp.o"
   "CMakeFiles/relay_core.dir/src/hash.cpp.o.d"
   "CMakeFiles/relay_core.dir/src/types.cpp.o"
