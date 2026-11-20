@@ -14,6 +14,7 @@ plus a missing-segment playlist.
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 from pathlib import Path
 
@@ -194,8 +195,15 @@ def build_dash(out: Path) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", required=True, help="output fixture directory")
+    parser.add_argument(
+        "--clean", action="store_true",
+        help="remove a previous fixture directory before generating",
+    )
     args = parser.parse_args()
     out = Path(args.out).resolve()
+    if args.clean and out.exists():
+        # Only the dedicated fixture root is ever removed, never a parent.
+        shutil.rmtree(out)
     out.mkdir(parents=True, exist_ok=True)
     build_hls(out)
     build_dash(out)
