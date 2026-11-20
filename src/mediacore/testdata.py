@@ -202,8 +202,10 @@ def generate_fixtures(
             dict(id="voice-b", track="voice", start_us=1_000_000, end_us=2_500_000),
         ],
         transitions=[
-            dict(id="ab", left="voice-a", right="voice-b", duration_us=200_000),
-            dict(id="ba", left="voice-b", right="voice-a", duration_us=200_000),
+            dict(id="ab", left="voice-a", right="voice-b", duration_us=200_000,
+                 after=("ba",)),
+            dict(id="ba", left="voice-b", right="voice-a", duration_us=200_000,
+                 after=("ab",)),
         ],
     )
 

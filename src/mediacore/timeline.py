@@ -138,6 +138,9 @@ class TransitionSpec:
     right: str
     duration_us: Us
     curve: Literal["linear", "equal_power"] = "linear"
+    # Optional extra ordering dependencies on other transition ids.  Used by
+    # the cycle fixture and by real "this blend follows that one" chains.
+    after: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -156,6 +159,12 @@ class TransitionSpec:
                 transition=self.id,
                 duration_us=self.duration_us,
             )
+        if self.id in self.after:
+            raise TimelineError(
+                "transition cannot depend on itself",
+                code="timeline.transition_self_dependency",
+                transition=self.id,
+            )
         if self.curve not in ("linear", "equal_power"):
             raise ParameterError(
                 "unknown transition curve", transition=self.id, curve=self.curve
@@ -172,6 +181,7 @@ class TransitionSpec:
             "right": self.right,
             "duration_us": self.duration_us,
             "curve": self.curve,
+            "after": list(self.after),
         }
 
 
@@ -345,6 +355,14 @@ class Timeline:
 
     def _check_transitions(self) -> None:
         for trans in self.transitions.values():
+            for dep in trans.after:
+                if dep not in self.transitions:
+                    raise TimelineError(
+                        "transition depends on unknown transition",
+                        code="timeline.unknown_transition",
+                        transition=trans.id,
+                        dependency=dep,
+                    )
             left = self.clips.get(trans.left)
             right = self.clips.get(trans.right)
             for missing, name in ((left, trans.left), (right, trans.right)):

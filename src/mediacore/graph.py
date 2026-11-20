@@ -187,7 +187,11 @@ def build_plan(timeline: Timeline) -> Plan:
             id=node_id,
             kind="transition",
             track=timeline.clips[transition.left].track,
-            deps=(f"clip:{transition.left}", f"clip:{transition.right}"),
+            deps=(
+                f"clip:{transition.left}",
+                f"clip:{transition.right}",
+                *(f"transition:{dep}" for dep in transition.after),
+            ),
             sort_key=(timeline.clips[transition.left].start_us, transition.id),
         )
 
