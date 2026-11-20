@@ -10,7 +10,6 @@ import (
 	"mediagraph/internal/checkpoint"
 	"mediagraph/internal/graph"
 	"mediagraph/internal/provenance"
-	"mediagraph/internal/testkit"
 	"mediagraph/internal/timeline"
 )
 
@@ -55,7 +54,6 @@ type Ctx struct {
 	Cfg   *Config
 	State *checkpoint.State
 	Log   *provenance.Log
-	Fx    *testkit.Fixtures
 }
 
 // Graph 构造显式轨道依赖图。
@@ -82,14 +80,15 @@ func ReadInput(dir, name string) ([]byte, error) {
 
 // Run 按依赖序执行步骤：已完成的步骤跳过（断点续跑），
 // 依赖失败的节点不执行，达到 interruptAfter 后中断并保存检查点。
-// 返回本轮执行的步骤、是否中断、可恢复错误数。
-func Run(ctx *Ctx, steps []Step, interruptAfter int) (ran []string, interrupted bool, err error) {
+// 返回本轮执行的步骤、是否中断、各失败步骤的错误。
+func Run(ctx *Ctx, steps []Step, interruptAfter int) (ran []string, interrupted bool, failed map[string]error, err error) {
 	g := Graph(steps)
 	byID := map[string]Step{}
 	for _, s := range steps {
 		byID[s.ID] = s
 	}
 	completed := 0
+	failed = map[string]error{}
 	_, _, err = g.Plan(func(id string) error {
 		s := byID[id]
 		if ctx.State.IsDone(id) {
@@ -98,15 +97,18 @@ func Run(ctx *Ctx, steps []Step, interruptAfter int) (ran []string, interrupted 
 		if interruptAfter >= 0 && completed >= interruptAfter {
 			return errInterrupt
 		}
-		if err := s.Run(ctx); err != nil {
-			return err
+		if runErr := s.Run(ctx); runErr != nil {
+			if !IsInterrupt(runErr) {
+				failed[id] = runErr
+			}
+			return runErr
 		}
 		completed++
 		ran = append(ran, id)
 		return nil
 	})
 	if err != nil {
-		return ran, false, err
+		return ran, false, failed, err
 	}
 	// 检查是否因中断而留有未完成节点
 	for _, s := range steps {
@@ -114,7 +116,7 @@ func Run(ctx *Ctx, steps []Step, interruptAfter int) (ran []string, interrupted 
 			interrupted = true
 		}
 	}
-	return ran, interrupted, nil
+	return ran, interrupted, failed, nil
 }
 
 // errInterrupt 为内部中断信号：标记节点失败以阻断其依赖，本身视为可恢复。
