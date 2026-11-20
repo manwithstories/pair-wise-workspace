@@ -22,6 +22,8 @@ add_library(mbcore STATIC
   src/sha256.cpp
   src/capture.cpp
   src/rtp_ingest.cpp
+  src/timeline.cpp
+  src/track_graph.cpp
 )
 target_include_directories(mbcore PUBLIC src)
 target_link_libraries(mbcore PUBLIC PkgConfig::FFMPEG Threads::Threads)
