@@ -71,3 +71,10 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- build outputs ----
+build/
+out/
+*.tmp
+*.cap
+!fixtures/*.cap
