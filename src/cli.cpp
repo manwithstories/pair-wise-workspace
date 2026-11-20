@@ -244,6 +244,23 @@ int execute(const CommandLine& command_line) {
     std::cout << "exit_code=0\n";
     return 0;
   }
+  std::cout << "roundtrip_rate=" << format_double(report.roundtrip_rate, 3)
+            << '\n';
+  std::cout << "keyframe_hit_rate="
+            << format_double(report.keyframe_hit_rate, 3) << '\n';
+  std::cout << "aligned_cut_error_frames="
+            << report.aligned_cut_error_frames << '\n';
+  for (const auto& hash : report.segment_hashes) {
+    std::cout << "segment_hash=" << hash << '\n';
+  }
+  std::cout << "segment_hashes=";
+  for (std::size_t i = 0; i < report.segment_hashes.size(); ++i) {
+    if (i != 0) {
+      std::cout << ',';
+    }
+    std::cout << report.segment_hashes[i];
+  }
+  std::cout << '\n';
   std::cout << "input_digest=" << report.input_digest.substr(0, 16) << '\n';
   std::cout << "tracks=" << report.tracks << '\n';
   std::cout << "usable_tracks=" << report.usable_tracks << '\n';
@@ -265,24 +282,10 @@ int execute(const CommandLine& command_line) {
   std::cout << "downgrades=" << report.downgrades << '\n';
   std::cout << "resumed_stages=" << report.resumed_stages << '\n';
   std::cout << "recomputed_stages=" << report.recomputed_stages << '\n';
-  std::cout << "keyframe_hit_rate="
-            << format_double(report.keyframe_hit_rate, 3) << '\n';
-  std::cout << "aligned_cut_error_frames="
-            << report.aligned_cut_error_frames << '\n';
-  std::cout << "roundtrip_rate=" << format_double(report.roundtrip_rate, 3)
-            << '\n';
   std::cout << "peak_buffer_bytes=" << report.peak_buffer_bytes << '\n';
   std::cout << "manifest_digest=" << report.manifest_digest.substr(0, 16)
             << '\n';
   std::cout << "manifest=" << result.manifest_path.string() << '\n';
-  std::cout << "segment_hashes=";
-  for (std::size_t i = 0; i < report.segment_hashes.size(); ++i) {
-    if (i != 0) {
-      std::cout << ',';
-    }
-    std::cout << report.segment_hashes[i];
-  }
-  std::cout << '\n';
   if (report.resumed) {
     std::cout << "resumed=true\n";
   }
