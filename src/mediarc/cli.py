@@ -169,9 +169,9 @@ def _cmd_archive(args: argparse.Namespace) -> int:
         print(line)
     for error in report.errors:
         print(error.render(), file=sys.stderr)
-    if report.failed and not report.healthy:
-        return EXIT_FAILURE
-    return EXIT_OK
+    # Every segment that was written is verified by ``verify``; a segment that
+    # could not be archived is a processing failure and must not read as success.
+    return EXIT_FAILURE if report.failed else EXIT_OK
 
 
 # ---------------------------------------------------------------------------
@@ -211,11 +211,51 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         lines.insert(5, f"stage_chain=broken/{len(chain_errors)}")
     for line in lines:
         print(line)
+    _record_verification(manifest, path, report, chain_errors)
     if args.json:
         print(json.dumps(_verify_json(report), indent=2, ensure_ascii=False, default=str))
     for error in report.errors:
         print(error.render(), file=sys.stderr)
     return EXIT_OK if report.ok else EXIT_FAILURE
+
+
+def _record_verification(manifest: Manifest, path: Path, report, chain_errors) -> None:
+    """Persist the verify stage next to the manifest.
+
+    Verification is a pipeline stage like any other, so its result is written
+    to disk with the manifest's digest as its input.  A later run can then be
+    told the manifest was already verified, and by what inputs.
+    """
+    from .manifest import stage_input_digest, verify_record_path
+    from .util import atomic_write_json
+
+    record_path = verify_record_path(path)
+    payload = {
+        "tool": f"mediarc/{__version__}",
+        "manifest": str(path),
+        "manifest_sha256": manifest.digest(),
+        "input_sha256": stage_input_digest(
+            manifest=manifest.digest(),
+            source=report.manifest.source.get("sha256") if report.manifest else None,
+        ),
+        "status": "ok" if report.ok else "failed",
+        "roundtrip_rate": round(report.roundtrip_rate, 6),
+        "keyframe_hit_rate": round(report.keyframe_hit_rate, 6),
+        "segment_hashes": [report.hash_ok, report.hash_total],
+        "audio_segment_hashes": [report.audio_ok, report.audio_total],
+        "recovered_segments": report.recovered_segments,
+        "error_offset": report.error_offset,
+        "stage_chain_errors": [e.to_dict() for e in chain_errors],
+        "errors": [e.to_dict() for e in report.errors],
+        "recovery": report.recovery_notes,
+    }
+    try:
+        atomic_write_json(record_path, payload)
+    except OSError as exc:
+        print(
+            f"error code=io stage=verify path={record_path} message={exc}",
+            file=sys.stderr,
+        )
 
 
 def _verify_json(report) -> dict:

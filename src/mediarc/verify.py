@@ -242,6 +242,16 @@ def _check_roundtrip(manifest: Manifest, report: VerifyReport) -> None:
 def _hash_segments(manifest: Manifest, report: VerifyReport) -> None:
     for segment in manifest.segments:
         if segment.status != "ok":
+            # A failed segment is not silently skipped: the manifest claims an
+            # isolated failure, and verification reports it as such.
+            for error in segment.errors or [
+                MediaError(
+                    "verification-failed",
+                    f"segment {segment.segment_id} was not archived",
+                    stage="verify", stream_index=segment.track_index,
+                )
+            ]:
+                report.errors.append(error)
             continue
         if segment.track_index == _video_track(manifest) and segment.path:
             report.segment_hashes.append(

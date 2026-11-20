@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
@@ -373,6 +374,14 @@ class Manifest:
             "stage_status": {s.name: s.status for s in self.stages},
             "digest": self.digest()[:16],
         }
+
+
+def verify_record_path(manifest_path: str | os.PathLike[str]) -> "Path":
+    """Sidecar that records the verification stage for a manifest."""
+    from pathlib import Path
+
+    path = Path(manifest_path)
+    return path.with_name(path.name + ".verify.json")
 
 
 def stage_input_digest(**parts: Any) -> str:
