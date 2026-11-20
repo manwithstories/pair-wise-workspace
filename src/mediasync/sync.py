@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, Sequence
 
 from .clock import (
     DEFAULT_WRAP_TICKS,
-    DriftFit,
     TICKS_PER_SECOND,
     build_display_track,
     fit_drift,
