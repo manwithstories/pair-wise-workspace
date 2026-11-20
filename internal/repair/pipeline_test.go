@@ -131,6 +131,9 @@ func TestPipelineRecoversDamagedStream(t *testing.T) {
 		if e.TimeBase != "rtcp-sr" && e.TimeBase != "estimated" {
 			t.Fatalf("entry %d: bad time base %q", e.Index, e.TimeBase)
 		}
+		if e.DurationNs <= 0 || e.DurationNs > 10_000_000_000 {
+			t.Fatalf("entry %d: implausible duration %d ns", e.Index, e.DurationNs)
+		}
 	}
 	// Every fragment must start at a video keyframe (random access).
 	frags, err := index.Inspect(bytes.NewReader(buf.Bytes()))

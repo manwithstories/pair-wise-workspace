@@ -71,6 +71,7 @@ type fragTrack struct {
 	Count               int
 	FirstNs, LastNs     int64
 	FirstUnits          uint64
+	LastUnits           uint64
 	LastDelta           uint32
 	Reordered, LossFlag bool
 	Hash                []byte // chained sha256 over sample data
@@ -286,6 +287,7 @@ func (p *Pipeline) handleSample(em Emitted) error {
 		TrackID: tr.TrackID, Data: payload, DecodeTime: uint64(units), Sync: sync,
 	}
 	ft.LastExt, ft.LastNs = em.ExtSeq, ns
+	ft.LastUnits = uint64(units)
 	ft.Count++
 	sum := sha256.Sum256(append(ft.Hash, payload...))
 	ft.Hash = sum[:]
@@ -340,8 +342,10 @@ func (p *Pipeline) flushFragment() error {
 		if p.ts.Estimated(tr.SSRC) {
 			timeBase = "estimated"
 		}
-		durNs := ft.LastNs - ft.FirstNs +
-			int64(ft.LastDelta)*1_000_000_000/int64(tr.ClockRate)
+		// Duration comes from corrected monotonic units, so a
+		// re-anchor inside the fragment cannot distort it.
+		durNs := int64(ft.LastUnits+uint64(ft.LastDelta)-ft.FirstUnits) *
+			1_000_000_000 / int64(tr.ClockRate)
 		p.man.Entries = append(p.man.Entries, provenance.Entry{
 			Index: len(p.man.Entries), Fragment: fragSeq,
 			TrackID: tr.TrackID, SSRC: tr.SSRC, Kind: kind,
@@ -434,6 +438,7 @@ type fragTrackState struct {
 	Count               int
 	FirstNs, LastNs     int64
 	FirstUnits          uint64
+	LastUnits           uint64
 	LastDelta           uint32
 	Reordered, LossFlag bool
 	Hash                []byte
@@ -457,6 +462,7 @@ func (p *Pipeline) Export() (*State, error) {
 		fs := &fragTrackState{
 			FirstExt: ft.FirstExt, LastExt: ft.LastExt, Count: ft.Count,
 			FirstNs: ft.FirstNs, LastNs: ft.LastNs, FirstUnits: ft.FirstUnits,
+			LastUnits: ft.LastUnits,
 			LastDelta: ft.LastDelta, Reordered: ft.Reordered, LossFlag: ft.LossFlag,
 			Hash: ft.Hash,
 		}
@@ -502,6 +508,7 @@ func (p *Pipeline) Import(st *State, committedOffset int64) error {
 		ft := &fragTrack{
 			FirstExt: fs.FirstExt, LastExt: fs.LastExt, Count: fs.Count,
 			FirstNs: fs.FirstNs, LastNs: fs.LastNs, FirstUnits: fs.FirstUnits,
+			LastUnits: fs.LastUnits,
 			LastDelta: fs.LastDelta, Reordered: fs.Reordered, LossFlag: fs.LossFlag,
 			Hash: fs.Hash,
 		}

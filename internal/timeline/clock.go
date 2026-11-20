@@ -57,9 +57,14 @@ func (c *Clock) Map(ts uint32) (int64, int64, *Event) {
 	if !c.init {
 		c.init = true
 		c.lastExt = uint64(ts)
-		c.anchorRTP = int64(c.lastExt)
-		c.anchorNs = 0
-		return 0, int64(c.lastExt), nil
+		if c.Estimated {
+			// No Sender Report yet: estimate the anchor from the
+			// first packet. An existing SR anchor is kept.
+			c.anchorRTP = int64(c.lastExt)
+			c.anchorNs = 0
+			return 0, int64(c.lastExt), nil
+		}
+		return c.toNs(c.lastExt), int64(c.lastExt), nil
 	}
 	ext := (c.lastExt &^ 0xFFFFFFFF) | uint64(ts)
 	switch d := int64(ext) - int64(c.lastExt); {

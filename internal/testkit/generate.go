@@ -188,6 +188,16 @@ func Generate(w io.Writer, opts Options) (*Result, error) {
 		dmgReorderB: dmgReorderB + 1, dmgReorderB + 1: dmgReorderB}
 
 	for i := 0; i < n; i++ {
+		// Sender Reports lead the packets they anchor so clocks are
+		// never estimated at track start.
+		if i%srEvery == 0 {
+			if err := writeSR(w, VideoSSRC, vTS(i), ntpFor(i, videoStep, videoRate)); err != nil {
+				return nil, err
+			}
+			if err := writeSR(w, AudioSSRC, opts.AudioTSBase+uint32(i)*audioStep, ntpFor(i, audioStep, audioRate)); err != nil {
+				return nil, err
+			}
+		}
 		j := i
 		if !opts.NoDamage {
 			if s, ok := swap[i]; ok {
@@ -213,21 +223,11 @@ func Generate(w io.Writer, opts Options) (*Result, error) {
 				return nil, err
 			}
 		}
-		if i%srEvery == 0 {
-			if err := writeSR(w, VideoSSRC, vTS(i), ntpFor(i, videoStep, videoRate)); err != nil {
-				return nil, err
-			}
-		}
 		if err := writeRTP(w, AudioSSRC, 97, aSeq(i), opts.AudioTSBase+uint32(i)*audioStep, aPay[i]); err != nil {
 			return nil, err
 		}
 		if !opts.NoDamage && i == dmgAudioDup {
 			if err := writeRTP(w, AudioSSRC, 97, aSeq(i), opts.AudioTSBase+uint32(i)*audioStep, aPay[i]); err != nil {
-				return nil, err
-			}
-		}
-		if i%srEvery == 0 {
-			if err := writeSR(w, AudioSSRC, opts.AudioTSBase+uint32(i)*audioStep, ntpFor(i, audioStep, audioRate)); err != nil {
 				return nil, err
 			}
 		}
