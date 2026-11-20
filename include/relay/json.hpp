@@ -1,5 +1,6 @@
 #pragma once
 
+#include <climits>
 #include <cstdint>
 #include <map>
 #include <string>
@@ -20,15 +21,17 @@ class Value {
   Value() = default;
   Value(std::nullptr_t) {}
   Value(bool value) : type_(Type::kBool), bool_(value) {}
+  // Integers and doubles are stored separately so 64-bit values (bitrates,
+  // microsecond timestamps) survive a round-trip without double rounding.
   Value(int value)
-      : type_(Type::kNumber),
-        number_(static_cast<double>(value)) {}
+      : type_(Type::kNumber), is_integer_(true), integer_(value) {}
   Value(std::int64_t value)
-      : type_(Type::kNumber),
-        number_(static_cast<double>(value)) {}
+      : type_(Type::kNumber), is_integer_(true), integer_(value) {}
   Value(std::uint64_t value)
       : type_(Type::kNumber),
-        number_(static_cast<double>(value)) {}
+        is_integer_(true),
+        integer_(static_cast<std::int64_t>(value)),
+        unsigned_(value > static_cast<std::uint64_t>(INT64_MAX)) {}
   Value(double value) : type_(Type::kNumber), number_(value) {}
   Value(std::string value) : type_(Type::kString), string_(std::move(value)) {}
   Value(const char* value) : type_(Type::kString), string_(value) {}
@@ -43,9 +46,23 @@ class Value {
   [[nodiscard]] bool is_number() const { return type_ == Type::kNumber; }
 
   [[nodiscard]] bool as_bool() const { return bool_; }
-  [[nodiscard]] double as_number() const { return number_; }
+  [[nodiscard]] double as_number() const {
+    if (unsigned_) {
+      return static_cast<double>(static_cast<std::uint64_t>(integer_));
+    }
+    return is_integer_ ? static_cast<double>(integer_) : number_;
+  }
+  [[nodiscard]] std::uint64_t as_uint() const {
+    if (unsigned_) {
+      return static_cast<std::uint64_t>(integer_);
+    }
+    if (is_integer_) {
+      return static_cast<std::uint64_t>(integer_);
+    }
+    return static_cast<std::uint64_t>(number_);
+  }
   [[nodiscard]] std::int64_t as_int() const {
-    return static_cast<std::int64_t>(number_);
+    return is_integer_ ? integer_ : static_cast<std::int64_t>(number_);
   }
   [[nodiscard]] const std::string& as_string() const { return string_; }
   [[nodiscard]] const Array& as_array() const { return array_; }
@@ -59,6 +76,9 @@ class Value {
   void push(Value value);
   [[nodiscard]] bool contains(std::string_view key) const;
 
+  [[nodiscard]] bool is_integer() const { return is_integer_; }
+  [[nodiscard]] std::string number_text() const;
+
   [[nodiscard]] std::string dump(int indent = 2) const;
 
  private:
@@ -66,6 +86,9 @@ class Value {
 
   Type type_ = Type::kNull;
   bool bool_ = false;
+  bool is_integer_ = false;
+  std::int64_t integer_ = 0;
+  bool unsigned_ = false;
   double number_ = 0.0;
   std::string string_;
   Array array_;

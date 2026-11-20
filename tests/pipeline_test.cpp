@@ -972,3 +972,35 @@ TEST_CASE("a keyframe gap only invalidates the segment containing it",
     }
   }
 }
+
+TEST_CASE("64-bit manifest numbers survive the JSON round-trip exactly",
+          "[manifest][precision]") {
+  Manifest manifest;
+  manifest.version = 1;
+  manifest.timebase = Timebase{30, 1};
+  manifest.start_us = 9'007'199'254'740'993;  // 2^53 + 1
+  manifest.end_us = 9'007'199'254'740'995;
+  ManifestTrack track;
+  track.id = "cam-a";
+  track.state = "ready";
+  ManifestSegment segment;
+  segment.track = "cam-a";
+  segment.content_hash = std::string(64, 'b');
+  segment.status = "complete";
+  segment.start_us = 9'007'199'254'740'993;
+  segment.end_us = 9'007'199'254'740'995;
+  segment.bitrate_bps = 18'446'744'073'709'551'615ull;  // near 2^64
+  track.segments.push_back(segment);
+  manifest.tracks.push_back(track);
+
+  const std::string text = serialize(manifest);
+  Manifest reparsed;
+  ManifestParseResult result = parse_manifest(text, reparsed);
+  REQUIRE(result.ok);
+  REQUIRE(reparsed.tracks.size() == 1);
+  REQUIRE(reparsed.tracks[0].segments.size() == 1);
+  CHECK(reparsed.tracks[0].segments[0].bitrate_bps ==
+        18'446'744'073'709'551'615ull);
+  CHECK(reparsed.tracks[0].segments[0].start_us == 9'007'199'254'740'993);
+  CHECK(serialize(reparsed) == text);
+}

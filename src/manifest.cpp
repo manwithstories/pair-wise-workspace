@@ -2,6 +2,7 @@
 
 #include <fstream>
 #include <sstream>
+#include <type_traits>
 
 #include "relay/hash.hpp"
 
@@ -54,6 +55,15 @@ template <typename T>
 T number_or(const json::Value* value, T fallback) {
   if (value == nullptr || !value->is_number()) {
     return fallback;
+  }
+  // Exact for integral values so 64-bit fields do not round through a
+  // double; signed fields keep their sign.
+  if (value->is_integer()) {
+    if constexpr (std::is_signed_v<T>) {
+      return static_cast<T>(value->as_int());
+    } else {
+      return static_cast<T>(value->as_uint());
+    }
   }
   return static_cast<T>(value->as_number());
 }

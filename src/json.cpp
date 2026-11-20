@@ -100,6 +100,31 @@ class Parser {
       return fail("invalid number");
     }
     const std::string token(text_.substr(begin, pos_ - begin));
+    const bool integral = token.find_first_of(".eE") == std::string::npos;
+    if (integral) {
+      // Parse integers exactly; doubles would corrupt values above 2^53
+      // such as timestamps and bitrates.
+      const bool negative = !token.empty() && token.front() == '-';
+      std::uint64_t magnitude = 0;
+      const char* first = token.data() + (negative ? 1 : 0);
+      const char* last = token.data() + token.size();
+      const auto [ptr, ec] = std::from_chars(first, last, magnitude);
+      if (ec == std::errc{} && ptr == last) {
+        if (negative) {
+          if (magnitude <= static_cast<std::uint64_t>(INT64_MAX) + 1ull) {
+            out = Value(static_cast<std::int64_t>(0) -
+                        static_cast<std::int64_t>(magnitude));
+            return true;
+          }
+        } else if (magnitude <= static_cast<std::uint64_t>(INT64_MAX)) {
+          out = Value(static_cast<std::int64_t>(magnitude));
+          return true;
+        } else {
+          out = Value(magnitude);
+          return true;
+        }
+      }
+    }
     double value = 0.0;
     try {
       value = std::stod(token);
@@ -291,14 +316,19 @@ void dump_string(const std::string& value, std::string& out) {
   out.push_back('"');
 }
 
-void dump_number(double value, std::string& out) {
-  if (std::isfinite(value) && value == std::floor(value) &&
-      std::abs(value) < 9.2e18) {
-    out += std::to_string(static_cast<std::int64_t>(value));
+void dump_number(const Value& value, std::string& out) {
+  if (value.is_integer()) {
+    out += value.number_text();
+    return;
+  }
+  const double number = value.as_number();
+  if (std::isfinite(number) && number == std::floor(number) &&
+      std::abs(number) < 9.0e15) {
+    out += std::to_string(static_cast<std::int64_t>(number));
     return;
   }
   char buffer[32];
-  std::snprintf(buffer, sizeof(buffer), "%.17g", value);
+  std::snprintf(buffer, sizeof(buffer), "%.17g", number);
   out += buffer;
 }
 
@@ -338,7 +368,7 @@ void Value::dump_into(std::string& out, int indent, int depth) const {
   switch (type_) {
     case Type::kNull: out += "null"; return;
     case Type::kBool: out += bool_ ? "true" : "false"; return;
-    case Type::kNumber: dump_number(number_, out); return;
+    case Type::kNumber: dump_number(*this, out); return;
     case Type::kString: dump_string(string_, out); return;
     case Type::kArray: {
       if (array_.empty()) {
@@ -395,6 +425,17 @@ void Value::dump_into(std::string& out, int indent, int depth) const {
 bool parse(std::string_view text, Value& out, ParseError& error) {
   Parser parser(text, error);
   return parser.run(out);
+}
+
+}  // namespace relay::json
+
+namespace relay::json {
+
+std::string Value::number_text() const {
+  if (unsigned_) {
+    return std::to_string(static_cast<std::uint64_t>(integer_));
+  }
+  return std::to_string(integer_);
 }
 
 }  // namespace relay::json
