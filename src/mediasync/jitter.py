@@ -181,12 +181,16 @@ def dejitter(
     result = JitterResult()
     if not arrivals:
         return result
+    # The de-jitterer is fed arrival order, which is monotonic by construction
+    # on a real wire but may tie within a millisecond. A grossly out-of-order
+    # log means the caller did not send arrival order at all.
     for previous, current in zip(arrivals, arrivals[1:]):
-        if current.arrival_ms < previous.arrival_ms:
+        if current.arrival_ms < previous.arrival_ms - config.reorder_window:
             raise InputError(
-                "packets must be supplied in non-decreasing arrival order "
+                "packets must be supplied in arrival order "
                 f"({previous.arrival_ms} -> {current.arrival_ms})"
             )
+    arrivals.sort(key=lambda packet: packet.arrival_ms)
     expanded = expand_sequences([packet.seq for packet in arrivals], config.seq_wrap)
     playhead = expanded[0]
     buffer: dict[int, TransportPacket] = {}
