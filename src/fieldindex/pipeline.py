@@ -6,7 +6,7 @@
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
 
@@ -17,7 +17,6 @@ from .model import (
     ErrorRecord,
     IndexEntry,
     Segment,
-    SourceRef,
     TimecodeRecord,
 )
 from .repair import RepairConfig, repair_cues, repair_timecodes
