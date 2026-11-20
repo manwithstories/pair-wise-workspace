@@ -71,3 +71,11 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Python mediasync 工程 ----
+.venv/
+demo-out/
+*.egg-info/
+__pycache__/
+.pytest_cache/
+*.pyc

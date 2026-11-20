@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mediasync"
+version = "0.1.0"
+description = "离线媒体预处理内核：裸码流扫描、时间基准对齐、音视频归一与可恢复分片清单"
+requires-python = ">=3.12"
+dependencies = [
+    "av>=12,<13",
+    "numpy>=2,<3",
+    "soundfile>=0.12,<0.13",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<9"]
+
+[project.scripts]
+mediasync = "mediasync.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
