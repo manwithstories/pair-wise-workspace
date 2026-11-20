@@ -33,6 +33,7 @@ add_library(mediacore STATIC
   src/wav_demuxer.cpp
   src/fixture.cpp
   src/track_mapper.cpp
+  src/quality.cpp
 )
 target_include_directories(mediacore PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
