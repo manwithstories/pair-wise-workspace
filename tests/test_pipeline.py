@@ -9,7 +9,11 @@ import os
 import tempfile
 import unittest
 
+import numpy as np
+
 from tests._helpers import pkt, recovery_pkt
+from region_media.audio_probe import (
+    probe_wav, verify_timeline_continuity, write_reference_wav)
 from region_media.buffer import JitterBuffer
 from region_media.checkpoint import (
     CheckpointError, CheckpointStore, RunConfig)
@@ -198,6 +202,24 @@ class TestCheckpoint(unittest.TestCase):
                 cp2.commit_chunk(1, 5, {}, [], [])
         finally:
             os.chmod(db, 0o644)
+
+
+class TestAudioProbe(unittest.TestCase):
+    def test_wav_roundtrip_and_continuity(self):
+        d = tempfile.mkdtemp()
+        path = os.path.join(d, "ref.wav")
+        sr = 48000
+        t = np.arange(sr, dtype=np.float32) / sr
+        samples = np.stack(
+            [0.3 * np.sin(2 * np.pi * 440 * t),
+             0.3 * np.sin(2 * np.pi * 660 * t)], axis=1)
+        write_reference_wav(path, samples, sr)
+        r = probe_wav(path)
+        self.assertEqual((r.sample_rate, r.channels), (sr, 2))
+        self.assertTrue(r.contiguous and r.rms > 0)
+        self.assertTrue(verify_timeline_continuity([0, 21333, 42666]))
+        self.assertFalse(
+            verify_timeline_continuity([0, 21333, 1000, 64000]))
 
 
 if __name__ == "__main__":
