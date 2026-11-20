@@ -776,126 +776,13 @@ def _finish_segment(
 
 
 def _operation(source_layout: str, target_layout: str, source_rate: int, rate: int) -> str:
+    """Human-readable description of the layout/rate work performed."""
     order = ("mono", "stereo", "5.1")
     parts: list[str] = []
     if source_layout != target_layout:
-        parts.append("upmix" if order.index(target_layout) > order.index(source_layout) else "downmix")
+        parts.append(
+            "upmix" if order.index(target_layout) > order.index(source_layout) else "downmix"
+        )
     if source_rate != rate:
         parts.append("resample")
     return "+".join(parts) or "identity"
-
-
-def extract_segment(
-    result: ProbeResult,
-    stream: StreamProbe,
-    segment: Segment,
-    settings: AudioSettings,
-    output_path: str,
-) -> AudioSegment:
-    """Cut, resample, remap, limit and hash one audio segment."""
-    settings.validate()
-    source_rate = stream.sample_rate or 0
-    source_layout = canonical_layout(stream.layout, stream.channels)
-    if source_rate <= 0:
-        raise MediaError(
-            "audio-decode", "stream reports no sample rate",
-            stage="audio", path=result.path, stream_index=stream.index,
-        )
-    if source_layout is None:
-        raise MediaError(
-            "unsupported-layout",
-            f"stream layout {stream.layout!r} with {stream.channels} channels is not "
-            f"one of {SUPPORTED_LAYOUTS}",
-            stage="audio", path=result.path, stream_index=stream.index,
-        )
-    rate_value = result.time_base.rate.value
-    seconds = Fraction(segment.duration_ticks) / rate_value
-    if float(seconds) > settings.max_segment_seconds:
-        raise MediaError(
-            "limit-exceeded",
-            f"segment {segment.segment_id} is {float(seconds):.1f}s, limit is "
-            f"{settings.max_segment_seconds:.1f}s",
-            stage="audio", path=result.path, stream_index=stream.index,
-        )
-    source_start = segment.source_start_ticks if segment.source_start_ticks is not None else segment.start_ticks
-    source_end = segment.source_end_ticks if segment.source_end_ticks is not None else segment.end_ticks
-    start_sample = round(Fraction(source_start) / rate_value * source_rate)
-    end_sample = round(Fraction(source_end) / rate_value * source_rate)
-    if end_sample <= start_sample:
-        raise MediaError(
-            "edit-out-of-range",
-            f"segment {segment.segment_id} maps to an empty sample range",
-            stage="audio", path=result.path, stream_index=stream.index,
-        )
-
-    raw_path = output_path + ".raw.wav"
-    try:
-        with FloatSink(raw_path, settings.rate, settings.layout) as sink:
-            _decode_range(
-                result, stream, [(start_sample, end_sample)],
-                settings, source_layout, [sink],
-            )
-        if sink.error is not None:
-            raise sink.error
-        written = sink.written
-        if written == 0:
-            raise MediaError(
-                "audio-decode",
-                f"segment {segment.segment_id} decoded to no samples",
-                stage="audio", path=result.path, stream_index=stream.index,
-            )
-        before = measure(raw_path, settings.layout, settings.rate, settings.measure_seconds)
-        gain = gain_for(settings, before)
-        apply_gain_and_encode(raw_path, output_path, gain, settings.layout)
-    finally:
-        if os.path.exists(raw_path):
-            os.unlink(raw_path)
-
-    after = measure(output_path, settings.layout, settings.rate, settings.measure_seconds)
-    if after.peak > 0 and linear_to_db(after.peak) > settings.peak_ceiling_db + 1e-6:
-        raise MediaError(
-            "audio-loudness",
-            f"peak {linear_to_db(after.peak):.2f} dBFS exceeds ceiling "
-            f"{settings.peak_ceiling_db:.2f} dBFS after gain",
-            stage="audio", path=result.path, stream_index=stream.index,
-        )
-    gain_db = linear_to_db(gain)
-    mapping = {
-        "source_rate": source_rate,
-        "source_layout": source_layout,
-        "target_rate": settings.rate,
-        "target_layout": settings.layout,
-        "rate_changed": source_rate != settings.rate,
-        "layout_changed": source_layout != settings.layout,
-        "operation": _operation(source_layout, settings.layout, source_rate, settings.rate),
-        "gain_db": round(gain_db, 6),
-        "peak_ceiling_db": settings.peak_ceiling_db,
-        "target_lufs": settings.target_lufs,
-        "sample_bounds": [start_sample, end_sample],
-        # Cuts are counted from the first decoded frame; no container
-        # timestamp takes part, so the bound is sample-exact.
-        "boundary_basis": "decoded-sample-index",
-        "measured_seconds": round(after.seconds, 3),
-    }
-    return AudioSegment(
-        segment_id=segment.segment_id,
-        track_index=segment.track_index,
-        path=output_path,
-        sample_rate=settings.rate,
-        layout=settings.layout,
-        channels=len(layout_channels(settings.layout)),
-        samples=written,
-        source_sample_rate=source_rate,
-        source_layout=source_layout,
-        source_start_ticks=int(source_start),
-        source_end_ticks=int(source_end),
-        output_start_ticks=segment.start_ticks,
-        gain_db=gain_db,
-        lufs_in=before.lufs,
-        lufs_out=after.lufs,
-        peak_in=before.peak,
-        peak_out=after.peak,
-        measured_seconds=after.seconds,
-        sha256=sha256_file(output_path),
-        mapping=mapping,
-    )

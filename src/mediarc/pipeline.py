@@ -27,7 +27,7 @@ from typing import Any, Iterable
 
 import av
 
-from .audio import AudioSegment, AudioSettings, extract_segment, extract_segments
+from .audio import AudioSegment, AudioSettings, extract_segments
 from .color import ColorRecord, resolve as resolve_color
 from .errors import MediaError, bridge
 from .manifest import (
@@ -617,18 +617,8 @@ def _archive_segment(
             return remux_video_segment(
                 result, stream, segment, str(segment_dir / f"{segment.segment_id}.mp4"), color
             ), None
-        if stream.kind == "audio":
-            audio_path = str(segment_dir / f"{segment.segment_id}.wav")
-            audio = extract_segment(result, stream, segment, settings, audio_path)
-            return SegmentRecord(
-                segment_id=segment.segment_id,
-                track_index=stream.index,
-                start_ticks=segment.start_ticks,
-                end_ticks=segment.end_ticks,
-                path=audio_path,
-                sha256=audio.sha256,
-                audio=audio,
-            ), None
+        # Audio segments are produced elsewhere, in one decode pass per stream;
+        # this dispatcher only handles video.
         return None, MediaError(
             "type-mismatch",
             f"segment {segment.segment_id} has unsupported kind {stream.kind}",
