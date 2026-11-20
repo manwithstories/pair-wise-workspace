@@ -36,9 +36,9 @@ func DigestSamples(samples []byte) [32]byte {
 
 // DedupResult 汇总去重结果。
 type DedupResult struct {
-	Kept        []Entry
+	Kept         []Entry
 	Deduplicated int
-	Collisions  int // 指纹相同但内容摘要不一致（保留双方）
+	Collisions   int // 指纹相同但内容摘要不一致（保留双方）
 }
 
 // Dedup 跨轨去重：指纹相同且内容摘要一致 → 丢弃后者；
