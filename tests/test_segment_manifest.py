@@ -16,8 +16,9 @@ from archiveflow.manifest import (atomic_write_json, load_manifest,
                                   safe_segment_name, validate_manifest)
 from archiveflow.errors import ParameterError, UnrecoverableError
 from archiveflow.metrics import bitrate_error_pct, psnr_db, ssim
-from archiveflow.segment import (FLAG_NO_KEYFRAME, FLAG_SHORT_SEGMENT,
-                                 FLAG_TRUNCATED_TAIL, SegmentSpec,
+from archiveflow.segment import (FLAG_NO_KEYFRAME, FLAG_PLACEHOLDER,
+                                 FLAG_SHORT_SEGMENT, FLAG_TRUNCATED_TAIL,
+                                 SegmentSpec, mark_placeholder_segments,
                                  plan_segments)
 
 
@@ -48,6 +49,18 @@ class TestSegmentPlanning:
         with pytest.raises(ValueError):
             plan_segments(1000.0, [0.0], 0.0, False)
         assert plan_segments(0.0, [0.0], 1000.0, False) == []
+
+    def test_placeholder_flag_only_on_affected_segments(self):
+        specs = [
+            SegmentSpec(0, 0.0, 2000.0, True),
+            SegmentSpec(1, 2000.0, 4000.0, True),
+        ]
+        marked = mark_placeholder_segments(specs, [2500.0])
+        assert FLAG_PLACEHOLDER not in marked[0].flags
+        assert FLAG_PLACEHOLDER in marked[1].flags
+        # No placeholders -> unchanged (and input list not mutated).
+        assert mark_placeholder_segments(specs, []) is specs
+        assert FLAG_PLACEHOLDER not in specs[1].flags
 
 
 class TestLadder:

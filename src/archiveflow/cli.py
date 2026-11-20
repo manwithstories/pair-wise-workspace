@@ -28,7 +28,7 @@ from .manifest import (MANIFEST_VERSION, atomic_write_json, load_manifest,
 from .metrics import bitrate_error_pct, psnr_db, ssim, summarize_quality
 from .repair import FrameReassembler, RepairStats, ReorderBuffer
 from .rtp import (RTCP_PT_SR, PacketOrganizer, parse_rtcp_sr, parse_rtp)
-from .segment import plan_segments
+from .segment import (mark_placeholder_segments, plan_segments)
 from .stream import Pipeline
 from .synthetic import Bundle, SyntheticParams, generate, synth_frame
 
@@ -279,6 +279,11 @@ def recover(bundle: Bundle, cfg: RecoverConfig) -> dict:
                              declared_end_ms=bundle.duration_s * 1000.0)
     if not segments:
         raise UnrecoverableError("no segments could be planned")
+    # Freeze-filled frames are timeline slots not backed by a decoded frame;
+    # mark the segments that contain them so downstream sees the fill.
+    freeze_times = [time_of(idx) for idx, _ in timeline
+                    if idx not in decoded]
+    segments = mark_placeholder_segments(segments, freeze_times)
     reps = build_ladder(cfg.targets)
     _enforce_output_limits(cfg, segments, reps)
     # Only create the output directory once all limits have passed, so a

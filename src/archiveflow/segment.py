@@ -79,3 +79,28 @@ def plan_segments(media_end_ms: float, keyframe_times_ms: list[float],
                                 keyframe_start=last.keyframe_start,
                                 flags=flags)
     return specs
+
+
+def mark_placeholder_segments(specs: list[SegmentSpec],
+                              placeholder_times_ms: list[float]
+                              ) -> list[SegmentSpec]:
+    """Flag segments that contain any freeze-frame/silence placeholder.
+
+    Pure function: returns a new list with ``placeholder_fill`` appended to
+    the affected segments' flags, leaving the rest untouched.
+    """
+    if not placeholder_times_ms:
+        return specs
+    times = sorted(placeholder_times_ms)
+    out: list[SegmentSpec] = []
+    for spec in specs:
+        contains = any(spec.start_ms <= t < spec.end_ms for t in times)
+        if not contains:
+            out.append(spec)
+            continue
+        flags = tuple(dict.fromkeys(spec.flags + (FLAG_PLACEHOLDER,)))
+        out.append(SegmentSpec(index=spec.index, start_ms=spec.start_ms,
+                               end_ms=spec.end_ms,
+                               keyframe_start=spec.keyframe_start,
+                               flags=flags))
+    return out
