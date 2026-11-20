@@ -11,7 +11,7 @@ import (
 // Stats 记录队列运行统计。
 type Stats struct {
 	Capacity      int
-	PeakLen       int           // 缓冲峰值（样本数）
+	PeakLen       int // 缓冲峰值（样本数）
 	Pushed        uint64
 	Popped        uint64
 	BackpressureW time.Duration // 生产者因满缓冲累计等待时间

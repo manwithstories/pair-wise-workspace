@@ -8,9 +8,9 @@ import (
 
 func rs(track uint32, seq uint64, dts uint64, key bool, seg string) model.RepairedSample {
 	return model.RepairedSample{
-		Sample:      model.Sample{TrackID: track, Seq: seq, Keyframe: key, SourceOffset: int64(seq) * 100},
-		UnifiedDTS:  dts,
-		SegmentID:   seg,
+		Sample:     model.Sample{TrackID: track, Seq: seq, Keyframe: key, SourceOffset: int64(seq) * 100},
+		UnifiedDTS: dts,
+		SegmentID:  seg,
 	}
 }
 

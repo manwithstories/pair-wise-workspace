@@ -7,9 +7,9 @@ import (
 
 func TestToUnifiedExactAndRoundtrip(t *testing.T) {
 	cases := []struct {
-		ts    uint32
-		tick  uint64
-		want  uint64
+		ts   uint32
+		tick uint64
+		want uint64
 	}{
 		{90_000, 90_000, 1_000_000},
 		{48_000, 48_000, 1_000_000},
