@@ -35,6 +35,7 @@ add_library(mediacore STATIC
   src/timeline.cpp
   src/track_graph.cpp
   src/graph_executor.cpp
+  src/normalize.cpp
 )
 target_include_directories(mediacore PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -67,3 +68,8 @@ add_executable(test_track_graph tests/test_track_graph.cpp)
 target_link_libraries(test_track_graph PRIVATE
   mediacore Catch2::Catch2WithMain)
 add_test(NAME track_graph COMMAND test_track_graph)
+
+add_executable(test_normalize tests/test_normalize.cpp)
+target_link_libraries(test_normalize PRIVATE
+  mediacore Catch2::Catch2WithMain)
+add_test(NAME normalize COMMAND test_normalize)
