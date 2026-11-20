@@ -73,7 +73,6 @@ def _verify_output(
     settings: PipelineSettings,
 ) -> None:
     from .audio_io import file_sha256
-    from .integrity import file_sha256 as source_sha256
 
     problems: list[MediaError] = []
     if len(result.output_sha256) != 64:
@@ -109,21 +108,48 @@ def _verify_output(
                 },
             )
         )
-    # Repeatability: a second full verification pass must reproduce the hash.
-    for source in result.damage.scans.values():
-        path = Path(source.path)
-        if path.is_file() and source_sha256(path) != _recorded_source(result, source.track_id):
-            # Only flag when we actually have a recorded digest to compare.
-            pass
+    # Repeatability: re-assembling the same segments must reproduce the hash.
+    # This proves the persisted output is a deterministic function of the
+    # checkpointed nodes — the property resume relies on.
+    import tempfile
+
+    from .pipeline_assembly import assemble_output
+
+    with tempfile.TemporaryDirectory(prefix="mc-verify-") as tmp:
+        recomputed_path, recomputed_hash, recomputed_samples = assemble_output(
+            timeline,
+            result.outcomes,
+            output_path=Path(tmp) / "output.wav",
+            sample_rate=settings.sample_rate,
+            layout=settings.layout,
+        )
+        if recomputed_hash != result.output_sha256:
+            problems.append(
+                MediaError(
+                    "re-assembly does not reproduce the output hash",
+                    code="output.nondeterministic",
+                    context={
+                        "expected": result.output_sha256,
+                        "recomputed": recomputed_hash,
+                    },
+                )
+            )
+        if recomputed_samples != result.output_samples:
+            problems.append(
+                MediaError(
+                    "re-assembly sample count differs",
+                    code="output.count_mismatch",
+                    context={
+                        "expected_samples": result.output_samples,
+                        "recomputed_samples": recomputed_samples,
+                    },
+                )
+            )
     report.recovery["verified"] = not problems
     report.errors.extend(problems)
     if problems:
         report.status = "failed"
         report.exit_code = EXIT_OUTPUT
-
-
-def _recorded_source(result: RunResult, track_id: str) -> str:  # pragma: no cover
-    return ""  # digest comparison is covered by the pipeline digest path
 
 
 def _expected_samples(timeline: Timeline, settings: PipelineSettings) -> int:
