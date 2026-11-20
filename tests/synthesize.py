@@ -20,9 +20,10 @@ from fractions import Fraction
 import av
 import numpy as np
 
-# Small, fast fixtures: real frame sizes only matter for the encoder ladder.
-WIDTH = 160
-HEIGHT = 90
+# Small but not tiny fixtures: 320x180 gives the encoder ladder enough
+# samples for bitrate control to track the target within tolerance.
+WIDTH = 320
+HEIGHT = 180
 FPS = 24
 SAMPLE_RATE = 44_100
 AUDIO_N = 1024  # native AAC frame sample count
