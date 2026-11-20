@@ -297,3 +297,161 @@ def build_report(
         illegal_units=sum(s.illegal_units for s in stats),
         max_gap_ms=max(
             [float(s.max_gap_ms) for s in stats] + [float(concealed_gap_ms)]
+        ),
+        duration_seconds=duration_seconds,
+        tracks=tracks,
+        excluded_tracks=list(excluded_tracks),
+        notes=list(notes),
+    )
+    return report
+
+
+def alignment_from_duplicates(tracker) -> dict:
+    """Detect frames that repeat their predecessor (concealment / freeze).
+
+    A run that lost material replaces missing pictures with a copy of the last
+    good frame.  Real programme material never repeats a frame bit-for-bit, so
+    consecutive pixel-identical frames are an exact, audio-independent signal
+    that the pipeline inserted a duplicate.  ``first_duplicate`` and
+    ``duplicate_runs`` make the result reviewable frame by frame.
+    """
+    duplicated: list[int] = []
+    runs: list[list[int]] = []
+    hashes = tracker.frame_hashes
+    for index in range(1, len(hashes)):
+        if hashes[index] == hashes[index - 1]:
+            duplicated.append(index)
+            if runs and runs[-1][-1] == index - 1:
+                runs[-1].append(index)
+            else:
+                runs.append([index])
+    return {
+        "frames_compared": len(hashes),
+        "duplicated_count": len(duplicated),
+        "duplicated": duplicated,
+        "duplicate_runs": runs,
+    }
+
+
+def measure_placement(tracker, reference_hashes: Sequence[str]) -> dict:
+    """Locate each output frame's picture in a clean reference run.
+
+    ``reference_hashes`` come from a *clean* pass over the same timeline
+    (correct material, no injected loss).  For every output frame the report
+    finds the nearest reference frame with the identical pixel hash and
+    records the positional displacement.  Displacement 0 means the picture is
+    exactly where it belongs; a non-zero displacement means the output shows
+    material from elsewhere (for example an older picture because frames were
+    lost and concealed); a frame whose picture does not exist in the reference
+    is reported as missing (corrupt or synthesised).
+    """
+    # A hash may legitimately repeat (static shots, identical slates).  Keep
+    # every occurrence and choose the one nearest the output position: a
+    # first-occurrence map would report a spurious displacement for identical
+    # material, and a last-occurrence map would hide a real one.
+    occurrences: dict[str, list[int]] = {}
+    for index, value in enumerate(reference_hashes):
+        occurrences.setdefault(value, []).append(index)
+    displaced: list[int] = []
+    missing: list[int] = []
+    offsets: dict[int, int] = {}
+    for index, value in enumerate(tracker.frame_hashes):
+        candidates = occurrences.get(value)
+        if not candidates:
+            missing.append(index)
+            continue
+        match = min(candidates, key=lambda pos: (abs(pos - index), pos))
+        delta = index - match
+        offsets[index] = delta
+        if delta != 0:
+            displaced.append(index)
+    return {
+        "frames": len(tracker.frame_hashes),
+        "reference_frames": len(reference_hashes),
+        "matched": len(tracker.frame_hashes) - len(missing) - len(displaced),
+        "displaced_count": len(displaced),
+        "displaced": displaced,
+        "missing_count": len(missing),
+        "missing": missing,
+        "max_displacement_frames": max((abs(v) for v in offsets.values()), default=0),
+    }
+
+
+def measure_av_placement(tracker, reference) -> dict:
+    """Audio/video displacement measured through the shared marker signal.
+
+    Both the video picture and the audio mix carry a deterministic per-frame
+    marker (the fixture's luma step and its amplitude envelope).  Measuring
+    both against a clean reference pass gives the picture displacement and the
+    audio displacement independently; their difference is the true end-to-end
+    A/V error, in frames, without relying on the two being correlated.
+
+    Returns ``video_lag`` and ``audio_lag`` in frames.  Positive audio lag
+    means the audio is behind the picture.
+    """
+    def best_lag(series: Sequence[float], reference_series: Sequence[float], limit: int = 12) -> int:
+        n = min(len(series), len(reference_series))
+        if n < 4:
+            return 0
+        a = np.asarray(series[:n], dtype=np.float64)
+        b = np.asarray(reference_series[:n], dtype=np.float64)
+        a = a - a.mean()
+        b = b - b.mean()
+        if np.linalg.norm(a) == 0 or np.linalg.norm(b) == 0:
+            return 0
+        a /= np.linalg.norm(a)
+        b /= np.linalg.norm(b)
+        best_score = -np.inf
+        best = 0
+        for lag in range(-limit, limit + 1):
+            if lag >= 0:
+                left, right = a[: n - lag], b[lag:]
+            else:
+                left, right = a[-lag:], b[: n + lag]
+            if left.size < max(4, n // 2):
+                continue
+            score = float(np.dot(left, right)) * (n / left.size)
+            if score > best_score + 1e-12:
+                best_score, best = score, lag
+        return best
+
+    video_lag = best_lag(tracker.luma, reference.luma)
+    audio_lag = best_lag(tracker.audio_centre, reference.audio_centre)
+    return {
+        "video_lag_frames": video_lag,
+        "audio_lag_frames": audio_lag,
+        "av_offset_frames": audio_lag - video_lag,
+    }
+
+
+def sync_errors_from_tracker(tracker, *, window: int = 25, step: int = 5) -> list[float]:
+    """Sliding-window sync error estimates from a SyncTracker.
+
+    A single global lag hides drift, so the tracker is evaluated over windows
+    of ``window`` frames stepped by ``step``.  Windows with too little signal
+    variance return the previous estimate (or 0), never a random value.
+    """
+    errors: list[float] = []
+    total = min(len(tracker.luma), len(tracker.audio_level))
+    if total == 0:
+        return errors
+    # coarse global lag first, then constrain every window to a small
+    # neighbourhood of it (short windows cannot support a wide search)
+    global_error, global_lag = tracker.sync_error_ms()
+    last = 0.0
+    for start in range(0, max(1, total - window + 1), step):
+        local = tracker._slice(start, start + window)
+        value, _ = local.sync_error_ms(max_lag_frames=global_lag + 2, around=global_lag)
+        if value is None:
+            # no signal variance in this window (silence or a still picture):
+            # it is not evidence of a sync error, so carry the previous value
+            # instead of inventing one
+            errors.append(last)
+            continue
+        last = float(value)
+        errors.append(last)
+    if not errors:
+        # shorter than one window: evaluate what we have
+        value, _ = tracker.sync_error_ms()
+        errors.append(float(value) if value is not None else 0.0)
+    return errors
