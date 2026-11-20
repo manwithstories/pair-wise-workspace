@@ -3,12 +3,12 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mediarc"
+name = "relaymedia"
 version = "0.1.0"
-description = "Local, verifiable archiving pipeline for multi-track production masters"
+description = "Local, resumable segment-relay pipeline for distributed live media edges"
 requires-python = ">=3.12"
 dependencies = [
-    "av>=13,<14",
+    "av>=12,<13",
     "numpy>=2,<3",
     "soundfile>=0.12,<0.13",
 ]
@@ -17,10 +17,10 @@ dependencies = [
 test = []
 
 [project.scripts]
-mediarc = "mediarc.cli:main"
+relaymedia = "relaymedia.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-mediarc = ["py.typed"]
+relaymedia = ["py.typed"]
