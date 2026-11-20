@@ -271,6 +271,84 @@ class ContainerFormatTests(unittest.TestCase):
                 self.assertGreater(report.healthy, 0, name)
 
 
+class SingleTrackTests(unittest.TestCase):
+    def _make_audio_only(self, path: Path) -> None:
+        import av
+        import numpy as np
+
+        out = av.open(str(path), "w", format="mp4")
+        stream = out.add_stream("aac", rate=48_000)
+        stream.codec_context.layout = "stereo"
+        for index in range(6):
+            tone = (0.05 * np.sin(2 * np.pi * 440 * np.arange(48_000) / 48_000)).astype(np.float32)
+            frame = av.AudioFrame.from_ndarray(
+                np.stack([tone, tone]), format="fltp", layout="stereo"
+            )
+            frame.sample_rate = 48_000
+            frame.pts = index * 48_000
+            for packet in stream.encode(frame):
+                out.mux(packet)
+        for packet in stream.encode(None):
+            out.mux(packet)
+        out.close()
+
+    def _make_video_only(self, path: Path) -> None:
+        import av
+        import numpy as np
+
+        out = av.open(str(path), "w", format="mp4")
+        stream = out.add_stream("libx264", rate=24)
+        stream.width, stream.height = 64, 64
+        stream.pix_fmt = "yuv420p"
+        stream.options = {"preset": "ultrafast", "g": "24", "keyint_min": "24",
+                          "sc_threshold": "0"}
+        for index in range(48):
+            frame = av.VideoFrame.from_ndarray(
+                np.zeros((64, 64, 3), np.uint8), format="rgb24"
+            )
+            frame.pts = index
+            for packet in stream.encode(frame):
+                out.mux(packet)
+        for packet in stream.encode(None):
+            out.mux(packet)
+        out.close()
+
+    def test_audio_only_source_archives(self):
+        with Workspace() as work:
+            source = work / "audio.m4a"
+            self._make_audio_only(source)
+            report = archive(
+                str(source), str(work / "m.json"),
+                work_dir=str(work / "w"), limits=Limits(jobs=1),
+            )
+            self.assertGreater(report.healthy, 0)
+            self.assertEqual(report.failed, 0)
+            self.assertTrue(all(s.audio is not None for s in report.manifest.healthy_segments()))
+
+    def test_video_only_source_archives(self):
+        with Workspace() as work:
+            source = work / "video.mp4"
+            self._make_video_only(source)
+            report = archive(
+                str(source), str(work / "m.json"),
+                work_dir=str(work / "w"), limits=Limits(jobs=1),
+            )
+            self.assertGreater(report.healthy, 0)
+            self.assertEqual(report.failed, 0)
+
+    def test_audio_only_with_wrong_role_fails_cleanly(self):
+        with Workspace() as work:
+            source = work / "audio.m4a"
+            self._make_audio_only(source)
+            # Stream 0 exists but is audio: the error names both the path and
+            # the stream number rather than silently remapping.
+            with self.assertRaises(MediaError) as caught:
+                probe(str(source), ["video:0"])
+            self.assertEqual(caught.exception.code, "type-mismatch")
+            self.assertEqual(caught.exception.stream_index, 0)
+            self.assertEqual(caught.exception.path, str(source))
+
+
 class TransitionTests(unittest.TestCase):
     def test_declared_transition_between_overlapping_segments_is_accepted(self):
         from mediarc.timeline import Transition
