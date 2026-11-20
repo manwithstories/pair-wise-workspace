@@ -78,9 +78,10 @@ type JitterBuffer struct {
 	recentSet map[uint16]bool
 	rhead     int
 
-	bytes int
-	stats Stats
-	log   []Decision
+	forced []Delivery // 容量压力下的强制交付，随下次 Drain/Flush 返回
+	bytes  int
+	stats  Stats
+	log    []Decision
 }
 
 // NewJitterBuffer 构造抖动缓冲。capacity 为最大缓存包数（硬上限），
@@ -131,12 +132,14 @@ func (jb *JitterBuffer) Push(pkt *Packet, now media.Ticks) Class {
 		jb.stats.PeakBytes = jb.bytes
 	}
 	if len(jb.pending) > jb.capacity {
-		// 容量压力：强制判失头部缺口，不无限等待
+		// 容量压力：强制交付/判失头部，不无限等待也不越界缓存
 		for len(jb.pending) > jb.capacity {
-			if _, ok := jb.pending[jb.nextSeq]; ok {
-				break
+			if pkt, ok := jb.pending[jb.nextSeq]; ok {
+				jb.forced = append(jb.forced, jb.deliver(pkt))
+				continue
 			}
 			jb.stats.Lost++
+			jb.forced = append(jb.forced, Delivery{Gap: true})
 			jb.nextSeq++
 		}
 		jb.gapSince = -1
@@ -174,7 +177,8 @@ func (jb *JitterBuffer) observeJitter(pkt *Packet, now media.Ticks) {
 
 // Drain 交付所有到期的包与缺口标记。now 为当前时间。
 func (jb *JitterBuffer) Drain(now media.Ticks) []Delivery {
-	var out []Delivery
+	out := jb.forced
+	jb.forced = nil
 	for {
 		if pkt, ok := jb.pending[jb.nextSeq]; ok {
 			out = append(out, jb.deliver(pkt))
@@ -203,7 +207,8 @@ func (jb *JitterBuffer) Drain(now media.Ticks) []Delivery {
 
 // Flush 在输入结束时交付全部剩余包，缺失序号以缺口标记交付。
 func (jb *JitterBuffer) Flush() []Delivery {
-	var out []Delivery
+	out := jb.forced
+	jb.forced = nil
 	for len(jb.pending) > 0 {
 		if pkt, ok := jb.pending[jb.nextSeq]; ok {
 			out = append(out, jb.deliver(pkt))
