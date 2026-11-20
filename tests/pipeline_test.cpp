@@ -1,6 +1,7 @@
 #include "relay/fixture.hpp"
 #include "relay/frame_reader.hpp"
 #include "relay/packet_reorder.hpp"
+#include "relay/ladder.hpp"
 #include "relay/segmenter.hpp"
 #include "relay/timeline.hpp"
 #include "relay/types.hpp"
@@ -429,4 +430,75 @@ TEST_CASE("a lost keyframe makes the affected segment unseekable",
       CHECK(segment.keyframe_sequence == 0);
     }
   }
+}
+
+namespace {
+
+LadderOptions default_ladder() {
+  LadderOptions options;
+  options.representations = {
+      Representation{"360p", 360, 800'000},
+      Representation{"720p", 720, 2'500'000},
+      Representation{"1080p", 1080, 6'000'000},
+  };
+  options.window_samples = 3;
+  return options;
+}
+
+TrackSegments boundary_segments(int count, Micros target = 500'000) {
+  SegmentOptions options;
+  options.target_duration_us = target;
+  ErrorSink errors;
+  TimelineTrack track = synthetic_track("cam-a", count * 15, 15);
+  return segment_track(track, options, errors);
+}
+
+}  // namespace
+
+TEST_CASE("ladder picks a rendition from the sliding estimate", "[ladder]") {
+  TrackSegments segments = boundary_segments(3);
+  std::vector<BandwidthSample> samples = {
+      {0, 3'000'000}, {0, 3'000'000}, {0, 3'000'000}};
+  LadderOptions options = default_ladder();
+  ErrorSink errors;
+  LadderResult result = align_ladder(segments, samples, options, errors);
+  CHECK_FALSE(result.renditions.empty());
+  // 3 Mbps * 0.8 safety = 2.4 Mbps: enough for 360p, not for 720p.
+  CHECK(result.renditions.front().name == "360p");
+  CHECK(result.renditions.front().reason.find("360p") != std::string::npos);
+}
+
+TEST_CASE("a bandwidth drop downgrades and records the reason", "[ladder]") {
+  TrackSegments segments = boundary_segments(4);
+  std::vector<BandwidthSample> samples;
+  for (std::size_t i = 0; i < segments.segments.size(); ++i) {
+    const Micros at = segments.segments[i].start_us;
+    samples.push_back(BandwidthSample{at, i < 2 ? 8'000'000ull : 600'000ull});
+  }
+  LadderOptions options = default_ladder();
+  options.window_samples = 1;
+  ErrorSink errors;
+  LadderResult result = align_ladder(segments, samples, options, errors);
+  REQUIRE(result.renditions.size() == segments.segments.size());
+  CHECK(result.renditions.front().name == "1080p");
+  CHECK(result.renditions.back().name == "360p");
+  REQUIRE_FALSE(result.downgrades.empty());
+  CHECK(result.downgrades.back().reason == "bandwidth drop");
+  CHECK(result.downgrades.back().from == "1080p");
+  CHECK(result.downgrades.back().to == "360p");
+  CHECK(result.peak_cache_bytes <= kMaxTrackCacheBytes);
+}
+
+TEST_CASE("all representations share the boundary track's cuts", "[ladder]") {
+  TrackSegments segments = boundary_segments(5);
+  std::vector<BandwidthSample> samples{{0, 10'000'000}};
+  LadderOptions options = default_ladder();
+  ErrorSink errors;
+  LadderResult result = align_ladder(segments, samples, options, errors);
+  REQUIRE(result.shared_cuts_us.size() == segments.segments.size());
+  for (std::size_t i = 0; i < segments.segments.size(); ++i) {
+    CHECK(result.renditions[i].start_us == segments.segments[i].start_us);
+    CHECK(result.renditions[i].end_us == segments.segments[i].end_us);
+  }
+  CHECK(result.boundary_source == "cam-a");
 }
