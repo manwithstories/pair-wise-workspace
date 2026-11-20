@@ -105,7 +105,8 @@ class RecoveryEngine:
                 pts_us=prev.pts_us + prev.duration_us + (k - 1) * period,
                 dts_us=prev.dts_us + prev.duration_us + (k - 1) * period,
                 duration_us=period, arrival_us=nxt.arrival_us,
-                size_bytes=0, keyframe=False, synthetic=True)
+                size_bytes=0, keyframe=False, synthetic=True,
+                transit_us=nxt.transit_us)
             filled.append(synth)
         self.stats.recovered += missing_count
         self.stats.errors.append(ErrorEvent(

@@ -83,21 +83,33 @@ def _vfr_pts(frames: int) -> list[int]:
 
 
 def encode_segment(spec: SegmentSpec) -> bytes:
-    """把一个分片编码为 matroska 字节串；corrupt 时截断尾部模拟坏包。"""
+    """把一个分片编码为单轨 matroska 字节串。
+
+    HLS/DASH 按音视频解耦引用，音频分片（.mka）只含音频轨、视频分片
+    （.mkv）只含视频轨，避免同一逻辑包在两个文件中重复出现。
+    corrupt 时破坏 EBML 头并截断尾部模拟坏包。
+    """
     buf = _MemoryTarget()
     container = av.open(buf, mode="w", format="matroska")
+    duration_us = int(SEG_SECONDS * 1_000_000)
+
+    if spec.kind == TrackKind.AUDIO:
+        _encode_audio(container, spec)
+    else:
+        _encode_video(container, spec, duration_us)
+    container.close()
+    data = buf.getvalue()
+    if spec.corrupt:
+        data = _corrupt_matroska(data)
+    if len(data) > MAX_SEGMENT_BYTES:
+        raise RuntimeError(f"分片 {spec.uri} 超过字节上限")
+    return data
+
+
+def _encode_audio(container: av.OutputContainer, spec: SegmentSpec) -> None:
     audio = container.add_stream("aac", rate=SAMPLE_RATE)
     audio.layout = "stereo"
-    video = container.add_stream("h264", rate=FPS_NOMINAL)
-    video.width, video.height = VIDEO_W, VIDEO_H
-    video.pix_fmt = "yuv420p"
-    video.options = {"preset": "ultrafast", "tune": "zerolatency"}
-
-    duration_us = int(SEG_SECONDS * 1_000_000)
     audio_frames = int(SEG_SECONDS * SAMPLE_RATE / 1024)
-    # 33 位时间戳回绕不在媒体编码层构造（独立容器会被复用器重定位
-    # 时基），而由 ingest.NetworkConditioner 在传输注入层模拟节点
-    # 计数器翻转；这里各分片统一使用从 0 开始的连续时间戳。
     base_pts = spec.seq * SAMPLE_RATE
     for i in range(audio_frames):
         wave = _tone(spec.seq, 1024 / SAMPLE_RATE)
@@ -107,7 +119,16 @@ def encode_segment(spec: SegmentSpec) -> bytes:
         frame.pts = base_pts + i * 1024
         for pkt in audio.encode(frame):
             container.mux(pkt)
+    for pkt in audio.encode(None):
+        container.mux(pkt)
 
+
+def _encode_video(container: av.OutputContainer, spec: SegmentSpec,
+                  duration_us: int) -> None:
+    video = container.add_stream("h264", rate=FPS_NOMINAL)
+    video.width, video.height = VIDEO_W, VIDEO_H
+    video.pix_fmt = "yuv420p"
+    video.options = {"preset": "ultrafast", "tune": "zerolatency"}
     vfr_pts = _vfr_pts(spec.frames) if spec.vfr else None
     for f in range(spec.frames):
         img = _frame_image(spec.seq, f, spec.vfr)
@@ -121,17 +142,8 @@ def encode_segment(spec: SegmentSpec) -> bytes:
             frame.time_base = f"1/{FPS_NOMINAL}"
         for pkt in video.encode(frame):
             container.mux(pkt)
-    for pkt in audio.encode(None):
-        container.mux(pkt)
     for pkt in video.encode(None):
         container.mux(pkt)
-    container.close()
-    data = buf.getvalue()
-    if spec.corrupt:
-        data = _corrupt_matroska(data)
-    if len(data) > MAX_SEGMENT_BYTES:
-        raise RuntimeError(f"分片 {spec.uri} 超过字节上限")
-    return data
 
 
 def _corrupt_matroska(data: bytes) -> bytes:

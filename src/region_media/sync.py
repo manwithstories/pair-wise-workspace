@@ -19,6 +19,8 @@ from .model import PacketModel, TrackKind
 CORRECT_THRESHOLD_US = 20_000
 # 单帧修正量上限，超过则建议丢帧/重复帧而非微调
 FRAME_STEP_LIMIT_US = 40_000
+# 标称 30fps 帧周期（us），VFR 干净间隔过滤的参考上限
+NOMINAL_FRAME_US = 33_334
 
 
 @dataclass
@@ -45,6 +47,8 @@ class SyncAnalyzer:
     def __init__(self, domain: ClockDomain) -> None:
         self._domain = domain
         self._audio_pts: list[int] = []
+        # (全局 seq, 原始 pts)，用于过滤丢包/恢复区后的 VFR 判定
+        self._video_frames: list[tuple[int, int]] = []
         self._report = SyncReport()
 
     def feed(self, packets: list[PacketModel]) -> None:
@@ -58,6 +62,7 @@ class SyncAnalyzer:
             if pkt.track != TrackKind.VIDEO or pkt.synthetic:
                 continue
             common = self._domain.to_common(TrackKind.VIDEO, pkt.pts_us)
+            self._video_frames.append((pkt.seq, pkt.pts_us))
             # 最近邻音频基准：VFR 下帧间隔不均，不能按帧号推算
             idx = int(np.searchsorted(audio, common))
             ref_idx = min(max(idx, 0), len(audio) - 1)
@@ -91,10 +96,22 @@ class SyncAnalyzer:
         self._report.max_abs_ms = round(float(offsets.max()), 3)
         self._report.p95_abs_ms = round(float(np.percentile(offsets, 95)), 3)
         self._report.mean_ms = round(float(raw.mean()), 3)
-        # VFR 判定：实际帧间隔的变异系数显著（>5%）
-        pts = np.asarray([f.common_pts_us for f in frames], dtype=np.float64)
-        if len(pts) > 2:
-            deltas = np.diff(pts)
-            cv = deltas.std() / deltas.mean() if deltas.mean() > 0 else 0.0
-            self._report.vfr = bool(cv > 0.05)
+        # VFR 判定基于视频帧「原始 PTS 间隔」，且只采纳全局序号连续、
+        # 间隔落在标称帧周期合理倍数内（<=3 倍）的相邻帧——丢包、损坏
+        # 分片跳过会产生整秒级异常间隔，属于传输损伤而非源帧率变化。
+        clean_deltas: list[float] = []
+        for i in range(1, len(self._video_frames)):
+            prev_seq, prev_pts = self._video_frames[i - 1]
+            seq, pts = self._video_frames[i]
+            delta = pts - prev_pts
+            if seq == prev_seq + 1 and 0 < delta <= NOMINAL_FRAME_US * 3:
+                clean_deltas.append(delta)
+        if len(clean_deltas) > 10:
+            arr = np.asarray(clean_deltas, dtype=np.float64)
+            mean = arr.mean()
+            cv = float(arr.std() / mean) if mean > 0 else 0.0
+            self._report.vfr = bool(cv > 0.08)
+        else:
+            # 干净连续帧不足（如损坏/强丢包场景），不具备 VFR 判定条件
+            self._report.vfr = False
         return self._report

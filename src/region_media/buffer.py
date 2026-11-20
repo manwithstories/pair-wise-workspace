@@ -109,14 +109,26 @@ class JitterBuffer:
         return SegmentStatus.RECEIVED
 
     def drain(self, track: TrackKind) -> list[PacketModel]:
-        """输出从播放头起连续可用的包；遇缺口停止等待。"""
+        """输出从播放头起连续可用的包。
+
+        遇缺口停止等待乱序/重传；当缺失序号之后已有更高序号包到达
+        （确定缺口），越过等待位置继续输出，使后续包带着序号跳跃交给
+        恢复模块补合成包，而不是无限等待一个不会再来的包。
+        """
         buf = self._bufs[track]
         out: list[PacketModel] = []
         nxt = buf.playhead + 1
-        while nxt in buf._pending:
-            out.append(buf._pending.pop(nxt))
-            buf.playhead = nxt
-            nxt += 1
+        while nxt <= buf.highest_seq:
+            if nxt in buf._pending:
+                out.append(buf._pending.pop(nxt))
+                buf.playhead = nxt
+                nxt += 1
+            elif nxt < buf.highest_seq:
+                # 确定缺口：其后已有更高序号包，越过等待位置
+                buf.playhead = nxt
+                nxt += 1
+            else:
+                break
         return out
 
     def skip_gap(self, track: TrackKind, seq: int) -> None:

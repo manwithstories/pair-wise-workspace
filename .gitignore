@@ -78,6 +78,12 @@ __pycache__/
 *.pyc
 .tmp-fixtures/
 .tmp-index.sqlite
+.tmp-*.sqlite
+.tmp-*.sqlite-shm
+.tmp-*.sqlite-wal
+.tmp-verify-*.sqlite
+.tmp-verify-*.sqlite-shm
+.tmp-verify-*.sqlite-wal
 *.egg-info/
 dist/
 build/

@@ -30,6 +30,9 @@ class PipelineCounters:
     rejected_segments: int = 0
     wrap_events: int = 0
     jump_events: int = 0
+    # 恢复引擎口径：检测到的缺口总数与其中不可恢复数
+    gap_missing: int = 0
+    gap_unrecoverable: int = 0
     # 每包处理延迟（到达 -> 进入同步评估），单位 us
     latency_samples_us: list[int] = field(default_factory=list)
     errors: list[ErrorEvent] = field(default_factory=list)
@@ -50,10 +53,10 @@ def _p95(values: list[int] | np.ndarray) -> float:
 def build_summary(counters: PipelineCounters, sync: SyncReport,
                   checkpoint_resumed: bool) -> dict:
     """生成 verify/CLI 共用的终端 JSON 摘要。"""
-    # 恢复率：可恢复缺口口径 = recovered / (recovered + 不可恢复丢失)。
-    # 无任何丢失时为 1.0；窗口外迟到属于不可恢复丢失。
-    unrecoverable = counters.packets_lost + counters.late_drops
-    gap_total = counters.packets_recovered + unrecoverable
+    # 恢复率统一采用恢复引擎口径：recovered / 检测到的缺口总数。
+    # 缺口总数 = 已恢复 + 不可恢复；无缺口时为 1.0。窗口外迟到等
+    # 不可恢复丢失计入 gap_unrecoverable，不与 conditioner 丢包口径混用。
+    gap_total = counters.gap_missing
     recovery_rate = (counters.packets_recovered / gap_total
                      if gap_total else 1.0)
     latency_ms_p95 = round(_p95(counters.latency_samples_us) / 1000.0, 3)

@@ -125,6 +125,7 @@ class PacketModel:
     size_bytes: int
     keyframe: bool = False
     synthetic: bool = False  # 恢复模块补出的包标记为 True
+    transit_us: int = 0  # 确定性传输时延（抖动+缓冲基线），延迟指标用
 
 
 class WrapResult(str, Enum):

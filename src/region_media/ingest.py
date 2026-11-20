@@ -28,6 +28,9 @@ from .model import (
     now_us,
 )
 
+# 抖动缓冲吸收基线（us）：包在缓冲中等待重排的固定驻留分量
+DEFAULT_BUFFER_BASE_US = 120_000
+
 
 @dataclass
 class NetworkProfile:
@@ -182,7 +185,7 @@ def unwrap_packets(packets: list[PacketModel],
             raw_pts=pkt.raw_pts, pts_us=pts_us, dts_us=pkt.dts_us,
             duration_us=pkt.duration_us, arrival_us=pkt.arrival_us,
             size_bytes=pkt.size_bytes, keyframe=pkt.keyframe,
-            synthetic=pkt.synthetic))
+            synthetic=pkt.synthetic, transit_us=pkt.transit_us))
     return out
 
 
@@ -248,14 +251,17 @@ class NetworkConditioner:
                 stats.lost += 1
                 continue
             raw_pts = self._apply_wrap(pkt)
-            # 漂移作用在到达墙钟上（媒体时间戳不变，由 clock 模块估计）
-            arrival = base + int((pkt.pts_us * drift_factor)
-                                 + self._rng.uniform(-p.jitter_us, p.jitter_us))
+            # 确定性传输时延：抖动绝对值 + 缓冲吸收基线，使 P95 延迟
+            # 在本地无真实墙钟等待的情况下仍可量化、可复现
+            jitter = self._rng.uniform(-p.jitter_us, p.jitter_us)
+            transit_us = int(abs(jitter)) + DEFAULT_BUFFER_BASE_US
+            arrival = base + int(pkt.pts_us * drift_factor) + transit_us
             moved = PacketModel(
                 track=pkt.track, seq=pkt.seq, segment_seq=pkt.segment_seq,
                 raw_pts=raw_pts, pts_us=pkt.pts_us, dts_us=pkt.dts_us,
                 duration_us=pkt.duration_us, arrival_us=arrival,
-                size_bytes=pkt.size_bytes, keyframe=pkt.keyframe)
+                size_bytes=pkt.size_bytes, keyframe=pkt.keyframe,
+                synthetic=pkt.synthetic, transit_us=transit_us)
             out.append(moved)
             if p.duplicate_rate and self._rng.random() < p.duplicate_rate:
                 stats.duplicated += 1
