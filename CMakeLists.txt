@@ -27,6 +27,7 @@ add_library(mbcore STATIC
   src/segmenter.cpp
   src/silence.cpp
   src/fingerprint.cpp
+  src/fixture.cpp
 )
 target_include_directories(mbcore PUBLIC src)
 target_link_libraries(mbcore PUBLIC PkgConfig::FFMPEG Threads::Threads)
