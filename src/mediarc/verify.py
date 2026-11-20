@@ -23,6 +23,9 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any, Iterable
 
+import contextlib
+import os
+
 import av
 
 from .errors import MediaError, bridge
@@ -58,11 +61,34 @@ class KeyframeCheck:
 
 
 @dataclass(slots=True)
+class IndexCheck:
+    """Container sync-sample index versus the keyframes actually demuxed."""
+
+    stream_index: int
+    declared: int
+    demuxed: int
+    ratio: float
+    missing: list[int]
+    ok: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "stream_index": self.stream_index,
+            "declared": self.declared,
+            "demuxed": self.demuxed,
+            "ratio": round(self.ratio, 6),
+            "missing": list(self.missing),
+            "ok": self.ok,
+        }
+
+
+@dataclass(slots=True)
 class VerifyReport:
     manifest: Manifest | None
     segment_hashes: list[HashCheck] = field(default_factory=list)
     audio_hashes: list[HashCheck] = field(default_factory=list)
     keyframes: list[KeyframeCheck] = field(default_factory=list)
+    index_checks: list[IndexCheck] = field(default_factory=list)
     roundtrip_total: int = 0
     roundtrip_ok: int = 0
     errors: list[MediaError] = field(default_factory=list)
@@ -78,11 +104,22 @@ class VerifyReport:
 
     @property
     def keyframe_hit_rate(self) -> float:
+        """Fraction of recorded keyframes still present in the source index.
+
+        Container-level index defects (an MP4 ``stss`` that omits a real
+        keyframe) are folded in: the ratio is the number of keyframes both the
+        manifest and the container agree on, over the number the manifest
+        recorded or the container declares, whichever is larger.
+        """
         expected = sum(len(k.recorded) for k in self.keyframes)
+        hits = expected - sum(len(k.missing) for k in self.keyframes)
+        for check in self.index_checks:
+            if not check.ok:
+                expected = max(expected, check.declared) or expected
+                hits = min(hits, check.demuxed)
         if not expected:
             return 1.0
-        hits = expected - sum(len(k.missing) for k in self.keyframes)
-        return hits / expected
+        return min(hits, expected) / expected
 
     @property
     def hash_ok(self) -> int:
@@ -105,6 +142,7 @@ class VerifyReport:
         return (
             self.roundtrip_rate >= 1.0
             and self.keyframe_hit_rate >= 1.0
+            and all(c.ok for c in self.index_checks)
             and self.hash_ok == self.hash_total
             and self.audio_ok == self.audio_total
             and not self.errors
@@ -113,6 +151,12 @@ class VerifyReport:
 
     @property
     def error_offset(self) -> int | None:
+        """Smallest source byte offset any diagnostic could pin down.
+
+        Offsets are source-file positions, never offsets into a rewritten
+        segment, and ``None`` (rendered ``unknown``) when libavformat exposed no
+        position for the failing packet.
+        """
         known = [e.offset for e in self.errors if e.offset is not None]
         for note in self.recovery_notes:
             if note.get("offset") is not None:
@@ -128,6 +172,13 @@ class VerifyReport:
             f"recovered_segments={self.recovered_segments}",
             f"error_offset={self.error_offset if self.error_offset is not None else 'unknown'}",
         ]
+        for check in self.index_checks:
+            if not check.ok:
+                lines.append(
+                    f"keyframe_index_gap stream={check.stream_index} "
+                    f"declared={check.declared} demuxed={check.demuxed} "
+                    f"missing_samples={check.missing[:8]}"
+                )
         for check in self.keyframes:
             if check.missing:
                 lines.append(
@@ -238,6 +289,42 @@ def check_keyframes(manifest: Manifest, source: ProbeResult) -> list[KeyframeChe
     return checks
 
 
+def _index_checks(probed: ProbeResult, manifest: Manifest | None) -> list[IndexCheck]:
+    """Compare a container's declared sync samples with the demuxed keyframes.
+
+    The index is *incomplete* when the container lists fewer sync samples than
+    the bitstream actually contains; it is *stale* when it lists more.  Both
+    mean a repair tool would seek to the wrong place, so neither is accepted.
+    """
+    checks: list[IndexCheck] = []
+    for stream in probed.streams:
+        if stream.kind != "video" or not stream.sync_samples:
+            continue
+        declared = len(set(stream.sync_samples))
+        demuxed = len({k.pts for k in stream.keyframes if k.pts is not None})
+        if declared == demuxed:
+            checks.append(IndexCheck(stream.index, declared, demuxed, 1.0, [], True))
+            continue
+        missing = _missing_samples(stream)
+        ratio = min(declared, demuxed) / max(declared, demuxed, 1)
+        checks.append(IndexCheck(stream.index, declared, demuxed, ratio, missing, False))
+    return checks
+
+
+def _missing_samples(stream: StreamProbe) -> list[int]:
+    """Sample ordinals that are keyframes in the bitstream but absent from ``stss``.
+
+    Falls back to the declared ordinals when a demuxer overrides the container
+    index, which is exactly the situation an incomplete index describes.
+    """
+    listed = {value - 1 for value in stream.sync_samples}
+    key_ordinals = {
+        meta.index for meta in stream.packets if meta.keyframe
+    }
+    absent = sorted(key_ordinals - listed)
+    return [ordinal + 1 for ordinal in absent]
+
+
 def verify_manifest(
     manifest: Manifest,
     *,
@@ -280,6 +367,7 @@ def verify_manifest(
                 )
             else:
                 report.keyframes = check_keyframes(manifest, probed)
+                report.index_checks = _index_checks(probed, manifest)
                 for check in report.keyframes:
                     if check.missing:
                         report.errors.append(
@@ -308,6 +396,28 @@ def verify_manifest(
 # ---------------------------------------------------------------------------
 # Integrity scan and recovery
 # ---------------------------------------------------------------------------
+
+
+@contextlib.contextmanager
+def quiet_libav(level: int | None = None):
+    """Temporarily silence libav logs during expected-failure probing.
+
+    Repair work deliberately decodes damaged data, so the library's error
+    stream is noise: the diagnosis is already captured structurally.  Set
+    ``MEDIARC_LIBAV_LOG=1`` to see the raw messages.
+    """
+    if os.environ.get("MEDIARC_LIBAV_LOG"):
+        yield
+        return
+    previous = None
+    try:
+        with av.logging.Capture() as capture:
+            av.logging.set_level(level if level is not None else av.logging.PANIC)
+            previous = capture
+            yield
+    finally:
+        av.logging.restore_default_callback()
+        previous = None
 
 
 @dataclass(slots=True)
@@ -353,6 +463,16 @@ def _drain(decoder: av.CodecContext) -> tuple[int, str | None]:
     return frames, None
 
 
+def _copy_packet(packet: Any) -> Any:
+    """Independent copy of a packet, so replaying it does not touch the source."""
+    clone = av.Packet(bytes(packet))
+    clone.pts = packet.pts
+    clone.dts = packet.dts
+    clone.duration = packet.duration
+    clone.time_base = packet.time_base
+    return clone
+
+
 def _decode_gop(
     packets: list[tuple[Any, int | None, int | None]], codec: str, extradata: bytes | None
 ) -> tuple[int, str | None]:
@@ -360,13 +480,15 @@ def _decode_gop(
 
     ``Packet.decode()`` would use the packet's own stream decoder, so packets
     are fed to the fresh context explicitly; otherwise damage in an earlier GOP
-    leaks into this one and the diagnosis points at the wrong packet.
+    leaks into this one and the diagnosis points at the wrong packet.  Each
+    packet is replayed through a copy: a first failure can leave the demuxed
+    packet unusable, and the repair path needs to reuse it.
     """
     decoder = _fresh_decoder(codec, extradata)
     frames = 0
     for packet, _index, _offset in packets:
         try:
-            for _ in decoder.decode(packet):
+            for _ in decoder.decode(_copy_packet(packet)):
                 frames += 1
         except Exception as exc:  # noqa: BLE001 - decoder error types vary
             return frames, f"{type(exc).__name__}: {exc}"
@@ -443,7 +565,8 @@ def integrity_scan(
     for position, (gop, start) in enumerate(zip(gops, starts)):
         if position >= max_gops:
             break
-        frames, error = _decode_gop(gop, codec, extradata)
+        with quiet_libav():
+            frames, error = _decode_gop(gop, codec, extradata)
         next_start = starts[position + 1] if position + 1 < len(starts) else None
         expected = _expected_frames(start, next_start, stream, framerate, result.time_base)
         # B-frame reordering shifts the flushed frame count by the reorder
@@ -452,7 +575,8 @@ def integrity_scan(
             continue
         if error is None and frames == 0 and not gop:
             continue
-        counts = _isolated_frame_counts(gop, codec, extradata)
+        with quiet_libav():
+            counts = _isolated_frame_counts(gop, codec, extradata)
         culprit = 0
         for index, count in enumerate(counts):
             previous = counts[index - 1] if index else 0
@@ -559,6 +683,18 @@ def recover(
     boundary = safe_before[-1] if safe_before else 0
     path = str(Path(output_dir) / f"{segment.segment_id}.recovered.mp4")
     Path(output_dir).mkdir(parents=True, exist_ok=True)
+    if not packets:
+        # Nothing precedes the damage and there is no later keyframe: the file
+        # is locatable but not recoverable.  Say so instead of writing an empty
+        # artefact that would look like a successful repair.
+        return RecoveryResult(
+            segment_id=segment.segment_id,
+            offset=damage.offset,
+            resume_offset=None,
+            salvaged_ticks=0,
+            skipped_packets=[damage.packet_index],
+            path="",
+        )
     try:
         _remux_selected(result, stream, packets, boundary, path)
     except MediaError:
@@ -584,6 +720,10 @@ def _remux_selected(
     start_ticks: int,
     output_path: str,
 ) -> None:
+    """Mux exactly the chosen packets, using the same timestamp discipline as
+    the archive stage so a recovered file is playable on its own."""
+    from .pipeline import _MuxState
+
     container = av.open(result.path)
     output = None
     try:
@@ -591,8 +731,8 @@ def _remux_selected(
         output = av.open(output_path, "w", format="mp4")
         output.bit_exact = True
         output_stream = output.add_stream(template=input_stream)
-        base: int | None = None
         wanted = {p.index for p in packets}
+        muxed = _MuxState(output_stream)
         count = 0
         for packet in container.demux(input_stream):
             if packet.size == 0 and packet.pts is None:
@@ -604,17 +744,9 @@ def _remux_selected(
             )
             if meta is None or meta.index not in wanted:
                 continue
-            if base is None:
-                base = packet.dts if packet.dts is not None else packet.pts
-            if packet.pts is not None:
-                packet.pts -= base
-            if packet.dts is not None:
-                packet.dts -= base
-            elif packet.pts is not None:
-                packet.dts = packet.pts
-            packet.stream = output_stream
-            output.mux(packet)
+            muxed.push(packet, output)
             count += 1
+        muxed.flush(output)
         if count == 0:
             raise MediaError(
                 "corrupt-packet", "no packet survived recovery",

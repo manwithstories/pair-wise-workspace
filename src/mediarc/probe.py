@@ -117,6 +117,8 @@ class StreamProbe:
     color_raw: dict[str, str] = field(default_factory=dict)
     packets: list[PacketMeta] = field(default_factory=list)
     keyframes: list[Keyframe] = field(default_factory=list)
+    #: Container-level sync-sample numbers (MP4 ``stss``); empty when absent.
+    sync_samples: list[int] = field(default_factory=list)
 
     @property
     def packet_count(self) -> int:
@@ -142,6 +144,7 @@ class StreamProbe:
             "packet_count": self.packet_count,
             "packets": [p.to_dict() for p in self.packets],
             "keyframes": [k.to_dict() for k in self.keyframes],
+            "sync_samples": list(self.sync_samples),
         }
 
     @classmethod
@@ -165,6 +168,7 @@ class StreamProbe:
             color_raw={str(k): str(v) for k, v in (data.get("color_raw") or {}).items()},
             packets=[PacketMeta.from_dict(p) for p in data.get("packets", [])],
             keyframes=[Keyframe.from_dict(k) for k in data.get("keyframes", [])],
+            sync_samples=[int(x) for x in data.get("sync_samples", [])],
         )
 
 
@@ -281,6 +285,28 @@ def _attach_container_color(
         target = video_streams[position]
         for field_name, value in values.items():
             target.color_raw[f"colr:{field_name}"] = str(value)
+
+
+def _attach_sample_index(
+    path: str, format_name: str, streams: list[StreamProbe]
+) -> None:
+    """Record the MP4 ``stss`` sync-sample index alongside demuxed keyframes.
+
+    Demuxers usually trust the bitstream over the index, so a ``stss`` that
+    omits a real keyframe is invisible unless the container index is read
+    separately.  Both are kept so verification can compare them.
+    """
+    from .mp4color import read_mp4_keyframe_index
+
+    short = {part.strip() for part in format_name.split(",")}
+    if not ({"mp4", "mov", "m4a"} & short):
+        return
+    indices = read_mp4_keyframe_index(path)
+    video_streams = [s for s in streams if s.kind == "video"]
+    for position, samples in enumerate(indices):
+        if position >= len(video_streams):
+            break
+        video_streams[position].sync_samples = list(samples)
 
 
 def _format_label(format_name: str) -> str:
@@ -479,6 +505,7 @@ def probe(
                 timeline = TimeBase(rate)
                 errors: list[MediaError] = list(mapping_errors)
                 _attach_container_color(path, format_name, streams)
+                _attach_sample_index(path, format_name, streams)
                 observed_end = _demux_container(
                     container, streams, timeline, errors, path
                 )

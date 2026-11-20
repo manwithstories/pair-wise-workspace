@@ -190,6 +190,66 @@ def read_mp4_colr(path: str) -> list[ColrBox | None]:
         return []
 
 
+def read_mp4_keyframe_index(path: str) -> list[list[int]]:
+    """Per video track, the sample numbers the ``stss`` box declares as sync.
+
+    An empty list means the track has no ``stss`` at all, which for a reordered
+    codec means "every sample is a sync sample" and cannot be compared.
+    Returns ``[]`` when the file has no ``moov`` or is not an MP4 at all.
+    """
+    result: list[list[int]] = []
+    try:
+        size = Path(path).stat().st_size
+        with open(path, "rb") as handle:
+            moov = None
+            position = 0
+            while position < size:
+                handle.seek(position)
+                header = _read_box_header(handle, size)
+                if header is None:
+                    break
+                box_size, kind, header_len = header
+                if kind == b"moov":
+                    moov = (position + header_len, position + box_size)
+                    break
+                position += box_size
+            if moov is None:
+                return []
+            for kind, trak_start, trak_end in _children(handle, *moov):
+                if kind != b"trak":
+                    continue
+                mdia = _find(handle, trak_start, trak_end, b"mdia")
+                if mdia is None:
+                    continue
+                hdlr = _find(handle, *mdia, b"hdlr")
+                if hdlr is None:
+                    continue
+                handle.seek(hdlr[0])
+                entry = handle.read(min(hdlr[1] - hdlr[0], 12))
+                if len(entry) < 12 or entry[8:12] != b"vide":
+                    continue
+                minf = _find(handle, *mdia, b"minf")
+                stbl = _find(handle, *minf, b"stbl") if minf else None
+                stss = _find(handle, *stbl, b"stss") if stbl else None
+                if stss is None:
+                    result.append([])
+                    continue
+                handle.seek(stss[0])
+                header = handle.read(8)
+                if len(header) < 8:
+                    result.append([])
+                    continue
+                count = struct.unpack(">I", header[4:8])[0]
+                if count > 10_000_000 or 8 + 4 * count > stss[1] - stss[0]:
+                    result.append([])
+                    continue
+                raw = handle.read(4 * count)
+                result.append(list(struct.unpack(f">{count}I", raw)))
+            return result
+    except (OSError, struct.error):
+        return []
+
+
 def container_color(path: str, format_name: str) -> dict[int, dict[str, int]]:
     """Colour fields keyed by PyAV stream index.
 

@@ -218,6 +218,34 @@ def scramble_packet(src: Path, dst: Path, stream_index: int, pts: int,
     return True
 
 
+def scramble_all_keyframes(src: Path, dst: Path, length: int = 64) -> int:
+    """Damage the payload of every video keyframe; returns how many were hit.
+
+    Used for the "unrecoverable" fixture: with no intact keyframe anywhere there
+    is no safe boundary to resume from, so the repair path must decline rather
+    than emit a file that only looks repaired.
+    """
+    data = bytearray(src.read_bytes())
+    container = av.open(str(src))
+    hits: list[tuple[int, int]] = []
+    try:
+        stream = container.streams.video[0]
+        for packet in container.demux(stream):
+            if packet.is_keyframe and packet.pos is not None and packet.size > length:
+                payload = bytes(packet)[:8]
+                delta = data[packet.pos:packet.pos + 16].find(payload)
+                if delta >= 0:
+                    hits.append((packet.pos + delta, length))
+    finally:
+        container.close()
+    for offset, count in hits:
+        data[offset:offset + count] = bytes(
+            byte ^ 0x5A for byte in data[offset:offset + count]
+        )
+    dst.write_bytes(bytes(data))
+    return len(hits)
+
+
 def make_boundary(path: Path) -> None:
     """Video starts at 1.5 s, audio at 0.5 s; both edges are off-tick."""
     out = av.open(str(path), "w", format="matroska")
@@ -254,37 +282,78 @@ def make_color_conflict(path: Path) -> None:
     out.close()
 
 
-def make_keyframe_hole(src: Path, dst: Path) -> bool:
-    """Clear one keyframe flag so the stored index is missing a real keyframe.
+_CONTAINERS = {b"moov", b"trak", b"mdia", b"minf", b"stbl"}
 
-    The container the index lives in also lies: the frame is still a keyframe in
-    its bitstream, but the *index* no longer says so.  The payload stays
-    decodable; only the flag bit is cleared.
+
+def _rewrite_boxes(data: bytes, start: int, end: int, drop_last_stss: bool) -> tuple[bytes, bool]:
+    """Recursively rebuild a box region, shortening one ``stss`` by an entry.
+
+    Sizes of every enclosing container are recomputed from the rebuilt children,
+    which keeps the file structurally valid; byte offsets inside ``moof``/``mdat``
+    are untouched because only ``moov`` is rewritten and it sits at the end.
     """
-    container = av.open(str(src))
-    try:
-        stream = container.streams.video[0]
-        target = None
-        for packet in container.demux(stream):
-            if packet.is_keyframe and packet.pts and packet.pts >= 4000:
-                target = (packet.pos, packet.pts, bytes(packet))
-                break
-    finally:
-        container.close()
-    if target is None or target[0] is None:
+    output = bytearray()
+    position = start
+    changed = False
+    while position + 8 <= end:
+        size, kind = struct.unpack(">I4s", data[position:position + 8])
+        header = 8
+        if size == 1:
+            if position + 16 > end:
+                return bytes(data[start:end]), False
+            size = struct.unpack(">Q", data[position + 8:position + 16])[0]
+            header = 16
+        elif size == 0:
+            size = end - position
+        if size < header or position + size > end:
+            return bytes(data[start:end]), False
+        body_start, body_end = position + header, position + size
+        if kind == b"stss" and drop_last_stss and not changed:
+            version = struct.unpack(">I", data[body_start:body_start + 4])[0]
+            count = struct.unpack(">I", data[body_start + 4:body_start + 8])[0]
+            entries = list(struct.unpack(
+                f">{count}I", data[body_start + 8:body_start + 8 + 4 * count]
+            ))
+            if len(entries) < 2:
+                output += data[position:position + size]
+                position += size
+                continue
+            payload = struct.pack(">II", version, len(entries) - 1) + b"".join(
+                struct.pack(">I", value) for value in entries[:-1]
+            )
+            body = payload
+            changed = True
+        elif kind in _CONTAINERS:
+            body, sub_changed = _rewrite_boxes(data, body_start, body_end, drop_last_stss)
+            if sub_changed:
+                changed = True
+            else:
+                body = bytes(data[body_start:body_end])
+        else:
+            output += data[position:position + size]
+            position += size
+            continue
+        if header == 8:
+            output += struct.pack(">I", 8 + len(body)) + kind + body
+        else:
+            output += struct.pack(">I", 1) + kind + struct.pack(">Q", 16 + len(body)) + body
+        position += size
+    return bytes(output), changed
+
+
+def make_keyframe_hole(src: Path, dst: Path) -> bool:
+    """Remove the last sync-sample entry from an MP4 ``stss`` index.
+
+    The media payload stays untouched and fully decodable; only the container's
+    keyframe index loses a real keyframe.  That is the "incomplete keyframe
+    index" case: a demuxer trusting the bitstream still reports the keyframe, so
+    the defect is only visible by comparing both views.
+    """
+    data = src.read_bytes()
+    rewritten, changed = _rewrite_boxes(data, 0, len(data), True)
+    if not changed:
         return False
-    position, _pts, payload = target
-    data = bytearray(src.read_bytes())
-    # Matroska SimpleBlock: [track VINT][2-byte timecode][flags][frame data],
-    # so the flags byte is immediately before the frame payload starts.
-    delta = data[position:position + 16].find(payload[:8])
-    if delta < 0:
-        return False
-    flag_offset = position + delta - 1
-    if flag_offset < position or not (data[flag_offset] & 0x80):
-        return False
-    data[flag_offset] &= 0x7F
-    dst.write_bytes(bytes(data))
+    dst.write_bytes(rewritten)
     return True
 
 
@@ -319,9 +388,12 @@ def generate(out_dir: Path) -> dict[str, Path]:
         truncate_file(good_mp4, damaged_mp4, 0.55)
     made["damaged.mp4"] = damaged_mp4
 
+    # The Matroska sample damages every keyframe: defects stay locatable, but no
+    # safe boundary exists, so it is deliberately *not* recoverable.  The MP4
+    # sample damages one interior frame, which is recoverable from the next
+    # keyframe.  Together they cover both repair outcomes.
     damaged_mkv = out_dir / "damaged.mkv"
-    ok = scramble_packet(good_mkv, damaged_mkv, 0, 4000, keep_head=0, length=512)
-    if not ok:
+    if scramble_all_keyframes(good_mkv, damaged_mkv) < 2:
         truncate_file(good_mkv, damaged_mkv, 0.55)
     made["damaged.mkv"] = damaged_mkv
 
@@ -333,10 +405,11 @@ def generate(out_dir: Path) -> dict[str, Path]:
     make_color_conflict(conflict)
     made["color_conflict.mkv"] = conflict
 
-    hole = out_dir / "keyframe_index.mkv"
-    if not make_keyframe_hole(good_mkv, hole):
-        hole.write_bytes(good_mkv.read_bytes())
-    made["keyframe_index.mkv"] = hole
+    # The sync-sample index lives in MP4, so the incomplete-index fixture is MP4.
+    hole = out_dir / "keyframe_index.mp4"
+    if not make_keyframe_hole(good_mp4, hole):
+        hole.write_bytes(good_mp4.read_bytes())
+    made["keyframe_index.mp4"] = hole
 
     return made
 

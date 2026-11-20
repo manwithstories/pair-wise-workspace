@@ -29,12 +29,14 @@ from pathlib import Path
 from typing import Sequence
 
 from . import __version__
+import av
+
 from .errors import MediaError
 from .manifest import Manifest
 from .pipeline import Limits, archive
 from .probe import probe
 from .timeline import Rational
-from .verify import integrity_scan, recover, verify_manifest
+from .verify import _index_checks, integrity_scan, recover, verify_manifest
 
 EXIT_OK = 0
 EXIT_FAILURE = 1
@@ -215,7 +217,9 @@ def _verify_json(report) -> dict:
 
 
 #: Fixtures whose damage the self-test localises and repairs.
-_DAMAGE_FIXTURES = ("damaged.mp4", "damaged.mkv", "keyframe_index.mkv")
+_DAMAGE_FIXTURES = ("damaged.mp4", "damaged.mkv")
+#: Fixtures whose *container index* is defective without the payload being bad.
+_INDEX_FIXTURES = ("keyframe_index.mp4",)
 #: Fixtures that must be rejected or isolated, with the expected error code.
 _EXPECTED_FAILURES = {
     "truncated.mkv": {"truncated-container", "corrupt-packet"},
@@ -255,14 +259,15 @@ def _self_test(fixtures: Path) -> tuple[int, list[dict], list[MediaError]]:
                 spot,
                 str(fixtures / "_recovered"),
             )
-            recovered += 1
+            if result.path:
+                recovered += 1
             note = result.to_dict()
             note["fixture"] = str(candidate)
             note["reason"] = spot.reason
             note["decoded_frames"] = spot.decoded_frames
             note["expected_frames"] = spot.expected_frames
+            note["repaired"] = bool(result.path)
             notes.append(note)
-            # The healthy parts of a damaged file must still be hashable.
             if result.path and not Path(result.path).exists():
                 errors.append(
                     MediaError(
@@ -272,6 +277,18 @@ def _self_test(fixtures: Path) -> tuple[int, list[dict], list[MediaError]]:
                         offset=spot.offset,
                     )
                 )
+            if result.path:
+                try:
+                    av.open(result.path).close()
+                except Exception:  # noqa: BLE001
+                    errors.append(
+                        MediaError(
+                            "verification-failed",
+                            f"recovered file for {name} is not playable",
+                            stage="verify", path=result.path,
+                            offset=spot.offset,
+                        )
+                    )
         if not damage:
             # A fixture advertised as damaged must show damage to be useful.
             notes.append({
@@ -283,6 +300,43 @@ def _self_test(fixtures: Path) -> tuple[int, list[dict], list[MediaError]]:
                 "skipped_packets": [],
                 "reason": "no-damage-detected",
             })
+
+    for name in _INDEX_FIXTURES:
+        candidate = fixtures / name
+        if not candidate.exists():
+            continue
+        try:
+            probed = probe(str(candidate))
+        except MediaError as exc:
+            errors.append(exc)
+            continue
+        for check in _index_checks(probed, None):
+            if check.ok:
+                continue
+            notes.append({
+                "fixture": str(candidate),
+                "segment_id": None,
+                "offset": None,
+                "resume_offset": None,
+                "salvaged_ticks": 0,
+                "skipped_packets": [],
+                "reason": "incomplete-keyframe-index",
+                "declared": check.declared,
+                "demuxed": check.demuxed,
+                "missing_samples": check.missing,
+            })
+        if not any(
+            n.get("fixture") == str(candidate)
+            and n.get("reason") == "incomplete-keyframe-index"
+            for n in notes
+        ):
+            errors.append(
+                MediaError(
+                    "verification-failed",
+                    f"fixture {name} should show an incomplete keyframe index but did not",
+                    stage="verify", path=str(candidate),
+                )
+            )
 
     for name, expected in _EXPECTED_FAILURES.items():
         candidate = fixtures / name
@@ -299,6 +353,13 @@ def _self_test(fixtures: Path) -> tuple[int, list[dict], list[MediaError]]:
             from .color import resolve
 
             codes |= {w.code for w in resolve(probed.video, path=str(candidate)).warnings}
+        if name == "empty_track.mkv":
+            # An empty mapped track is diagnosed by the timeline stage, which is
+            # where "has packets" becomes meaningful.
+            from .pipeline import Limits, build_timeline
+
+            _, timeline_errors = build_timeline(probed, Limits())
+            codes |= {e.code for e in timeline_errors}
         if not codes & expected:
             errors.append(
                 MediaError(

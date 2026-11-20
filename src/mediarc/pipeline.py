@@ -331,9 +331,9 @@ def remux_video_segment(
                 pass
         for key, value in _color_tags(color).items():
             output_stream.metadata[key] = value
-        base: int | None = None
         keyframes: list[int] = []
         count = 0
+        muxed = _MuxState(output_stream)
         for packet in packets:
             if packet.pts is None and packet.dts is None:
                 continue
@@ -344,19 +344,8 @@ def remux_video_segment(
                 continue
             if when >= end_seconds - 1e-9:
                 break
-            if base is None:
-                base = packet.dts if packet.dts is not None else pts
             source_pts = packet.pts
-            source_dts = packet.dts if packet.dts is not None else packet.pts
-            # Some demuxers omit DTS on the first packet only.  The MP4 muxer
-            # warns and guesses when DTS is absent, so fall back to PTS for that
-            # packet rather than leaving the field unset.
-            if packet.pts is not None:
-                packet.pts -= base
-            if source_dts is not None:
-                packet.dts = source_dts - base
-            packet.stream = output_stream
-            output.mux(packet)
+            muxed.push(packet, output)
             count += 1
             if packet.is_keyframe and source_pts is not None:
                 keyframes.append(
@@ -364,6 +353,7 @@ def remux_video_segment(
                         Fraction(source_pts) * stream.time_base.value
                     )
                 )
+        muxed.flush(output)
         if count == 0:
             raise MediaError(
                 "corrupt-packet",
@@ -385,6 +375,82 @@ def remux_video_segment(
         keyframe_hash=keyframe_digest(keyframes),
         audio=None,
     )
+
+
+class _MuxState:
+    """Rebase timestamps to zero and guarantee monotonic DTS for the muxer.
+
+    Matroska stores no decode timestamps, so libavformat synthesises them for
+    reordered video and leaves the first few packets unset.  Handing those to
+    the MP4 muxer as "DTS = PTS" produces a regression the muxer rejects.  This
+    class holds the leading unset packets until it has seen a real DTS and a
+    nominal frame duration, back-fills them, then shifts the whole segment so
+    its first DTS is zero.  Every packet is muxed exactly once and in order.
+    """
+
+    def __init__(self, output_stream) -> None:
+        self.output_stream = output_stream
+        self.base: int | None = None
+        self.last_dts: int | None = None
+        self.frame_duration: int | None = None
+        self.leading: list[Any] = []
+        self.settled = False
+
+    def push(self, packet, output) -> None:
+        if packet.dts is None and not self.settled:
+            self.leading.append(packet)
+            return
+        if not self.settled:
+            self._backfill(packet.dts or packet.pts or 0)
+        self._emit(packet, output)
+
+    def _backfill(self, first_dts: int) -> None:
+        self.settled = True
+        duration = self.frame_duration or 1
+        total = len(self.leading)
+        for position, packet in enumerate(self.leading):
+            packet.dts = first_dts - (total - position) * duration
+        self.leading = []
+
+    def flush(self, output) -> None:
+        if not self.settled and self.leading:
+            # No packet ever carried a DTS (audio or intra-only video): PTS is
+            # the correct DTS, and segment order is already presentation order.
+            self.settled = True
+            for packet in self.leading:
+                packet.dts = packet.pts if packet.pts is not None else 0
+            pending, self.leading = self.leading, []
+            for packet in pending:
+                self._emit(packet, output)
+            return
+        # Packets buffered while waiting cannot remain after a settled stream.
+        for packet in self.leading:
+            packet.dts = self.last_dts if self.last_dts is not None else (packet.pts or 0)
+            self._emit(packet, output)
+        self.leading = []
+
+    def _emit(self, packet, output) -> None:
+        if packet.duration and packet.duration > 0:
+            self.frame_duration = self.frame_duration or packet.duration
+        dts = packet.dts if packet.dts is not None else packet.pts
+        pts = packet.pts if packet.pts is not None else dts
+        if dts is None:
+            return
+        if pts is not None and pts < dts:
+            pts = dts
+        if self.base is None:
+            self.base = dts
+        dts -= self.base
+        pts -= self.base
+        if self.last_dts is not None and dts <= self.last_dts:
+            dts = self.last_dts + 1
+            if pts < dts:
+                pts = dts
+        self.last_dts = dts
+        packet.pts = pts
+        packet.dts = dts
+        packet.stream = self.output_stream
+        output.mux(packet)
 
 
 def _archive_segment(
