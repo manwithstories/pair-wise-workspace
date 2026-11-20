@@ -24,7 +24,8 @@ from typing import Iterable
 
 import av
 import numpy as np
-import soundfile as sf
+
+from .wavio import write_wav as _write_wav_bytes
 
 SEED = 20240517
 FPS = 25
@@ -155,10 +156,7 @@ def _encode_camera(
 
 
 def _write_wav(path: str, data: np.ndarray, rate: int) -> None:
-    def write(temp: str) -> None:
-        sf.write(temp, np.ascontiguousarray(data), rate, subtype="FLOAT")
-
-    _atomic_write(path, write)
+    _write_wav_bytes(path, data, rate, subtype="FLOAT")
 
 
 def generate_samples(directory: str, force: bool = False) -> SampleSet:

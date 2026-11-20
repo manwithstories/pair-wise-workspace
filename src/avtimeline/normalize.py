@@ -24,6 +24,8 @@ import av
 import numpy as np
 import soundfile as sf
 
+from . import wavio
+
 from .errors import MediaError, MediaLocation, Severity, Stage
 from .model import Rate, format_rational
 from .probe import ProbeResult, StreamInfo
@@ -247,10 +249,8 @@ def safe_remove(path: str) -> None:
 
 def write_silent_wav(path: str, samples: int, spec: AudioSpec = AudioSpec()) -> None:
     """Write an exact-length silence WAV (used for empty timeline regions)."""
-    temp = atomic_temp(os.path.dirname(path), ".wav")
     data = np.zeros((samples, spec.channels), dtype=np.float32)
-    sf.write(temp, data, spec.sample_rate, subtype="PCM_16")
-    os.replace(temp, path)
+    wavio.write_wav(path, data, spec.sample_rate, subtype="PCM_16")
 
 
 def normalize_audio_from_frames(
@@ -291,12 +291,9 @@ def normalize_audio_from_frames(
         )
     data = np.concatenate(chunks, axis=1)
     path = os.path.join(out_dir, f"{track_id}.audio.wav")
-    temp = atomic_temp(out_dir, ".wav")
     try:
-        sf.write(temp, np.ascontiguousarray(data.T), spec.sample_rate, subtype="PCM_16")
-        os.replace(temp, path)
+        wavio.write_wav(path, np.ascontiguousarray(data.T), spec.sample_rate, subtype="PCM_16")
     except OSError as exc:
-        safe_remove(temp)
         return None, MediaError(
             code="audio_write_failed",
             stage=Stage.NORMALIZE,
@@ -352,9 +349,7 @@ def _trim_audio(
     with sf.SoundFile(audio.path) as handle:
         data = handle.read(frames=samples, dtype="float32", always_2d=True)
     path = os.path.join(out_dir, f"{track_id}.audio.wav")
-    temp = atomic_temp(out_dir, ".wav")
-    sf.write(temp, data, spec.sample_rate, subtype="PCM_16")
-    os.replace(temp, path)
+    wavio.write_wav(path, data, spec.sample_rate, subtype="PCM_16")
     return NormalizedAudio(path=path, spec=spec, samples=samples)
 
 
