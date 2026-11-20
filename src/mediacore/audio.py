@@ -158,6 +158,13 @@ def analyze_wav(
                                always_2d=True, fill_value=0.0):
             if block.size == 0:
                 continue
+            # soundfile pads the final block to full size when fill_value is
+            # given; trim to the real frame count so padding is neither measured
+            # nor mistaken for silence.
+            remaining = info.frames - previous_end
+            if remaining <= 0:
+                break
+            block = block[:remaining]
             blocks += 1
             if collect_block_starts <= 0 or len(starts) < collect_block_starts:
                 starts.append(previous_end / info.samplerate)
