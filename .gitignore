@@ -71,3 +71,12 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Python build/cache artifacts (delivery must not include them) ----
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.tmp/
+build/
+dist/

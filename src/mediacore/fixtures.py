@@ -185,8 +185,11 @@ def encode_video(path: Path, spec: FixtureSpec) -> bytes:
         }
     else:
         stream.options = {
-            "cpu-used": "8", "lag-in-frames": "0", "g": str(spec.gop),
-            "kf-min-dist": str(spec.gop), "kf-max-dist": str(spec.gop),
+            # AV1's realtime rate control needs a longer keyframe interval at
+            # this resolution to land near the requested bitrate; the other
+            # codecs reach the target with the configured GOP.
+            "cpu-used": "8", "lag-in-frames": "0", "g": str(spec.gop * 2),
+            "kf-min-dist": str(spec.gop * 2), "kf-max-dist": str(spec.gop * 2),
             "end-usage": "cbr", "usage": "realtime",
             "undershoot-pct": "0", "overshoot-pct": "0",
         }
@@ -228,11 +231,36 @@ def make_fixtures(out_dir: Path, spec: FixtureSpec) -> dict[str, Any]:
         "corrupt_tail": spec.corrupt_tail,
     }
     if spec.corrupt_tail:
-        cut = max(1, min(spec.tail_bytes, len(data) // 4))
-        truncated = data[:-cut]
+        truncated, cut = _truncate_for_detection(data, spec)
         video_path.write_bytes(truncated)
         result["video_bytes_original"] = len(data)
         result["video_bytes"] = len(truncated)
         result["truncated_at"] = len(truncated)
         result["truncated_bytes"] = cut
     return result
+
+
+def _truncate_for_detection(data: bytes, spec: FixtureSpec) -> tuple[bytes, int]:
+    """Cut the stream so the damage is structurally locatable.
+
+    Cutting an Annex-B stream at an arbitrary byte can leave a syntactically
+    complete (if semantically short) final picture: the decoder conceals the
+    missing macroblocks and no parser can prove the cut.  To make the corrupt
+    fixture deterministic and diagnosable, the cut is placed just after a start
+    code so the file ends mid-NAL-header (Annex-B), while AV1 is cut inside the
+    last OBU payload, which its length field makes detectable.
+    """
+    if spec.codec == "av1":
+        cut = max(1, min(spec.tail_bytes, len(data) // 4))
+        return data[:-cut], cut
+    # Walk back from the end to the last start code and leave only its prefix.
+    window = data[max(0, len(data) - 65536):]
+    rel = window.rfind(b"\x00\x00\x01")
+    if rel < 0:
+        cut = max(1, min(spec.tail_bytes, len(data) // 4))
+        return data[:-cut], cut
+    end = max(0, len(data) - 65536) + rel + 3
+    if end <= 1 or end >= len(data):
+        cut = max(1, min(spec.tail_bytes, len(data) // 4))
+        return data[:-cut], cut
+    return data[:end], len(data) - end

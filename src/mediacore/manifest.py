@@ -135,9 +135,41 @@ class Manifest:
             "resource": dict(self.resource),
         }
 
+    def digest_payload(self) -> dict[str, Any]:
+        """Body used for the digest.
+
+        Only run bookkeeping is ignored (how many attempts ran, whether this one
+        resumed).  Every media-derived value, every segment digest and all issue
+        records stay in, so the digest still proves the content was reproduced.
+        """
+        body = self.body()
+        checkpoint = dict(body.get("checkpoint", {}))
+        for volatile in ("runs", "resumed"):
+            checkpoint.pop(volatile, None)
+        body["checkpoint"] = checkpoint
+        # Runtime telemetry (queue high-water marks, blocked-put counts, Python
+        # version) describes how the machine happened to schedule the run, not
+        # what was produced; it stays in the file but outside the digest.
+        body.pop("resource", None)
+        # Absolute paths identify where a run happened, not what it produced;
+        # the relative file names stay so sources remain traceable.
+        def basename(record: dict[str, Any]) -> dict[str, Any]:
+            out = dict(record)
+            if "path" in out:
+                out["path"] = out["path"].rsplit("/", 1)[-1]
+            return out
+
+        body["inputs"] = [basename(item) for item in body.get("inputs", [])]
+        body["video"] = basename(body.get("video", {}))
+        body["audio"] = basename(body.get("audio", {}))
+        if body.get("checkpoint"):
+            body["checkpoint"].pop("path", None)
+            body["checkpoint"].pop("input_digest", None)
+        return body
+
     @property
     def digest(self) -> str:
-        return compact_digest(MANIFEST_DIGEST_PREFIX, [self.body()])
+        return compact_digest(MANIFEST_DIGEST_PREFIX, [self.digest_payload()])
 
     def to_dict(self) -> dict[str, Any]:
         out = self.body()

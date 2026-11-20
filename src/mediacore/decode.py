@@ -54,11 +54,21 @@ def decoder_name(codec: str) -> str:
         raise ValueError(f"unsupported codec {codec!r}") from exc
 
 
-def new_decoder(codec: str):
-    """Create a fresh decoder context for one access unit."""
+def new_decoder(codec: str, *, strict: bool = False):
+    """Create a fresh single-threaded decoder context.
+
+    ``strict`` asks libavcodec to raise on data errors instead of concealing
+    them; the final-AU check uses it to distinguish a truncated picture from a
+    picture that merely happened to be the last one in the file.  Note that
+    H.265's software decoder conceals more aggressively than H.264's, so the
+    check is deliberately conservative: clear evidence is acted on, silence is
+    not treated as proof of integrity.
+    """
     av = _av()
     context = av.CodecContext.create(decoder_name(codec), "r")
     context.thread_count = 1
+    if strict:
+        context.options = {"err_detect": "explode"}
     context.flags |= av.codec.context.Flags.OUTPUT_CORRUPT
     return context
 
@@ -72,6 +82,40 @@ def _picture_from_frame(frame, unit_index: int) -> DecodedPicture:
         unit_index=unit_index, width=frame.width, height=frame.height,
         key=bool(frame.key_frame),
         y=np.asarray(luma, dtype=np.float32))
+
+
+def decode_tail_probe(units: Sequence[AccessUnit], codec: str,
+                      *, window: int = 32) -> tuple[bool, str, int | None]:
+    """Decode the last GOP strictly to decide whether the tail was cut.
+
+    Returns ``(truncated, reason, unit_index)``.  Only the final ``window`` units
+    are decoded, starting from the last keyframe, so the check costs one GOP of
+    work regardless of fixture length.  A decoder exception is treated as
+    evidence of truncation; quiet concealment is not.
+    """
+    av = _av()
+    if not units:
+        return False, "", None
+    start = max((i for i, u in enumerate(units) if u.keyframe), default=0)
+    window_units = units[start:][-window:]
+    context = new_decoder(codec, strict=True)
+    for unit in window_units:
+        if unit.truncated or not unit.complete:
+            return True, "structurally incomplete final access unit", unit.index
+        packet = av.Packet(unit.data)
+        packet.pts = unit.index
+        packet.dts = unit.index
+        try:
+            context.decode(packet)
+        except Exception as exc:
+            return (True,
+                    f"final access unit {unit.index} failed strict decode: "
+                    f"{type(exc).__name__}", unit.index)
+    try:
+        context.decode(None)
+    except Exception as exc:
+        return (True, f"decoder flush failed: {type(exc).__name__}", units[-1].index)
+    return False, "", None
 
 
 def decode_keyframe(unit: AccessUnit, codec: str) -> DecodedPicture | None:
