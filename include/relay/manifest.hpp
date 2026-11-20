@@ -52,6 +52,8 @@ struct Manifest {
   /// Top-level fields this consumer does not understand.  They are written
   /// back unchanged, so a newer producer/older consumer pair stays lossless.
   json::Object unknown_fields;
+
+  [[nodiscard]] std::size_t segments_count() const;
 };
 
 struct ManifestParseResult {

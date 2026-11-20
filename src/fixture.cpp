@@ -167,7 +167,11 @@ GeneratedFixture generate(const GenerateOptions& options, ErrorSink& errors) {
 
   for (std::size_t cam = 0; cam < options.cameras.size(); ++cam) {
     const std::string& track = options.cameras[cam];
-    const bool empty = options.empty_track && cam == options.cameras.size() - 1;
+    const std::size_t empty_index =
+        options.empty_camera_index == static_cast<std::size_t>(-1)
+            ? options.cameras.size() - 1
+            : options.empty_camera_index;
+    const bool empty = options.empty_track && cam == empty_index;
     const int count = empty ? 0 : frame_count;
     CameraFixture fixture;
     fixture.track = track;
@@ -179,8 +183,14 @@ GeneratedFixture generate(const GenerateOptions& options, ErrorSink& errors) {
         options.corrupt && cam == options.corrupt_camera_index;
     std::ofstream frames(fixture.frames_path, std::ios::binary);
     frames << "RELAYFRAMES 1\n" << "track " << track << "\n"
-           << "timebase " << out.timebase.fps_num << '/' << out.timebase.fps_den
-           << "\ncount " << count << "\n";
+           << "timebase " << out.timebase.fps_num << '/'
+           << out.timebase.fps_den << '\n';
+    if (cam == 1 && options.cameras.size() > 1) {
+      // cam-b depends on cam-a: mirror the declared graph into the header
+      // so the reader reconstructs the same dependency edges.
+      frames << "requires " << options.cameras.front() << '\n';
+    }
+    frames << "count " << count << '\n';
     for (int i = 0; i < count; ++i) {
       const std::int64_t raw64 =
           (base_raw + static_cast<std::int64_t>(i) * frame_us) % kTimestampModulus;

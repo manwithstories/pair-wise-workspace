@@ -13,7 +13,9 @@ std::uint64_t sliding_median(const std::deque<std::uint64_t>& window) {
   }
   std::vector<std::uint64_t> values(window.begin(), window.end());
   std::sort(values.begin(), values.end());
-  return values[values.size() / 2];
+  // Lower median: conservative, so a single spike cannot force an upgrade
+  // the link cannot actually sustain.
+  return values[(values.size() - 1) / 2];
 }
 
 }  // namespace

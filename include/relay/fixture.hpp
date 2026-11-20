@@ -28,6 +28,9 @@ struct GenerateOptions {
   int corrupt_frame = 62;
   bool lose_keyframe = false;
   bool empty_track = false;
+  /// Camera index that produces no frames when `empty_track` is set;
+  /// defaults to the last camera.
+  std::size_t empty_camera_index = static_cast<std::size_t>(-1);
   int duplicate_stride = 17;
   int reorder_stride = 11;
 };

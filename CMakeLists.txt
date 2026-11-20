@@ -28,6 +28,9 @@ add_library(relay_core STATIC
   src/json.cpp
   src/manifest.cpp
   src/checkpoint.cpp
+  src/stage_cache.cpp
+  src/pipeline.cpp
+  src/cli.cpp
 )
 target_include_directories(relay_core PUBLIC include)
 target_link_libraries(relay_core PUBLIC PkgConfig::FFMPEG OpenSSL::Crypto)

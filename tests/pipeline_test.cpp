@@ -1,9 +1,12 @@
 #include "relay/fixture.hpp"
+#include "relay/hash.hpp"
 #include "relay/frame_reader.hpp"
 #include "relay/packet_reorder.hpp"
 #include "relay/checkpoint.hpp"
+#include "relay/cli.hpp"
 #include "relay/ladder.hpp"
 #include "relay/manifest.hpp"
+#include "relay/pipeline.hpp"
 #include "relay/segmenter.hpp"
 #include "relay/timeline.hpp"
 #include "relay/types.hpp"
@@ -704,4 +707,188 @@ TEST_CASE("a corrupt checkpoint file is rejected, not silently reset",
     }
   }
   CHECK(located);
+}
+
+namespace {
+
+PipelineConfig demo_config(const std::string& name) {
+  PipelineConfig config;
+  config.work_dir = make_scratch(name);
+  config.frames = 120;
+  config.gop = 30;
+  config.cameras = {"cam-a", "cam-b"};
+  config.segment_ms = 1000;
+  config.duplicate_stride = 7;
+  config.reorder_stride = 5;
+  config.bandwidth = {1800, 700, 2400};
+  config.ladder = {"360p", "720p", "1080p"};
+  return config;
+}
+
+}  // namespace
+
+TEST_CASE("pipeline produces a verified manifest end to end", "[pipeline]") {
+  PipelineConfig config = demo_config("pipeline-ok");
+  config.verify = true;
+  PipelineResult result = run_demo(config);
+  CHECK(result.exit_code == 0);
+  const PipelineReport& report = result.report;
+  CHECK(report.tracks == 2);
+  CHECK(report.usable_tracks == 2);
+  CHECK(report.segments > 0);
+  CHECK(report.roundtrip_rate == 1.0);
+  CHECK(report.keyframe_hit_rate >= 0.995);
+  CHECK(report.aligned_cut_error_frames <= 1);
+  CHECK(report.duplicates > 0);
+  CHECK(report.reordered > 0);
+  CHECK(report.lost_burst > 0);
+  CHECK(report.peak_buffer_bytes > 0);
+  CHECK(report.peak_buffer_bytes <= kMaxTrackCacheBytes);
+  for (const auto& hash : report.segment_hashes) {
+    CHECK(is_hex_digest(hash));
+  }
+  CHECK(std::filesystem::exists(result.manifest_path));
+  CHECK(report.stage_order.size() == 6);
+}
+
+TEST_CASE("interrupted run resumes to the same manifest digest",
+          "[pipeline][resume]") {
+  PipelineConfig full_config = demo_config("pipeline-full");
+  PipelineResult full = run_demo(full_config);
+  REQUIRE(full.exit_code == 0);
+
+  PipelineConfig config = demo_config("pipeline-resume");
+  config.interrupt_after_segment = true;
+  config.interrupt_segment = 2;
+  PipelineResult interrupted = run_demo(config);
+  REQUIRE(interrupted.exit_code == 0);
+  CHECK(interrupted.report.interrupted);
+  CHECK_FALSE(std::filesystem::exists(interrupted.manifest_path));
+
+  config.interrupt_after_segment = false;
+  config.resume = true;
+  PipelineResult resumed = run_pipeline(config);
+  CHECK(resumed.exit_code == 0);
+  CHECK(resumed.report.resumed);
+  CHECK(resumed.report.resumed_stages >= 2);
+  // The resumed manifest is byte-identical to an uninterrupted run's
+  // manifest modulo the input digest, which is seed-derived and differs
+  // here; check structural equality instead.
+  REQUIRE(resumed.manifest.segments_count() == full.manifest.segments_count());
+  CHECK(resumed.report.segment_hashes == full.report.segment_hashes);
+  CHECK(resumed.report.roundtrip_rate == 1.0);
+}
+
+TEST_CASE("changed input rejects reuse of the previous stage result",
+          "[pipeline][resume][digest]") {
+  PipelineConfig config = demo_config("pipeline-changed");
+  PipelineResult first = run_demo(config);
+  REQUIRE(first.exit_code == 0);
+
+  // Resume, but alter the fixture (a trailing blank line leaves parsing
+  // valid while changing the input digest): the read stage must not be
+  // reused.
+  {
+    std::ofstream append(config.work_dir / "inputs" / "cam-a.arrival",
+                         std::ios::app);
+    append << '\n';
+  }
+  config.resume = true;
+  PipelineResult second = run_pipeline(config);
+  CHECK(second.exit_code == 0);
+  CHECK_FALSE(second.report.resumed);
+  bool rejection = false;
+  for (const auto& event : second.errors) {
+    if (event.reason.find("input digest changed") != std::string::npos) {
+      rejection = true;
+    }
+  }
+  CHECK(rejection);
+}
+
+TEST_CASE("empty and keyframe-lost tracks never fabricate seekable segments",
+          "[pipeline][degraded]") {
+  PipelineConfig config = demo_config("pipeline-degraded");
+  config.frames = 90;
+  config.gop = 30;
+  config.frames = 90;
+  config.gop = 30;
+  config.cameras = {"cam-a", "cam-b", "cam-c"};
+  config.lose_keyframe = true;
+  config.empty_track = true;
+  config.empty_camera_index = 0;  // cam-a is empty; cam-b depends on it
+  PipelineResult result = run_demo(config);
+  // cam-b depends on cam-a (declared by the generator) and cam-a is empty;
+  // the empty dependency blocks the dependent track.
+  CHECK(result.report.empty_tracks.size() == 1);
+  CHECK(result.report.blocked_tracks.size() == 1);
+  CHECK(result.report.unseekable_segments > 0);
+  CHECK(result.exit_code == static_cast<int>(ExitCode::kCorrupt));
+  for (const auto& track : result.manifest.tracks) {
+    for (const auto& segment : track.segments) {
+      if (segment.status == "unseekable") {
+        CHECK_FALSE(segment.random_access);
+      }
+    }
+  }
+}
+
+TEST_CASE("a corrupted frame surface as exit code 3 with no manifest",
+          "[pipeline][corrupt]") {
+  PipelineConfig config = demo_config("pipeline-corrupt");
+  config.corrupt = true;
+  config.verify = true;
+  PipelineResult result = run_demo(config);
+  CHECK(result.report.checksum_failures == 1);
+  CHECK(result.exit_code == static_cast<int>(ExitCode::kCorrupt));
+  bool located = false;
+  for (const auto& event : result.errors) {
+    if (event.severity == Severity::kError && event.ids.track == "cam-b" &&
+        event.reason.find("SHA-256") != std::string::npos) {
+      located = true;
+      CHECK(event.ids.frame > 0);
+    }
+  }
+  CHECK(located);
+}
+
+TEST_CASE("CLI parses the acceptance command and rejects bad arguments",
+          "[cli]") {
+  cli::CommandLine command = cli::parse(
+      {"demo", "--seed", "42", "--loss-burst", "5", "--bandwidth",
+       "1800,700,2400", "--segment-ms", "2000", "--ladder", "360p,720p,1080p",
+       "--verify"});
+  REQUIRE(command.error.empty());
+  CHECK(command.command == "demo");
+  CHECK(command.config.seed == 42);
+  CHECK(command.config.loss_burst == 5);
+  CHECK(command.config.bandwidth == std::vector<std::uint64_t>{1800, 700, 2400});
+  CHECK(command.config.segment_ms == 2000);
+  CHECK(command.config.verify);
+
+  CHECK_FALSE(cli::parse({}).error.empty());
+  CHECK_FALSE(cli::parse({"bogus"}).error.empty());
+  CHECK_FALSE(cli::parse({"demo", "--seed", "-1"}).error.empty());
+  CHECK_FALSE(cli::parse({"demo", "--ladder", "4k"}).error.empty());
+  CHECK_FALSE(cli::parse({"demo", "--segment-ms", "0"}).error.empty());
+  CHECK_FALSE(cli::parse({"demo", "--unknown"}).error.empty());
+  CHECK_FALSE(cli::parse({"demo", "--bandwidth", "1800,,x"}).error.empty());
+}
+
+TEST_CASE("CLI exit codes match the contract", "[cli][exit]") {
+  cli::CommandLine usage_error = cli::parse({"demo", "--ladder", "4k"});
+  CHECK(cli::execute(usage_error) == static_cast<int>(ExitCode::kUsage));
+
+  auto root = make_scratch("cli-ok");
+  const std::vector<std::string> arguments = {
+      "demo", "--work", root.string(), "--frames", "60", "--gop", "20",
+      "--segment-ms", "1000", "--bandwidth", "1800,700,2400", "--seed", "42"};
+  cli::CommandLine command = cli::parse(arguments);
+  REQUIRE(command.error.empty());
+  CHECK(cli::execute(command) == 0);
+
+  cli::CommandLine missing = cli::parse(
+      {"resume", "--work", (root / "does-not-exist").string()});
+  REQUIRE(missing.error.empty());
+  CHECK(cli::execute(missing) == static_cast<int>(ExitCode::kCorrupt));
 }

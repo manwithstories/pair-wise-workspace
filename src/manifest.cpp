@@ -164,6 +164,14 @@ json::Value manifest_to_json(const Manifest& manifest) {
 
 }  // namespace
 
+std::size_t Manifest::segments_count() const {
+  std::size_t total = 0;
+  for (const auto& track : tracks) {
+    total += track.segments.size();
+  }
+  return total;
+}
+
 std::string serialize(const Manifest& manifest) {
   return manifest_to_json(manifest).dump(2) + "\n";
 }
