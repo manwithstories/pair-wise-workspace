@@ -41,6 +41,10 @@ class NetworkProfile:
     drift_ppm: float = 0.0  # 节点时钟相对媒体时钟的漂移
     jitter_us: int = 0
     truncate_packets: int = 0  # 截断：只保留前 N 个包，0 表示不截断
+    # 33 位时间戳回绕：在该包序号把音频原始时钟搬到 2^33 边界附近，
+    # 后续包自然越过边界并回绕，模拟节点计数器真实翻转而非时钟突变
+    wrap_track: TrackKind | None = None
+    wrap_at_packet: int = -1
 
 
 @dataclass
@@ -64,9 +68,13 @@ def _stream_kind(stream: av.stream.Stream) -> TrackKind | None:
 
 
 def demux_segment(path: str, segment_seq: int,
-                  clocks: dict[TrackKind, MediaClock],
+                  clocks: dict[TrackKind, MediaClock] | None,
                   stats: IngestStats) -> list[PacketModel]:
-    """解复用单个分片；损坏包/空轨写入 stats.errors 而不抛出。"""
+    """解复用单个分片并做 33 位时钟解算；损坏包/空轨记录不抛出。
+
+    ``clocks`` 为 None 时只解复用、保留原始刻度（raw_pts）与微秒换算，
+    不做回绕解算，供注入层在调用 :func:`unwrap_packets` 前改写时间戳。
+    """
     packets: list[PacketModel] = []
     counters = {TrackKind.AUDIO: 0, TrackKind.VIDEO: 0}
     try:
@@ -98,31 +106,34 @@ def demux_segment(path: str, segment_seq: int,
                 raw_pts = int(pkt.pts)
                 dts_us = int(pkt.dts * tb * 1_000_000)
                 dur_us = int((pkt.duration or 0) * tb * 1_000_000)
-                # 节点时钟：以轨道原始时钟刻度做 33 位回绕解算，
-                # 解回绕后再由时钟自身换算为统一微秒时间线
-                timescale = int(round(1.0 / float(tb)))
-                clock = clocks.setdefault(
-                    kind, MediaClock(timescale, kind))
-                wrapped_pts, wrap_res = clock.unwrap(raw_pts)
-                if wrap_res == WrapResult.WRAPPED:
-                    stats.wrap_events += 1
-                    stats.errors.append(ErrorEvent(
-                        ErrorKind.TIMESTAMP_WRAP,
-                        f"ingest:seg#{segment_seq}:{kind.value}",
-                        f"33 位时间戳回绕 raw={raw_pts}",
-                        segment_seq=segment_seq))
-                elif wrap_res == WrapResult.JUMP:
-                    stats.jump_events += 1
-                    stats.errors.append(ErrorEvent(
-                        ErrorKind.CLOCK_JUMP,
-                        f"ingest:seg#{segment_seq}:{kind.value}",
-                        f"时钟突变 raw={raw_pts}",
-                        segment_seq=segment_seq))
+                plain_us = int(pkt.pts * tb * 1_000_000)
+                if clocks is None:
+                    pts_us = plain_us
+                else:
+                    # 节点时钟：以轨道原始时钟刻度做 33 位回绕解算
+                    timescale = int(round(1.0 / float(tb)))
+                    clock = clocks.setdefault(
+                        kind, MediaClock(timescale, kind))
+                    pts_us, wrap_res = clock.unwrap(raw_pts)
+                    if wrap_res == WrapResult.WRAPPED:
+                        stats.wrap_events += 1
+                        stats.errors.append(ErrorEvent(
+                            ErrorKind.TIMESTAMP_WRAP,
+                            f"ingest:seg#{segment_seq}:{kind.value}",
+                            f"33 位时间戳回绕 raw={raw_pts}",
+                            segment_seq=segment_seq))
+                    elif wrap_res == WrapResult.JUMP:
+                        stats.jump_events += 1
+                        stats.errors.append(ErrorEvent(
+                            ErrorKind.CLOCK_JUMP,
+                            f"ingest:seg#{segment_seq}:{kind.value}",
+                            f"时钟突变 raw={raw_pts}",
+                            segment_seq=segment_seq))
                 seq = counters[kind]
                 counters[kind] += 1
                 packets.append(PacketModel(
                     track=kind, seq=seq, segment_seq=segment_seq,
-                    raw_pts=raw_pts, pts_us=wrapped_pts,
+                    raw_pts=raw_pts, pts_us=pts_us,
                     dts_us=dts_us, duration_us=dur_us,
                     arrival_us=now_us(), size_bytes=pkt.size or 0,
                     keyframe=bool(pkt.is_keyframe)))
@@ -138,6 +149,43 @@ def demux_segment(path: str, segment_seq: int,
     return packets
 
 
+def unwrap_packets(packets: list[PacketModel],
+                   clocks: dict[TrackKind, MediaClock],
+                   stats: IngestStats,
+                   timescale_hint: dict[TrackKind, int] | None = None
+                   ) -> list[PacketModel]:
+    """对已解复用（可能被注入改写 raw_pts）的包统一做时钟解算。"""
+    out: list[PacketModel] = []
+    for pkt in packets:
+        clock = clocks.get(pkt.track)
+        if clock is None:
+            hint = (timescale_hint or {}).get(pkt.track, 1_000_000)
+            clock = MediaClock(hint, pkt.track)
+            clocks[pkt.track] = clock
+        pts_us, wrap_res = clock.unwrap(pkt.raw_pts)
+        if wrap_res == WrapResult.WRAPPED:
+            stats.wrap_events += 1
+            stats.errors.append(ErrorEvent(
+                ErrorKind.TIMESTAMP_WRAP,
+                f"ingest:seg#{pkt.segment_seq}:{pkt.track.value}",
+                f"33 位时间戳回绕 raw={pkt.raw_pts}",
+                segment_seq=pkt.segment_seq))
+        elif wrap_res == WrapResult.JUMP:
+            stats.jump_events += 1
+            stats.errors.append(ErrorEvent(
+                ErrorKind.CLOCK_JUMP,
+                f"ingest:seg#{pkt.segment_seq}:{pkt.track.value}",
+                f"时钟突变 raw={pkt.raw_pts}",
+                segment_seq=pkt.segment_seq))
+        out.append(PacketModel(
+            track=pkt.track, seq=pkt.seq, segment_seq=pkt.segment_seq,
+            raw_pts=pkt.raw_pts, pts_us=pts_us, dts_us=pkt.dts_us,
+            duration_us=pkt.duration_us, arrival_us=pkt.arrival_us,
+            size_bytes=pkt.size_bytes, keyframe=pkt.keyframe,
+            synthetic=pkt.synthetic))
+    return out
+
+
 class NetworkConditioner:
     """确定性传输故障注入，顺序：截断 -> 突发丢包 -> 重复 -> 乱序 -> 漂移/抖动。"""
 
@@ -145,6 +193,32 @@ class NetworkConditioner:
         self.profile = profile
         self._rng = random.Random(profile.seed)
         self._drop_budget = 0
+        # 各轨回绕注入游标与标称步进（毫秒），不依赖单个包的 duration
+        self._wrap_cursor: dict[TrackKind, int] = {}
+        self._wrap_step: dict[TrackKind, int] = {}
+
+    def _apply_wrap(self, pkt: PacketModel) -> int:
+        """把节点 33 位计数器回绕注入到 raw_pts。
+
+        启用回绕的轨道从首个包起把计数器放在 2^33 边界前若干步，之后
+        按固定标称步进单调累加并对 2^33 取模。使用固定步进而非每包
+        duration，避免音频帧 21/33ms 时长差异让游标产生小幅回退；流
+        单调走到边界后自然翻转，仅产生一次大幅负增量，被 MediaClock
+        唯一判为 WRAPPED，全程无 JUMP。
+        """
+        track = pkt.track
+        p = self.profile
+        if p.wrap_track != track:
+            return pkt.raw_pts
+        period = 1 << 33
+        if track not in self._wrap_cursor:
+            step = 21 if track == TrackKind.AUDIO else 33
+            self._wrap_step[track] = step
+            lead = max(1, p.wrap_at_packet)
+            self._wrap_cursor[track] = period - step * lead
+        cursor = self._wrap_cursor[track]
+        self._wrap_cursor[track] = (cursor + self._wrap_step[track]) % period
+        return cursor
 
     def _should_drop(self) -> bool:
         p = self.profile
@@ -173,12 +247,13 @@ class NetworkConditioner:
             if self._should_drop():
                 stats.lost += 1
                 continue
+            raw_pts = self._apply_wrap(pkt)
             # 漂移作用在到达墙钟上（媒体时间戳不变，由 clock 模块估计）
             arrival = base + int((pkt.pts_us * drift_factor)
                                  + self._rng.uniform(-p.jitter_us, p.jitter_us))
             moved = PacketModel(
                 track=pkt.track, seq=pkt.seq, segment_seq=pkt.segment_seq,
-                raw_pts=pkt.raw_pts, pts_us=pkt.pts_us, dts_us=pkt.dts_us,
+                raw_pts=raw_pts, pts_us=pkt.pts_us, dts_us=pkt.dts_us,
                 duration_us=pkt.duration_us, arrival_us=arrival,
                 size_bytes=pkt.size_bytes, keyframe=pkt.keyframe)
             out.append(moved)

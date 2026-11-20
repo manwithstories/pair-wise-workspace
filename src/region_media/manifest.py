@@ -135,13 +135,10 @@ def _parse_hls(path: str) -> ManifestModel:
         raise ManifestError(ErrorKind.TRUNCATED_MANIFEST, path,
                             "缺少 #EXTM3U 头")
     errors: list[ErrorEvent] = []
-    truncated = "#EXT-X-ENDLIST" not in text
-    if truncated:
-        errors.append(ErrorEvent(ErrorKind.TRUNCATED_MANIFEST, path,
-                                 "缺少 #EXT-X-ENDLIST，清单被截断"))
+    # master 播放列表本身不带 ENDLIST，截断判定下沉到媒体列表
+    truncated = False
     target_dur = 0
     playlist_files: list[tuple[str, TrackKind]] = []
-    pending_kind: TrackKind | None = None
     pending_info = ""
     for ln in lines[1:]:
         if ln.startswith("#EXT-X-STREAM-INF"):
@@ -168,10 +165,16 @@ def _parse_hls(path: str) -> ManifestModel:
     if playlist_files:
         for pl_uri, kind in playlist_files:
             pl_path = _safe_resolve(base_dir, pl_uri, f"hls:{pl_uri}")
-            refs.extend(_parse_hls_media(pl_path, kind, errors))
+            sub_refs, sub_trunc = _parse_hls_media(
+                pl_path, kind, errors, base_dir)
+            refs.extend(sub_refs)
+            truncated = truncated or sub_trunc
     else:  # 直接传入媒体播放列表
-        refs.extend(_parse_hls_media(path, TrackKind.AUDIO, errors,
-                                     skip_header=True))
+        refs, truncated = _parse_hls_media(
+            path, TrackKind.AUDIO, errors, base_dir, skip_header=True)
+    if truncated:
+        errors.append(ErrorEvent(ErrorKind.TRUNCATED_MANIFEST, path,
+                                 "媒体播放列表缺少 #EXT-X-ENDLIST，清单被截断"))
     refs = _coalesce_refs(refs, base_dir, errors, existing)
     model = ManifestModel(ManifestFormat.HLS, base_dir, refs, errors,
                           truncated, target_dur, _digest(path))
@@ -179,14 +182,16 @@ def _parse_hls(path: str) -> ManifestModel:
 
 
 def _parse_hls_media(path: str, kind: TrackKind,
-                     errors: list[ErrorEvent],
-                     skip_header: bool = False) -> list[ManifestRef]:
+                     errors: list[ErrorEvent], top_base_dir: str,
+                     skip_header: bool = False) -> tuple[list[ManifestRef], bool]:
     with open(path, encoding="utf-8") as fh:
         text = fh.read()
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     if not lines or not lines[0].startswith("#EXTM3U"):
         raise ManifestError(ErrorKind.TRUNCATED_MANIFEST, path,
                             "媒体播放列表缺少 #EXTM3U 头")
+    pl_dir = os.path.dirname(os.path.abspath(path))
+    truncated = "#EXT-X-ENDLIST" not in text
     refs: list[ManifestRef] = []
     seq = 0
     m = re.search(r"#EXT-X-MEDIA-SEQUENCE:(\d+)", text)
@@ -203,10 +208,14 @@ def _parse_hls_media(path: str, kind: TrackKind,
             errors.append(ErrorEvent(
                 ErrorKind.TRUNCATED_MANIFEST, f"hls:{os.path.basename(path)}",
                 f"分片 {ln} 缺少 EXTINF 时长", segment_seq=seq))
-        refs.append(ManifestRef(seq, ln, pending_dur, kind=kind))
+        # 分片相对媒体列表自身目录解析，再换算为相对顶层清单的 URI，
+        # 使后续越界校验与文件存在性检查统一在顶层基准目录完成
+        seg_abs = os.path.normpath(os.path.join(pl_dir, ln))
+        seg_rel = os.path.relpath(seg_abs, top_base_dir)
+        refs.append(ManifestRef(seq, seg_rel, pending_dur, kind=kind))
         seq += 1
         pending_dur = 0
-    return refs
+    return refs, truncated
 
 
 def _parse_dash(path: str) -> ManifestModel:
@@ -221,11 +230,10 @@ def _parse_dash(path: str) -> ManifestModel:
     ns = {"m": MPD_NS}
     if root.tag != f"{{{MPD_NS}}}MPD":
         raise ManifestError(ErrorKind.TRUNCATED_MANIFEST, path, "非 MPD 根节点")
-    truncated = (root.get("type", "static") == "dynamic"
-                 and root.find(".//m:SegmentTimeline", ns) is None)
+    truncated = root.get("type", "static") == "dynamic"
     if truncated:
         errors.append(ErrorEvent(ErrorKind.TRUNCATED_MANIFEST, path,
-                                 "动态 MPD 缺少 SegmentTimeline"))
+                                 "动态 MPD：分片列表可能不完整"))
     refs: list[ManifestRef] = []
     existing: dict[tuple[int, TrackKind], str] = {}
     for adap in root.findall(".//m:AdaptationSet", ns):

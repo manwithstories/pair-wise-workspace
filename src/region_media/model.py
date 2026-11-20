@@ -159,41 +159,53 @@ class MediaClock:
         return (extended_raw - self._base_raw) * 1_000_000 // self.timescale
 
     def unwrap(self, raw_pts: int) -> tuple[int, WrapResult]:
-        """提交一个原始时间戳，返回 (统一时间线 us, 事件类型)。"""
-        raw_pts %= self.wrap_mod
+        """提交一个原始时间戳，返回 (统一时间线 us, 事件类型)。
+
+        判定顺序：
+        1. 大幅负增量（< -period/2）是回绕的唯一候选：补偿一个周期后
+           残差为合理正向增量 -> WRAPPED；否则 JUMP；
+        2. 大幅正增量超过合理增量上限 -> JUMP（真实时钟突变）；
+        3. 小幅正负波动（乱序/重传/编码器起始负 PTS）-> OK。
+
+        首个包作为带符号基准直接归零，不做模运算，避免 AAC 起始负
+        PTS（如 -21）被折成大正数后把第二个包误判为回绕。
+        """
         if self._base_raw is None:
+            # 带符号起始基准（AAC 可能为负 PTS），时间线从这里归零
             self._base_raw = raw_pts
             self._last_raw = raw_pts
             return 0, WrapResult.OK
         period = self.wrap_mod
-        delta = raw_pts - self._last_raw
+        sane = MAX_SANE_DELTA_US * self.timescale // 1_000_000
+        # 优先用带符号原始差值：正常流（含起始负 PTS 回正、乱序小幅
+        # 倒退）的差值都落在合理范围内，直接判定，不做模折回。
+        signed_delta = raw_pts - self._last_raw
         result = WrapResult.OK
-        if delta < -period // 2:
-            # 候选回绕：补偿一个周期后检查残差是否落在合理增量内
-            residual = delta + period
-            if 0 <= residual <= MAX_SANE_DELTA_US * self.timescale // 1_000_000:
+        if -period // 2 <= signed_delta <= sane:
+            pass  # 正常增量或小幅波动
+        elif signed_delta < -period // 2:
+            # 唯一的回绕候选：补偿一个周期后残差应为合理正增量
+            residual = signed_delta + period
+            if 0 <= residual <= sane:
                 self._wraps += 1
                 self.wrap_events += 1
-                delta = residual
                 result = WrapResult.WRAPPED
             else:
                 self.jump_events += 1
                 result = WrapResult.JUMP
-        elif delta > MAX_SANE_DELTA_US * self.timescale // 1_000_000:
+        else:  # signed_delta > sane：真实时钟突变
             self.jump_events += 1
             result = WrapResult.JUMP
-        elif delta < 0:
-            # 小幅倒退（乱序/重传），不改时钟状态
-            result = WrapResult.OK
-        if result != WrapResult.WRAPPED:
-            pass
-        extended = raw_pts + self._wraps * period
-        pts_us = self._to_us(extended)
-        if result == WrapResult.JUMP:
-            expected = self._to_us((self._last_raw or 0) + self._wraps * period)
-            if abs(pts_us - expected) < JUMP_RESIDUAL_US:
-                result = WrapResult.OK
-                self.jump_events -= 1
+        # 统一时间线：扩展连续刻度（周期内观测 + 圈数 * 周期）减去
+        # 基准的周期内刻度，再换算微秒；无回绕时即普通相对时间差
+        obs_mod = raw_pts % period
+        base_mod = self._base_raw % period
+        extended = obs_mod + self._wraps * period
+        pts_us = (extended - base_mod) * 1_000_000 // self.timescale
+        # 起始负 PTS（base < 0 且尚未回绕）：直接用带符号差，避免折回
+        if self._wraps == 0 and self._base_raw < 0:
+            pts_us = ((raw_pts - self._base_raw) * 1_000_000
+                      // self.timescale)
         self._last_raw = raw_pts
         return pts_us, result
 
