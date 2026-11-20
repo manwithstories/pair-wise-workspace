@@ -755,11 +755,13 @@ def archive(
     report.stage_status["color"] = "partial" if color and color.warnings else "ok"
 
     # -- stage: transform -------------------------------------------------
-    failed_ids = {
-        e.detail.get("segment_id")
-        for e in all_timeline_errors
-        if e.detail.get("segment_id")
-    }
+    failed_ids: set[str] = set()
+    for error in all_timeline_errors:
+        named = error.detail.get("segment_id")
+        if isinstance(named, str):
+            failed_ids.add(named)
+        elif isinstance(named, (list, tuple)):
+            failed_ids.update(str(x) for x in named)
     transform_input = stage_input_digest(
         timeline=stage_input_digest(timeline=timeline.to_dict()),
         rate=rate, layout=layout, lufs=lufs,
@@ -835,10 +837,21 @@ def archive(
 def _isolate_timeline_errors(
     errors: list[MediaError], timeline: Timeline
 ) -> list[MediaError]:
-    """Attach the affected segment id to timeline errors, for isolation."""
+    """Decide which segments a timeline error condemns.
+
+    Errors that name their segments (an undeclared overlap) isolate exactly
+    those; an error that cannot be attributed to one segment is recorded but
+    isolates nothing, so a healthy track is never dropped on a guess.
+    """
     stamped: list[MediaError] = []
     for error in errors:
+        named = error.detail.get("segment_ids")
+        if named:
+            error.detail.setdefault("segment_id", list(named))
+            stamped.append(error)
+            continue
         if error.code in ("transition-overlap", "transition-mismatch"):
+            stamped.append(error)
             continue
         candidates = [
             s for s in timeline.segments

@@ -461,6 +461,9 @@ class Timeline:
                             "transition-overlap",
                             f"segments {prev.segment_id} and {nxt.segment_id} overlap without a transition",
                             stage="timeline", path=path, stream_index=track_index,
+                            detail={
+                                "segment_ids": [prev.segment_id, nxt.segment_id]
+                            },
                         )
                     )
         return errors

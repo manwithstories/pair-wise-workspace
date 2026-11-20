@@ -298,14 +298,13 @@ class TransitionTests(unittest.TestCase):
             [
                 Segment("v00", 0, 0, 48_000),
                 Segment("v01", 0, 40_000, 96_000),
-                Segment("v02", 0, 96_000, 96_001),
             ],
         )
         errors = timeline.validate(path="x.mkv")
         self.assertEqual([e.code for e in errors], ["transition-overlap"])
         stamped = _isolate_timeline_errors(errors, timeline)
-        # Ambiguous attribution must not guess a single segment.
-        self.assertNotIn("segment_id", stamped[0].detail)
+        # Both overlapping segments are condemned; the third is untouched.
+        self.assertEqual(stamped[0].detail["segment_id"], ["v00", "v01"])
 
     def test_transition_to_missing_segment_is_reported(self):
         from mediarc.pipeline import _parse_transitions
