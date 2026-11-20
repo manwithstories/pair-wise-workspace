@@ -30,6 +30,8 @@ add_library(mediacore STATIC
   src/serialize.cpp
   src/materialize.cpp
   src/roundtrip.cpp
+  src/probe.cpp
+  src/keyframe_analysis.cpp
 )
 target_include_directories(mediacore PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -47,3 +49,8 @@ add_executable(test_manifest tests/test_manifest.cpp)
 target_link_libraries(test_manifest PRIVATE
   mediacore Catch2::Catch2WithMain)
 add_test(NAME manifest COMMAND test_manifest)
+
+add_executable(test_probe tests/test_probe.cpp)
+target_link_libraries(test_probe PRIVATE
+  mediacore Catch2::Catch2WithMain)
+add_test(NAME probe COMMAND test_probe)
