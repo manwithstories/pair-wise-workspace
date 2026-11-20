@@ -53,7 +53,11 @@ verified=false error_stage=parse source_offset=1762 recoverable=false
 - `timeline.mp4` — 双轨（视频 90 kHz / 音频 48 kHz）MP4，含 3 个剪辑 + 1 个转场
 - `timeline.json` — 时间线 sidecar（版本标记、轨道、剪辑、转场、样本区间）
 - `rtp.dump` — RTP 时间戳映射（`[2 字节长度][RTP 包]`），仅元数据包头
-- `corrupt.mp4` — 有效文件的截断前缀，用于验证错误定位
+- `corrupt.mp4` — 有效文件的截断前缀（箱越界，不可恢复）
+- `corrupt_tail.mp4` — 箱头完整、样本越界（可恢复，验证部分输出）
+- `corrupt_<kind>.mp4` / `.json` — 四种损坏样例：
+  `truncate`（截断）、`badlength`（非法箱长度）、
+  `badmarker`（未知必需标记）、`overflow`（时间基准为 0）
 
 ### `repair`
 
@@ -124,6 +128,15 @@ tests/integration_test.go 跨模块行为验证
 解析器作为生产者把样本推入容量为 `--buffer` 的队列，消费者慢时生产者阻塞并累计
 `backpressure_wait_ms`；`peak_buffer_samples` 不会超过容量。取消通过 `context`
 传导，阻塞的读写会被及时释放，已验证片段的报告仍会产出。
+
+### 可恢复错误与部分输出
+
+样本级别的输入截断（如 `corrupt_tail.mp4`）标记为 `recoverable=true`。
+此时流水线不会静默跳过，而是：
+
+1. 在报告 `failed_stage`/`failed_offset`/`recoverable`/`error` 中记录失败定位；
+2. 只输出**样本数达到预期**的完整片段哈希与统计；
+3. 以退出码 1 返回，便于值班人员定位并重跑。
 
 ### 续跑
 
