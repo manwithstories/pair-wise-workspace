@@ -23,9 +23,9 @@ public:
     // 入队；队列满则阻塞。返回 false 表示已取消，调用方必须停止读取。
     bool push(AudioBlock block) {
         std::unique_lock lock(mutex_);
-        notFull_.wait(lock, [&] { return cancelled_ ||
+        notFull_.wait(lock, [&] { return closed_ || cancelled_ ||
                                        queue_.size() < capacity_; });
-        if (cancelled_) {
+        if (closed_ || cancelled_) {
             return false;
         }
         queue_.push(std::move(block));
@@ -36,13 +36,14 @@ public:
         return true;
     }
 
-    // 出队；队列空则阻塞。返回 false 表示已取消且队列已排空。
+    // 出队；队列空则阻塞。返回 false 表示队列已关闭且排空。
     bool pop(AudioBlock& out) {
         std::unique_lock lock(mutex_);
         notEmpty_.wait(lock,
-                       [&] { return cancelled_ || !queue_.empty(); });
+                       [&] { return closed_ || cancelled_ ||
+                                    !queue_.empty(); });
         if (queue_.empty()) {
-            return false;
+            return false; // 关闭/取消且已排空
         }
         out = std::move(queue_.front());
         queue_.pop();
@@ -50,9 +51,18 @@ public:
         return true;
     }
 
+    // 生产者正常结束时调用：排空后 pop 返回 false
+    void close() {
+        std::lock_guard lock(mutex_);
+        closed_ = true;
+        notEmpty_.notify_all();
+        notFull_.notify_all();
+    }
+
     void cancel() {
         std::lock_guard lock(mutex_);
         cancelled_ = true;
+        closed_ = true;
         notEmpty_.notify_all();
         notFull_.notify_all();
     }
@@ -70,6 +80,7 @@ private:
     std::queue<AudioBlock> queue_;
     std::size_t capacity_;
     std::size_t peak_ = 0;
+    bool closed_ = false;
     bool cancelled_ = false;
 };
 

@@ -57,12 +57,20 @@ struct AudioBlock {
     SampleTick startSample = 0;                 // 该块首帧的全局采样刻度
     std::vector<std::uint8_t> interleavedPcm;   // 交错 s16le
     BlockKind kind = BlockKind::Normal;
+    SampleTick gapFrames = 0;     // Gap 块：缺口占用的采样刻度
+    SampleTick corruptFrames = 0; // Corrupt 块：损坏区间折算帧数
 
     SampleTick frameCount() const noexcept {
         return format.framesInBytes(
             static_cast<ByteOffset>(interleavedPcm.size()));
     }
     SampleTick endSample() const noexcept {
+        if (kind == BlockKind::Gap) {
+            return startSample + gapFrames;
+        }
+        if (kind == BlockKind::Corrupt) {
+            return startSample + corruptFrames;
+        }
         return startSample + frameCount();
     }
 };

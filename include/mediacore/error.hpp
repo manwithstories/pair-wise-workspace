@@ -86,4 +86,19 @@ private:
     std::variant<T, MediaError> storage_;
 };
 
+// void 特化：仅承载成功/失败状态
+template <>
+class Result<void> {
+public:
+    Result() = default;
+    Result(MediaError error) : error_(std::move(error)) {}
+
+    bool ok() const noexcept { return error_.ok(); }
+    explicit operator bool() const noexcept { return ok(); }
+    const MediaError& error() const& { return error_; }
+
+private:
+    MediaError error_;
+};
+
 } // namespace mediacore
