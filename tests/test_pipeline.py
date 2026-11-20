@@ -144,8 +144,6 @@ def test_acceptance_scenario_meets_all_limits(tmp_path):
 
 
 def test_verification_rejects_broken_segment_boundaries(tiny_dir):
-    from mediacore.manifest import Segment
-
     units = _units(tiny_dir["video_path"])
     seconds = [i / 30 for i in range(len(units))]
     segments = build_segments(units, seconds, target_bps=600_000,
@@ -174,7 +172,7 @@ def test_scan_retains_bounded_payload_for_long_streams(tmp_path):
     from mediacore.pipeline import scan_stream
 
     spec = FixtureSpec(codec="h264", duration_s=6, bitrate=600_000, seed=2)
-    files = make_fixtures(tmp_path / "in", spec)
+    make_fixtures(tmp_path / "in", spec)
     stage = scan_stream(tmp_path / "in" / "video.h264", "h264", keep_first=5)
     retained = sum(len(u.data) for u in stage.units)
     total = sum(u.size for u in stage.units)

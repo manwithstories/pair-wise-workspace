@@ -79,7 +79,35 @@ class AccessUnit:
             "is_irap": self.is_irap,
             "nal_types": list(self.nal_types),
             "complete": self.complete,
+            "truncated": self.truncated,
         }
+
+    def metadata(self) -> dict[str, Any]:
+        """JSON-safe record without the payload, for checkpoint reuse."""
+        record = self.to_dict()
+        if self.source_path:
+            record["source_path"] = self.source_path
+        return record
+
+    @classmethod
+    def from_metadata(cls, raw: dict[str, Any]) -> "AccessUnit":
+        """Rebuild a payload-less unit from :meth:`metadata` output.
+
+        The payload stays on disk and is read through :meth:`payload` when a
+        stage needs it, so restoring a checkpoint does not load the stream.
+        """
+        return cls(
+            index=int(raw["index"]),
+            offset=int(raw["offset"]),
+            data=b"",
+            keyframe=bool(raw["keyframe"]),
+            is_irap=bool(raw.get("is_irap", False)),
+            nal_types=tuple(int(t) for t in raw.get("nal_types") or ()),
+            truncated=bool(raw.get("truncated", False)),
+            complete=bool(raw.get("complete", True)),
+            source_path=raw.get("source_path"),
+            _stored_size=int(raw["size"]),
+        )
 
 
 @dataclass
@@ -110,6 +138,32 @@ class ScanReport:
         if self.truncated_start_code_offset is not None:
             out["truncated_start_code_offset"] = self.truncated_start_code_offset
         return out
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> "ScanReport":
+        """Restore a report persisted next to the unit metadata."""
+        from .errors import MediaIssue
+
+        report = cls(
+            codec=str(raw.get("codec", "")),
+            units=int(raw.get("units", 0)),
+            keyframes=int(raw.get("keyframes", 0)),
+            bytes_consumed=int(raw.get("bytes_consumed", 0)),
+            truncated_tail_offset=raw.get("truncated_tail_offset"),
+            truncated_tail_reason=str(raw.get("truncated_tail_reason", "")),
+            truncated_start_code_offset=raw.get("truncated_start_code_offset"),
+        )
+        report.issues = [
+            MediaIssue(
+                code=str(item.get("code", "issue")),
+                message=str(item.get("message", "")),
+                offset=int(item.get("offset", 0)),
+                severity=str(item.get("severity", "error")),
+                detail=dict(item.get("detail") or {}),
+            )
+            for item in raw.get("issues", []) if isinstance(item, dict)
+        ]
+        return report
 
 
 class _ChunkReader:

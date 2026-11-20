@@ -117,6 +117,20 @@ class StampDecision:
             out["note"] = self.note
         return out
 
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> "StampDecision":
+        return cls(
+            raw=None if raw.get("raw") is None else int(raw["raw"]),
+            fixed=int(raw["fixed"]),
+            reason=str(raw.get("reason", "ok")),
+            uncertain=bool(raw.get("uncertain", False)),
+            window_lo=None if raw.get("window_lo") is None else int(raw["window_lo"]),
+            window_hi=None if raw.get("window_hi") is None else int(raw["window_hi"]),
+            duplicate_of=(None if raw.get("duplicate_of") is None
+                          else int(raw["duplicate_of"])),
+            note=str(raw.get("note", "")),
+        )
+
 
 @dataclass
 class TimelineRepair:
@@ -150,6 +164,38 @@ class TimelineRepair:
             "unit_ticks": self.unit_ticks,
             "issues": [i.to_dict() for i in self.issues],
         }
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialise every decision so a resumed run can rebuild the timeline."""
+        return {
+            "time_base": {"num": self.time_base.num, "den": self.time_base.den},
+            "wrap_count": self.wrap_count,
+            "unit_ticks": self.unit_ticks,
+            "decisions": [d.to_dict() for d in self.decisions],
+            "issues": [i.to_dict() for i in self.issues],
+        }
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> "TimelineRepair":
+        time_base = TimeBase(int(raw["time_base"]["num"]),
+                             int(raw["time_base"]["den"]))
+        issues = [
+            MediaIssue(
+                code=str(item.get("code", "timestamp_issue")),
+                message=str(item.get("message", "")),
+                offset=int(item.get("offset", 0)),
+                severity=str(item.get("severity", "warning")),
+                detail=dict(item.get("detail") or {}),
+            )
+            for item in raw.get("issues", []) if isinstance(item, dict)
+        ]
+        return cls(
+            time_base=time_base,
+            decisions=[StampDecision.from_dict(d) for d in raw.get("decisions", [])],
+            issues=issues,
+            wrap_count=int(raw.get("wrap_count", 0)),
+            unit_ticks=int(raw.get("unit_ticks", 1)),
+        )
 
 
 def _unwrap(raw: Sequence[int | None], period: int) -> tuple[list[int | None], list[bool], int]:

@@ -45,6 +45,15 @@ class IndexEntry:
             "ordinal": self.ordinal,
         }
 
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> "IndexEntry":
+        return cls(
+            unit_index=int(raw["unit_index"]), offset=int(raw["offset"]),
+            size=int(raw["size"]), pts=int(raw["pts"]),
+            pts_seconds=float(raw["pts_seconds"]),
+            keyframe=bool(raw.get("keyframe", True)),
+            ordinal=int(raw.get("ordinal", 0)))
+
 
 @dataclass
 class IndexValidation:
@@ -70,6 +79,27 @@ class IndexValidation:
             "corrections": list(self.corrected),
         }
 
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any],
+                  accepted: list[IndexEntry]) -> "IndexValidation":
+        from .errors import MediaIssue
+
+        rejections = [
+            MediaIssue(
+                code=str(item.get("code", "index_rejected")),
+                message=str(item.get("message", "")),
+                offset=int(item.get("offset", 0)),
+                severity=str(item.get("severity", "error")),
+                detail=dict(item.get("detail") or {}),
+            )
+            for item in raw.get("rejections", []) if isinstance(item, dict)
+        ]
+        return cls(
+            accepted=list(accepted), rejected=rejections,
+            corrected=[dict(c) for c in raw.get("corrections", [])],
+            supplied=int(raw.get("supplied", len(accepted))),
+        )
+
 
 @dataclass
 class SeekCheck:
@@ -87,6 +117,14 @@ class SeekCheck:
             "error_ms": round(self.error_ms, 3),
             "keyframe_index": self.keyframe_index,
         }
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> "SeekCheck":
+        return cls(
+            target_ms=float(raw["target_ms"]),
+            landed_ms=float(raw["landed_ms"]),
+            error_ms=float(raw["error_ms"]),
+            keyframe_index=int(raw["keyframe_index"]))
 
 
 @dataclass
@@ -116,6 +154,31 @@ class RandomAccessIndex:
             "seeks": [s.to_dict() for s in self.seeks],
             "issues": [i.to_dict() for i in self.issues],
         }
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> "RandomAccessIndex":
+        from .errors import MediaIssue
+
+        time_base = TimeBase(int(raw["time_base"]["num"]),
+                             int(raw["time_base"]["den"]))
+        entries = [IndexEntry.from_dict(e) for e in raw.get("entries", [])]
+        issues = [
+            MediaIssue(
+                code=str(item.get("code", "index_issue")),
+                message=str(item.get("message", "")),
+                offset=int(item.get("offset", 0)),
+                severity=str(item.get("severity", "error")),
+                detail=dict(item.get("detail") or {}),
+            )
+            for item in raw.get("issues", []) if isinstance(item, dict)
+        ]
+        return cls(
+            entries=entries, time_base=time_base,
+            validation=IndexValidation.from_dict(
+                dict(raw.get("validation") or {}), entries),
+            seeks=[SeekCheck.from_dict(s) for s in raw.get("seeks", [])],
+            issues=issues,
+        )
 
 
 def _coerce_entry(raw: Any, position: int) -> tuple[int | None, int | None, int | None]:

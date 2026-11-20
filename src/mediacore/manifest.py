@@ -144,7 +144,7 @@ class Manifest:
         """
         body = self.body()
         checkpoint = dict(body.get("checkpoint", {}))
-        for volatile in ("runs", "resumed"):
+        for volatile in ("runs", "resumed", "reused"):
             checkpoint.pop(volatile, None)
         body["checkpoint"] = checkpoint
         # Runtime telemetry (queue high-water marks, blocked-put counts, Python

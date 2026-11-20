@@ -42,6 +42,10 @@ class SilenceInterval:
             "duration_s": round(self.duration_s, 6),
         }
 
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> "SilenceInterval":
+        return cls(start_s=float(raw["start_s"]), end_s=float(raw["end_s"]))
+
 
 @dataclass
 class AudioAnalysis:
@@ -91,6 +95,29 @@ class AudioAnalysis:
             "blocks": self.blocks,
             "block_frames": self.block_frames,
         }
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> "AudioAnalysis":
+        """Rebuild an analysis record persisted in derived.json."""
+        return cls(
+            path=str(raw.get("path", "")),
+            sample_rate=int(raw["sample_rate"]),
+            channels=int(raw["channels"]),
+            frames=int(raw["frames"]),
+            duration_s=float(raw["duration_s"]),
+            peak=float(raw["peak"]),
+            peak_dbfs=float(raw["peak_dbfs"]),
+            rms=float(raw["rms"]),
+            rms_dbfs=float(raw["rms_dbfs"]),
+            silence_db=float(raw.get("silence_db", DEFAULT_SILENCE_DB)),
+            silence_intervals=[SilenceInterval.from_dict(i)
+                               for i in raw.get("silence_intervals", [])],
+            silence_truncated=bool(raw.get("silence_truncated", False)),
+            blocks=int(raw.get("blocks", 0)),
+            block_frames=int(raw.get("block_frames", 0)),
+            block_starts=list(raw.get("block_starts") or []),
+            channel_layout=str(raw.get("channel_layout", "")),
+        )
 
 
 def _dbfs(value: float) -> float:
