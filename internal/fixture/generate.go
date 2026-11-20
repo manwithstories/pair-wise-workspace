@@ -57,10 +57,11 @@ func BuildStream(spec Spec) ([]byte, []sidecar.FrameMeta) {
 			step = uint64(spec.VFRPattern[i%len(spec.VFRPattern)])
 		}
 		if i > 0 {
-			jit := int64(spec.JitterTicks)
-			ts64 = uint64(int64(ts64) + int64(step) + jit)
+			ts64 += step
 		}
-		rawTS = uint32(ts64)
+		// 抖动是每帧的固定微偏（不累计），模拟编码器打点的小幅相位差，
+		// 避免各表示层时间轴整体漂移。
+		rawTS = uint32(ts64 + uint64(spec.JitterTicks))
 		frames = append(frames, sidecar.FrameMeta{RawTS: rawTS, Keyframe: keyframe})
 		bb.writeAU(spec.Codec, i, keyframe, rng.next())
 	}
