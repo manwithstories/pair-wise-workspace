@@ -113,3 +113,53 @@ def test_stage_commit_rejects_inverted_ranges():
     assert StageCommit.from_dict({
         "stage": "x", "unit_start": 5, "unit_end": 4, "byte_start": 0,
         "byte_end": 1, "records": 1, "digest": "d"}) is None
+
+
+def test_persisted_artifacts_round_trip(tmp_path):
+    """Every checkpoint-persisted structure must restore to equal values."""
+    from mediacore.audio import AudioAnalysis, SilenceInterval
+    from mediacore.bitstream import AccessUnit, ScanReport
+    from mediacore.clock import TimeBase, TimelineRepair, repair_timestamps
+    from mediacore.index import IndexEntry, RandomAccessIndex, IndexValidation
+    from mediacore.pipeline import _units_digest
+
+    unit = AccessUnit(index=3, offset=120, data=b"\x00\x00\x01\x09\xf0",
+                      keyframe=True, nal_types=(9,), _stored_size=5)
+    unit.source_path = "/tmp/video.h264"
+    meta = unit.metadata()
+    assert "data" not in meta
+    restored = AccessUnit.from_metadata(meta)
+    assert (restored.index, restored.offset, restored.size) == (3, 120, 5)
+    assert restored.keyframe and restored.source_path == "/tmp/video.h264"
+    assert _units_digest([unit]) == _units_digest([restored])
+
+    report = ScanReport(codec="h264", units=1, keyframes=1,
+                        truncated_tail_offset=99, truncated_tail_reason="cut")
+    report.issues.append(__import__("mediacore.errors", fromlist=["MediaIssue"]).MediaIssue(
+        "x", "detail", 7, detail={"a": 1}))
+    back = ScanReport.from_dict(report.to_dict())
+    assert back.truncated_tail_offset == 99 and back.issues[0].detail == {"a": 1}
+
+    repair = repair_timestamps([0, 1, 1, None], nominal_step=1,
+                               wrap_period=None, strict=False)
+    again = TimelineRepair.from_dict(repair.to_dict())
+    assert [d.fixed for d in again.decisions] == repair.fixed_ticks()
+    assert [d.reason for d in again.decisions] == [d.reason for d in repair.decisions]
+    assert again.time_base == TimeBase(1, 90000)
+
+    analysis = AudioAnalysis(
+        path="a.wav", sample_rate=48000, channels=1, frames=96000,
+        duration_s=2.0, peak=0.5, peak_dbfs=-6.0, rms=0.25, rms_dbfs=-12.0,
+        silence_db=-50.0, silence_intervals=[SilenceInterval(0.5, 0.75)],
+        blocks=24, block_frames=4096, channel_layout="mono")
+    assert AudioAnalysis.from_dict(analysis.to_dict()).silence_intervals[0].start_s == 0.5
+
+    entry = IndexEntry(unit_index=3, offset=120, size=5, pts=3,
+                       pts_seconds=0.1, keyframe=True, ordinal=0)
+    index = RandomAccessIndex(
+        entries=[entry], time_base=TimeBase(1, 30),
+        validation=IndexValidation(accepted=[entry], rejected=[], corrected=[],
+                                   supplied=1))
+    rebuilt = RandomAccessIndex.from_dict(index.to_dict())
+    assert rebuilt.entries[0].offset == 120
+    assert rebuilt.validation.accepted[0].pts == 3

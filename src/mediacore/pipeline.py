@@ -32,10 +32,11 @@ from pathlib import Path
 from typing import Any
 
 from . import clock as clockmod
+from .clock import TimelineRepair
 from .audio import AudioAnalysis, align_audio
 from .bitstream import AccessUnit, ScanReport, scan
 from .checkpoint import (
-    Checkpoint, fingerprint_inputs, write_json_atomic,
+    Checkpoint, compact_digest, fingerprint_inputs, write_json_atomic,
 )
 from .decode import decode_keyframe, decode_tail_probe, score_quality
 from .errors import (
@@ -314,6 +315,129 @@ def _observe_keyframes(index: RandomAccessIndex, units: list[AccessUnit],
             problems.append(f"AU at offset {entry.offset} is not a keyframe")
         observed.append(entry.pts_seconds * 1000.0)
     return observed, problems
+
+
+def _units_digest(units: list[AccessUnit]) -> str:
+    """Digest of the scan block's metadata, stored in the checkpoint commit."""
+    return compact_digest(b"mediacore-scan-block-v1\x00", [
+        [u.index, u.offset, u.size, u.keyframe, u.is_irap, u.complete,
+         u.truncated, list(u.nal_types)]
+        for u in units
+    ])
+
+
+def _persist_scan(out_dir: Path, stage: StageResult) -> str:
+    """Persist scan metadata (no payloads); returns the block digest."""
+    digest = _units_digest(stage.units)
+    write_json_atomic(out_dir / "scan.json", {
+        "digest": digest,
+        "report": stage.report.to_dict(),
+        "units": [unit.metadata() for unit in stage.units],
+        "payload_bytes_released": stage.payload_bytes_released,
+        "tail_probe_truncated": bool(
+            getattr(stage.report, "tail_probe_truncated", False)),
+    })
+    return digest
+
+
+def _restore_scan(out_dir: Path, video_path: Path,
+                  expected_digest: str | None) -> tuple[StageResult | None, str]:
+    """Restore a committed scan block, re-attaching the live source path.
+
+    Returns ``(stage, "")`` on success or ``(None, reason)`` when the record is
+    missing, incomplete or fails its digest.  A bad block is never used: the
+    caller rescans and replaces it, so a partial write cannot be mistaken for a
+    completed stage.
+    """
+    if not expected_digest:
+        return None, "checkpoint has no scan-block digest"
+    path = out_dir / "scan.json"
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        units = [AccessUnit.from_metadata(item) for item in raw["units"]]
+        report = ScanReport.from_dict(raw["report"])
+    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        return None, f"scan block unreadable: {exc}"
+    if not units or len(units) != int(report.units):
+        return None, "scan block does not match its report"
+    if raw.get("digest") != expected_digest or _units_digest(units) != expected_digest:
+        return None, "scan block digest mismatch"
+    size = video_path.stat().st_size
+    previous_start = -1
+    for position, unit in enumerate(units):
+        unit.source_path = str(video_path)
+        if unit.index != position:
+            return None, f"scan block unit {position} has index {unit.index}"
+        # Units are contiguous but may overlap by the zero padding that a
+        # 4-byte start code shares with the previous unit's trailing zero.
+        if unit.offset < previous_start or unit.offset + unit.size > size:
+            return None, (f"scan block unit {unit.index} has an invalid byte "
+                          f"range ({unit.offset}..{unit.offset + unit.size})")
+        previous_start = unit.offset
+    report.tail_probe_truncated = bool(raw.get("tail_probe_truncated", False))
+    return StageResult(
+        units=units, report=report, scan_seconds=0.0,
+        queue_stats={}, peak_read_buffer_bytes=0,
+        payload_bytes_released=int(raw.get("payload_bytes_released", 0))), ""
+
+
+def _restore_quality(out_dir: Path, limit: int, unit_count: int):
+    """Reuse a previously computed quality record for the same limits.
+
+    Quality is a pure function of the decoded prefix and the deterministic
+    reference frames; the record carries the frame count it was produced from,
+    so a changed limit or a changed unit count forces recomputation.
+    """
+    path = out_dir / "derived.json"
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    quality = raw.get("quality")
+    if not isinstance(quality, dict):
+        return None
+    if int(raw.get("quality_limit", -1)) != int(limit):
+        return None
+    if int(quality.get("frames", -1)) != min(limit, unit_count):
+        return None
+    return quality
+
+
+def _restore_derived(out_dir: Path, units: list[AccessUnit], file_size: int,
+                     expected_index_digest: str | None):
+    """Restore derived.json/index.json if they describe exactly this unit set.
+
+    Returns ``(result, "")`` or ``(None, reason)``.  The index's digest is
+    checked against the one recorded in the checkpoint commit, and every index
+    offset must still lie inside the input, so an incompletely written or stale
+    artifact is recomputed rather than trusted.
+    """
+    if not expected_index_digest:
+        return None, "checkpoint has no index digest"
+    derived_path = out_dir / "derived.json"
+    index_path = out_dir / "index.json"
+    try:
+        derived = json.loads(derived_path.read_text(encoding="utf-8"))
+        index_raw = json.loads(index_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return None, f"derived artifacts unreadable: {exc}"
+    actual = hashlib.sha256(
+        json.dumps(index_raw, sort_keys=True).encode()).hexdigest()
+    if actual != expected_index_digest:
+        return None, "index digest mismatch"
+    try:
+        timeline = TimelineRepair.from_dict(derived["timeline"])
+        audio = AudioAnalysis.from_dict(derived["audio"])
+        alignment = dict(derived["alignment"])
+        ra_index = RandomAccessIndex.from_dict(index_raw)
+    except (KeyError, TypeError, ValueError) as exc:
+        return None, f"derived artifacts malformed: {exc}"
+    if len(timeline.decisions) != len(units):
+        return None, "timeline length does not match the scanned units"
+    for entry in ra_index.entries:
+        if entry.offset + entry.size > file_size:
+            return None, f"index offset {entry.offset} lies past the input end"
+    return (timeline, ra_index, audio, alignment), ""
 
 
 def run_pipeline(
