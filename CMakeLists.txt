@@ -33,6 +33,8 @@ add_library(mediacore STATIC
   src/probe.cpp
   src/keyframe_analysis.cpp
   src/timeline.cpp
+  src/track_graph.cpp
+  src/graph_executor.cpp
 )
 target_include_directories(mediacore PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -60,3 +62,8 @@ add_executable(test_timeline tests/test_timeline.cpp)
 target_link_libraries(test_timeline PRIVATE
   mediacore Catch2::Catch2WithMain)
 add_test(NAME timeline COMMAND test_timeline)
+
+add_executable(test_track_graph tests/test_track_graph.cpp)
+target_link_libraries(test_track_graph PRIVATE
+  mediacore Catch2::Catch2WithMain)
+add_test(NAME track_graph COMMAND test_track_graph)
