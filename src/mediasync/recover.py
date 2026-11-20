@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
-from typing import Iterable, Sequence
+from typing import Callable, Iterable, Sequence
 
 from .errors import Gap, InputError, PlanError
 from .jitter import MissingSequence, TransportPacket
@@ -215,6 +215,22 @@ def _hole_bounds(
     return start, end
 
 
+def _hole_tick(
+    missing: MissingSequence, ordered: Sequence[TransportPacket]
+) -> int:
+    """Representative tick used to assign a hole to exactly one interval."""
+
+    before = [p for p in ordered if p.seq < missing.seq]
+    after = [p for p in ordered if p.seq > missing.seq]
+    if before and after:
+        return (before[-1].pts_ticks + after[0].pts_ticks) // 2
+    if before:
+        return before[-1].pts_ticks + before[-1].duration_ticks
+    if after:
+        return after[0].pts_ticks
+    return 0
+
+
 def _boundary_repair(
     interval: Interval,
     ordered: Sequence[TransportPacket],
@@ -259,52 +275,71 @@ def recover_interval(
     truncated_seqs: Iterable[int] = (),
     config: RecoveryConfig | None = None,
     oracle: RetransmitOracle | None = None,
+    resolver: Callable[[int], TransportPacket | None] | None = None,
 ) -> TrackRecovery:
-    """Recover one interval by retransmission, boundary repair or gap marking."""
+    """Recover one interval by retransmission, boundary repair or gap marking.
+
+    A hole belongs to the interval that contains its representative tick, so
+    splitting a track into segments never double-counts one loss.  When a
+    retransmission succeeds and a ``resolver`` is supplied, the restored
+    packet is spliced back into the ordered stream; without a resolver the
+    packet is only accounted for, never silently invented.
+    """
 
     config = config or RecoveryConfig()
     oracle = oracle or RetransmitOracle(config)
     if interval.start_ticks >= interval.end_ticks:
         raise PlanError(f"{interval.interval_id}: invalid interval bounds")
+    working = list(ordered)
     in_span = [
-        packet for packet in ordered
+        packet for packet in working
         if packet.pts_ticks < interval.end_ticks
         and packet.pts_ticks + packet.duration_ticks > interval.start_ticks
+    ]
+    owned = [
+        item for item in missing
+        if interval.start_ticks <= _hole_tick(item, ordered) < interval.end_ticks
     ]
     recovered_seqs: list[int] = []
     retransmissions: list[Retransmission] = []
     repair: BoundaryRepair | None = None
-    for item in missing:
-        success = False
+    for item in owned:
         for attempt in range(1, config.max_retransmit_attempts + 1):
             ok = oracle.attempt(interval.track_id, item.seq, attempt)
             retransmissions.append(
                 Retransmission(interval.track_id, item.seq, attempt, ok)
             )
-            if ok:
-                success = True
-                recovered_seqs.append(item.seq)
-                break
-        if not success:
-            continue
+            if not ok:
+                continue
+            restored = resolver(item.seq) if resolver is not None else None
+            recovered_seqs.append(item.seq)
+            if restored is not None:
+                working.append(restored)
+                working.sort(key=lambda packet: packet.seq)
+                in_span.append(restored)
+                in_span.sort(key=lambda packet: packet.seq)
+            break
 
-    truncated = list(truncated_seqs)
+    truncated = sorted(truncated_seqs)
     if truncated:
         repair = _boundary_repair(interval, in_span, truncated, config)
 
     end_ticks = repair.repaired_end_ticks if repair else interval.end_ticks
     losses: list[int] = []
     gaps: list[Gap] = []
-    for item in missing:
+    for item in owned:
         if item.seq in recovered_seqs:
             continue
-        start, end = _hole_bounds(item, in_span)
+        start, end = _hole_bounds(item, ordered)
         start = max(start, interval.start_ticks)
         end = min(end, end_ticks)
         losses.append(item.seq)
         if end <= start:
-            end = start + 1
-        gaps.append(Gap(interval.track_id, start, end, "packet-loss"))
+            end = min(interval.end_ticks, start + 1)
+            if end <= start:
+                start = max(interval.start_ticks, end - 1)
+        if end > start:
+            gaps.append(Gap(interval.track_id, start, end, "packet-loss"))
     if repair is not None and repair.repaired_end_ticks < interval.end_ticks:
         gaps.append(
             Gap(
