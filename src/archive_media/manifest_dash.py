@@ -35,6 +35,8 @@ def parse_dash(text: str, manifest_path: Path, root: Path) -> SegmentPlan:
     diagnostics: list[Diagnostic] = []
     timeline_seen: set[int] = set()
 
+    media_template = ""
+    start_number: int | None = None
     for adaptation in root_el.iter(_q("AdaptationSet")):
         template = adaptation.find(_q("SegmentTemplate"))
         if template is None:
@@ -42,6 +44,8 @@ def parse_dash(text: str, manifest_path: Path, root: Path) -> SegmentPlan:
         timescale = int(template.get("timescale", "1"))
         time_base = rational(1) / timescale
         media_pattern = template.get("media", "")
+        media_template = media_pattern
+        start_number = int(template.get("startNumber", "1"))
         timeline_el = template.find(_q("SegmentTimeline"))
         if timeline_el is None:
             raise ManifestSyntaxError(
@@ -52,7 +56,7 @@ def parse_dash(text: str, manifest_path: Path, root: Path) -> SegmentPlan:
         for rep_el in adaptation.findall(_q("Representation")):
             rep_id = rep_el.get("id", "default")
             pattern = media_pattern.replace("$RepresentationID$", rep_id)
-            seq = int(template.get("startNumber", "1")) - 1
+            seq = start_number - 1
             cursor = 0
             for s_el in timeline_el.findall(_q("S")):
                 repeat = int(s_el.get("r", "0"))
@@ -107,15 +111,28 @@ def parse_dash(text: str, manifest_path: Path, root: Path) -> SegmentPlan:
             locator=locator_for(manifest_path, "", None),
         )
     return SegmentPlan(
-        "dash", manifest_path, root, sorted({s.representation for s in segments}),
+        "dash", manifest_path, root,
+        sorted({s.representation for s in segments}),
         segments, diagnostics, text,
+        media_template=media_template, start_number=start_number,
     )
 
 
 def render_dash(plan: SegmentPlan) -> str:
-    """Serialize a plan back to DASH text (round-trip counterpart of parse)."""
+    """Serialize a plan back to DASH text (round-trip counterpart of parse).
+
+    The original media template and start number are preserved, and segments
+    whose ``t`` was synthesized are rendered without a ``t`` attribute so a
+    parse -> render -> parse cycle reproduces the same plan fields.
+    """
     timescale = int(1 / plan.segments[0].time_base)
     ns = _DASH_NS
+    media = plan.media_template or "seg-$RepresentationID$-$Number$.m4s"
+    start_number = (
+        plan.start_number
+        if plan.start_number is not None
+        else plan.segments[0].sequence
+    )
     mpd = ET.Element(
         f"{{{ns}}}MPD",
         {"profiles": "urn:mpeg:dash:profile:isoff-on-demand:2011"},
@@ -125,8 +142,8 @@ def render_dash(plan: SegmentPlan) -> str:
         adaptation, f"{{{ns}}}SegmentTemplate",
         {
             "timescale": str(timescale),
-            "media": "seg-$RepresentationID$-$Number$.m4s",
-            "startNumber": str(plan.segments[0].sequence),
+            "media": media,
+            "startNumber": str(start_number),
         },
     )
     timeline = ET.SubElement(template, f"{{{ns}}}SegmentTimeline")
@@ -134,13 +151,10 @@ def render_dash(plan: SegmentPlan) -> str:
     for seg in plan.segments:
         if seg.representation != first_rep:
             continue
-        ET.SubElement(
-            timeline, f"{{{ns}}}S",
-            {
-                "t": str(int(seg.start / seg.time_base)),
-                "d": str(int(seg.duration / seg.time_base)),
-            },
-        )
+        attributes = {"d": str(int(seg.duration / seg.time_base))}
+        if not seg.synthesized:
+            attributes["t"] = str(int(seg.start / seg.time_base))
+        ET.SubElement(timeline, f"{{{ns}}}S", attributes)
     for rep_id in plan.representations:
         ET.SubElement(adaptation, f"{{{ns}}}Representation", {"id": rep_id})
     ET.indent(mpd, space="  ")

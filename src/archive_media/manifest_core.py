@@ -60,6 +60,10 @@ class SegmentPlan:
     segments: list[SegmentRef]
     diagnostics: list[Diagnostic] = field(default_factory=list)
     source_text: str = ""
+    # DASH-only: the original SegmentTemplate media pattern and start number,
+    # retained so round-trip rendering reproduces the exact segment URIs.
+    media_template: str = ""
+    start_number: int | None = None
 
     def all_diagnostics(self) -> list[Diagnostic]:
         out = list(self.diagnostics)
