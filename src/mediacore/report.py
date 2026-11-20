@@ -77,9 +77,9 @@ class Report:
 
     # -- headline numbers ---------------------------------------------------
     def damage_offset_frames(self) -> int:
-        return int(self.damage.get("first_fault", {}).get("context", {}).get(
-            "locator_error_frames", 0
-        ) or 0)
+        fault = self.damage.get("first_fault") or {}
+        context = fault.get("context") or {}
+        return int(context.get("locator_error_frames", 0) or 0)
 
     def recovery_seconds(self) -> float:
         return float(self.recovery.get("recovery_seconds", 0.0))
