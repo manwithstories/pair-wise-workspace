@@ -1,6 +1,7 @@
 #include "relay/fixture.hpp"
 #include "relay/frame_reader.hpp"
 #include "relay/packet_reorder.hpp"
+#include "relay/timeline.hpp"
 #include "relay/types.hpp"
 
 #include <filesystem>
@@ -254,4 +255,67 @@ TEST_CASE("a packet arriving later than the window is dropped", "[reorder][late]
     }
   }
   CHECK(located);
+}
+
+TEST_CASE("dependency graph orders tracks and blocks dependents of empty ones",
+          "[timeline]") {
+  std::vector<TrackInput> inputs;
+  for (const std::string& id : {"cam-a", "cam-b"}) {
+    TrackInput input;
+    input.spec.id = id;
+    input.timebase = Timebase{30, 1};
+    inputs.push_back(input);
+  }
+  inputs[1].spec.depends_on = {"cam-a"};
+  std::vector<TrackStream> streams(2);
+  streams[0].track = "cam-a";
+  streams[0].timebase = Timebase{30, 1};
+  streams[1].track = "cam-b";
+  streams[1].timebase = Timebase{30, 1};
+  TimelineEpoch epoch;
+  epoch.index = 0;
+  epoch.cause = "start";
+  for (int i = 0; i < 4; ++i) {
+    FrameRecord frame;
+    frame.track = "cam-b";
+    frame.sequence = static_cast<std::uint32_t>(i);
+    frame.pts_us = i * 33333;
+    frame.keyframe = i == 0;
+    epoch.frames.push_back(frame);
+  }
+  streams[1].epochs.push_back(epoch);
+  ErrorSink errors;
+  Timeline timeline = build_timeline(inputs, streams, errors);
+  REQUIRE(timeline.graph.size() == 2);
+  CHECK(timeline.graph.front().spec.id == "cam-a");
+  CHECK(timeline.graph.front().state == TrackState::kEmpty);
+  CHECK(timeline.graph.back().spec.id == "cam-b");
+  CHECK(timeline.graph.back().state == TrackState::kBlocked);
+  CHECK(timeline.graph.back().dependency_chain == "cam-b<-cam-a");
+  CHECK(timeline.blocked_tracks.size() == 1);
+  CHECK(timeline.empty_tracks.size() == 1);
+  CHECK(errors.has_errors());  // blocking is reported as error
+  CHECK(timeline.tracks.empty());
+}
+
+TEST_CASE("dependency cycles are rejected with the offending chain",
+          "[timeline]") {
+  std::vector<TrackInput> inputs(2);
+  inputs[0].spec.id = "a";
+  inputs[0].spec.depends_on = {"b"};
+  inputs[0].timebase = Timebase{30, 1};
+  inputs[1].spec.id = "b";
+  inputs[1].spec.depends_on = {"a"};
+  inputs[1].timebase = Timebase{30, 1};
+  ErrorSink errors;
+  Timeline timeline = build_timeline(inputs, {}, errors);
+  CHECK(errors.has_errors());
+  bool cycle_reported = false;
+  for (const auto& event : errors.events()) {
+    if (event.reason.find("cycle") != std::string::npos) {
+      cycle_reported = true;
+    }
+  }
+  CHECK(cycle_reported);
+  CHECK(timeline.graph.empty());
 }
