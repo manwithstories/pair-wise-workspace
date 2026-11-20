@@ -476,93 +476,135 @@ def run_pipeline(
     interrupted_at = config.interrupt_after
     file_size = video_path.stat().st_size
 
-    # ---- Stage 1: scan -----------------------------------------------------
-    stage = scan_stream(video_path, config.codec,
-                        keep_first=config.quality_limit)
-    timings["scan"] = stage.scan_seconds
-    units = stage.units
-    for unit in units:
-        unit.source_path = str(video_path)
-    if not units:
-        raise MediaCorruptError(
-            "no access units could be recovered from the input",
-            offset=0, code="no_units")
-    tail_truncated, tail_reason, tail_unit = decode_tail_probe(units, config.codec)
-    if tail_truncated:
-        # Structural flags (cut mid-NAL, missing OBU bytes) already name an
-        # offset; a strict-decode failure is attributed to the unit's own offset.
-        if stage.report.truncated_tail_offset is None:
-            bad = units[tail_unit] if tail_unit is not None and tail_unit < len(units) else units[-1]
-            stage.report.truncated_tail_offset = bad.offset
-            stage.report.truncated_tail_reason = tail_reason
-            bad.complete = False
-            bad.truncated = True
-            from .errors import MediaIssue
-            stage.report.issues.append(MediaIssue(
-                "truncated_tail", tail_reason, bad.offset,
-                detail={"unit_index": bad.index, "size": bad.size}))
-    if stage.peak_read_buffer_bytes > budget.limit:
-        raise MediaInputError(
-            f"read buffer {stage.peak_read_buffer_bytes} exceeded memory limit",
-            code="memory_limit")
+    # ---- Stage 1: scan (or reuse a validated scan block) -------------------
     scan_commit = checkpoint.get("scan")
-    if scan_commit is None:
+    stage = None
+    reuse_reason = ""
+    if scan_commit is not None and scan_commit.unit_end > 0:
+        stage, reuse_reason = _restore_scan(
+            out_dir, video_path, scan_commit.payload.get("block_digest"))
+    if stage is not None:
+        units = stage.units
+        timings["scan"] = 0.0
+        scan_reused = True
+    else:
+        stage = scan_stream(video_path, config.codec,
+                            keep_first=config.quality_limit)
+        timings["scan"] = stage.scan_seconds
+        units = stage.units
+        for unit in units:
+            unit.source_path = str(video_path)
+        if not units:
+            raise MediaCorruptError(
+                "no access units could be recovered from the input",
+                offset=0, code="no_units")
+        tail_truncated, tail_reason, tail_unit = decode_tail_probe(
+            units, config.codec)
+        stage.report.tail_probe_truncated = tail_truncated
+        if tail_truncated:
+            # Structural flags (cut mid-NAL, missing OBU bytes) already name an
+            # offset; a strict-decode failure is attributed to the unit's offset.
+            if stage.report.truncated_tail_offset is None:
+                bad = (units[tail_unit]
+                       if tail_unit is not None and tail_unit < len(units)
+                       else units[-1])
+                stage.report.truncated_tail_offset = bad.offset
+                stage.report.truncated_tail_reason = tail_reason
+                bad.complete = False
+                bad.truncated = True
+                from .errors import MediaIssue
+                stage.report.issues.append(MediaIssue(
+                    "truncated_tail", tail_reason, bad.offset,
+                    detail={"unit_index": bad.index, "size": bad.size}))
+        if stage.peak_read_buffer_bytes > budget.limit:
+            raise MediaInputError(
+                f"read buffer {stage.peak_read_buffer_bytes} exceeded memory limit",
+                code="memory_limit")
+        block_digest = _persist_scan(out_dir, stage)
         checkpoint.commit(
             "scan", unit_start=0, unit_end=len(units),
             byte_start=0, byte_end=file_size, records=len(units),
-            payload={"codec": config.codec, "units": len(units)})
+            payload={"codec": config.codec, "units": len(units),
+                     "block_digest": block_digest,
+                     "reused_previous": bool(reuse_reason),
+                     "truncated_tail_offset":
+                         stage.report.truncated_tail_offset})
         checkpoint.last_status = "scan_committed"
         checkpoint.save()
         if interrupted_at and interrupted_at <= 1:
             raise Interrupted(
                 "interrupted after scan stage; re-run to resume",
                 code="interrupted_scan")
+        scan_reused = False
+    tail_truncated = bool(getattr(stage.report, "tail_probe_truncated", False)) or (
+        stage.report.truncated_tail_offset is not None)
 
-    # ---- Stage 2: timeline repair -----------------------------------------
-    timeline = repair_timeline(units, fps=config.fps)
+    # ---- Stage 2+3+4: timeline repair, index and audio --------------------
+    # These are committed together: they are cheap relative to the scan+probe
+    # and their inputs are all covered by the same validated scan block.
+    derive_commit = checkpoint.get("derive")
+    derived = None
+    derive_reason = ""
+    audio_queue_stats: dict[str, Any] = {"high_water": 0, "blocked_puts": 0}
+    if derive_commit is not None and derive_commit.unit_end == len(units):
+        derived, derive_reason = _restore_derived(
+            out_dir, units, file_size,
+            derive_commit.payload.get("index_digest"))
+    if derived is not None:
+        timeline, ra_index, audio, alignment = derived
+        timings["derive"] = 0.0
+        timings["audio"] = 0.0
+        derive_reused = True
+    else:
+        derive_started = time.perf_counter()
+        timeline = repair_timeline(units, fps=config.fps)
+        tb = timeline.time_base
+        pts_ticks = [d.fixed for d in timeline.decisions]
+        pts_seconds = [tb.seconds(t) for t in pts_ticks]
+        frame_duration = 1.0 / config.fps
+        durations = [frame_duration] * len(units)
+
+        ra_index = random_access_index(
+            units, time_base=tb, supplied=index_payload, pts_of=pts_ticks,
+            durations=durations, file_size=file_size)
+        observed, observe_problems = _observe_keyframes(
+            ra_index, units, config.codec)
+        ra_index.seeks = verify_seeks(
+            ra_index.entries, durations,
+            targets_ms=[e.pts_seconds * 1000.0 for e in ra_index.entries],
+            observed_ms=observed)
+        if observe_problems:
+            from .errors import MediaIssue
+
+            ra_index.issues.extend(
+                MediaIssue("keyframe_observation_failed", message, 0,
+                           detail={"observation": True})
+                for message in observe_problems)
+
+        audio_started = time.perf_counter()
+        audio, audio_queue_stats = analyze_wav_queued(
+            audio_path, block_frames=config.audio_block_frames,
+            queue_depth=QUEUE_MAX_AUDIO_BLOCKS)
+        timings["audio"] = time.perf_counter() - audio_started
+        alignment = align_audio(audio, [float(x) for x in pts_seconds],
+                                tolerance_ms=40.0)
+        timings["derive"] = time.perf_counter() - derive_started
+        derive_reused = False
+
+    index_payload_out = ra_index.to_dict()
     tb = timeline.time_base
-    pts_ticks = [d.fixed for d in timeline.decisions]
-    pts_seconds = [tb.seconds(t) for t in pts_ticks]
+    pts_seconds = [tb.seconds(d.fixed) for d in timeline.decisions]
     frame_duration = 1.0 / config.fps
     durations = [frame_duration] * len(units)
 
-    # ---- Stage 3: index ----------------------------------------------------
-    ra_index = random_access_index(
-        units, time_base=tb, supplied=index_payload, pts_of=pts_ticks,
-        durations=durations, file_size=file_size)
-    observed, observe_problems = _observe_keyframes(ra_index, units, config.codec)
-    ra_index.seeks = verify_seeks(
-        ra_index.entries, durations,
-        targets_ms=[e.pts_seconds * 1000.0 for e in ra_index.entries],
-        observed_ms=observed)
-    if observe_problems:
-        from .errors import MediaIssue
-
-        ra_index.issues.extend(
-            MediaIssue("keyframe_observation_failed", message, 0,
-                       detail={"observation": True})
-            for message in observe_problems)
-
-    # ---- Stage 4: audio ----------------------------------------------------
-    audio_started = time.perf_counter()
-    audio, audio_queue_stats = analyze_wav_queued(
-        audio_path, block_frames=config.audio_block_frames,
-        queue_depth=QUEUE_MAX_AUDIO_BLOCKS)
-    timings["audio"] = time.perf_counter() - audio_started
-    alignment = align_audio(audio, [float(x) for x in pts_seconds], tolerance_ms=40.0)
-
-    index_payload_out = ra_index.to_dict()
-    derived_payload = {
-        "timeline": [d.to_dict(tb) for d in timeline.decisions
-                     if d.reason != "ok" or d.uncertain],
-        "segments": None,  # filled below
-        "audio": audio.to_dict(),
-        "alignment": alignment,
-    }
-    derive_commit = checkpoint.get("derive")
-    if derive_commit is None:
+    if not derive_reused:
         write_json_atomic(index_path, index_payload_out)
-        write_json_atomic(derived_path, derived_payload)
+        write_json_atomic(derived_path, {
+            "timeline": timeline.to_dict(),
+            "audio": audio.to_dict(),
+            "alignment": alignment,
+            "segments": None,
+        })
         checkpoint.commit(
             "derive", unit_start=0, unit_end=len(units),
             byte_start=0, byte_end=file_size, records=len(units),
@@ -578,14 +620,21 @@ def run_pipeline(
             raise Interrupted(
                 "interrupted after derive stage; re-run to resume",
                 code="interrupted_derive")
+    audio_queue_stats = audio_queue_stats if not derive_reused else {
+        "high_water": 0, "blocked_puts": 0}
 
-    # ---- Stage 5: quality and manifest ------------------------------------
+    # ---- Stage 5: quality --------------------------------------------------
     quality_started = time.perf_counter()
     quality_limit = min(config.quality_limit, len(units))
-    quality = score_quality(
-        units, config.codec, _reference_lookup(config), limit=quality_limit,
-        cache_bytes=FRAME_CACHE_BYTES).to_dict()
-    timings["quality"] = time.perf_counter() - quality_started
+    previous_quality = _restore_quality(out_dir, quality_limit, len(units))
+    if previous_quality is not None:
+        quality = previous_quality
+        timings["quality"] = 0.0
+    else:
+        quality = score_quality(
+            units, config.codec, _reference_lookup(config), limit=quality_limit,
+            cache_bytes=FRAME_CACHE_BYTES).to_dict()
+        timings["quality"] = time.perf_counter() - quality_started
 
     # Payloads are no longer needed: the scanner metadata, timeline records and
     # measured statistics are all that the manifest derives from.  Dropping them
@@ -596,9 +645,15 @@ def run_pipeline(
     segments = build_segments(
         units, pts_seconds, target_bps=config.target_bps,
         frame_duration_s=frame_duration, decisions=timeline.decisions)
-    derived_payload["segments"] = [s.to_dict() for s in segments]
     write_json_atomic(index_path, index_payload_out)
-    write_json_atomic(derived_path, derived_payload)
+    write_json_atomic(derived_path, {
+        "timeline": timeline.to_dict(),
+        "audio": audio.to_dict(),
+        "alignment": alignment,
+        "segments": [s.to_dict() for s in segments],
+        "quality": quality,
+        "quality_limit": quality_limit,
+    })
 
     actual_bps = file_size * 8.0 / config.duration_s
     deviation = (actual_bps - config.target_bps) / config.target_bps * 100.0
@@ -634,6 +689,8 @@ def run_pipeline(
         "audio_queue_high_water": audio_queue_stats.get("high_water", 0),
         "audio_queue_blocked_puts": audio_queue_stats.get("blocked_puts", 0),
         "payload_bytes_released": released,
+        "reuse_reasons": {"scan": reuse_reason, "derive": derive_reason},
+
         "python": platform.python_version(),
     })
     manifest = Manifest(
@@ -655,9 +712,9 @@ def run_pipeline(
         audio=audio.to_dict(),
         segments=segments, index=index_payload_out,
         timeline=timeline.summary(),
-        quality={"video": quality, "audio": {
-            "rms": audio.rms, "peak": audio.peak,
-            "silent_fraction": audio.silent_fraction}},
+        # Audio quality figures come from the rounded analysis record, so a run
+        # restored from checkpoint produces byte-identical manifest values.
+        quality={"video": quality, "audio": _audio_quality(audio)},
         alignment=alignment, inputs=[f.to_dict() for f in inputs],
         checkpoint={
             "path": str(checkpoint_path),
@@ -666,6 +723,10 @@ def run_pipeline(
             "stages": sorted(checkpoint.stages()),
             "runs": checkpoint.runs,
             "resumed": resumed,
+            "reused": sorted(
+                name for name, used in
+                (("scan", scan_reused), ("derive", derive_reused),
+                 ("quality", previous_quality is not None)) if used),
         },
         decisions=decisions, issues=issues, resource=resource,
         duration_s=config.duration_s)
@@ -675,6 +736,15 @@ def run_pipeline(
         manifest=manifest, index=ra_index, checkpoint=checkpoint,
         resumed=resumed, run_id=run_id, scan=stage.report, audio=audio,
         timings=timings, resource=resource)
+
+
+def _audio_quality(audio: AudioAnalysis) -> dict[str, Any]:
+    record = audio.to_dict()
+    return {
+        "rms": record["rms"],
+        "peak": record["peak"],
+        "silent_fraction": record["silent_fraction"],
+    }
 
 
 def _reference_lookup(config: PipelineConfig):

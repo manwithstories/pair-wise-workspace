@@ -154,3 +154,49 @@ def test_invalid_arguments_exit_2(tmp_path):
         main(["demo", "--codec", "vp9", "--out", str(tmp_path)])
     assert excinfo.value.code == 2
     assert not (tmp_path / "manifest.json").exists()
+
+
+def test_corrupted_scan_block_is_rescanned_not_reused(tmp_path, capsys):
+    out = tmp_path / "tamper"
+    assert _run(BASE_ARGS + ["--out", str(out), "--quiet"], capsys)[0] == 0
+    baseline = _manifest(out)["manifest_digest"]
+
+    scan_path = out / "run" / "scan.json"
+    raw = json.loads(scan_path.read_text())
+    raw["units"][5]["offset"] = raw["units"][4]["offset"]
+    scan_path.write_text(json.dumps(raw))
+
+    code, _, _ = _run(BASE_ARGS + ["--out", str(out), "--quiet"], capsys)
+    assert code == 0
+    manifest = _manifest(out)
+    # the tampered block was rejected (digest mismatch) and the run rescanned
+    assert "scan" not in manifest["checkpoint"]["reused"]
+    assert manifest["resource"]["reuse_reasons"]["scan"]
+    assert manifest["manifest_digest"] == baseline
+
+
+def test_corrupted_index_block_is_rebuilt(tmp_path, capsys):
+    out = tmp_path / "tamper_index"
+    assert _run(BASE_ARGS + ["--out", str(out), "--quiet"], capsys)[0] == 0
+    baseline = _manifest(out)["manifest_digest"]
+
+    index_path = out / "run" / "index.json"
+    raw = json.loads(index_path.read_text())
+    raw["entries"][0]["pts"] = 9999
+    index_path.write_text(json.dumps(raw))
+
+    code, _, _ = _run(BASE_ARGS + ["--out", str(out), "--quiet"], capsys)
+    assert code == 0
+    manifest = _manifest(out)
+    assert manifest["resource"]["reuse_reasons"]["derive"]
+    assert manifest["manifest_digest"] == baseline
+
+
+def test_partial_scan_block_falls_back_to_full_scan(tmp_path, capsys):
+    out = tmp_path / "partial"
+    assert _run(BASE_ARGS + ["--out", str(out), "--quiet"], capsys)[0] == 0
+    scan_path = out / "run" / "scan.json"
+    scan_path.write_text(scan_path.read_text()[: len(scan_path.read_text()) // 2])
+    code, _, _ = _run(BASE_ARGS + ["--out", str(out), "--quiet"], capsys)
+    assert code == 0
+    assert "scan" not in _manifest(out)["checkpoint"]["reused"]
