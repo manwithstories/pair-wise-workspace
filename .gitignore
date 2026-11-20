@@ -72,9 +72,10 @@ AGENTS.md.local
 .agent*/
 .ai*/
 
-# ---- region_media 本地运行产物 ----
+# ---- archive_media 本地运行产物 ----
 .venv/
 .tmp/
+.tmp-*/
 __pycache__/
 *.py[cod]
 *.egg-info/
