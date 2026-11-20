@@ -18,7 +18,7 @@ pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
 find_package(Catch2 3 REQUIRED)
 
 # Source files are appended per module below so each committed stage builds.
-set(MEDIAQC_SOURCES)
+set(MEDIAQC_SOURCES)  # modules append below
 
 add_library(mediaqc STATIC ${MEDIAQC_SOURCES})
 target_include_directories(mediaqc PUBLIC include)
