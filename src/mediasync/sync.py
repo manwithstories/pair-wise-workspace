@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from fractions import Fraction
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence
 
 from .clock import (
     DEFAULT_WRAP_TICKS,
@@ -23,10 +23,13 @@ from .clock import (
     samples_from_ticks,
     ticks_from_rate,
     ticks_from_samples,
+    ticks_from_seconds,
 )
 from .errors import InputError
 from .ingest import Anchor, AudioTrack, VideoTrack
-from .timeline import Segment
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .recover import Segment
 
 #: A successful track must stay within this many milliseconds of the reference.
 DEFAULT_MAX_ERROR_MS = 20.0
@@ -87,11 +90,17 @@ class AnchorPair:
     label: str
     audio_sample: int
     video_index: int
+    audio_seconds: float = 0.0
+    video_seconds: float = 0.0
 
     def audio_ticks(self, sample_rate: int) -> int:
+        if self.audio_seconds or self.video_seconds:
+            return ticks_from_seconds(self.audio_seconds - self.video_seconds)
         return ticks_from_samples(self.audio_sample, sample_rate)
 
     def video_ticks(self, video: VideoTrack, nominal_step_ticks: int) -> int:
+        if self.video_seconds or self.audio_seconds:
+            return ticks_from_seconds(self.video_seconds)
         if self.video_index >= len(video.packets):
             raise InputError(
                 f"anchor {self.label!r} points at video frame {self.video_index}, "
@@ -201,7 +210,15 @@ def _anchors_to_pairs(
             continue
         if anchor.video_index is None or match.audio_sample is None:
             continue
-        pairs.append(AnchorPair(anchor.label, match.audio_sample, anchor.video_index))
+        pairs.append(
+            AnchorPair(
+                label=anchor.label,
+                audio_sample=match.audio_sample,
+                video_index=anchor.video_index,
+                audio_seconds=match.audio_seconds,
+                video_seconds=anchor.video_seconds,
+            )
+        )
     return pairs
 
 
@@ -209,10 +226,18 @@ def align_track(
     video: VideoTrack,
     audio: AudioTrack,
     *,
-    segment: Segment | None = None,
+    segment: "Segment | None" = None,
     config: SyncConfig | None = None,
 ) -> TrackSync:
-    """Fit and check one audio/video pair over its recovered segment."""
+    """Fit and check one audio/video pair against its recovered segment.
+
+    Anchors are measured on the video's unwrapped capture timeline (so a clock
+    wrap or restart cannot masquerade as a constant offset) and on the audio
+    sample grid.  The alignment error is the raw placement difference between
+    the two, measured from media zero: a fixed delay and a growing drift are
+    both real sync faults, so neither is absorbed by a curve fit.  The fit is
+    still reported so drift in ppm is visible in the manifest.
+    """
 
     config = config or SyncConfig()
     nominal_step = ticks_from_rate(1, video.nominal_rate)
@@ -243,13 +268,32 @@ def align_track(
             reason="insufficient-anchors",
             anchors=len(pairs),
         )
-    audio_ticks = [pair.audio_ticks(audio.sample_rate) for pair in pairs]
-    video_ticks = [pair.video_ticks(video, nominal_step) for pair in pairs]
-    drift = fit_drift(audio_ticks, video_ticks, origin_ticks=0, min_samples=2)
-    errors = [
-        drift.error_ticks(audio_tick, video_tick)
-        for audio_tick, video_tick in zip(audio_ticks, video_ticks)
-    ]
+
+    display = build_display_track(
+        [packet.pts_ticks for packet in video.packets],
+        nominal_step_ticks=nominal_step,
+        wrap=config.wrap_ticks,
+        origin_ticks=video.packets[0].pts_ticks if video.packets else 0,
+    )
+    display_ticks = display.display_ticks
+    anchor_video: list[int] = []
+    anchor_audio: list[int] = []
+    for pair in pairs:
+        if not 0 <= pair.video_index < len(display_ticks):
+            raise InputError(
+                f"{video.track_id}: anchor {pair.label!r} frame "
+                f"{pair.video_index} outside 0..{len(display_ticks) - 1}"
+            )
+        anchor_video.append(display_ticks[pair.video_index])
+        anchor_audio.append(
+            ticks_from_samples(pair.audio_sample, audio.sample_rate)
+        )
+    # Alignment error is the raw placement difference between the displayed
+    # video tick and the audio sample tick, both measured from media zero.
+    # A constant offset and a growing drift are both real synchronization
+    # errors, so neither is absorbed by a fit.
+    drift = fit_drift(anchor_video, anchor_audio, origin_ticks=anchor_video[0], min_samples=2)
+    errors = [video_tick - audio_tick for video_tick, audio_tick in zip(anchor_video, anchor_audio)]
     abs_errors = [abs(value) for value in errors]
     max_error = max(abs_errors)
     mean_error = sum(abs_errors) / len(abs_errors)
@@ -257,11 +301,6 @@ def align_track(
         [packet.duration_ticks for packet in video.packets],
         nominal_step,
         config.fps_change_tolerance,
-    )
-    display = build_display_track(
-        [packet.pts_ticks for packet in video.packets],
-        nominal_step_ticks=nominal_step,
-        wrap=config.wrap_ticks,
     )
     restarts = len(display.restarts)
 
@@ -277,33 +316,33 @@ def align_track(
                 f"drift-exceeds-{config.drift_limit_ppm:g}ppm",
             )
         )
-    if fps_changes:
-        for index, duration in fps_changes[:8]:
-            start = video.packets[index].pts_ticks
-            intervals.append(
-                ErrorInterval(
-                    video.track_id,
-                    start,
-                    start + max(duration, 1),
-                    abs(duration - nominal_step) + max_error,
-                    "fps-change",
-                )
-            )
-    # Anchor errors above tolerance become bounded error intervals.
-    for pair, error in zip(pairs, errors):
-        if abs(error) <= config.max_error_ticks:
-            continue
-        start = max(0, pair.video_ticks(video, nominal_step) - nominal_step)
+    for index, duration in fps_changes[:8]:
+        start = display_ticks[index] if index < len(display_ticks) else 0
         intervals.append(
             ErrorInterval(
                 video.track_id,
                 start,
-                start + 2 * nominal_step,
+                start + max(duration, 1),
+                abs(duration - nominal_step) + max_error,
+                "fps-change",
+            )
+        )
+    for pair, error in zip(pairs, errors):
+        if abs(error) <= config.max_error_ticks:
+            continue
+        centre = display_ticks[pair.video_index]
+        intervals.append(
+            ErrorInterval(
+                video.track_id,
+                max(0, centre - nominal_step),
+                centre + nominal_step,
                 abs(error),
                 "anchor-error",
             )
         )
-    aligned = max_error <= config.max_error_ticks and not bad_drift and not fps_changes
+    aligned = (
+        max_error <= config.max_error_ticks and not bad_drift and not fps_changes
+    )
     reason = ""
     if not aligned:
         parts = []
