@@ -202,6 +202,30 @@ app/relay_inspect.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_inspect.dir/build.make CMakeFiles/relay_inspect.dir/app/relay_inspect.cpp.s
 .PHONY : app/relay_inspect.cpp.s
 
+src/analysis_engine.o: src/analysis_engine.cpp.o
+.PHONY : src/analysis_engine.o
+
+# target to build an object file
+src/analysis_engine.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/analysis_engine.cpp.o
+.PHONY : src/analysis_engine.cpp.o
+
+src/analysis_engine.i: src/analysis_engine.cpp.i
+.PHONY : src/analysis_engine.i
+
+# target to preprocess a source file
+src/analysis_engine.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/analysis_engine.cpp.i
+.PHONY : src/analysis_engine.cpp.i
+
+src/analysis_engine.s: src/analysis_engine.cpp.s
+.PHONY : src/analysis_engine.s
+
+# target to generate assembly for a file
+src/analysis_engine.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/analysis_engine.cpp.s
+.PHONY : src/analysis_engine.cpp.s
+
 src/caption_parser.o: src/caption_parser.cpp.o
 .PHONY : src/caption_parser.o
 
@@ -385,6 +409,9 @@ help:
 	@echo "... app/relay_inspect.o"
 	@echo "... app/relay_inspect.i"
 	@echo "... app/relay_inspect.s"
+	@echo "... src/analysis_engine.o"
+	@echo "... src/analysis_engine.i"
+	@echo "... src/analysis_engine.s"
 	@echo "... src/caption_parser.o"
 	@echo "... src/caption_parser.i"
 	@echo "... src/caption_parser.s"

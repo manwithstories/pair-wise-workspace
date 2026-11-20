@@ -1,4 +1,6 @@
 file(REMOVE_RECURSE
+  "CMakeFiles/relay_core.dir/src/analysis_engine.cpp.o"
+  "CMakeFiles/relay_core.dir/src/analysis_engine.cpp.o.d"
   "CMakeFiles/relay_core.dir/src/caption_parser.cpp.o"
   "CMakeFiles/relay_core.dir/src/caption_parser.cpp.o.d"
   "CMakeFiles/relay_core.dir/src/checkpoint_store.cpp.o"
