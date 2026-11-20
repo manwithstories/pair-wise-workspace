@@ -19,6 +19,9 @@ go run ./cmd/mediamap verify --input generated/case.json
 | 2 | 存在已标记的可恢复损坏（输出带不完整标记的清单） |
 | 1 | 参数错误，或存在不可恢复的结构错误（该轨道终止，诊断保留） |
 
+注意：`go run` 会把任何非零退出码统一报为 1 并打印 `exit status 2`。
+要直接观察 0/2 退出码，请先 `go build -o mediamap ./cmd/mediamap` 再运行二进制。
+
 ## 模块
 
 | 包 | 职责 |
