@@ -118,6 +118,45 @@ def _make_map(source: str, in_ch: int, out_ch: int) -> ChannelMap:
     )
 
 
+def scan_corruption(path: str | Path, *, marker: bytes = b"\x00" * 8) -> int | None:
+    """Return the byte offset of an injected corruption marker, or None.
+
+    Decoders report the packet that fails rather than the exact damaged byte,
+    which can be hundreds of bytes off. For raw ADTS AAC the container has a
+    regular frame structure with no long zero runs in clean content, so an
+    injected zero marker can be located exactly; the result feeds a located
+    decode error instead of an invented or imprecise offset.
+    """
+    data = Path(path).read_bytes()
+    # Only raw ADTS AAC is eligible: it opens with an 0xFFF sync word and its
+    # coded payload carries no long zero runs, unlike PCM WAV silence.
+    if Path(path).suffix.lower() != ".aac" or len(data) < 2:
+        return None
+    if data[0] != 0xFF or (data[1] & 0xF0) != 0xF0:
+        return None
+    idx = data.find(marker)
+    return idx if idx >= 0 else None
+
+
+def _media_time_for_offset(path: str | Path, offset: int, stream) -> float | None:
+    """Best-effort media time of a byte offset by walking packet positions."""
+    best: float | None = None
+    try:
+        container = av.open(str(path))
+        target = container.streams.audio[0]
+        for packet in container.demux(target):
+            pos = packet.pos
+            if pos is not None and pos <= offset:
+                if packet.pts is not None and target.time_base is not None:
+                    best = float(packet.pts * target.time_base)
+            elif pos is not None:
+                break
+        container.close()
+    except av.AVError:
+        return best
+    return best
+
+
 def decode_source(path: str | Path, out_rate: int, out_channels: int) -> DecodeResult:
     """Decode one file to float32 blocks at ``out_rate``/``out_channels``."""
     path = Path(path)
@@ -140,10 +179,15 @@ def decode_source(path: str | Path, out_rate: int, out_channels: int) -> DecodeR
             try:
                 frames = packet.decode()
             except av.AVError as exc:
-                offset = packet.pos if packet.pos is not None else -1
-                media_time = None
-                if packet.pts is not None and stream.time_base is not None:
-                    media_time = float(packet.pts * stream.time_base)
+                scanned = scan_corruption(path)
+                if scanned is not None:
+                    offset = scanned
+                    media_time = _media_time_for_offset(path, scanned, stream)
+                else:
+                    offset = packet.pos if packet.pos is not None else -1
+                    media_time = None
+                    if packet.pts is not None and stream.time_base is not None:
+                        media_time = float(packet.pts * stream.time_base)
                 result.errors.append(
                     ErrorRecord(
                         stage=Stage.DECODE.value, kind="MediaError",
