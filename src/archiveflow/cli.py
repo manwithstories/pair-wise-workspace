@@ -199,3 +199,108 @@ def _quality_for_rep(bundle: Bundle, rep, rep_results, idx_by_seg, out_dir):
             psnrs.append(psnr_db(ref, arr))
             ssims.append(ssim(ref, arr))
     return summarize_quality(psnrs, ssims)
+
+
+def recover(bundle: Bundle, cfg: RecoverConfig) -> dict:
+    """Run the full recovery pipeline and write an atomic manifest."""
+    if not bundle.packets:
+        raise UnrecoverableError("input contains no packets (empty capture)")
+    out_dir = Path(cfg.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    organizer, domain, pstats = _parse_stream(bundle, cfg.queue_size)
+    video_frames, vstats = _reassemble(organizer, domain, bundle.video_ssrc,
+                                       cfg.reorder_window)
+    audio_frames, astats = _reassemble(organizer, domain, bundle.audio_ssrc,
+                                       cfg.reorder_window)
+    if not video_frames:
+        raise UnrecoverableError("no video frames recoverable from input")
+    decoded = _decode_video(video_frames)
+    timeline, truncated, freeze, unrecoverable = _build_timeline(
+        decoded, bundle.n_frames)
+    fps = cfg.fps
+    kf_times = [idx * 1000.0 / fps for idx, f in video_frames.items()
+                if f.keyframe and idx in decoded]
+    media_end_ms = (timeline[-1][0] + 1) * 1000.0 / fps
+    segments = plan_segments(media_end_ms, kf_times, cfg.segment_ms,
+                             truncated,
+                             declared_end_ms=bundle.duration_s * 1000.0)
+    if not segments:
+        raise UnrecoverableError("no segments could be planned")
+    reps = build_ladder(cfg.targets)
+    results, idx_by_seg = _encode_ladder(timeline, segments, reps, fps,
+                                         out_dir)
+    bandwidth = simulate_bandwidth(len(segments), seed=bundle.seed)
+    choices = select_representations(reps, len(segments), bandwidth)
+    for r in results:
+        if r.representation is reps[choices[r.segment.index]]:
+            r.selected_for_delivery = True
+    missing_chunks, n_chunks = _recover_audio(audio_frames,
+                                              len(bundle.audio), out_dir)
+    quality = {rep.name: _quality_for_rep(
+        bundle, rep, [r for r in results if r.representation is rep],
+        idx_by_seg, out_dir) for rep in reps}
+    seg_entries = [{
+        "index": r.segment.index,
+        "file": r.path,
+        "representation": r.representation.name,
+        "start_ms": round(r.segment.start_ms, 3),
+        "end_ms": round(r.segment.end_ms, 3),
+        "duration_ms": round(r.segment.duration_ms, 3),
+        "target_bps": r.representation.target_bps,
+        "actual_bps": round(r.actual_bps, 1),
+        "bitrate_error_pct": round(r.bitrate_error_pct, 2),
+        "flags": list(r.segment.flags),
+        "selected": r.selected_for_delivery,
+    } for r in results]
+    return {
+        "version": MANIFEST_VERSION,
+        "duration_ms": round(media_end_ms, 3),
+        "declared_duration_ms": round(bundle.duration_s * 1000.0, 3),
+        "truncated": truncated,
+        "representations": [{"name": r.name, "target_bps": r.target_bps,
+                             "width": r.width, "height": r.height}
+                            for r in reps],
+        "segments": seg_entries,
+        "quality": quality,
+        "alignment_error_ms": round(alignment_error_ms(results), 3),
+        "audio_file": "audio_recovered.wav",
+        "recovery": {
+            "duplicates": vstats.duplicates + astats.duplicates,
+            "late_packets": vstats.late_packets + astats.late_packets,
+            "lost_packets": vstats.lost_packets + astats.lost_packets,
+            "loss_bursts": vstats.loss_bursts + astats.loss_bursts,
+            "video_freeze_frames": freeze,
+            "video_unrecoverable_frames": unrecoverable,
+            "audio_placeholder_chunks": missing_chunks,
+            "audio_placeholder_ratio": round(missing_chunks / n_chunks, 4),
+            "recovered_ms": round(media_end_ms, 1),
+        },
+        "clock": {"uncertainty_ms": round(domain.max_uncertainty_ms(), 1)},
+        "pipeline": {"peak_queue_items": pstats.peak_queue_items,
+                     "queue_cap": cfg.queue_size},
+    }
+
+
+def _write_and_summarize(manifest: dict, out_dir: Path) -> None:
+    atomic_write_json(out_dir / "manifest.json", manifest)
+    rec = manifest["recovery"]
+    print(f"duration_ms: {manifest['duration_ms']}")
+    print(f"alignment_error_ms: {manifest['alignment_error_ms']}")
+    for rep in manifest["representations"]:
+        name = rep["name"]
+        segs = [s for s in manifest["segments"]
+                if s["representation"] == name]
+        actual = sum(s["actual_bps"] for s in segs) / max(len(segs), 1)
+        err = sum(abs(s["bitrate_error_pct"]) for s in segs) \
+            / max(len(segs), 1)
+        q = manifest["quality"][name]
+        print(f"[{name}] target_bps: {rep['target_bps']}")
+        print(f"[{name}] actual_bps: {actual:.0f}")
+        print(f"[{name}] bitrate_error_pct: {err:.2f}")
+        print(f"[{name}] psnr_db: {q['psnr_db']}")
+        print(f"[{name}] ssim: {q['ssim']}")
+    for key in ("duplicates", "late_packets", "loss_bursts",
+                "audio_placeholder_ratio"):
+        print(f"{key}: {rec[key]}")
+    print(f"peak_queue_items: {manifest['pipeline']['peak_queue_items']}")
+    print(f"manifest: {out_dir / 'manifest.json'}")
