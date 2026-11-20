@@ -39,3 +39,7 @@ set_target_properties(mediaqc_app PROPERTIES OUTPUT_NAME mediaqc)
 target_link_libraries(mediaqc_app PRIVATE mediaqc)
 
 enable_testing()
+add_executable(pipeline_tests tests/clock_test.cpp)
+target_include_directories(pipeline_tests PRIVATE tests)
+target_link_libraries(pipeline_tests PRIVATE mediaqc Catch2::Catch2WithMain)
+add_test(NAME pipeline COMMAND pipeline_tests)
