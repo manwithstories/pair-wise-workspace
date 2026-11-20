@@ -280,6 +280,7 @@ _INDEX_FIXTURES = ("keyframe_index.mp4",)
 _EXPECTED_FAILURES = {
     "truncated.mkv": {"truncated-container", "corrupt-packet"},
     "color_conflict.mkv": {"color-conflict"},
+    "color_unsupported.mkv": {"color-unsupported"},
     "empty_track.mkv": {"missing-stream"},
 }
 
@@ -415,7 +416,7 @@ def _self_test_inner(fixtures: Path) -> tuple[int, list[dict], list[MediaError]]
                 errors.append(exc)
             continue
         codes = {e.code for e in probed.errors}
-        if name == "color_conflict.mkv":
+        if name in ("color_conflict.mkv", "color_unsupported.mkv"):
             from .color import resolve
 
             codes |= {w.code for w in resolve(probed.video, path=str(candidate)).warnings}

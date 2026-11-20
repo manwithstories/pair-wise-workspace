@@ -404,6 +404,22 @@ class ColorTests(unittest.TestCase):
         self.assertEqual(len(conflicts), 2)
         self.assertEqual(conflicts[0].stage, "color")
 
+    def test_unsupported_tag_is_kept_verbatim_and_flagged(self):
+        result = probe(str(fixtures() / "color_unsupported.mkv"))
+        record = resolve_color(result.video, path=result.path)
+        self.assertIsNone(record.label("primaries"))
+        entry = record.get("primaries")
+        self.assertFalse(entry.supported)
+        self.assertEqual(entry.source, "tag")
+        self.assertEqual(
+            [w.code for w in record.warnings], ["color-unsupported"]
+        )
+        decisions = [d for d in record.decisions if d["field"] == "primaries"]
+        self.assertEqual(decisions[0]["choice"], "bt2020-extended-gamut")
+        self.assertEqual(decisions[0]["reason"], "unsupported-value-kept")
+        # The known tag alongside it is still used.
+        self.assertEqual(record.label("transfer"), "smpte2084")
+
     def test_absent_fields_stay_absent(self):
         result = probe(str(fixtures() / "color_conflict.mkv"))
         from dataclasses import replace

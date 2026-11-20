@@ -342,6 +342,25 @@ def _rewrite_boxes(data: bytes, start: int, end: int, drop_last_stss: bool) -> t
     return bytes(output), changed
 
 
+def make_unsupported_color(path: Path) -> None:
+    """A colour tag outside the enumeration, with no codec value to override it.
+
+    The codec fields are left unset on purpose: if a codec value were present it
+    would legitimately win, and the unsupported *tag* would never be visible.
+    """
+    out = av.open(str(path), "w", format="matroska")
+    video = out.add_stream("libx264", rate=VIDEO_RATE)
+    video.width, video.height = VIDEO_SIZE
+    video.pix_fmt = "yuv420p"
+    video.options = {"g": str(GOP), "keyint_min": str(GOP), "sc_threshold": "0",
+                     "preset": "veryfast", "crf": "28"}
+    video.metadata["COLOR_PRIMARIES"] = "bt2020-extended-gamut"
+    video.metadata["COLOR_TRANSFER"] = "smpte2084"
+    _write_video(out, video, 0, int(1.5 * VIDEO_RATE))
+    _flush(out, video)
+    out.close()
+
+
 def make_keyframe_hole(src: Path, dst: Path) -> bool:
     """Remove the last sync-sample entry from an MP4 ``stss`` index.
 
@@ -411,6 +430,12 @@ def generate(out_dir: Path) -> dict[str, Path]:
     conflict = out_dir / "color_conflict.mkv"
     make_color_conflict(conflict)
     made["color_conflict.mkv"] = conflict
+
+    # Colour metadata that is present but outside the enumeration: the archive
+    # must keep the raw value and mark it unsupported rather than invent a name.
+    unsupported = out_dir / "color_unsupported.mkv"
+    make_unsupported_color(unsupported)
+    made["color_unsupported.mkv"] = unsupported
 
     # The sync-sample index lives in MP4, so the incomplete-index fixture is MP4.
     hole = out_dir / "keyframe_index.mp4"
