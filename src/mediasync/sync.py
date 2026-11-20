@@ -328,3 +328,68 @@ def align_track(
         fps_changes=len(fps_changes),
         reason=reason,
     )
+
+
+def align_audio_only(
+    audio: AudioTrack,
+    reference_start_ticks: int,
+    *,
+    config: SyncConfig | None = None,
+) -> TrackSync:
+    """Report placement error for an audio track not paired with video."""
+
+    config = config or SyncConfig()
+    error = audio.start_pts_ticks - reference_start_ticks
+    aligned = abs(error) <= config.max_error_ticks
+    intervals = []
+    if not aligned:
+        intervals.append(
+            ErrorInterval(
+                audio.track_id,
+                0,
+                max(1, audio.duration_ticks),
+                abs(error),
+                "audio-offset",
+            )
+        )
+    return TrackSync(
+        track_id=audio.track_id,
+        kind="audio",
+        aligned=aligned,
+        max_error_ticks=abs(error),
+        mean_error_ticks=float(abs(error)),
+        anchors=len(audio.anchors),
+        error_intervals=intervals,
+        reason="" if aligned else "audio-offset-over-tolerance",
+    )
+
+
+def sample_position(track: TrackSync, tick: int, sample_rate: int) -> int:
+    """Map a tick on a synchronized track to its audio sample position."""
+
+    return samples_from_ticks(tick + track.offset_ticks, sample_rate)
+
+
+def implied_frame_rate(index_delta: int, tick_delta: int) -> Fraction:
+    """Frame rate implied by an index/tick delta, for VFR diagnostics."""
+
+    if index_delta <= 0 or tick_delta <= 0:
+        raise InputError("frame rate needs positive index and tick deltas")
+    return Fraction(index_delta * TICKS_PER_SECOND, tick_delta)
+
+
+__all__ = [
+    "DEFAULT_DRIFT_LIMIT_PPM",
+    "DEFAULT_MAX_ERROR_MS",
+    "AnchorPair",
+    "ErrorInterval",
+    "SyncConfig",
+    "SyncReport",
+    "TrackSync",
+    "align_audio_only",
+    "align_track",
+    "detect_fps_changes",
+    "implied_frame_rate",
+    "parse_fps",
+    "sample_position",
+]
