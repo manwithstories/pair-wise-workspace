@@ -35,6 +35,7 @@ add_library(mediacore STATIC
   src/track_mapper.cpp
   src/quality.cpp
   src/remux_muxer.cpp
+  src/manifest.cpp
 )
 target_include_directories(mediacore PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
