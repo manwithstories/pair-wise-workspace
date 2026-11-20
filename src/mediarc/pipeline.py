@@ -39,7 +39,7 @@ from .manifest import (
 )
 from .probe import ProbeResult, StreamProbe, probe
 from .timeline import Segment, Timeline, Track, contiguous_segments
-from .util import atomic_write_json, iter_packets, load_json, sha256_file
+from .util import atomic_write_json, iter_packets, load_json, quiet_libav, sha256_file
 
 STAGE_DIR = "stages"
 SEGMENT_DIR = "segments"
@@ -198,7 +198,7 @@ def build_timeline(
             )
             continue
         stream_end = tb.to_ticks(Fraction(_stream_end_seconds(stream)))
-        stream_start = tb.to_ticks(Fraction(stream.start_raw or 0) * stream.time_base.value)
+        stream_start = _content_start_ticks(result, stream)
         end_ticks = max(end_ticks, stream_end)
         tracks.append(
             Track(
@@ -226,6 +226,22 @@ def build_timeline(
             )
         )
     return Timeline(tb, end_ticks, tracks, segments), errors
+
+
+def _content_start_ticks(result: ProbeResult, stream: StreamProbe) -> int:
+    """First presentation tick the stream actually carries.
+
+    ``start_time`` is the container's view and can be zero for a stream whose
+    packets all begin later (a delayed audio track, for example); segments must
+    start where the material does, otherwise the first segment is empty.
+    """
+    for meta in stream.packets:
+        if meta.pts is None:
+            continue
+        return result.time_base.to_ticks(Fraction(meta.pts) * stream.time_base.value)
+    return result.time_base.to_ticks(
+        Fraction(stream.start_raw or 0) * stream.time_base.value
+    )
 
 
 def _cut_points(
@@ -258,7 +274,8 @@ def _segments_for(
 ) -> list[Segment]:
     segments = contiguous_segments(
         stream.index, cuts, end,
-        source_origin=start,
+        start_ticks=start,
+        source_origin=0,
         prefix=f"{stream.kind[0]}{stream.index:02d}_",
     )
     for segment in segments:
@@ -316,11 +333,32 @@ def remux_video_segment(
     end_ticks = segment.source_end_ticks if segment.source_end_ticks is not None else segment.end_ticks
     start_seconds = float(Fraction(start_ticks) / rate)
     end_seconds = float(Fraction(end_ticks) / rate)
+    with quiet_libav():
+        return _remux_video_segment(
+            result, stream, segment, output_path, color,
+            start_ticks, end_ticks, start_seconds, end_seconds,
+        )
+
+
+def _remux_video_segment(
+    result: ProbeResult,
+    stream: StreamProbe,
+    segment: Segment,
+    output_path: str,
+    color: ColorRecord,
+    start_ticks: int,
+    end_ticks: int,
+    start_seconds: float,
+    end_seconds: float,
+) -> SegmentRecord:
+    rate = result.time_base.rate.value
     container = av.open(result.path)
     output = None
     try:
         input_stream = container.streams[stream.index]
         packets = iter_packets(container, input_stream, Fraction(start_ticks) / rate)
+        skipped: list[MediaError] = []
+        cache: dict[str, Any] = {}
         output = av.open(output_path, "w", format="mp4")
         output.bit_exact = True
         output_stream = output.add_stream(template=input_stream)
@@ -344,6 +382,20 @@ def remux_video_segment(
                 continue
             if when >= end_seconds - 1e-9:
                 break
+            if not _packet_decodes(input_stream, packet, cache):
+                # A damaged packet must not be copied into an archived segment
+                # just because its container framing is intact.
+                skipped.append(
+                    MediaError(
+                        "corrupt-packet",
+                        f"packet at {when:.3f}s does not decode and was not archived",
+                        stage="archive", path=result.path,
+                        stream_index=stream.index,
+                        offset=_packet_offset(packet),
+                        detail={"segment_id": segment.segment_id},
+                    )
+                )
+                continue
             source_pts = packet.pts
             muxed.push(packet, output)
             count += 1
@@ -364,6 +416,12 @@ def remux_video_segment(
         if output is not None:
             output.close()
         container.close()
+    if skipped:
+        latest = skipped[-1]
+        latest.detail.setdefault("segment_id", segment.segment_id)
+        if os.path.exists(output_path):
+            os.unlink(output_path)
+        raise latest
     return SegmentRecord(
         segment_id=segment.segment_id,
         track_index=stream.index,
@@ -375,6 +433,43 @@ def remux_video_segment(
         keyframe_hash=keyframe_digest(keyframes),
         audio=None,
     )
+
+
+def _packet_offset(packet: Any) -> int | None:
+    position = getattr(packet, "pos", None)
+    return position if position is not None and position >= 0 else None
+
+
+def _packet_decodes(stream, packet, cache: dict[str, Any]) -> bool:
+    """True when the packet can be submitted to a fresh decoder without error.
+
+    Video packets are checked one by one with a decoder that has seen the
+    preceding packets of the same GOP (so reference frames resolve), while a
+    decode error on a packet is attributed to that packet.  Audio is checked by
+    the audio stage itself, which decodes every sample it archives.
+    """
+    if stream.codec_context.type != "video":
+        return True
+    decoder = cache.get("decoder")
+    if packet.is_keyframe or decoder is None:
+        codec_context = stream.codec_context
+        decoder = av.CodecContext.create(codec_context.name, "r")
+        if codec_context.extradata:
+            decoder.extradata = codec_context.extradata
+        cache["decoder"] = decoder
+    clone = av.Packet(bytes(packet))
+    clone.pts = packet.pts
+    clone.dts = packet.dts
+    clone.duration = packet.duration
+    clone.time_base = packet.time_base
+    try:
+        with quiet_libav():
+            for _ in decoder.decode(clone):
+                pass
+    except Exception:  # noqa: BLE001 - any decoder rejection is damage
+        cache["decoder"] = None
+        return False
+    return True
 
 
 class _MuxState:
@@ -668,7 +763,7 @@ def archive(
         "ok" if records else "failed",
         transform_output,
         stage_input_digest(manifest=manifest.to_dict()),
-        detail={"manifest": os.path.abspath(manifest_path)},
+        detail={"segments": len(records), "failed": len(failed)},
     ))
     report.stage_status["archive"] = manifest.stage("archive").status
     manifest.write(manifest_path)

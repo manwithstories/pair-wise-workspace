@@ -36,6 +36,7 @@ from .manifest import Manifest
 from .pipeline import Limits, archive
 from .probe import probe
 from .timeline import Rational
+from .util import quiet_libav
 from .verify import _index_checks, integrity_scan, recover, verify_manifest
 
 EXIT_OK = 0
@@ -242,6 +243,16 @@ def _self_test(fixtures: Path) -> tuple[int, list[dict], list[MediaError]]:
         )
         return recovered, notes, errors
 
+    # Repair work decodes damaged data on purpose; keep libav's log out of the
+    # terminal so the numbered metrics stay readable.
+    with quiet_libav():
+        return _self_test_inner(fixtures)
+
+
+def _self_test_inner(fixtures: Path) -> tuple[int, list[dict], list[MediaError]]:
+    notes: list[dict] = []
+    errors: list[MediaError] = []
+    recovered = 0
     for name in _DAMAGE_FIXTURES:
         candidate = fixtures / name
         if not candidate.exists():

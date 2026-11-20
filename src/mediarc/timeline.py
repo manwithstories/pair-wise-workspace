@@ -466,9 +466,16 @@ class Timeline:
         return errors
 
     def _bridged(self, left: Segment, right: Segment) -> bool:
+        """True when a transition covers exactly the overlap of these segments.
+
+        Touching segments (``left.end == right.start``) never overlap, so they
+        need no bridge; anything else must be fully covered by a declared
+        transition, otherwise the material would double-count.
+        """
+        if left.end_ticks <= right.start_ticks:
+            return True
         for tr in self.transitions:
-            pair = {tr.from_segment, tr.to_segment}
-            if pair == {left.segment_id, right.segment_id}:
+            if {tr.from_segment, tr.to_segment} == {left.segment_id, right.segment_id}:
                 return True
         return False
 
@@ -608,14 +615,22 @@ def contiguous_segments(
     starts: Sequence[int],
     end_ticks: int,
     *,
+    start_ticks: int = 0,
     source_origin: int = 0,
     prefix: str = "seg",
 ) -> list[Segment]:
-    """Build back-to-back segments from cut points, preserving source bounds."""
-    bounds = [0, *starts, end_ticks]
+    """Build back-to-back segments from cut points, preserving source bounds.
+
+    ``start_ticks`` is where the track's material begins; ``source_origin``
+    shifts the recorded source bounds independently, so a segment can start
+    later on the timeline than it does in its source file.
+    """
+    bounds = [start_ticks, *starts, end_ticks]
     segments: list[Segment] = []
     for i in range(len(bounds) - 1):
         start, end = bounds[i], bounds[i + 1]
+        if end <= start:
+            continue
         segments.append(
             Segment(
                 segment_id=f"{prefix}{i:02d}",

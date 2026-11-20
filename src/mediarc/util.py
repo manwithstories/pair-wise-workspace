@@ -163,3 +163,28 @@ def iter_packets(container: Any, stream: Any, target_seconds: Any = 0):
             container.seek(0)
         except Exception:  # noqa: BLE001
             return
+
+
+import contextlib as _contextlib
+import os as _os
+
+
+@_contextlib.contextmanager
+def quiet_libav():
+    """Silence libav's log callback for expected-failure work.
+
+    Damaged fixtures are decoded on purpose, so the library's error stream is
+    noise; diagnoses are captured structurally instead.  Set
+    ``MEDIARC_LIBAV_LOG=1`` to see the raw messages while debugging.
+    """
+    if _os.environ.get("MEDIARC_LIBAV_LOG"):
+        yield
+        return
+    import av as _av
+
+    try:
+        with _av.logging.Capture():
+            _av.logging.set_level(_av.logging.PANIC)
+            yield
+    finally:
+        _av.logging.restore_default_callback()

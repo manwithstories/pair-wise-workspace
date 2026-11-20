@@ -31,7 +31,7 @@ import av
 from .errors import MediaError, bridge
 from .manifest import Manifest, SegmentRecord, keyframe_digest
 from .probe import ProbeResult, StreamProbe, probe
-from .util import sha256_file
+from .util import quiet_libav, sha256_file
 
 
 @dataclass(slots=True)
@@ -396,28 +396,6 @@ def verify_manifest(
 # ---------------------------------------------------------------------------
 # Integrity scan and recovery
 # ---------------------------------------------------------------------------
-
-
-@contextlib.contextmanager
-def quiet_libav(level: int | None = None):
-    """Temporarily silence libav logs during expected-failure probing.
-
-    Repair work deliberately decodes damaged data, so the library's error
-    stream is noise: the diagnosis is already captured structurally.  Set
-    ``MEDIARC_LIBAV_LOG=1`` to see the raw messages.
-    """
-    if os.environ.get("MEDIARC_LIBAV_LOG"):
-        yield
-        return
-    previous = None
-    try:
-        with av.logging.Capture() as capture:
-            av.logging.set_level(level if level is not None else av.logging.PANIC)
-            previous = capture
-            yield
-    finally:
-        av.logging.restore_default_callback()
-        previous = None
 
 
 @dataclass(slots=True)
