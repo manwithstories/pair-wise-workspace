@@ -123,40 +123,75 @@ def frame_rgb(index: int, spec: FixtureSpec) -> np.ndarray:
 
 
 def audio_signal(spec: FixtureSpec) -> np.ndarray:
-    """48 kHz mono signal: 440 Hz tone, per-second beeps and a silent gap."""
+    """48 kHz mono signal: 440/660 Hz tones, per-second beeps, a silent gap.
+
+    Kept for callers that want the whole array (tests, ad-hoc inspection).  The
+    writer below streams the same signal in blocks so fixture generation does
+    not allocate several duration-sized float arrays at once.
+    """
     total = spec.duration_s * SAMPLE_RATE
     t = np.arange(total, dtype=np.float64) / SAMPLE_RATE
     signal = 0.35 * np.sin(2 * np.pi * 440.0 * t)
     signal += 0.10 * np.sin(2 * np.pi * 660.0 * t)
-    # one beep during the last 120 ms of each second
     phase = np.mod(t, 1.0)
     beep = (phase >= 0.88) & (phase < 0.97)
     signal += np.where(beep, 0.30 * np.sin(2 * np.pi * 1320.0 * t), 0.0)
-    # a deliberate silent interval in the second half for silence detection
     if spec.duration_s >= 4:
         start = int((spec.duration_s // 2 + 0.5) * SAMPLE_RATE)
         stop = start + int(0.5 * SAMPLE_RATE)
         signal[start:stop] = 0.0
-    signal = np.clip(signal, -0.99, 0.99)
-    return signal.astype(np.float32)
+    return np.clip(signal, -0.99, 0.99).astype(np.float32)
+
+
+#: Block size used when streaming fixture audio to disk (frames per block).
+AUDIO_BLOCK = 120_000
+
+
+def _audio_block(start: int, count: int, spec: FixtureSpec) -> np.ndarray:
+    """The same waveform as audio_signal, generated for frames [start, start+count)."""
+    t = np.arange(start, start + count, dtype=np.float64) / SAMPLE_RATE
+    block = 0.35 * np.sin(2 * np.pi * 440.0 * t)
+    block += 0.10 * np.sin(2 * np.pi * 660.0 * t)
+    phase = np.mod(t, 1.0)
+    beep = (phase >= 0.88) & (phase < 0.97)
+    block += np.where(beep, 0.30 * np.sin(2 * np.pi * 1320.0 * t), 0.0)
+    block = np.clip(block, -0.99, 0.99)
+    if spec.duration_s >= 4:
+        gap_start = int((spec.duration_s // 2 + 0.5) * SAMPLE_RATE)
+        gap_end = gap_start + int(0.5 * SAMPLE_RATE)
+        lo = max(gap_start, start)
+        hi = min(gap_end, start + count)
+        if hi > lo:
+            block[lo - start:hi - start] = 0.0
+    return block.astype(np.float32)
 
 
 def write_wav(path: Path, spec: FixtureSpec) -> dict[str, Any]:
-    """Write the deterministic audio track as 16-bit PCM."""
+    """Write the deterministic audio track as 16-bit PCM, block by block."""
     import soundfile as sf
 
-    signal = audio_signal(spec)
     path.parent.mkdir(parents=True, exist_ok=True)
-    sf.write(str(path), signal, SAMPLE_RATE, subtype="PCM_16", format="WAV")
+    total = spec.duration_s * SAMPLE_RATE
+    with sf.SoundFile(str(path), "w", samplerate=SAMPLE_RATE, channels=1,
+                      subtype="PCM_16", format="WAV") as handle:
+        for start in range(0, total, AUDIO_BLOCK):
+            count = min(AUDIO_BLOCK, total - start)
+            handle.write(_audio_block(start, count, spec))
     return {
         "path": str(path), "sample_rate": SAMPLE_RATE,
-        "channels": AUDIO_CHANNELS, "frames": int(signal.size),
+        "channels": AUDIO_CHANNELS, "frames": total,
         "duration_s": spec.duration_s,
     }
 
 
 def encode_video(path: Path, spec: FixtureSpec) -> bytes:
-    """Encode the fixture into a raw Annex-B / OBU bitstream and return bytes."""
+    """Encode the fixture into a raw bitstream and return its bytes (tests)."""
+    encode_video_file(path, spec)
+    return path.read_bytes()
+
+
+def encode_video_file(path: Path, spec: FixtureSpec) -> int:
+    """Encode the fixture straight to ``path``; returns the byte size."""
     import av
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -208,36 +243,65 @@ def encode_video(path: Path, spec: FixtureSpec) -> bytes:
             buffer.mux(packet)
     finally:
         buffer.close()
-    return path.read_bytes()
+    return path.stat().st_size
 
 
 def make_fixtures(out_dir: Path, spec: FixtureSpec) -> dict[str, Any]:
     """Write video + audio fixtures (and an optional deliberately cut tail).
 
-    With ``corrupt_tail``, the video is cut ``tail_bytes`` bytes short of its
-    natural end and a companion ``*.corrupt.json`` records the cut position, so
-    the demo can prove the defect is located rather than silently skipped.
+    The stream is written directly to disk and only its size is returned, so
+    fixture generation for long streams does not hold the encoded file in
+    memory.  With ``corrupt_tail`` the file is shortened in place at a point
+    chosen to be structurally detectable (see :func:`_truncate_for_detection`).
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     video_path = out_dir / f"video.{spec.extension}"
     audio_path = out_dir / "audio.wav"
-    data = encode_video(video_path, spec)
+    size = encode_video_file(video_path, spec)
     result: dict[str, Any] = {
         "spec": spec.digest(),
         "video_path": str(video_path),
-        "video_bytes": len(data),
+        "video_bytes": size,
         "audio": write_wav(audio_path, spec),
         "corrupt_tail": spec.corrupt_tail,
     }
     if spec.corrupt_tail:
-        truncated, cut = _truncate_for_detection(data, spec)
-        video_path.write_bytes(truncated)
-        result["video_bytes_original"] = len(data)
-        result["video_bytes"] = len(truncated)
-        result["truncated_at"] = len(truncated)
+        cut = truncate_for_detection(video_path, spec)
+        result["video_bytes_original"] = size
+        result["video_bytes"] = size - cut
+        result["truncated_at"] = size - cut
         result["truncated_bytes"] = cut
     return result
+
+
+def truncate_for_detection(path: Path, spec: FixtureSpec) -> int:
+    """Shorten ``path`` in place at a structurally detectable point.
+
+    Returns the number of bytes removed.  See :func:`_truncate_for_detection`
+    for why the cut point is chosen rather than arbitrary.
+    """
+    size = path.stat().st_size
+    with open(path, "rb") as handle:
+        handle.seek(max(0, size - 65536))
+        tail = handle.read()
+    if spec.codec == "av1":
+        cut = max(1, min(spec.tail_bytes, size // 4))
+        new_size = size - cut
+    else:
+        rel = tail.rfind(b"\x00\x00\x01")
+        if rel < 0:
+            cut = max(1, min(spec.tail_bytes, size // 4))
+            new_size = size - cut
+        else:
+            new_size = max(1, size - len(tail) + rel + 3)
+            if new_size >= size:
+                cut = max(1, min(spec.tail_bytes, size // 4))
+                new_size = size - cut
+    cut = size - new_size
+    with open(path, "r+b") as handle:
+        handle.truncate(new_size)
+    return cut
 
 
 def _truncate_for_detection(data: bytes, spec: FixtureSpec) -> tuple[bytes, int]:

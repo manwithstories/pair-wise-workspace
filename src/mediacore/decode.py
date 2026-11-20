@@ -102,7 +102,7 @@ def decode_tail_probe(units: Sequence[AccessUnit], codec: str,
     for unit in window_units:
         if unit.truncated or not unit.complete:
             return True, "structurally incomplete final access unit", unit.index
-        packet = av.Packet(unit.data)
+        packet = av.Packet(unit.payload())
         packet.pts = unit.index
         packet.dts = unit.index
         try:
@@ -128,7 +128,7 @@ def decode_keyframe(unit: AccessUnit, codec: str) -> DecodedPicture | None:
     av = _av()
     context = new_decoder(codec)
     try:
-        packet = av.Packet(unit.data)
+        packet = av.Packet(unit.payload())
         packet.pts = unit.index
         packet.dts = unit.index
         frames = list(context.decode(packet))
@@ -155,7 +155,7 @@ def decode_prefix(
         if unit.truncated or not unit.complete:
             # A truncated tail is not decoded; its defect is already reported.
             return
-        packet = av.Packet(unit.data)
+        packet = av.Packet(unit.payload())
         packet.pts = unit.index
         packet.dts = unit.index
         try:

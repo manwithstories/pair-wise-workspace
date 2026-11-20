@@ -42,10 +42,33 @@ class AccessUnit:
     nal_types: tuple[int, ...] = ()
     truncated: bool = False
     complete: bool = True
+    #: Where the payload lives, so a pipeline that wants bounded memory can
+    #: release ``data`` and re-read this unit on demand.
+    source_path: str | None = None
+    _stored_size: int = 0
 
     @property
     def size(self) -> int:
-        return len(self.data)
+        return len(self.data) if self.data else self._stored_size
+
+    def payload(self) -> bytes:
+        """Return this unit's bytes, re-reading them from the source if dropped."""
+        if self.data:
+            return self.data
+        if not self.source_path:
+            raise MediaCorruptError(
+                "access unit payload was released and has no source",
+                offset=self.offset, code="payload_unavailable")
+        with open(self.source_path, "rb") as handle:
+            handle.seek(self.offset)
+            return handle.read(self._stored_size)
+
+    def release_payload(self) -> int:
+        """Drop the in-memory payload and return the bytes reclaimed."""
+        reclaimed = len(self.data)
+        self._stored_size = reclaimed or self._stored_size
+        self.data = b""
+        return reclaimed
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -314,11 +337,11 @@ def scan_annexb(chunks: Iterable[bytes], *, codec: str) -> Iterator[AccessUnit |
         nonlocal current, nal_types, key, irap, have_vcl, unit_offset
         if not current:
             return
+        payload = b"".join(b"\x00\x00\x01" + nal for nal in current)
         unit = AccessUnit(
-            index=report.units, offset=unit_offset,
-            data=b"".join(b"\x00\x00\x01" + nal for nal in current),
+            index=report.units, offset=unit_offset, data=payload,
             keyframe=key, is_irap=irap, nal_types=tuple(nal_types),
-            complete=complete, truncated=not complete)
+            complete=complete, truncated=not complete, _stored_size=len(payload))
         report.units += 1
         report.keyframes += int(key)
         if not complete:
@@ -440,10 +463,11 @@ def scan_av1(chunks: Iterable[bytes]) -> Iterator[AccessUnit | ScanReport]:
         nonlocal parts, types, key, unit_offset
         if not parts:
             return None
+        payload = b"".join(parts)
         unit = AccessUnit(
-            index=report.units, offset=unit_offset, data=b"".join(parts),
+            index=report.units, offset=unit_offset, data=payload,
             keyframe=key, is_irap=key, nal_types=tuple(types),
-            complete=complete, truncated=not complete)
+            complete=complete, truncated=not complete, _stored_size=len(payload))
         report.units += 1
         report.keyframes += int(key)
         if not complete:

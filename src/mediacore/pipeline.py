@@ -26,6 +26,7 @@ import hashlib
 import json
 import platform
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -101,6 +102,7 @@ class StageResult:
     scan_seconds: float = 0.0
     queue_stats: dict[str, Any] = field(default_factory=dict)
     peak_read_buffer_bytes: int = 0
+    payload_bytes_released: int = 0
 
 
 @dataclass
@@ -125,12 +127,23 @@ def _sha256_file(path: Path) -> str:
 
 
 def scan_stream(path: Path, codec: str, *, chunk: int = READ_CHUNK,
-                queue_depth: int = QUEUE_MAX_UNITS * 4) -> StageResult:
+                queue_depth: int = QUEUE_MAX_UNITS * 4,
+                keep_first: int = 0, tail_window: int = 32) -> StageResult:
     """Scan a raw bitstream fed through a bounded producer/consumer queue.
 
     The reader thread blocks when the queue is full; the scanner is the only
-    consumer.  Access units are collected because later stages need their bytes
-    for decoding, but the *file read-ahead* is bounded by ``queue_depth``.
+    consumer, so read-ahead is bounded by ``queue_depth``.
+
+    Access-unit *metadata* is collected (needed for indexing and the manifest),
+    but payloads are dropped as soon as they can no longer be needed:
+
+    * keyframe payloads are kept for random-access observation,
+    * the first ``keep_first`` units are kept for quality scoring,
+    * the last ``tail_window`` units are kept for the strict tail probe.
+
+    Dropped payloads remain reachable through :meth:`AccessUnit.payload`, which
+    re-reads the exact byte range from the source file.  Peak resident payload
+    is therefore bounded by those three windows, not by fixture duration.
     """
     started = time.perf_counter()
     queue: BoundedQueue[bytes] = BoundedQueue(queue_depth, name="read")
@@ -174,21 +187,38 @@ def scan_stream(path: Path, codec: str, *, chunk: int = READ_CHUNK,
 
     units: list[AccessUnit] = []
     report: ScanReport | None = None
+    retained = 0
+    released = 0
+    tail: deque[AccessUnit] = deque()
     try:
         for item in scan(chunks(), codec=codec):
             if isinstance(item, ScanReport):
                 report = item
-            else:
-                units.append(item)
+                continue
+            item.source_path = str(path)
+            units.append(item)
+            tail.append(item)
+            if len(tail) > tail_window:
+                old = tail.popleft()
+                if (old.index >= keep_first and not old.keyframe
+                        and old.data):
+                    released += old.release_payload()
+            retained = max(retained, sum(len(u.data) for u in units))
     finally:
         thread.join(timeout=10.0)
     if producer_error:
         raise producer_error[0]
     if report is None:
         raise MediaInputError("scanner produced no report", code="scan_failed")
-    return StageResult(
+    for unit in tail:
+        passes = unit.index < keep_first or unit.keyframe
+        if not passes and unit.data:
+            released += unit.release_payload()
+    result = StageResult(
         units=units, report=report, scan_seconds=time.perf_counter() - started,
         queue_stats=queue.stats(), peak_read_buffer_bytes=peak[0])
+    result.payload_bytes_released = released
+    return result
 
 
 def repair_timeline(units: list[AccessUnit], *, fps: int):
@@ -273,9 +303,12 @@ def run_pipeline(
     file_size = video_path.stat().st_size
 
     # ---- Stage 1: scan -----------------------------------------------------
-    stage = scan_stream(video_path, config.codec)
+    stage = scan_stream(video_path, config.codec,
+                        keep_first=config.quality_limit)
     timings["scan"] = stage.scan_seconds
     units = stage.units
+    for unit in units:
+        unit.source_path = str(video_path)
     if not units:
         raise MediaCorruptError(
             "no access units could be recovered from the input",
@@ -379,6 +412,12 @@ def run_pipeline(
         units, config.codec, _reference_lookup(config), limit=quality_limit).to_dict()
     timings["quality"] = time.perf_counter() - quality_started
 
+    # Payloads are no longer needed: the scanner metadata, timeline records and
+    # measured statistics are all that the manifest derives from.  Dropping them
+    # keeps resident memory flat for long fixtures (values stay re-readable
+    # through AccessUnit.payload() if a future stage needs them).
+    released = stage.payload_bytes_released + sum(
+        unit.release_payload() for unit in units)
     segments = build_segments(
         units, pts_seconds, target_bps=config.target_bps,
         frame_duration_s=frame_duration, decisions=timeline.decisions)
@@ -417,6 +456,7 @@ def run_pipeline(
         "scan_peak_read_buffer_bytes": stage.peak_read_buffer_bytes,
         "frame_cache_bytes": FRAME_CACHE_BYTES,
         "audio_queue_max_blocks": QUEUE_MAX_AUDIO_BLOCKS,
+        "payload_bytes_released": released,
         "python": platform.python_version(),
     })
     manifest = Manifest(
