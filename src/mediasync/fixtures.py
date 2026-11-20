@@ -41,6 +41,10 @@ class FixtureConfig:
     audio_seconds: float = 5.0
     sample_rate: int = 48_000
 
+    @property
+    def duration_seconds(self) -> float:
+        return float(self.frames / self.fps)
+
 
 @dataclass
 class VideoFixture:
@@ -384,6 +388,7 @@ def build_video_fixture(
     vfr_every: int | None = None,
     anchors_seconds: Sequence[float] = (),
     bitrate: int | None = None,
+    capture_offset_ticks: int = 0,
 ) -> VideoFixture:
     """Encode one raw stream, scan it and write a matching index."""
 
@@ -400,11 +405,17 @@ def build_video_fixture(
         drift_ppm=drift_ppm,
         vfr_every=vfr_every,
     )
+    if capture_offset_ticks:
+        for entry in entries:
+            entry["unwrapped_ticks"] += capture_offset_ticks
+            entry["pts_ticks"] = (
+                entry["pts_ticks"] + capture_offset_ticks
+            ) % (1 << 33)
     labels = [f"a{index}" for index in range(len(anchors_seconds))]
     indices = video_anchor_indices(anchors_seconds, config.fps, len(packets))
     anchors = [
-        {"label": label, "video_index": index}
-        for label, index in zip(labels, indices)
+        {"label": label, "video_index": index, "video_seconds": float(seconds)}
+        for label, index, seconds in zip(labels, indices, anchors_seconds)
     ]
     fixture = VideoFixture(
         codec=config.codec,

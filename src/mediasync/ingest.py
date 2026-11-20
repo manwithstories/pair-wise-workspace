@@ -81,6 +81,8 @@ class Anchor:
     label: str
     video_index: int | None = None
     audio_sample: int | None = None
+    video_seconds: float = 0.0
+    audio_seconds: float = 0.0
 
 
 @dataclass
@@ -363,7 +365,22 @@ def _parse_anchors(raw: Any, track_id: str) -> tuple[Anchor, ...]:
                 not isinstance(value, int) or isinstance(value, bool) or value < 0
             ):
                 raise IndexError_(f"{track_id}: anchor positions must be non-negative")
-        anchors.append(Anchor(str(entry["label"]), video, audio))
+        video_seconds = entry.get("video_seconds", 0.0)
+        audio_seconds = entry.get("audio_seconds", 0.0)
+        for name, value in (("video_seconds", video_seconds), ("audio_seconds", audio_seconds)):
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                raise IndexError_(f"{track_id}: {name} must be numeric")
+            if not -1e6 <= float(value) <= 1e6:
+                raise IndexError_(f"{track_id}: {name} {value} is out of range")
+        anchors.append(
+            Anchor(
+                str(entry["label"]),
+                video,
+                audio,
+                float(video_seconds),
+                float(audio_seconds),
+            )
+        )
     return tuple(anchors)
 
 
