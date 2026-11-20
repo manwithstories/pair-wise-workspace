@@ -30,10 +30,11 @@ void ErrorSink::add(RelayError error) {
 }
 
 void ErrorSink::warn(std::string stage, std::string track,
-                     std::uint64_t frame, std::string reason) {
+                     std::uint64_t frame, std::string reason,
+                     std::string dependency_chain) {
   add(RelayError{Severity::kWarning, ExitCode::kOk,
                  Ids{std::move(stage), std::move(track), frame},
-                 std::move(reason), {}});
+                 std::move(reason), std::move(dependency_chain)});
 }
 
 void ErrorSink::fail(std::string stage, std::string track,

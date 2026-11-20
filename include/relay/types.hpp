@@ -48,7 +48,7 @@ struct RelayError {
 class ErrorSink {
  public:
   void warn(std::string stage, std::string track, std::uint64_t frame,
-            std::string reason);
+            std::string reason, std::string dependency_chain = {});
   void fail(std::string stage, std::string track, std::uint64_t frame,
             std::string reason, std::string dependency_chain = {});
   void add(RelayError error);

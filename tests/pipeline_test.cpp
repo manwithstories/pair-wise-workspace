@@ -1,6 +1,7 @@
 #include "relay/fixture.hpp"
 #include "relay/frame_reader.hpp"
 #include "relay/packet_reorder.hpp"
+#include "relay/checkpoint.hpp"
 #include "relay/ladder.hpp"
 #include "relay/manifest.hpp"
 #include "relay/segmenter.hpp"
@@ -631,4 +632,76 @@ TEST_CASE("manifest store is atomic and never leaves a partial file",
   Manifest broken;
   result = load_manifest(path, broken);
   CHECK_FALSE(result.ok);
+}
+
+TEST_CASE("checkpoints reuse only when the input digest matches",
+          "[checkpoint]") {
+  auto root = make_scratch("checkpoint");
+  CheckpointStore store(root / "state");
+  ErrorSink errors;
+  store.begin("read", "digest-A", errors);
+  REQUIRE(store.complete("read", "digest-A", "out-A", "payload-A", errors));
+
+  StageOutcome outcome;
+  CHECK(store.can_reuse("read", "digest-A", outcome, errors));
+  CHECK(outcome.reused);
+  CHECK(outcome.record.payload == "payload-A");
+
+  StageOutcome rejected;
+  ErrorSink change_errors;
+  CHECK_FALSE(store.can_reuse("read", "digest-B", rejected, change_errors));
+  CHECK(rejected.rejected);
+  CHECK(change_errors.has_warnings());
+  bool chain_reported = false;
+  for (const auto& event : change_errors.events()) {
+    if (event.reason.find("input digest changed") != std::string::npos &&
+        !event.dependency_chain.empty()) {
+      chain_reported = true;
+    }
+  }
+  CHECK(chain_reported);
+}
+
+TEST_CASE("an interrupted stage is resumed rather than trusted",
+          "[checkpoint][resume]") {
+  auto root = make_scratch("checkpoint-resume");
+  {
+    CheckpointStore store(root / "state");
+    ErrorSink errors;
+    store.begin("read", "digest-A", errors);
+    REQUIRE(store.complete("read", "digest-A", "out-A", "payload-A", errors));
+    // Simulate an interruption after reorder started but before completion.
+    store.begin("reorder", "digest-B", errors);
+  }
+  CheckpointStore resumed(root / "state");
+  ErrorSink errors;
+  StageOutcome outcome;
+  CHECK(resumed.can_reuse("read", "digest-A", outcome, errors));
+  CHECK(outcome.reused);
+  StageOutcome running;
+  CHECK_FALSE(resumed.can_reuse("reorder", "digest-B", running, errors));
+  CHECK_FALSE(running.reused);
+  CHECK(resumed.completed_order().size() == 1);
+}
+
+TEST_CASE("a corrupt checkpoint file is rejected, not silently reset",
+          "[checkpoint][corrupt]") {
+  auto root = make_scratch("checkpoint-corrupt");
+  std::filesystem::create_directories(root / "state");
+  {
+    std::ofstream out(root / "state" / "checkpoint.ckpt");
+    out << "NOT-A-CHECKPOINT\n";
+  }
+  CheckpointStore store(root / "state");
+  StageOutcome outcome;
+  ErrorSink errors;
+  CHECK_FALSE(store.can_reuse("read", "digest-A", outcome, errors));
+  CHECK(errors.has_errors());
+  bool located = false;
+  for (const auto& event : errors.events()) {
+    if (event.ids.stage == "resume") {
+      located = true;
+    }
+  }
+  CHECK(located);
 }
