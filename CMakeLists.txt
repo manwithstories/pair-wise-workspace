@@ -25,6 +25,8 @@ add_library(relay_core STATIC
   src/timeline.cpp
   src/segmenter.cpp
   src/ladder.cpp
+  src/json.cpp
+  src/manifest.cpp
 )
 target_include_directories(relay_core PUBLIC include)
 target_link_libraries(relay_core PUBLIC PkgConfig::FFMPEG OpenSSL::Crypto)

@@ -2,12 +2,14 @@
 #include "relay/frame_reader.hpp"
 #include "relay/packet_reorder.hpp"
 #include "relay/ladder.hpp"
+#include "relay/manifest.hpp"
 #include "relay/segmenter.hpp"
 #include "relay/timeline.hpp"
 #include "relay/types.hpp"
 
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -501,4 +503,132 @@ TEST_CASE("all representations share the boundary track's cuts", "[ladder]") {
     CHECK(result.renditions[i].end_us == segments.segments[i].end_us);
   }
   CHECK(result.boundary_source == "cam-a");
+}
+
+namespace {
+
+Manifest sample_manifest() {
+  Manifest manifest;
+  manifest.version = 1;
+  manifest.input_digest = std::string(64, '1');
+  manifest.config_digest = std::string(64, '2');
+  manifest.timebase = Timebase{30000, 1001};
+  manifest.start_us = 12345;
+  manifest.end_us = 98765;
+  ManifestTrack track;
+  track.id = "cam-a";
+  track.state = "ready";
+  track.epochs = 2;
+  track.keyframes = 3;
+  track.losses = 4;
+  ManifestSegment segment;
+  segment.track = "cam-a";
+  segment.index = 0;
+  segment.start_us = 12345;
+  segment.end_us = 51345;
+  segment.start_sequence = 0;
+  segment.end_sequence = 14;
+  segment.frame_count = 15;
+  segment.status = "complete";
+  segment.content_hash = std::string(64, 'a');
+  segment.rendition = "720p";
+  segment.bitrate_bps = 2'500'000;
+  segment.random_access = true;
+  segment.extensions["vendor_note"] = "preserve me";
+  segment.extensions["vendor_count"] = 7;
+  track.segments.push_back(segment);
+  track.extensions["camera_serial"] = "SN-42";
+  manifest.tracks.push_back(track);
+  manifest.downgrades.push_back(
+      DowngradeEvent{1, "1080p", "720p", 1'900'000, 4096, "bandwidth drop"});
+  manifest.unknown_fields["future_stage"] = "ignored-but-kept";
+  return manifest;
+}
+
+}  // namespace
+
+TEST_CASE("manifest round-trips byte-for-byte and keeps unknown fields",
+          "[manifest]") {
+  Manifest original = sample_manifest();
+  const std::string text = serialize(original);
+  Manifest parsed;
+  ManifestParseResult result = parse_manifest(text, parsed);
+  REQUIRE(result.ok);
+  CHECK(result.isolated.empty());
+  CHECK(serialize(parsed) == text);
+  CHECK(manifest_digest(parsed) == manifest_digest(original));
+  REQUIRE(parsed.tracks.size() == 1);
+  REQUIRE(parsed.tracks[0].segments.size() == 1);
+  CHECK(parsed.tracks[0].segments[0].extensions.count("vendor_note") == 1);
+  CHECK(parsed.tracks[0].extensions.count("camera_serial") == 1);
+  CHECK(parsed.unknown_fields.count("future_stage") == 1);
+  CHECK(parsed.timebase.fps_num == 30000);
+  CHECK(parsed.timebase.fps_den == 1001);
+}
+
+TEST_CASE("damaged manifest records are isolated, independent tracks survive",
+          "[manifest][corrupt]") {
+  Manifest manifest = sample_manifest();
+  manifest.tracks[0].segments.push_back(manifest.tracks[0].segments[0]);
+  manifest.tracks[0].segments.back().index = 1;
+  manifest.tracks[0].segments.back().content_hash = "not-a-digest";
+  ManifestTrack second;
+  second.id = "cam-b";
+  second.state = "ready";
+  ManifestSegment good = manifest.tracks[0].segments[0];
+  good.track = "cam-b";
+  second.segments.push_back(good);
+  manifest.tracks.push_back(second);
+
+  std::string text = serialize(manifest);
+  Manifest reparsed;
+  ManifestParseResult result = parse_manifest(text, reparsed);
+  REQUIRE(result.ok);
+  CHECK(result.isolated.size() == 1);
+  REQUIRE(reparsed.tracks.size() == 2);
+  CHECK(reparsed.tracks[0].segments.size() == 1);
+  REQUIRE(reparsed.tracks[1].segments.size() == 1);
+  CHECK(reparsed.tracks[1].segments[0].track == "cam-b");
+  // The isolated record is gone but the rest round-trips.
+  CHECK(serialize(reparsed) != text);
+}
+
+TEST_CASE("malformed manifest JSON is rejected, never partially used",
+          "[manifest][corrupt]") {
+  Manifest parsed;
+  ManifestParseResult result = parse_manifest("{\"tracks\": [", parsed);
+  CHECK_FALSE(result.ok);
+  CHECK(result.error.find("byte") != std::string::npos);
+  CHECK(result.error_offset > 0);
+
+  result = parse_manifest("{\"tracks\": [},]}", parsed);
+  CHECK_FALSE(result.ok);
+
+  result = parse_manifest("{\"timebase\": {}}", parsed);
+  CHECK_FALSE(result.ok);
+  CHECK(result.error.find("tracks") != std::string::npos);
+}
+
+TEST_CASE("manifest store is atomic and never leaves a partial file",
+          "[manifest][io]") {
+  auto root = make_scratch("manifest-io");
+  const auto path = root / "manifest.json";
+  Manifest manifest = sample_manifest();
+  std::string error;
+  REQUIRE(store_manifest(path, manifest, error));
+  CHECK_FALSE(std::filesystem::exists(path.string() + ".tmp"));
+
+  Manifest loaded;
+  ManifestParseResult result = load_manifest(path, loaded);
+  REQUIRE(result.ok);
+  CHECK(serialize(loaded) == serialize(manifest));
+
+  // A corrupt on-disk manifest is reported, not partially applied.
+  {
+    std::ofstream out(path);
+    out << "{ \"tracks\": [ {\"id\": \"cam-a\", \"segments\": [";
+  }
+  Manifest broken;
+  result = load_manifest(path, broken);
+  CHECK_FALSE(result.ok);
 }
