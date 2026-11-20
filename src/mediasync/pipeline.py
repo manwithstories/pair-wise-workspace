@@ -279,17 +279,49 @@ def _build_calibrated(
     target_bytes: int,
     capture_offset_ticks: int = 0,
     drift_ppm: float = 0.0,
-    max_passes: int = 2,
+    max_passes: int = 8,
 ) -> VideoFixture:
-    """Encode a track, then nudge the encoder bitrate toward ``target_bytes``.
+    """Encode a track, then steer it onto ``target_bytes`` in closed loop.
 
-    Encoder CBR accuracy differs by codec (H.264 filler is near exact, HEVC and
-    AV1 undershoot or overshoot several percent), so a closed loop is used
-    instead of trusting the requested bitrate.
+    Encoder CBR accuracy differs by codec.  H.264 reaches the target by
+    emitting HRD filler; HEVC lands within a few percent.  AV1's realtime CBR
+    cannot spend more than the content's entropy allows, so its noise fraction
+    is adjusted instead of its bitrate.  The loop converges on measured bytes,
+    never on a requested bitrate.
     """
 
     bitrate = max(1, int(round(target_bytes * 8 / fixture_config.duration_seconds)))
     fixture: VideoFixture | None = None
+    if fixture_config.codec != "av1":
+        # H.264/HEVC rate control is adjusted until the measured byte count
+        # lands on target; both honour a CBR request honestly.
+        for attempt in range(max_passes + 1):
+            fixture = build_video_fixture(
+                root,
+                fixture_config,
+                track_id=track_id,
+                role=role,
+                anchors_seconds=anchors_seconds,
+                bitrate=bitrate,
+                capture_offset_ticks=capture_offset_ticks,
+                drift_ppm=drift_ppm,
+            )
+            if target_bytes <= 0:
+                return fixture
+            deviation = (fixture.size_bytes - target_bytes) / target_bytes
+            if abs(deviation) <= 0.01 or attempt == max_passes:
+                return fixture
+            bitrate = max(1, int(round(bitrate * target_bytes / fixture.size_bytes)))
+        assert fixture is not None
+        return fixture
+
+    # AV1's realtime CBR spends at most what the content's entropy allows, so
+    # the requested bitrate is ignored and the noise fraction is bisected
+    # against measured bytes instead.  The response is monotone in noise.
+    low, high = 0.0, 0.6
+    noise = 0.02
+    best: VideoFixture | None = None
+    best_error = float("inf")
     for attempt in range(max_passes + 1):
         fixture = build_video_fixture(
             root,
@@ -300,15 +332,22 @@ def _build_calibrated(
             bitrate=bitrate,
             capture_offset_ticks=capture_offset_ticks,
             drift_ppm=drift_ppm,
+            noise_fraction=noise,
         )
         if target_bytes <= 0:
             return fixture
         deviation = (fixture.size_bytes - target_bytes) / target_bytes
+        if abs(deviation) < best_error:
+            best, best_error = fixture, abs(deviation)
         if abs(deviation) <= 0.01 or attempt == max_passes:
             return fixture
-        bitrate = max(1, int(round(bitrate * target_bytes / fixture.size_bytes)))
-    assert fixture is not None
-    return fixture
+        if fixture.size_bytes < target_bytes:
+            low = noise
+        else:
+            high = noise
+        noise = (low + high) / 2.0
+    assert best is not None
+    return best
 
 
 def run_pipeline(
