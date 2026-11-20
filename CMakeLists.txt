@@ -28,6 +28,19 @@ add_library(mbcore STATIC
   src/silence.cpp
   src/fingerprint.cpp
   src/fixture.cpp
+  src/pipeline.cpp
 )
 target_include_directories(mbcore PUBLIC src)
 target_link_libraries(mbcore PUBLIC PkgConfig::FFMPEG Threads::Threads)
+
+add_executable(media_batch src/main.cpp)
+target_link_libraries(media_batch PRIVATE mbcore)
+
+option(MB_BUILD_TESTS "Build Catch2 unit tests" ON)
+if(MB_BUILD_TESTS)
+  enable_testing()
+  find_package(Catch2 3.7 REQUIRED)
+  add_executable(media_batch_tests tests/pipeline_test.cpp)
+  target_link_libraries(media_batch_tests PRIVATE mbcore Catch2::Catch2WithMain)
+  add_test(NAME pipeline COMMAND media_batch_tests)
+endif()
