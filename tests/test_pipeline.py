@@ -622,3 +622,297 @@ class TestCli:
 # ==========================================================================
 # Failure classification and edge inputs
 # ==========================================================================
+
+
+class TestFailureClassification:
+    def test_corrupt_access_unit_is_illegal_and_not_recovered(self, fixture_root):
+        from bcastqc.bitstream import validate_access_unit
+
+        path = fixture_root / "program_h264_corrupt.bin"
+        data = path.read_bytes()
+        units = AnnexBParser(Codec.H264).split(data)
+        assert len(units) == FRAMES
+        problems = [validate_access_unit(Codec.H264, data[u.offset:u.end], strict=True) for u in units]
+        assert any(problem is not None for problem in problems)
+
+        stats = DecodeStats()
+        frames = []
+        for block in decode_video_blocks(
+            path, Codec.H264, Fraction(25), block_frames=8, stats=stats
+        ):
+            frames.extend(block.frames)
+        assert stats.illegal_units >= 1
+        # concealment covers the gap up to (and including) the next keyframe;
+        # if the corrupt unit is after the last keyframe, the resync itself
+        # does not happen, but the gap is still reported
+        concealed = [frame for frame in frames if frame.source == "concealed"]
+        assert concealed and all(frame.recovered is False for frame in concealed)
+        # the stream stays time-consistent: every frame slot is present
+        assert [frame.pts for frame in frames] == list(range(FRAMES))
+
+    def test_truncated_tail_is_concealed_once(self, fixture_root, tmp_path):
+        document = _simple_document(video="program_h264_truncated.bin")
+        timeline = load_timeline(_write_timeline(fixture_root, document, "tail.json"))
+        result = run_pipeline(timeline, tmp_path, RunParams(seed=SEED, block_frames=8, queue_blocks=1))
+        report = result.report.to_json()
+        assert report["exit_code"] == 3
+        assert report["max_gap_ms"] > 0
+        assert report["packet_recovery_rate"] == 1.0  # nothing was counted as lost
+
+    def test_total_loss_reports_zero_recovery_and_exits_3(self, fixture_root, tmp_path):
+        timeline = load_timeline(_write_timeline(fixture_root, _simple_document(), "total.json"))
+        result = run_pipeline(
+            timeline,
+            tmp_path,
+            RunParams(seed=SEED, drop_rate=0.2, hard_loss_rate=1.0, block_frames=8, queue_blocks=1),
+        )
+        report = result.report.to_json()
+        assert report["packet_recovery_rate"] == 0.0
+        assert report["concealed_frames"] > 0
+        assert report["exit_code"] == 3
+
+    def test_empty_timeline_yields_zero_frames(self, fixture_root, tmp_path):
+        document = _simple_document()
+        document["clips"] = []
+        timeline = load_timeline(_write_timeline(fixture_root, document, "empty.json"))
+        result = run_pipeline(timeline, tmp_path, RunParams(seed=SEED, block_frames=8, queue_blocks=1))
+        assert result.report.frames_rendered == 0
+        assert result.report.exit_code == 2
+
+    def test_zero_length_audio_tail_padded(self, fixture_root, tmp_path):
+        # clip longer than the audio file: the tail must be zero-padded, not
+        # read past EOF or drift
+        document = _simple_document(duration_ticks=90000 * 4)  # 4 s, audio is 3 s
+        timeline = load_timeline(_write_timeline(fixture_root, document, "long.json"))
+        renderer = Renderer(timeline)
+        frames = list(renderer.frames())
+        assert renderer.stats.tail_padded_samples > 0
+        for frame in frames:
+            if frame.audio is not None:
+                assert frame.audio.shape[0] > 0
+
+    def test_negative_track_offset_trims_start(self, fixture_root, tmp_path):
+        document = _simple_document()
+        document["tracks"][1]["offset_ticks"] = 9000  # audio starts 100 ms later
+        timeline = load_timeline(_write_timeline(fixture_root, document, "neg.json"))
+        renderer = Renderer(timeline)
+        frames = list(renderer.frames())
+        # before the source starts the mix is silence, never a missing block
+        assert all(frame.audio is not None for frame in frames)
+        head = np.concatenate([frame.audio for frame in frames[:2]])
+        assert np.max(np.abs(head)) < 1e-6
+        assert np.max(np.abs(np.concatenate([frame.audio for frame in frames[5:10]]))) > 0.01
+
+
+# ==========================================================================
+# Alignment measurement and acceptance scenario
+# ==========================================================================
+
+
+class TestAlignment:
+    def test_duplicates_detected_for_concealment(self, fixture_root, tmp_path):
+        from bcastqc.pipeline import clean_reference
+
+        base = load_timeline(_write_timeline(fixture_root, _simple_document(), "align_base.json"))
+        corrupt_doc = _simple_document(video="program_h264_corrupt.bin")
+        corrupt = load_timeline(_write_timeline(fixture_root, corrupt_doc, "align_corrupt.json"))
+        reference = clean_reference(base, block_frames=8)
+        result = run_pipeline(
+            corrupt,
+            tmp_path,
+            RunParams(seed=SEED, block_frames=8, queue_blocks=1, reference=True, **reference.as_params()),
+        )
+        manifest = read_manifest(result.manifest_path)
+        alignment = manifest["alignment"]
+        assert alignment["duplicated_count"] > 0
+        assert alignment["duplicate_runs"]
+        placement = alignment["placement"]
+        assert placement["displaced_count"] == alignment["duplicated_count"]
+        assert all(index >= 0 for index in placement["displaced"])
+
+    def test_audio_offset_is_measured_independently(self, fixture_root, tmp_path):
+        from bcastqc.pipeline import clean_reference
+
+        aligned = load_timeline(_write_timeline(fixture_root, _simple_document(), "al.json"))
+        shifted_doc = _simple_document()
+        shifted_doc["clips"][1]["start_ticks"] = 3600
+        shifted_doc["clips"][1]["duration_ticks"] -= 3600
+        shifted = load_timeline(_write_timeline(fixture_root, shifted_doc, "sh.json"))
+        reference = clean_reference(aligned, block_frames=8)
+        result = run_pipeline(
+            shifted,
+            tmp_path,
+            RunParams(seed=SEED, block_frames=8, queue_blocks=1, reference=True, **reference.as_params()),
+        )
+        placement = read_manifest(result.manifest_path)["alignment"]["av_placement"]
+        assert placement["video_lag_frames"] == 0
+        assert placement["audio_lag_frames"] == -1
+        assert placement["av_offset_frames"] == -1
+
+    def test_quantiles_are_deterministic(self):
+        from bcastqc.report import quantile
+
+        values = [5.0, 1.0, 3.0, 2.0, 4.0]
+        assert quantile(values, 0.5) == 3.0
+        assert quantile(values, 0.95) == pytest.approx(4.8)
+        assert quantile([], 0.95) == 0.0
+
+
+class TestAcceptanceScenario:
+    def test_demo_meets_targets(self, tmp_path):
+        from bcastqc.demo import run_demo
+
+        out = tmp_path / "demo"
+        result = run_demo(
+            seed=SEED,
+            drop_rate=0.02,
+            queue_frames=8,
+            consumer_delay_ms=0.0,
+            out=out,
+            frames=FRAMES,
+        )
+        assert result["sync_error_ms_p95"] <= 20.0
+        assert result["packet_recovery_rate"] >= 0.90
+        assert result["latency_ms_p95"] <= 500.0
+        assert result["peak_queue_frames"] <= 8
+        assert result["frame_hash_mismatches"] == 0
+        assert result["exit_code"] == 0
+        # the failure cases each produce their documented exit code
+        cases = result["failure_cases"]
+        assert cases["truncated"]["exit_code"] == 3
+        assert cases["hard_loss"]["exit_code"] == 3
+        assert cases["hard_loss"]["packet_recovery_rate"] == 0.0
+        assert cases["cycle"]["exit_code"] == 2
+        assert cases["audio_offset"]["av_offset_frames"] == -1
+        corrupt = cases["corrupt"]
+        assert corrupt["exit_code"] == 3
+        assert corrupt["illegal_units"] >= 1
+        # a corrupt unit is never counted as a recovered packet
+        assert corrupt["recovered_packets"] == 0
+        assert corrupt["duplicated_count"] >= 1
+        # excluded track is reported, never silently composed
+        assert "unused_slate" in result["excluded_tracks"]
+        # verify command agrees with the run
+        verify = verify_manifest(out / "run" / "manifest.json")
+        assert verify["mismatches"] == 0 and verify["exit_code"] == 0
+
+
+class TestDegenerateInputs:
+    def test_empty_stream_is_input_error(self, tmp_path):
+        (tmp_path / "empty.bin").write_bytes(b"")
+        document = {
+            "time_base": "1/90000",
+            "frame_rate": "25/1",
+            "tracks": [{"id": "v", "kind": "video", "path": "empty.bin", "codec": "h264"}],
+            "clips": [{"id": "c", "track": "v", "start_ticks": 0, "source_in_ticks": 0, "duration_ticks": 90000}],
+        }
+        path = tmp_path / "timeline.json"
+        path.write_text(json.dumps(document), encoding="utf-8")
+        timeline = load_timeline(path)
+        with pytest.raises(QcError) as excinfo:
+            run_pipeline(timeline, tmp_path / "out", RunParams(block_frames=8, queue_blocks=1))
+        assert excinfo.value.exit_code == 2
+
+    def test_zero_frame_timeline_exits_2(self, fixture_root, tmp_path):
+        document = _simple_document()
+        document["clips"] = []
+        timeline = load_timeline(_write_timeline(fixture_root, document, "zero.json"))
+        result = run_pipeline(timeline, tmp_path, RunParams(block_frames=8, queue_blocks=1))
+        assert result.report.frames_rendered == 0
+        assert result.report.exit_code == 2
+
+    def test_slow_consumer_is_resource_error(self, fixture_root, tmp_path):
+        timeline = load_timeline(_write_timeline(fixture_root, _simple_document(), "slow.json"))
+        with pytest.raises(QcError) as excinfo:
+            run_pipeline(
+                timeline,
+                tmp_path,
+                RunParams(block_frames=8, queue_blocks=1, consumer_delay_ms=300, slow_consumer_timeout=0.1),
+            )
+        assert excinfo.value.category is ErrorCategory.QUEUE_TIMEOUT
+        assert excinfo.value.exit_code == 4
+
+    def test_audio_only_timeline_renders(self, fixture_root, tmp_path):
+        document = {
+            "time_base": "1/90000",
+            "frame_rate": "25/1",
+            "tracks": [{"id": "a", "kind": "audio", "path": "program_audio.wav",
+                        "sample_rate": 48000, "channels": 2}],
+            "clips": [{"id": "c", "track": "a", "start_ticks": 0, "source_in_ticks": 0, "duration_ticks": 90000}],
+        }
+        timeline = load_timeline(_write_timeline(fixture_root, document, "aonly.json"))
+        result = run_pipeline(timeline, tmp_path, RunParams(block_frames=8, queue_blocks=1))
+        assert result.report.frames_rendered == 25
+        assert result.report.exit_code == 0
+
+
+class TestConcealmentBounds:
+    def test_concealment_never_overlaps_resync_keyframe(self):
+        from bcastqc.decode import VideoDecoder, DecodedFrame
+
+        decoder = VideoDecoder(Codec.H264, Fraction(25))
+        # fabricate a last good frame at pts 0
+        decoder._last_frame = DecodedFrame(
+            pts=0, time=Fraction(0), array=np.zeros((4, 4, 3), dtype=np.uint8),
+            keyframe=True, source="decode", source_offset=0, source_size=10, au_index=0,
+        )
+        decoder._next_emit = 1
+        # a 10-frame gap but the keyframe sits at pts 4: only 3 frames fit
+        concealed = list(decoder.conceal(10, until_pts=4))
+        assert [frame.pts for frame in concealed] == [1, 2, 3]
+        assert decoder._next_emit == 4
+
+
+class TestExactAudioCadence:
+    @pytest.mark.parametrize("frame_rate,ticks", [("25/1", 180000), ("30000/1001", 180000), ("24/1", 225000)])
+    def test_total_audio_matches_duration(self, fixture_root, frame_rate, ticks):
+        document = _simple_document(frame_rate=frame_rate, duration_ticks=ticks)
+        document["tracks"][0]["frame_rate"] = "25/1"  # source cadence differs
+        timeline = load_timeline(_write_timeline(fixture_root, document, f"cad_{ticks}_{frame_rate.replace('/', '_')}.json"))
+        frames = list(Renderer(timeline).frames())
+        total = sum(frame.audio.shape[0] for frame in frames if frame.audio is not None)
+        expected = round(Fraction(ticks, 90000) * 48000)
+        assert total == expected
+
+    def test_ntsc_partial_frame_is_included_and_clipped(self, fixture_root):
+        document = _simple_document(frame_rate="30000/1001", duration_ticks=180000)
+        document["tracks"][0]["frame_rate"] = "25/1"
+        timeline = load_timeline(_write_timeline(fixture_root, document, "ntsc.json"))
+        renderer = Renderer(timeline)
+        assert renderer.frame_count() == 60  # ceil(2 s * 29.97)
+        frames = list(renderer.frames())
+        assert frames[-1].audio.shape[0] < frames[-2].audio.shape[0]
+
+
+class TestPlacementRobustness:
+    def test_repeated_reference_pictures_do_not_false_positive(self):
+        from bcastqc.report import measure_placement
+
+        class FakeTracker:
+            frame_hashes = ["a", "b", "b", "c", "b", "b"]
+
+        reference = ["a", "b", "b", "c", "b", "b"]
+        result = measure_placement(FakeTracker(), reference)
+        assert result["displaced_count"] == 0
+        assert result["missing_count"] == 0
+
+    def test_duplicate_picture_is_displaced(self):
+        from bcastqc.report import measure_placement
+
+        class FakeTracker:
+            # frame 2 lost: output repeats 'b' twice and never shows 'c'
+            frame_hashes = ["a", "b", "b", "b"]
+
+        reference = ["a", "b", "c", "d"]
+        result = measure_placement(FakeTracker(), reference)
+        assert result["displaced_count"] >= 1
+        assert 2 in result["displaced"]
+
+    def test_synthesised_picture_is_missing(self):
+        from bcastqc.report import measure_placement
+
+        class FakeTracker:
+            frame_hashes = ["a", "zzz", "c"]
+
+        result = measure_placement(FakeTracker(), ["a", "b", "c"])
+        assert result["missing"] == [1]
