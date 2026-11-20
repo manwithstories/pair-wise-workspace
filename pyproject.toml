@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mediacore"
+version = "0.1.0"
+description = "Deterministic local A/V raw-bitstream timeline, index and recovery toolkit"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "av>=12,<13",
+  "numpy>=2,<3",
+  "soundfile>=0.12,<0.13",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<9"]
+
+[project.scripts]
+mediacore = "mediacore.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+mediacore = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["error::DeprecationWarning:mediacore.*"]
