@@ -57,11 +57,14 @@ __all__ = [
     "FrameBlock",
     "DecodeStats",
     "LossModel",
-    "LossPolicy",
     "VideoDecoder",
     "decode_video_blocks",
     "reader_for_codec",
-    "probe_stream",
+    "LossPolicy",
+    "AudioBlock",
+    "AudioReader",
+    "resample_window",
+    "decode_video_blocks",
 ]
 
 # Frames produced for a lost region are flagged with this source.
@@ -654,3 +657,139 @@ def decode_video_blocks(
     produced = flush_block()
     if produced is not None:
         yield produced
+
+
+# ==========================================================================
+# Audio decoding
+# ==========================================================================
+
+
+@dataclass
+class AudioBlock:
+    """A block of interleaved float32 samples plus its exact sample window."""
+
+    index: int
+    start_sample: int          # first sample index in the *source* track
+    sample_rate: int
+    samples: np.ndarray        # shape (n, channels), float32
+    tail_padded: int = 0
+    source: str = "wav"
+
+    @property
+    def frames(self) -> int:
+        return int(self.samples.shape[0])
+
+
+class AudioReader:
+    """Reads a PCM/WAV track block-wise, never loading the whole file."""
+
+    def __init__(self, path: Path, *, channels: int | None = None) -> None:
+        import soundfile as sf
+
+        self.path = Path(path)
+        try:
+            self._handle = sf.SoundFile(str(self.path))
+        except Exception as exc:
+            raise make_error(
+                ErrorCategory.AUDIO_FORMAT,
+                f"cannot open audio file: {exc}",
+                path=self.path.name,
+            ) from exc
+        self.sample_rate = int(self._handle.samplerate)
+        self.channels = int(self._handle.channels)
+        self.frames_total = int(self._handle.frames)
+        self.target_channels = channels
+        self.stats = {"read_frames": 0, "tail_padded": 0, "channel_mismatch": 0}
+
+    def close(self) -> None:
+        self._handle.close()
+
+    def __enter__(self) -> "AudioReader":
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self.close()
+
+    def read_blocks(self, block_frames: int = 4096) -> Iterator[AudioBlock]:
+        """Yield blocks in source order, resampling block boundaries exactly."""
+        if block_frames <= 0:
+            raise ValueError("block_frames must be positive")
+        index = 0
+        position = 0
+        while position < self.frames_total:
+            want = min(block_frames, self.frames_total - position)
+            data = self._handle.read(want, dtype="float32", always_2d=True)
+            got = int(data.shape[0])
+            if got == 0:
+                break
+            data = self._match_channels(data)
+            yield AudioBlock(
+                index=index,
+                start_sample=position,
+                sample_rate=self.sample_rate,
+                samples=np.ascontiguousarray(data, dtype=np.float32),
+            )
+            self.stats["read_frames"] += got
+            position += got
+            index += 1
+
+    def _match_channels(self, data: np.ndarray) -> np.ndarray:
+        target = self.target_channels
+        if target is None or target == data.shape[1]:
+            return data
+        self.stats["channel_mismatch"] += 1
+        if data.shape[1] == 1:
+            # mono -> N: duplicate the channel (documented upmix)
+            return np.repeat(data, target, axis=1)
+        if target == 1:
+            # N -> mono: arithmetic mean, order-independent
+            return data.mean(axis=1, keepdims=True, dtype=np.float32)
+        # other combinations: take the first `min` channels and pad silence
+        out = np.zeros((data.shape[0], target), dtype=np.float32)
+        take = min(target, data.shape[1])
+        out[:, :take] = data[:, :take]
+        return out
+
+    def read_window(self, start_sample: int, count: int) -> tuple[np.ndarray, int]:
+        """Read ``count`` samples from ``start_sample``, zero-padding past EOF.
+
+        Returns ``(samples, padded)`` where ``padded`` is the number of
+        zero samples appended because the track ended early.
+        """
+        channels = self.target_channels or self.channels
+        out = np.zeros((max(count, 0), channels), dtype=np.float32)
+        if count <= 0:
+            return out, 0
+        available = max(0, min(count, self.frames_total - start_sample))
+        if available > 0:
+            self._handle.seek(start_sample)
+            data = self._handle.read(available, dtype="float32", always_2d=True)
+            data = self._match_channels(data)
+            out[: data.shape[0], : data.shape[1]] = data
+        padded = count - available
+        if padded > 0:
+            self.stats["tail_padded"] += padded
+        return out, padded
+
+
+def resample_window(samples: np.ndarray, source_rate: int, target_rate: int) -> np.ndarray:
+    """Resample one block with an exact rational ratio (numpy linear interpolation).
+
+    Interpolation is deliberately simple and deterministic: the output sample
+    times are ``k * source_rate / target_rate``, evaluated exactly on integer
+    numerator/denominator arithmetic, so block boundaries never drift.
+    """
+    if source_rate == target_rate or samples.shape[0] == 0:
+        return samples
+    n_in = samples.shape[0]
+    out_len = int(round(n_in * target_rate / source_rate))
+    if out_len == 0:
+        return np.zeros((0, samples.shape[1]), dtype=np.float32)
+    # position k in source samples: k * source_rate / target_rate
+    numerator = np.arange(out_len, dtype=np.int64) * source_rate
+    index = numerator // target_rate
+    frac = (numerator % target_rate).astype(np.float32) / target_rate
+    index = np.minimum(index, n_in - 1)
+    nxt = np.minimum(index + 1, n_in - 1)
+    out = samples[index] * (1.0 - frac[:, None]) + samples[nxt] * frac[:, None]
+    return out.astype(np.float32)
