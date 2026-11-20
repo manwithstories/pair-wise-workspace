@@ -64,6 +64,11 @@ class SegmentIndex:
         self._fh.flush()
         os.fsync(self._fh.fileno())
 
+    def open_append(self) -> None:
+        """续建模式：在已验证的索引尾部追加新分段。"""
+
+        self._fh = self.path.open("a", encoding="utf-8")
+
     def append_segment(
         self, segment: Segment, entries: list[IndexEntry]
     ) -> None:
