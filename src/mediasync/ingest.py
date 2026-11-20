@@ -26,6 +26,9 @@ from .errors import (
 )
 
 SUPPORTED_VIDEO_CODECS = ("h264", "hevc", "av1")
+# AV1 raw streams are carried in the low-overhead OBU container; the ``av1``
+# muxer/demuxer name exists for IVF-style streams and decodes nothing here.
+CONTAINER_BY_CODEC = {"h264": "h264", "hevc": "hevc", "av1": "obu"}
 START_CODES = (b"\x00\x00\x01", b"\x00\x00\x00\x01")
 
 
@@ -224,7 +227,7 @@ def _verify_decodable(path: Path, codec: str, limits: Limits) -> None:
         raise DependencyError("PyAV is required for stream ingestion") from exc
 
     try:
-        container = av.open(str(path), format=codec)
+        container = av.open(str(path), format=CONTAINER_BY_CODEC[codec])
     except Exception as exc:  # noqa: BLE001 - PyAV raises FFmpeg error types
         raise CodecConflictError(
             f"{path.name}: cannot open as {codec} ({exc})"
@@ -509,7 +512,7 @@ def probe_stream_duration(path: str | Path, codec: str) -> int:
     except ImportError as exc:  # pragma: no cover
         raise DependencyError("PyAV is required for probing") from exc
     try:
-        with av.open(str(path), format=codec) as container:
+        with av.open(str(path), format=CONTAINER_BY_CODEC[codec]) as container:
             video = container.streams.video[0]
             if video.duration and video.time_base:
                 return int(float(video.duration * video.time_base) * TICKS_PER_SECOND)
