@@ -1,5 +1,6 @@
 #include "relay/stage_cache.hpp"
 
+#include <limits>
 #include <sstream>
 
 namespace relay {
@@ -44,7 +45,11 @@ std::string serialize_read_cache(const ReadResult& result) {
   out << "RELAYREAD 1\n";
   out << "digest " << result.input_digest << '\n';
   out << "failures " << result.checksum_failures << ' ' << result.decode_failures
-      << '\n';
+      << ' ' << result.issues.size() << '\n';
+  for (const auto& issue : result.issues) {
+    out << "ISSUE " << issue.track << ' ' << issue.source_frame << ' '
+        << issue.reason << '\n';
+  }
   out << "tracks " << result.tracks.size() << '\n';
   for (const auto& track : result.tracks) {
     out << "TRACK " << track.spec.id << ' ' << track.timebase.fps_num << ' '
@@ -87,10 +92,25 @@ bool parse_read_cache(const std::string& text, ReadResult& out,
     error = "read cache digest missing";
     return false;
   }
-  if (!(in >> key >> parsed.checksum_failures >> parsed.decode_failures) ||
+  std::size_t issue_count = 0;
+  if (!(in >> key >> parsed.checksum_failures >> parsed.decode_failures >>
+        issue_count) ||
       key != "failures") {
     error = "read cache failure counters missing";
     return false;
+  }
+  in.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+  for (std::size_t i = 0; i < issue_count; ++i) {
+    FrameIssue issue;
+    if (!(in >> key >> issue.track >> issue.source_frame) || key != "ISSUE") {
+      error = "read cache issue record truncated";
+      return false;
+    }
+    std::getline(in, issue.reason);
+    if (!issue.reason.empty() && issue.reason.front() == ' ') {
+      issue.reason.erase(issue.reason.begin());
+    }
+    parsed.issues.push_back(std::move(issue));
   }
   if (!(in >> key >> track_count) || key != "tracks") {
     error = "read cache track count missing";

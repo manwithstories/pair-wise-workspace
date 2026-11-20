@@ -38,11 +38,21 @@ struct TrackInput {
   std::string file_digest;
 };
 
+/// One frame-level verification failure.  Persisted with the read cache so
+/// a resumed run re-reports exactly the same failures and therefore cannot
+/// publish a manifest an uninterrupted run would have withheld.
+struct FrameIssue {
+  TrackId track;
+  std::uint64_t source_frame = 0;
+  std::string reason;
+};
+
 struct ReadResult {
   std::vector<TrackInput> tracks;
   std::string input_digest;
   std::size_t checksum_failures = 0;
   std::size_t decode_failures = 0;
+  std::vector<FrameIssue> issues;
 };
 
 /// Parses `<input_dir>/*.frames` (header + FRAME metadata + PNG payload +

@@ -289,6 +289,11 @@ PipelineResult run_pipeline(const PipelineConfig& config) {
       read = ReadResult{};
     }
   }
+  // Replay persisted frame-level failures: a resumed run must not silently
+  // "heal" input that an uninterrupted run would reject.
+  for (const auto& issue : read.issues) {
+    errors.fail("read", issue.track, issue.source_frame, issue.reason);
+  }
   if (read.tracks.empty()) {
     checkpoints.begin(kStageRead, read_digest, errors);
     read = read_frame_inputs(inputs, errors);

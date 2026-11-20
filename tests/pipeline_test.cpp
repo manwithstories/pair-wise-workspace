@@ -1038,3 +1038,32 @@ TEST_CASE("a bandwidth cliff limits cache and records a downgrade reason",
   REQUIRE_FALSE(result.downgrades.empty());
   CHECK(result.downgrades.back().cache_bytes <= options.cache_limit_bytes);
 }
+
+TEST_CASE("a resumed run still refuses to publish on earlier frame-level errors",
+          "[pipeline][resume][corrupt]") {
+  PipelineConfig config = demo_config("pipeline-resume-corrupt");
+  config.corrupt = true;
+  config.interrupt_after_segment = true;
+  config.interrupt_segment = 1;
+  PipelineResult interrupted = run_demo(config);
+  REQUIRE(interrupted.exit_code == 0);
+  REQUIRE(interrupted.report.interrupted);
+
+  config.interrupt_after_segment = false;
+  config.resume = true;
+  PipelineResult resumed = run_pipeline(config);
+  CHECK(resumed.exit_code == static_cast<int>(ExitCode::kCorrupt));
+  CHECK(resumed.report.checksum_failures == 1);
+  CHECK_FALSE(std::filesystem::exists(resumed.manifest_path));
+  bool replayed = false;
+  for (const auto& event : resumed.errors) {
+    if (event.ids.track == "cam-b" &&
+        event.reason.find("SHA-256") != std::string::npos) {
+      replayed = true;
+    }
+  }
+  CHECK(replayed);
+  // The read stage itself was reused, so the failure came from the
+  // persisted issue list, not a fresh scan.
+  CHECK(resumed.report.resumed_stages >= 1);
+}

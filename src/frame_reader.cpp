@@ -371,6 +371,8 @@ ReadResult read_frame_inputs(const std::filesystem::path& input_dir,
       }
       if (!catalog_frame.verified) {
         errors.fail("read", header.track, index, catalog_frame.issue);
+        result.issues.push_back(FrameIssue{header.track, index,
+                                           catalog_frame.issue});
       }
       track.catalog.push_back(std::move(catalog_frame));
       ++index;
