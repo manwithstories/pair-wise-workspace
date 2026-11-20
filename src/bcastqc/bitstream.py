@@ -404,3 +404,90 @@ class Av1ObuParser:
 # ==========================================================================
 # Incremental scanner
 # ==========================================================================
+
+
+class StreamScanner:
+    """Incrementally splits a raw stream fed in arbitrary byte chunks.
+
+    ``feed()`` returns only *complete* access units.  At most ``max_buffer``
+    bytes are retained between feeds; exceeding that limit raises a resource
+    error instead of growing without bound.  Call :meth:`finish` at EOF to get
+    the final unit (which, for truncated streams, is flagged and reported
+    through :class:`BitstreamError` only when decoding fails).
+    """
+
+    def __init__(self, codec: Codec, max_buffer: int = 8 * 1024 * 1024) -> None:
+        self.codec = codec
+        self.max_buffer = max_buffer
+        self._parser: AnnexBParser | Av1ObuParser = (
+            AnnexBParser(codec) if codec in (Codec.H264, Codec.H265) else Av1ObuParser()
+        )
+        self._buffer = bytearray()
+        self._buffer_offset = 0  # absolute offset of _buffer[0]
+        self._next_index = 0
+        self._emitted_end = 0  # absolute offset of first unemitted byte
+        self._last_split: list[AccessUnit] | None = None
+        self._last_split_len = 0
+        self._truncated_tail = False
+
+    @property
+    def buffer_bytes(self) -> int:
+        return len(self._buffer)
+
+    def feed(self, chunk: bytes) -> Iterator[AccessUnit]:
+        if not chunk:
+            return
+        self._buffer.extend(chunk)
+        if len(self._buffer) > self.max_buffer:
+            raise make_error(
+                ErrorCategory.LIMIT_EXCEEDED,
+                "access unit larger than scanner buffer",
+                limit=self.max_buffer,
+                buffered=len(self._buffer),
+            )
+        yield from self._drain(final=False)
+
+    def finish(self) -> Iterator[AccessUnit]:
+        yield from self._drain(final=True)
+        if self._buffer:
+            raise make_error(
+                ErrorCategory.STREAM_TRUNCATED,
+                "trailing bytes do not form a complete access unit",
+                offset=self._buffer_offset,
+                trailing=len(self._buffer),
+            )
+
+    def _drain(self, final: bool) -> Iterator[AccessUnit]:
+        try:
+            units = self._parser.split(bytes(self._buffer), self._buffer_offset, strict=final)
+        except BitstreamError:
+            if final:
+                raise
+            units = []
+        # All units except the last are complete; the last is complete only at EOF.
+        ready = units if final else units[:-1]
+        for unit in ready:
+            if unit.offset < self._emitted_end:
+                continue  # already emitted in a previous feed
+            self._emitted_end = unit.end
+            adjusted = AccessUnit(
+                index=self._next_index,
+                offset=unit.offset,
+                size=unit.size,
+                is_keyframe=unit.is_keyframe,
+                nal_types=unit.nal_types,
+            )
+            self._next_index += 1
+            yield adjusted
+        consumed = self._emitted_end - self._buffer_offset
+        if consumed > 0:
+            del self._buffer[:consumed]
+            self._buffer_offset = self._emitted_end
+
+
+# ==========================================================================
+# Keyframe index
+# ==========================================================================
+
+
+@dataclass(frozen=True)
