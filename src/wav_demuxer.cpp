@@ -337,14 +337,10 @@ bool WavDemuxer::nextBlock(AudioBlock& out, MediaError& err) {
         return dataStart_ + dataLength_ + sentinelBytes_ - pos;
     };
 
-    // 帧边界物理探测哨兵：1=哨兵(已写入 out) -1=EOF/错误 0=普通 PCM
+    // 帧边界物理探测哨兵：1=哨兵(已写入 out) -1=EOF/错误 0=普通 PCM。
+    // 始终物理探测——哨兵可能紧贴声明 data 边界，不能用 dataRemaining
+    // 提前拦截；短读由下方 got<4 分支配合 clear() 安全回退。
     auto probeSentinel = [&]() -> int {
-        // 区内剩余不足 4 字节时不可能容纳哨兵标记，直接放行给整帧
-        // 读取，避免短读在流上残留 failbit 破坏后续读取
-        const ByteOffset avail = dataRemaining();
-        if (avail >= 0 && avail < 4) {
-            return 0;
-        }
         char probe[4];
         const auto here = file_.tellg();
         file_.clear(); // 清除历史 EOF/failbit，保证本次读取与回退可靠
@@ -439,33 +435,16 @@ bool WavDemuxer::nextBlock(AudioBlock& out, MediaError& err) {
                                   frameBuf + frame);
         ++framesRead;
     }
-    // 块结束后：若已读到声明 data 边界，先基于物理文件长度检测
-    // 采集端追加的悬空字节（在任何进一步读取之前，避免游标错位）
-    const ByteOffset leftNow = dataRemaining();
-    if (leftNow <= 0 && dataLength_ > 0 && !hasPendingSentinel_) {
-        const ByteOffset declaredEnd =
-            dataStart_ + dataLength_ + sentinelBytes_;
-        file_.clear();
-        file_.seekg(0, std::ios::end);
-        const ByteOffset physicalEnd =
-            static_cast<ByteOffset>(file_.tellg());
-        const ByteOffset stray = physicalEnd - declaredEnd;
-        if (stray > 0) {
-            stats_.tailBytesDropped +=
-                static_cast<std::uint64_t>(stray);
-            stats_.recoverableErrors.push_back(
-                {MediaErrorCode::IncompleteTail,
-                 std::to_string(stray) +
-                     " trailing bytes beyond declared data chunk",
-                 true});
-        }
-        file_.seekg(physicalEnd, std::ios::beg);
-        hitEof = true;
-    } else if (!hitEof && !hasPendingSentinel_) {
-        // 块结束后统一补探测：哨兵可能紧随块边界
-        if (probeSentinel() > 0) {
+    // 块结束后统一补探测：哨兵可能紧贴声明 data 边界（如 MDUP），
+    // 物理 EOF 与悬空字节也在此识别——必须先于任何结束判定。
+    // probeSentinel 返回 1=哨兵(暂存) -1=EOF/悬空(内部已记账) 0=普通数据
+    if (!hasPendingSentinel_) {
+        const int r = probeSentinel();
+        if (r > 0) {
             hasPendingSentinel_ = true;
             pendingSentinel_ = std::move(out);
+        } else if (r < 0) {
+            hitEof = true;
         }
     }
 
