@@ -19,6 +19,7 @@ import numpy as np
 from .align import AlignmentResult
 from .errors import ErrorLog, Recovery, Stage
 from .probe import ProbeResult
+from .quality import mean_psnr_db, psnr, psnr_against_encoded
 from .segment import SegmentationPlan
 from .timebase import TICKS_PER_SECOND
 
@@ -68,13 +69,6 @@ class RepresentationResult:
     segments: list[SegmentMetrics] = field(default_factory=list)
 
 
-def _psnr(reference: np.ndarray, coded: np.ndarray) -> float:
-    """Mean PSNR across RGB planes; ``inf`` for an exact match."""
-    diff = reference.astype(np.float64) - coded.astype(np.float64)
-    mse = float(np.mean(diff ** 2))
-    if mse <= 1e-12:
-        return float("inf")
-    return float(10.0 * np.log10((255.0 ** 2) / mse))
 
 
 def iter_decoded_frames(probe: ProbeResult):
@@ -218,18 +212,22 @@ def _encode_one_segment(seg, seg_frames, local_start, representation,
         return
 
     psnr_values = []
-    for offset, rgb in enumerate(seg_frames):
-        ref = reference_frame_fn(
-            _frame_index_for_pts(local_start) + offset, width, height)
-        if ref.shape == rgb.shape:
-            psnr_values.append(_psnr(ref, rgb))
+    if reference_frame_fn is not None:
+        for offset, rgb in enumerate(seg_frames):
+            ref = reference_frame_fn(
+                _frame_index_for_pts(local_start) + offset, width, height)
+            if ref.shape == rgb.shape:
+                psnr_values.append(psnr(ref, rgb))
+    else:
+        # Real media has no synthetic generator: decode the segment we just
+        # wrote and measure transcoding PSNR against its source frames.
+        psnr_values = psnr_against_encoded(final_path, seg_frames)
     psnr_db = None
     reason = None
     if psnr_values:
-        psnr_db = round(float(np.mean([min(v, 60.0)
-                                       for v in psnr_values])), 2)
+        psnr_db = mean_psnr_db(psnr_values)
     else:
-        reason = "reference frame shape mismatch; PSNR not computable"
+        reason = "no matching reference frame; PSNR not computable"
 
     duration_s = len(seg_frames) / FPS
     # Bitrate uses encoded video payload (not MP4 container overhead),
