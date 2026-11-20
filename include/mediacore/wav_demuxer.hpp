@@ -69,9 +69,13 @@ private:
 
     ByteOffset dataStart_   = 0; // data 块载荷起点
     ByteOffset dataLength_  = 0; // data 块声明长度（-1 表示未知，读到 EOF）
+    ByteOffset sentinelBytes_ = 0; // 已遇到的带外哨兵占用文件字节
+    bool hasPendingSentinel_ = false;
+    AudioBlock pendingSentinel_;
     std::uint32_t riffSize_ = 0;
     ByteOffset cursor_      = 0; // data 区内已消费字节
     SampleTick nextSample_  = 0; // 下一个输出块期望的全局采样刻度
+    SampleTick currentSample_ = 0; // 逻辑时间线，在块/哨兵交付点推进
     SampleTick totalFrames_ = 0;
     bool eof_ = false;
 };

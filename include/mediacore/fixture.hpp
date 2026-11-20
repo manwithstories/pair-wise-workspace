@@ -22,6 +22,7 @@ std::vector<std::uint8_t> makePcm(const PcmFormat& format, SampleTick nFrames);
 struct WavBuilder {
     PcmFormat format{16000, 1, 16, SampleFormat::S16Le};
     std::vector<std::uint8_t> bytes;
+    std::uint32_t dataPayload = 0; // 仅统计完整 data 载荷，悬空字节不计
 
     void writeU32(std::uint32_t v);
     void writeU16(std::uint16_t v);

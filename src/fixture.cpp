@@ -61,6 +61,7 @@ void WavBuilder::writeU32(std::uint32_t v) { putU32(bytes, v); }
 void WavBuilder::writeU16(std::uint16_t v) { putU16(bytes, v); }
 void WavBuilder::writeBytes(const std::vector<std::uint8_t>& data) {
     bytes.insert(bytes.end(), data.begin(), data.end());
+    dataPayload += static_cast<std::uint32_t>(data.size());
 }
 void WavBuilder::writeRaw(const void* p, std::size_t n) {
     const auto* bp = static_cast<const std::uint8_t*>(p);
@@ -68,6 +69,7 @@ void WavBuilder::writeRaw(const void* p, std::size_t n) {
 }
 
 void WavBuilder::writeHeader(std::uint32_t dataSize) {
+    dataPayload = 0; // 头部之后开始累计 data 载荷
     writeU32(tag("RIFF"));
     writeU32(36u + dataSize);
     writeU32(tag("WAVE"));
@@ -98,13 +100,18 @@ void WavBuilder::writeDuplicateSentinel(
     std::uint32_t dupFrames, const std::vector<std::uint8_t>& dupPcm) {
     writeU32(tag("MDUP"));
     writeU32(dupFrames);
-    writeBytes(dupPcm);
+    // 哨兵载荷属于带外标记，不计入 data 载荷长度
+    bytes.insert(bytes.end(), dupPcm.begin(), dupPcm.end());
 }
 
 void WavBuilder::finish() {
-    // 回填 RIFF 长度（offset 4）与 data 长度（offset 40）
+    // data 长度只统计完整帧载荷（dataPayload 由 writeBytes/帧写入累计），
+    // 悬空字节留在 data 区之外，由解复用器作为不完整尾部恢复。
+    const std::uint32_t frameBytes =
+        static_cast<std::uint32_t>(format.frameBytes());
     const std::uint32_t dataSize =
-        static_cast<std::uint32_t>(bytes.size() - 44);
+        frameBytes > 0 ? dataPayload - (dataPayload % frameBytes)
+                       : dataPayload;
     const std::uint32_t riffSize = 36u + dataSize;
     std::memcpy(bytes.data() + 4, &riffSize, 4);
     std::memcpy(bytes.data() + 40, &dataSize, 4);
@@ -127,6 +134,7 @@ const PcmFormat kFmt{16000, 1, 16, SampleFormat::S16Le};
 void appendFrames(WavBuilder& b, SampleTick from, SampleTick count) {
     for (SampleTick f = from; f < from + count; ++f) {
         b.writeU16(static_cast<std::uint16_t>(sampleAt(f, 0, 1)));
+        b.dataPayload += 2; // 每帧每声道 2 字节 s16
     }
 }
 } // namespace
