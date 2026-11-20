@@ -63,9 +63,15 @@ if(BUILD_TESTING)
     tests/generate_tests.cpp
     tests/checksum_tests.cpp
     tests/index_tests.cpp
+    tests/e2e_tests.cpp
+    tests/json_tests.cpp
+    tests/checkpoint_tests.cpp
     tests/fixture_factory.cpp
   )
   target_link_libraries(mediaqc_tests PRIVATE mediaqc_core Catch2::Catch2WithMain)
   target_include_directories(mediaqc_tests PRIVATE tests)
   catch_discover_tests(mediaqc_tests)
+
+  add_test(NAME cli_contract
+           COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_tests.sh $<TARGET_FILE:mediaqc>)
 endif()
