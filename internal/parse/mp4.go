@@ -112,6 +112,16 @@ func (m *MP4File) Tracks() []model.Track {
 // TotalSamples 返回样本总数。
 func (m *MP4File) TotalSamples() uint64 { return m.total }
 
+// TrackSampleCount 返回指定轨道的样本数。
+func (m *MP4File) TrackSampleCount(trackID uint32) int {
+	for _, tt := range m.tracks {
+		if tt.track.ID == trackID {
+			return len(tt.samples)
+		}
+	}
+	return 0
+}
+
 // buildTables 提取每条轨道的 stts/stsc/stsz/stco/stss 并展开为样本表。
 func (m *MP4File) buildTables() error {
 	if _, err := m.f.Seek(0, io.SeekStart); err != nil {

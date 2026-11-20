@@ -49,6 +49,12 @@ func Run(opts Options) (*Outcome, error) {
 	if opts.Buffer < 1 {
 		return nil, fault.New(fault.StageIO, 0, -1, false, "缓冲容量必须 >= 1")
 	}
+	mf, err := parse.OpenMP4(opts.Input)
+	if err != nil {
+		return nil, err
+	}
+	defer mf.Close()
+
 	tlPath := opts.TimelinePath
 	if tlPath == "" {
 		tlPath = filepath.Join(filepath.Dir(opts.Input), "timeline.json")
@@ -57,11 +63,6 @@ func Run(opts Options) (*Outcome, error) {
 	if err != nil {
 		return nil, err
 	}
-	mf, err := parse.OpenMP4(opts.Input)
-	if err != nil {
-		return nil, err
-	}
-	defer mf.Close()
 
 	clock := repair.NewClock(tl, opts.Strategy)
 	ix := index.New()
@@ -215,8 +216,8 @@ func buildResult(opts Options, tl *model.Timeline, clock *repair.Clock, ix *inde
 	if rtTotal > 0 {
 		res.RoundtripMatch = float64(rtHit) / float64(rtTotal)
 	}
-	seeks, hits := ix.Stats()
 	res.KeyframeHitRate = measureHitRate(ix, tl, restored)
+	seeks, hits := ix.Stats()
 
 	for _, t := range tl.Tracks {
 		ts := byTrack[t.ID]

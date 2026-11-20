@@ -124,6 +124,10 @@ func buildLayout(spec Spec) (*model.Timeline, *layout, error) {
 	for i, d := range deltas {
 		video[i] = samplePlan{delta: d, size: videoPayload, keyframe: i%10 == 0}
 	}
+	// 每个片段首样本都是关键帧，便于从任意剪辑/转场起点随机访问。
+	for _, sg := range vsegs {
+		video[sg.first].keyframe = true
+	}
 
 	l := &layout{video: video, inflated: make([]bool, len(deltas))}
 	for i := range injected {
