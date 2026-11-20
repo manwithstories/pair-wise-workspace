@@ -45,9 +45,26 @@ def test_truncation_is_located_at_the_last_good_packet(fixtures):
     fault = scan.damage[0]
     assert fault.context["demuxed_frames"] < fault.context["declared_frames"]
     assert fault.context["locator_error_frames"] == 0
-    # The reported PTS is the last decodable frame, within one frame (33 ms).
     assert scan.declared_frames - scan.packet_count > 0
     assert not structural_integrity(fixtures["truncated"])["complete"]
+
+
+def test_truncation_location_is_within_one_frame_of_the_cut(fixtures):
+    """The reported first-missing frame is <= 1 frame from the real cut."""
+    from mediacore.testdata_damage import _packets
+
+    scan = _video_scan(fixtures, "truncated")
+    fault = next(d for d in scan.damage if d.code == "probe.truncated")
+    cut = len(fixtures["truncated"].read_bytes())
+    # Ground truth: the first packet whose bytes are not entirely present.
+    packets = _packets(fixtures["clean"])
+    first_missing = next(
+        ordinal
+        for ordinal, (_o, pos, size, _pts) in enumerate(packets)
+        if pos + size > cut
+    )
+    reported = fault.context["packet_ordinal"]
+    assert abs(reported - first_missing) <= 1
 
 
 def test_corrupt_packet_is_located_by_ordinal(fixtures):
