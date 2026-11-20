@@ -83,12 +83,12 @@ def build_parser() -> argparse.ArgumentParser:
             "and manifest verification."
         ),
     )
-    parser.add_argument("--quiet", action="store_true", help="suppress progress lines")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     demo = subparsers.add_parser(
         "demo", help="generate fixtures, run the pipeline and write a manifest"
     )
+    demo.add_argument("--quiet", action="store_true", help="suppress progress lines")
     demo.add_argument("--seed", type=int, default=17, help="random seed")
     demo.add_argument("--loss", type=_unit_interval, default=0.08)
     demo.add_argument("--jitter-ms", type=_non_negative_int, default=45)
@@ -112,6 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     verify = subparsers.add_parser(
         "verify", help="re-check a manifest written by demo"
     )
+    verify.add_argument("--quiet", action="store_true", help="suppress progress lines")
     verify.add_argument("manifest", type=Path)
 
     inspect = subparsers.add_parser(

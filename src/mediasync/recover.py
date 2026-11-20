@@ -322,7 +322,31 @@ def recover_interval(
 
     truncated = sorted(truncated_seqs)
     if truncated:
-        repair = _boundary_repair(interval, in_span, truncated, config)
+        # The boundary belongs to the interval containing the last fully known
+        # packet; every interval that could reach the damaged tail also needs
+        # the clamp so no segment claims media that was never delivered.
+        usable = [p for p in ordered if p.seq < truncated[0]]
+        boundary_tick = (
+            usable[-1].pts_ticks + usable[-1].duration_ticks if usable else 0
+        )
+        owns_boundary = interval.start_ticks <= boundary_tick < interval.end_ticks
+        reaches_tail = interval.end_ticks > boundary_tick
+        if owns_boundary or reaches_tail:
+            # Clamp against the full track: ``in_span`` may be empty or may
+            # stop before the boundary when the interval sits past the damage.
+            repair = _boundary_repair(interval, ordered, truncated, config)
+            if repair is None and reaches_tail:
+                # Nothing usable remains inside this interval: the whole span
+                # is unrecoverable and must be marked, not silently dropped.
+                repair = BoundaryRepair(
+                    interval_id=interval.interval_id,
+                    original_end_ticks=interval.end_ticks,
+                    repaired_end_ticks=interval.start_ticks,
+                    dropped_bytes=sum(
+                        1 for packet in ordered if packet.seq >= truncated[0]
+                    ),
+                    reason="unrecoverable-tail",
+                )
 
     end_ticks = repair.repaired_end_ticks if repair else interval.end_ticks
     losses: list[int] = []
@@ -341,23 +365,23 @@ def recover_interval(
         if end > start:
             gaps.append(Gap(interval.track_id, start, end, "packet-loss"))
     if repair is not None and repair.repaired_end_ticks < interval.end_ticks:
+        # A repaired boundary always leaves an explicit tail gap: the segment
+        # may be shorter than requested, and dependents must see that.
         gaps.append(
             Gap(
                 interval.track_id,
-                repair.repaired_end_ticks,
+                max(repair.repaired_end_ticks, interval.start_ticks),
                 interval.end_ticks,
-                "truncated-index-boundary",
+                repair.reason,
             )
         )
 
     complete = not losses and repair is None
     reason = ""
-    if losses and repair is not None:
-        reason = "packet-loss-and-truncated-boundary"
-    elif losses:
-        reason = "packet-loss"
-    elif repair is not None:
-        reason = "truncated-boundary-repaired"
+    if repair is not None:
+        reason = repair.reason
+        if losses:
+            reason = f"packet-loss+{repair.reason}"
     segment = Segment(
         interval_id=interval.interval_id,
         track_id=interval.track_id,
