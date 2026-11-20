@@ -123,6 +123,10 @@ class ErrorBook:
     def merge(self, other: "ErrorBook") -> None:
         self.errors.extend(other.errors)
 
+    def clear(self) -> None:
+        """清空记录；检查点隔离后用于丢弃已被处置的历史致命错误。"""
+        self.errors.clear()
+
     def to_json(self) -> str:
         return json.dumps(
             {"errors": [e.to_dict() for e in self.errors]},

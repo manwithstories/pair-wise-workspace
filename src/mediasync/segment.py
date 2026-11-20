@@ -20,6 +20,14 @@ class Representation:
     name: str
     keyframe_ms: list[Fraction]
     timescale: int = 1000
+    duration_ms: Fraction | None = None
+    """素材实际时长（可长于最后一个关键帧）；缺省取末关键帧时间。"""
+
+    @property
+    def end_ms(self) -> Fraction:
+        if self.duration_ms is not None:
+            return self.duration_ms
+        return self.keyframe_ms[-1] if self.keyframe_ms else Fraction(0)
 
     def nearest(self, target: Fraction) -> tuple[Fraction, Fraction] | None:
         """返回距 target 最近的关键帧 (时间, 偏差绝对值)；无帧返回 None。"""
@@ -105,15 +113,9 @@ def plan_cuts(
         return SegmentPlan([], [], [], tuple(), 0)
 
     anchor = representations[0]
-    # 切点必须严格落在素材内部：取最短表示层的末帧作为上界。
-    min_end = min(
-        (rep.keyframe_ms[-1] for rep in representations if rep.keyframe_ms),
-        default=Fraction(0),
-    )
-    max_end = max(
-        (rep.keyframe_ms[-1] for rep in representations if rep.keyframe_ms),
-        default=Fraction(0),
-    )
+    # 切点严格落在素材内部：上界取各表示层素材时长，而非末关键帧。
+    min_end = min((rep.end_ms for rep in representations), default=Fraction(0))
+    max_end = max((rep.end_ms for rep in representations), default=Fraction(0))
     grid = [
         Fraction(i * segment_ms)
         for i in range(1, int(min_end // segment_ms) + 1)
