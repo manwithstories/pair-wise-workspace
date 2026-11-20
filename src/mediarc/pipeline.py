@@ -815,7 +815,7 @@ def _archive_inner(
         report.recovered_segments = recovered
         store.save(
             "transform", transform_input,
-            stage_input_digest(segments=[r.to_dict() for r in records]),
+            stage_input_digest(segments=[_digest_view(r) for r in records]),
             {
                 "segments": [r.to_dict() for r in records],
                 "recovered_segments": recovered,
@@ -829,7 +829,11 @@ def _archive_inner(
     # -- stage: archive (manifest on disk) --------------------------------
     probe_output = stage_input_digest(probe=result.source_sha256)
     timeline_output = stage_input_digest(timeline=timeline.to_dict())
-    transform_output = stage_input_digest(segments=[r.to_dict() for r in records])
+    # Paths are a property of the work directory, not of the archive; excluding
+    # them keeps the stage digest stable across machines and job counts.
+    transform_output = stage_input_digest(
+        segments=[_digest_view(r) for r in records]
+    )
     manifest.record_stage(StageRecord(
         "probe", report.stage_status["probe"], probe_input, probe_output,
         errors=list(result.errors),
@@ -868,6 +872,16 @@ def _archive_inner(
             stage="archive", path=result.path,
         )
     return report
+
+
+def _digest_view(record: SegmentRecord) -> dict[str, Any]:
+    """Segment record without local filesystem paths, for stage digests."""
+    payload = record.to_dict()
+    payload["path"] = ""
+    if isinstance(payload.get("audio"), dict):
+        payload["audio"]["path"] = ""
+    payload.pop("status", None)
+    return payload
 
 
 def _isolate_timeline_errors(

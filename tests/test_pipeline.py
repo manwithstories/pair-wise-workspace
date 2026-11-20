@@ -489,6 +489,23 @@ class ManifestTests(unittest.TestCase):
             manifest = self._archive(work)
             self.assertEqual(manifest.dumps(), Manifest.loads(manifest.dumps()).dumps())
 
+    def test_manifest_is_identical_across_job_counts(self):
+        with Workspace() as work:
+            directory = work / "run"
+            common = dict(rate=48_000, layout="stereo", lufs=-16.0)
+            archive(
+                str(fixtures() / "good.mkv"), str(directory / "m.json"),
+                work_dir=str(directory / "w"), limits=Limits(jobs=1), **common,
+            )
+            first = (directory / "m.json").read_text()
+            shutil.rmtree(directory)
+            archive(
+                str(fixtures() / "good.mkv"), str(directory / "m.json"),
+                work_dir=str(directory / "w"), limits=Limits(jobs=2), **common,
+            )
+            second = (directory / "m.json").read_text()
+            self.assertEqual(first, second)
+
     def test_missing_fields_are_rejected_with_schema_error(self):
         with self.assertRaises(MediaError) as caught:
             Manifest.loads('{"schema": "mediarc.manifest/v1", "schema_version": 1}')
