@@ -37,6 +37,7 @@ add_library(mediacore STATIC
   src/graph_executor.cpp
   src/normalize.cpp
   src/metadata.cpp
+  src/sha256.cpp
 )
 target_include_directories(mediacore PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -79,3 +80,8 @@ add_executable(test_metadata tests/test_metadata.cpp)
 target_link_libraries(test_metadata PRIVATE
   mediacore Catch2::Catch2WithMain)
 add_test(NAME metadata COMMAND test_metadata)
+
+add_executable(test_sha256 tests/test_sha256.cpp)
+target_link_libraries(test_sha256 PRIVATE
+  mediacore Catch2::Catch2WithMain)
+add_test(NAME sha256 COMMAND test_sha256)
