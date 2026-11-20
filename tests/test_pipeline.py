@@ -567,3 +567,145 @@ class ResumeTests(FixtureCase):
         self.assertEqual(resume.exit_code, EXIT_RESUME_MISMATCH)
 
 
+class VerifyTests(FixtureCase):
+    def repair_fixture(self, name: str):
+        work = self.workdir()
+        config = RepairConfig(
+            source=self.sample(name), output=work / "out.mp4",
+            index_path=work / "out.sqlite", checkpoint_path=work / "out.json",
+            chunk_packets=64)
+        summary = repair(config)
+        return summary, config, work
+
+    def test_verify_clean_repair(self):
+        summary, config, _ = self.repair_fixture("normal")
+        result = verify(VerifyConfig(
+            source=self.sample("normal"), index_path=config.index_path,
+            output=config.output, sample_targets=6))
+        self.assertEqual(result.exit_code, EXIT_OK)
+        self.assertEqual(result.seek_checks_passed, result.seek_checks)
+        self.assertTrue(result.hash_matches)
+        self.assertEqual(len(result.output_sha256), 64)
+
+    def test_verify_corrupt_repair_reports_first_error(self):
+        summary, config, _ = self.repair_fixture("corrupt")
+        result = verify(VerifyConfig(
+            source=self.sample("corrupt"), index_path=config.index_path,
+            output=config.output, sample_targets=6))
+        self.assertEqual(result.exit_code, EXIT_OK)
+        self.assertEqual(result.first_error_packet, summary.first_error_packet)
+
+    def test_verify_detects_tampered_output(self):
+        summary, config, _ = self.repair_fixture("normal")
+        with open(config.output, "r+b") as handle:
+            handle.seek(2000)
+            handle.write(b"\x00" * 64)
+        result = verify(VerifyConfig(
+            source=self.sample("normal"), index_path=config.index_path,
+            output=config.output))
+        self.assertEqual(result.exit_code, EXIT_RESUME_MISMATCH)
+
+    def test_verify_rejects_tampered_index(self):
+        summary, config, _ = self.repair_fixture("normal")
+        connection = sqlite3.connect(str(config.index_path))
+        try:
+            connection.execute("UPDATE samples SET byte_offset = byte_offset + 1000000 "
+                               "WHERE id = (SELECT MIN(id) FROM samples)")
+            connection.commit()
+        finally:
+            connection.close()
+        result = verify(VerifyConfig(
+            source=self.sample("normal"), index_path=config.index_path,
+            output=config.output))
+        self.assertEqual(result.exit_code, EXIT_RESUME_MISMATCH)
+
+    def test_verify_proves_resume_equivalent_to_full_run(self):
+        work = self.workdir()
+        full_dir = work / "fullv"
+        part_dir = work / "partv"
+        full_dir.mkdir()
+        part_dir.mkdir()
+        repair(RepairConfig(
+            source=self.sample("corrupt"), output=full_dir / "out.mp4",
+            index_path=full_dir / "out.sqlite", checkpoint_path=full_dir / "out.json",
+            chunk_packets=64))
+        repair(RepairConfig(
+            source=self.sample("corrupt"), output=part_dir / "out.mp4",
+            index_path=part_dir / "out.sqlite", checkpoint_path=part_dir / "out.json",
+            chunk_packets=64, interrupt_after=300))
+        repair(RepairConfig(
+            source=self.sample("corrupt"), output=part_dir / "out.mp4",
+            index_path=part_dir / "out.sqlite", checkpoint_path=part_dir / "out.json",
+            chunk_packets=64, resume=True))
+        result = verify(VerifyConfig(
+            source=self.sample("corrupt"), index_path=part_dir / "out.sqlite",
+            output=part_dir / "out.mp4",
+            compare_index=full_dir / "out.sqlite"))
+        self.assertEqual(result.exit_code, EXIT_OK)
+        self.assertTrue(result.chunk_digests_match)
+        self.assertTrue(result.hash_matches)
+
+    def test_verify_rejects_incompatible_version(self):
+        summary, config, _ = self.repair_fixture("normal")
+        connection = sqlite3.connect(str(config.index_path))
+        try:
+            connection.execute("UPDATE meta SET value = ? WHERE key = ?",
+                               ("999", "index_version"))
+            connection.commit()
+        finally:
+            connection.close()
+        result = verify(VerifyConfig(
+            source=self.sample("normal"), index_path=config.index_path,
+            output=config.output))
+        self.assertEqual(result.exit_code, EXIT_RESUME_MISMATCH)
+        self.assertEqual(result.error["code"], "index_incompatible")
+
+
+class CliTests(FixtureCase):
+    def run_cli(self, *args: str) -> subprocess.CompletedProcess:
+        env = dict(os.environ)
+        env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1])
+        return subprocess.run(
+            [sys.executable, "-m", "mediabridge", *args],
+            capture_output=True, text=True, env=env,
+        )
+
+    def test_cli_sample_and_repair_exit_codes(self):
+        work = self.workdir()
+        outcome = self.run_cli("repair", str(self.sample("normal")),
+                               "--out", str(work / "out.mp4"),
+                               "--index", str(work / "out.sqlite"),
+                               "--checkpoint", str(work / "out.json"),
+                               "--chunk-packets", "64")
+        self.assertEqual(outcome.returncode, 0, outcome.stderr)
+        payload = json.loads(outcome.stdout)
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(len(payload["output_sha256"]), 64)
+
+    def test_cli_unrecoverable_exit_code(self):
+        work = self.workdir()
+        outcome = self.run_cli("repair", str(self.sample("broken_index")),
+                               "--out", str(work / "out.mp4"),
+                               "--index", str(work / "out.sqlite"),
+                               "--checkpoint", str(work / "out.json"))
+        self.assertEqual(outcome.returncode, 2)
+
+    def test_cli_verify_report_json(self):
+        work = self.workdir()
+        self.run_cli("repair", str(self.sample("normal")),
+                     "--out", str(work / "out.mp4"),
+                     "--index", str(work / "out.sqlite"),
+                     "--checkpoint", str(work / "out.json"),
+                     "--chunk-packets", "64")
+        outcome = self.run_cli("verify", str(self.sample("normal")),
+                               "--index", str(work / "out.sqlite"),
+                               "--output", str(work / "out.mp4"),
+                               "--report-json")
+        self.assertEqual(outcome.returncode, 0, outcome.stderr)
+        payload = json.loads(outcome.stdout)
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["seek_checks_passed"], payload["seek_checks"])
+
+
+if __name__ == "__main__":
+    unittest.main()
