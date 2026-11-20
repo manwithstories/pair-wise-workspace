@@ -257,3 +257,172 @@ class ProbeTests(FixtureCase):
             probe_mod.probe(path)
 
 
+class RepairTests(FixtureCase):
+    def run_repair(self, source: str, *, chunk_packets=64, **kwargs):
+        work = self.workdir()
+        name = Path(source).stem
+        config = RepairConfig(
+            source=self.sample(source),
+            output=work / f"{name}.rep.mp4",
+            index_path=work / f"{name}.sqlite",
+            checkpoint_path=work / f"{name}.json",
+            chunk_packets=chunk_packets,
+            **kwargs,
+        )
+        summary = repair(config)
+        return summary, config
+
+    def test_clean_file_repairs(self):
+        summary, config = self.run_repair("normal")
+        self.assertEqual(summary.exit_code, EXIT_OK)
+        self.assertEqual(summary.status, "ok")
+        self.assertIsNone(summary.first_error_packet)
+        self.assertEqual(len(summary.output_sha256), 64)
+        with IndexReader(config.index_path) as reader:
+            self.assertGreaterEqual(reader.info().sample_count, 1)
+
+    def test_corrupt_file_reports_first_error_within_one_packet(self):
+        summary, _ = self.run_repair("corrupt")
+        expected = self.metadata("corrupt")["first_error_packet"]
+        self.assertEqual(summary.exit_code, EXIT_OK)
+        self.assertIsNotNone(summary.first_error_packet)
+        self.assertLessEqual(abs(summary.first_error_packet - expected), 1)
+
+    def test_corrupt_file_keeps_good_packets(self):
+        summary, _ = self.run_repair("corrupt")
+        self.assertGreater(summary.packets_written, 0)
+        self.assertGreater(summary.packets_dropped, 0)
+        self.assertLess(summary.packets_written, summary.packets_total)
+
+    def test_truncated_tail_is_repaired(self):
+        summary, _ = self.run_repair("truncated")
+        self.assertEqual(summary.exit_code, EXIT_OK)
+        self.assertGreater(summary.packets_written, 0)
+
+    def test_jitter_is_rebased(self):
+        summary, config = self.run_repair("jitter")
+        self.assertEqual(summary.exit_code, EXIT_OK)
+        repairs = summary.timestamp_repairs
+        self.assertGreaterEqual(len(repairs), 2)
+        deviations = [repair["deviation_seconds"] for repair in repairs]
+        self.assertTrue(any(d > 1.0 for d in deviations), deviations)
+        self.assertTrue(any(d < -1.0 for d in deviations), deviations)
+        for repair in repairs:
+            self.assertIn(repair["track_index"], (0, 1))
+            # Every reported discontinuity names the original timestamp.
+            self.assertIsNotNone(repair["dts"])
+        # Every decoded frame must be strictly increasing after repair.
+        pts = self._video_pts(config.output)
+        self.assertGreater(len(pts), 0)
+        self.assertTrue(all(b > a for a, b in zip(pts, pts[1:])))
+
+    def test_broken_index_is_unrecoverable(self):
+        summary, _ = self.run_repair("broken_index")
+        self.assertEqual(summary.exit_code, EXIT_UNRECOVERABLE)
+        self.assertEqual(summary.error["code"], "structural_error")
+
+    def test_zero_packets_is_unrecoverable(self):
+        summary, _ = self.run_repair("zero_packets")
+        self.assertEqual(summary.exit_code, EXIT_UNRECOVERABLE)
+        self.assertEqual(summary.error["code"], "truncated_input")
+
+    def test_unsupported_codec_is_rejected(self):
+        summary, _ = self.run_repair("unsupported_codec")
+        self.assertEqual(summary.exit_code, EXIT_UNRECOVERABLE)
+        self.assertEqual(summary.error["code"], "unsupported_codec")
+        self.assertIn("mpeg4", summary.error["message"])
+
+    def test_refuses_to_overwrite_source(self):
+        work = self.workdir()
+        source_copy = work / "input.mov"
+        shutil.copyfile(self.sample("normal"), source_copy)
+        config = RepairConfig(
+            source=source_copy, output=source_copy,
+            index_path=work / "out.sqlite", checkpoint_path=work / "out.json",
+            chunk_packets=64)
+        summary = repair(config)
+        self.assertEqual(summary.exit_code, EXIT_UNRECOVERABLE)
+        self.assertEqual(summary.error["code"], "structural_error")
+        # The source must be untouched.
+        self.assertGreater(source_copy.stat().st_size, 0)
+
+    def test_output_is_seekable(self):
+        summary, config = self.run_repair("corrupt")
+        container = av.open(str(config.output))
+        try:
+            stream = container.streams.video[0]
+            container.seek(0, stream=stream, backward=True)
+            frames = list(container.decode(stream))
+            self.assertGreater(len(frames), 0)
+        finally:
+            container.close()
+
+    def test_peak_queue_depth_is_bounded(self):
+        summary, _ = self.run_repair("slow_consumer", queue_size=2,
+                                     consumer_delay=0.001)
+        self.assertLessEqual(summary.peak_queue_depth, 2)
+        self.assertEqual(summary.queue_size, 2)
+
+    def test_peak_memory_is_bounded(self):
+        """The CLI subprocess must stay under the 256 MiB resident budget.
+
+        Measured on a subprocess so the test process's own interpreter and
+        PyAV import footprint do not count against the pipeline.  macOS
+        reports ``ru_maxrss`` in bytes; Linux reports KiB.
+        """
+        work = self.workdir()
+        env = dict(os.environ)
+        env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1])
+        proc = subprocess.run(
+            [sys.executable, "-m", "mediabridge", "repair",
+             str(self.sample("slow_consumer")),
+             "--out", str(work / "out.mp4"),
+             "--index", str(work / "out.sqlite"),
+             "--checkpoint", str(work / "out.json"),
+             "--queue-size", "4", "--chunk-packets", "64"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        peak = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+        peak_mib = peak / (1024.0 * 1024.0) if sys.platform == "darwin" else peak / 1024.0
+        self.assertLess(peak_mib, 256.0,
+                        f"resident memory {peak_mib:.1f} MiB exceeded the 256 MiB budget")
+
+    def test_source_is_never_modified(self):
+        source = self.sample("corrupt")
+        before = _sha256(source)
+        self.run_repair("corrupt")
+        self.assertEqual(before, _sha256(source))
+
+    def test_index_points_at_real_payloads(self):
+        summary, config = self.run_repair("corrupt")
+        data = config.output.read_bytes()
+        with IndexReader(config.index_path) as reader:
+            for row in reader.samples():
+                payload = data[row["byte_offset"]:row["byte_offset"] + row["byte_size"]]
+                self.assertEqual(len(payload), row["byte_size"])
+                self.assertGreater(len(payload), 0)
+
+    def test_keyframe_rows_cover_all_keyframes(self):
+        summary, config = self.run_repair("normal")
+        with IndexReader(config.index_path) as reader:
+            keyframes = reader.keyframes()
+        container = av.open(str(self.sample("normal")))
+        try:
+            source_keys = sum(1 for packet in container.demux()
+                              if packet.dts is not None and packet.stream.index == 0
+                              and packet.is_keyframe)
+        finally:
+            container.close()
+        self.assertGreaterEqual(len(keyframes), source_keys)
+
+    @staticmethod
+    def _video_pts(path: Path) -> list[float]:
+        container = av.open(str(path))
+        try:
+            return [float(frame.pts * frame.time_base)
+                    for frame in container.decode(video=0) if frame.pts is not None]
+        finally:
+            container.close()
+
+
