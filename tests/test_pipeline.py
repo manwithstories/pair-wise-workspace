@@ -1,12 +1,4 @@
-"""联合测试：边界条件与故障路径（标准库 unittest，零额外依赖）。
-
-不依赖外部文件，夹具由生成器在临时目录现造；覆盖
-* MediaClock 回绕/突变/起始负 PTS 的区分
-* 抖动缓冲乱序、重复、窗口外迟到
-* 恢复引擎可恢复/不可恢复缺口与重复计数
-* 清单越界、重复序号、缺失引用、截断的拒绝路径
-* 检查点原子提交、不匹配拒绝、续跑不重复计数
-* 端到端 process/verify 的指标达标与损坏拒绝
+"""单元级联合测试：时钟、缓冲、恢复、清单、检查点的边界与故障路径。
 
 运行：.venv/bin/python -m unittest tests.test_pipeline -v
 """
@@ -14,36 +6,19 @@
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 import unittest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
-from region_media.buffer import JitterBuffer  # noqa: E402
-from region_media.checkpoint import (  # noqa: E402
+from tests._helpers import pkt, recovery_pkt
+from region_media.buffer import JitterBuffer
+from region_media.checkpoint import (
     CheckpointError, CheckpointStore, RunConfig)
-from region_media.cli import main as cli_main  # noqa: E402
-from region_media.generator import build_plan  # noqa: E402
-from region_media.fixture_writer import generate_all, generate_scenario  # noqa: E402
-from region_media.ingest import (  # noqa: E402
-    IngestStats, NetworkConditioner, NetworkProfile,
-    demux_segment, unwrap_packets)
-from region_media.manifest import ManifestError, parse_manifest  # noqa: E402
-from region_media.metrics import TARGETS  # noqa: E402
-from region_media.model import (  # noqa: E402
-    MediaClock, PacketModel, SegmentStatus, TrackKind, WrapResult,
-    WRAP_MOD)
-from region_media.recovery import RecoveryEngine  # noqa: E402
-
-
-def _pkt(seq, pts, track=TrackKind.AUDIO):
-    return PacketModel(track, seq, 0, 0, pts, pts, 20_000, seq * 1000, 64)
-
-
-def _rp(seq, pts, dur=20000, seg=0):
-    return PacketModel(TrackKind.AUDIO, seq, seg, 0, pts, pts, dur, 1000, 64)
+from region_media.generator import build_plan
+from region_media.fixture_writer import generate_scenario
+from region_media.manifest import ManifestError, parse_manifest
+from region_media.model import (
+    MediaClock, SegmentStatus, TrackKind, WrapResult, WRAP_MOD)
+from region_media.recovery import RecoveryEngine
 
 
 class TestMediaClock(unittest.TestCase):
@@ -81,7 +56,7 @@ class TestJitterBuffer(unittest.TestCase):
     def test_in_window_reorder(self):
         jb = JitterBuffer()
         for s in (0, 2, 1):
-            self.assertEqual(jb.push(_pkt(s, s * 20000)),
+            self.assertEqual(jb.push(pkt(s, s * 20000)),
                              SegmentStatus.RECEIVED)
         self.assertEqual([p.seq for p in jb.drain(TrackKind.AUDIO)],
                          [0, 1, 2])
@@ -89,19 +64,19 @@ class TestJitterBuffer(unittest.TestCase):
     def test_duplicate_vs_late_distinguished(self):
         jb = JitterBuffer()
         for s in (0, 1, 3):
-            jb.push(_pkt(s, s * 20000))
+            jb.push(pkt(s, s * 20000))
         jb.drain(TrackKind.AUDIO)
         jb.skip_gap(TrackKind.AUDIO, 2)
         jb.drain(TrackKind.AUDIO)
-        self.assertEqual(jb.push(_pkt(2, 40000)), SegmentStatus.MISSING)
-        self.assertEqual(jb.push(_pkt(1, 20000)), SegmentStatus.DUPLICATE)
+        self.assertEqual(jb.push(pkt(2, 40000)), SegmentStatus.MISSING)
+        self.assertEqual(jb.push(pkt(1, 20000)), SegmentStatus.DUPLICATE)
         st = jb.stats()["audio"]
         self.assertEqual((st["late_drops"], st["duplicates"]), (1, 1))
 
     def test_window_within_bounds(self):
         jb = JitterBuffer()
         for s in range(8):
-            jb.push(_pkt(s, s * 20000))
+            jb.push(pkt(s, s * 20000))
         w = jb.stats()["audio"]["window_us"]
         self.assertTrue(20_000 <= w <= 2_000_000)
 
@@ -111,7 +86,7 @@ class TestRecovery(unittest.TestCase):
         eng = RecoveryEngine()
         out = []
         for s, pts in ((0, 0), (1, 20000), (4, 80000)):
-            out.extend(eng.handle_packet(_rp(s, pts)))
+            out.extend(eng.handle_packet(recovery_pkt(s, pts)))
         seqs = [(p.seq, p.synthetic) for p in out]
         self.assertEqual(seqs, [(0, False), (1, False), (2, True),
                                 (3, True), (4, False)])
@@ -119,8 +94,8 @@ class TestRecovery(unittest.TestCase):
 
     def test_large_residual_gap_unrecoverable(self):
         eng = RecoveryEngine()
-        eng.handle_packet(_rp(0, 0))
-        out = eng.handle_packet(_rp(2, 99999))
+        eng.handle_packet(recovery_pkt(0, 0))
+        out = eng.handle_packet(recovery_pkt(2, 99999))
         self.assertEqual(len(out), 1)
         self.assertEqual(eng.stats.unrecoverable, 1)
         self.assertEqual(eng.stats.errors[-1].kind.value,
@@ -128,8 +103,8 @@ class TestRecovery(unittest.TestCase):
 
     def test_duplicate_only_counted(self):
         eng = RecoveryEngine()
-        eng.handle_packet(_rp(0, 0))
-        eng.note_duplicate(_rp(0, 0))
+        eng.handle_packet(recovery_pkt(0, 0))
+        eng.note_duplicate(recovery_pkt(0, 0))
         self.assertEqual((eng.stats.duplicates, eng.stats.recovered), (1, 0))
 
 
@@ -165,8 +140,6 @@ class TestManifestValidation(unittest.TestCase):
                             for e in m.errors))
 
     def test_duplicate_sequence_conflict(self):
-        # DASH 两个同 contentType 的 AdaptationSet 产生相同 (seq, kind)，
-        # 触发重复序号冲突（HLS 媒体列表序号自动递增，难以制造同序号）
         m = parse_manifest(os.path.join(self.root, "master.m3u8"))
         target = m.refs_for(TrackKind.AUDIO)[0].uri
         mpd = os.path.join(self.root, "dup.mpd")
@@ -225,96 +198,6 @@ class TestCheckpoint(unittest.TestCase):
                 cp2.commit_chunk(1, 5, {}, [], [])
         finally:
             os.chmod(db, 0o644)
-
-
-class TestWrapInjection(unittest.TestCase):
-    def test_wrap_injection_clean(self):
-        d = tempfile.mkdtemp()
-        root = os.path.join(d, "w")
-        generate_scenario(root, build_plan("normal"))
-        m = parse_manifest(os.path.join(root, "master.m3u8"))
-        cond = NetworkConditioner(NetworkProfile(
-            seed=1, wrap_track=TrackKind.AUDIO, wrap_at_packet=3))
-        clocks, st, audio_pts = {}, IngestStats(), []
-        for seq in sorted({r.seq for r in m.refs}):
-            ref = [r for r in m.refs if r.seq == seq
-                   and r.kind == TrackKind.AUDIO][0]
-            raw = demux_segment(os.path.join(m.base_dir, ref.uri),
-                                seq, None, st)
-            resolved = unwrap_packets(cond.apply(raw, st), clocks, st,
-                                      {TrackKind.AUDIO: 1000})
-            audio_pts += [p.pts_us for p in resolved
-                          if p.track == TrackKind.AUDIO]
-        self.assertGreaterEqual(st.wrap_events, 1)
-        self.assertEqual(st.jump_events, 0)
-        self.assertTrue(all(b >= a for a, b in zip(audio_pts, audio_pts[1:])))
-
-
-class TestEndToEnd(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.tmp = tempfile.mkdtemp()
-        cls.fixtures = os.path.join(cls.tmp, "fx")
-        generate_all(cls.fixtures)
-        cls.work = tempfile.mkdtemp()
-
-    def _process(self, scenario):
-        from region_media.pipeline import PipelineConfig, run_pipeline
-        cfg = PipelineConfig(
-            manifest_path=os.path.join(self.fixtures, scenario,
-                                       "master.m3u8"),
-            index_path=os.path.join(self.work, f"{scenario}.sqlite"),
-            chunk_size=16, resume=True, scenario=scenario)
-        return run_pipeline(cfg)
-
-    def test_normal_meets_targets(self):
-        s = self._process("normal")
-        self.assertLessEqual(s["sync_error_ms_p95"],
-                             TARGETS["sync_error_ms_p95"])
-        self.assertGreaterEqual(s["packet_recovery_rate"],
-                                TARGETS["packet_recovery_rate"])
-        self.assertLessEqual(s["latency_ms_p95"],
-                             TARGETS["latency_ms_p95"])
-        self.assertFalse(s["vfr_detected"])
-
-    def test_resume_no_double_count(self):
-        from region_media.pipeline import PipelineConfig, run_pipeline
-        idx = os.path.join(self.work, "resume.sqlite")
-        cfg = PipelineConfig(
-            manifest_path=os.path.join(self.fixtures, "normal",
-                                       "master.m3u8"),
-            index_path=idx, chunk_size=16, resume=True, scenario="normal")
-        first, second = run_pipeline(cfg), run_pipeline(cfg)
-        self.assertEqual(first["packets_total"], second["packets_total"])
-        self.assertTrue(second["checkpoint_resumed"])
-        self.assertEqual(first["duplicates"], second["duplicates"])
-
-    def test_corrupt_has_rejections(self):
-        self.assertGreater(self._process("corrupt")["rejected_segments"], 0)
-
-    def test_vfr_scenario_detected(self):
-        self.assertTrue(self._process("vfr")["vfr_detected"])
-
-    def test_wrap_scenario_records_event(self):
-        s = self._process("wrap")
-        self.assertGreaterEqual(s["wrap_events"], 1)
-        self.assertEqual(s["jump_events"], 0)
-
-    def test_loss_recovers_gaps(self):
-        self.assertGreaterEqual(self._process("loss")["packet_recovery_rate"],
-                                TARGETS["packet_recovery_rate"])
-
-    def test_cli_exit_codes(self):
-        rc = cli_main(["process", "--manifest", "/no/such.m3u8",
-                       "--index", os.path.join(self.work, "x.sqlite")])
-        self.assertEqual(rc, 2)
-        rc = cli_main([
-            "process",
-            "--manifest", os.path.join(self.fixtures, "normal",
-                                       "master.m3u8"),
-            "--index", os.path.join(self.work, "cli.sqlite"),
-            "--chunk-size", "16", "--resume"])
-        self.assertEqual(rc, 0)
 
 
 if __name__ == "__main__":
