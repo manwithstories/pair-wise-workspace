@@ -1,0 +1,25 @@
+[build-system]
+requires = []
+build-backend = "build_backend"
+backend-path = ["."]
+
+[project]
+name = "avtimeline"
+version = "0.1.0"
+description = "Deterministic multi-track media timeline segmentation"
+requires-python = ">=3.12"
+dependencies = [
+    "av>=12,<13",
+    "numpy>=2,<3",
+    "soundfile>=0.12,<0.13",
+]
+
+[project.optional-dependencies]
+test = []
+
+[project.scripts]
+avtimeline = "avtimeline.cli:main"
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.12"
