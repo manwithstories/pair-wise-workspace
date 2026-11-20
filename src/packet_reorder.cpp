@@ -202,6 +202,16 @@ TrackStream reorder_track(const TrackInput& input, ErrorSink& errors) {
     auto& queue = window_bytes[candidate.epoch];
     auto& open_bytes = window_bytes_open[candidate.epoch];
     const std::size_t bytes = candidate.frame->record.payload_bytes;
+    // Admit only if the retained window still fits the budget: the bound
+    // is a hard contract, so a violation stops the stage instead of
+    // growing memory silently.
+    if (open_bytes + bytes > policy.cache_limit_bytes) {
+      errors.fail("reorder", stream.track,
+                  candidate.frame->record.source_frame,
+                  "reorder window cache would exceed " +
+                      std::to_string(policy.cache_limit_bytes) + " bytes");
+      break;
+    }
     queue.emplace_back(pts, bytes);
     open_bytes += bytes;
     const Micros newest = max_pts[candidate.epoch];
@@ -211,15 +221,6 @@ TrackStream reorder_track(const TrackInput& input, ErrorSink& errors) {
     }
     stream.stats.peak_cache_bytes =
         std::max(stream.stats.peak_cache_bytes, open_bytes);
-    if (open_bytes > policy.cache_limit_bytes) {
-      // The bound is a hard contract: exceeding it is a data/config error,
-      // never silent memory growth.
-      errors.fail("reorder", stream.track,
-                  candidate.frame->record.source_frame,
-                  "reorder window cache exceeded " +
-                      std::to_string(policy.cache_limit_bytes) + " bytes");
-      break;
-    }
     accepted[candidate.epoch].push_back(&candidate);
   }
 

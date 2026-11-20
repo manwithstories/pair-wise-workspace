@@ -1067,3 +1067,35 @@ TEST_CASE("a resumed run still refuses to publish on earlier frame-level errors"
   // persisted issue list, not a fresh scan.
   CHECK(resumed.report.resumed_stages >= 1);
 }
+
+TEST_CASE("reorder enforces the per-track cache limit", "[reorder][cache]") {
+  TrackInput input;
+  input.spec.id = "cam-cache";
+  input.spec.policy.cache_limit_bytes = 100;
+  input.reorder_window = 32;
+  input.timebase = Timebase{30, 1};
+  for (int i = 0; i < 5; ++i) {
+    CatalogFrame frame;
+    frame.record.track = "cam-cache";
+    frame.record.source_frame = static_cast<std::uint64_t>(i);
+    frame.record.sequence = static_cast<std::uint32_t>(i);
+    frame.record.raw_timestamp_us = static_cast<std::uint32_t>(i * 33333);
+    frame.record.payload_bytes = 60;  // two frames already exceed 100 bytes
+    frame.verified = true;
+    input.catalog.push_back(frame);
+    input.arrivals.push_back(Arrival{static_cast<std::uint64_t>(i),
+                                     static_cast<std::uint64_t>(i)});
+  }
+  ErrorSink errors;
+  TrackStream stream = reorder_track(input, errors);
+  CHECK(errors.has_errors());
+  CHECK(stream.stats.peak_cache_bytes <= input.spec.policy.cache_limit_bytes);
+  bool located = false;
+  for (const auto& event : errors.events()) {
+    if (event.reason.find("cache") != std::string::npos &&
+        event.ids.track == "cam-cache") {
+      located = true;
+    }
+  }
+  CHECK(located);
+}
