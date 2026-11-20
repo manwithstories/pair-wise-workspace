@@ -32,6 +32,7 @@ add_library(mediacore STATIC
   src/roundtrip.cpp
   src/probe.cpp
   src/keyframe_analysis.cpp
+  src/timeline.cpp
 )
 target_include_directories(mediacore PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -54,3 +55,8 @@ add_executable(test_probe tests/test_probe.cpp)
 target_link_libraries(test_probe PRIVATE
   mediacore Catch2::Catch2WithMain)
 add_test(NAME probe COMMAND test_probe)
+
+add_executable(test_timeline tests/test_timeline.cpp)
+target_link_libraries(test_timeline PRIVATE
+  mediacore Catch2::Catch2WithMain)
+add_test(NAME timeline COMMAND test_timeline)
