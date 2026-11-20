@@ -1,0 +1,6 @@
+/Users/clearliu/WorkSpace/pair-wise-workspace/14140/build/CMakeFiles/relay_core.dir
+/Users/clearliu/WorkSpace/pair-wise-workspace/14140/build/CMakeFiles/relay_inspect.dir
+/Users/clearliu/WorkSpace/pair-wise-workspace/14140/build/CMakeFiles/pipeline_tests.dir
+/Users/clearliu/WorkSpace/pair-wise-workspace/14140/build/CMakeFiles/test.dir
+/Users/clearliu/WorkSpace/pair-wise-workspace/14140/build/CMakeFiles/edit_cache.dir
+/Users/clearliu/WorkSpace/pair-wise-workspace/14140/build/CMakeFiles/rebuild_cache.dir

@@ -1,0 +1,22 @@
+Start testing: Nov 21 07:39 CST
+----------------------------------------------------------
+1/1 Testing: pipeline_tests
+1/1 Test: pipeline_tests
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/14140/build/pipeline_tests"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/14140/build
+"pipeline_tests" start time: Nov 21 07:39 CST
+Output:
+----------------------------------------------------------
+Randomness seeded to: 1813963663
+===============================================================================
+All tests passed (1 assertion in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"pipeline_tests" end time: Nov 21 07:39 CST
+"pipeline_tests" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Nov 21 07:39 CST
