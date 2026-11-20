@@ -300,3 +300,31 @@ def write_good_index(source: Path, target: Path, codec: Codec) -> list[dict]:
     index = compute_index(units)
     target.write_text(json.dumps({"keyframes": index.to_json()}, indent=2), encoding="utf-8")
     return index.to_json()
+
+
+def _sha256(path: Path) -> tuple[int, str]:
+    digest = hashlib.sha256()
+    size = 0
+    with path.open("rb") as handle:
+        while block := handle.read(1 << 20):
+            digest.update(block)
+            size += len(block)
+    return size, digest.hexdigest()
+
+
+def _describe(role: str, path: Path, *, codec: Codec | None = None, units: list[AccessUnit] | None = None,
+              notes: list[str] | None = None) -> FixtureFile:
+    size, digest = _sha256(path)
+    keyframes = []
+    if units is not None:
+        keyframes = [{"index": u.index, "offset": u.offset, "size": u.size} for u in units if u.is_keyframe]
+    return FixtureFile(
+        role=role,
+        path=path,
+        codec=codec.value if codec else None,
+        frames=len(units) if units is not None else None,
+        size=size,
+        sha256=digest,
+        keyframes=keyframes,
+        notes=list(notes or []),
+    )
