@@ -53,10 +53,15 @@ class TimecodeListParser:
         start, end = self._line_start, self._total
         text = bytes(self._line).decode("utf-8", errors="replace").strip()
         self._line.clear()
-        if not text or text.startswith(("#", ";")):
+        if not text or text.startswith(";"):
             return
-        if text.startswith("rate="):
-            self._rate = parse_rate(text.split("=", 1)[1])
+        # 允许 '# rate=...' 或裸 'rate=...' 两种帧率指令写法
+        directive = text[1:].strip() if text.startswith("#") else text
+        if directive.startswith("rate="):
+            value = directive.split("=", 1)[1].split()[0]
+            self._rate = parse_rate(value)
+            return
+        if text.startswith("#"):
             return
         try:
             frame, drop = parse_timecode(text, self._rate)

@@ -170,6 +170,18 @@ def test_timecode_list_parsing_and_quarantine():
     assert errors[0].start >= 0 and errors[0].end > errors[0].start
 
 
+def test_timecode_list_rate_directive_supports_df_and_comments():
+    data = b"# rate=30000/1001\n00:00:00:00\n00:00:00;02\n"
+    records, errors = parse_timecode_bytes(data, "tc.txt", Fraction(24))
+    assert not errors
+    assert records[0].rate_fps == Fraction(30000, 1001)
+    assert records[1].drop_frame is True and records[1].frame == 2
+    trailing, _ = parse_timecode_bytes(
+        b"# rate=25 trailing note\n00:00:01:00\n", "tc.txt", Fraction(30)
+    )
+    assert trailing[0].rate_fps == Fraction(25)
+
+
 # ---- repair -----------------------------------------------------------
 
 def _rec(code: str, i: int, rate=Fraction(24)):
