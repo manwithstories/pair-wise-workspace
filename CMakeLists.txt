@@ -19,6 +19,7 @@ find_package(Catch2 3 REQUIRED)
 
 # Source files are appended per module below so each committed stage builds.
 set(MEDIAQC_SOURCES
+  src/damage_scan.cpp
   src/probe.cpp
   src/track_graph.cpp
   src/fs_util.cpp
