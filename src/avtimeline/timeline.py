@@ -15,14 +15,7 @@ from fractions import Fraction
 from typing import Any, Iterable, Mapping
 
 from .errors import Issue, MediaLocation
-from .model import (
-    Span,
-    TimeError,
-    as_fraction,
-    fraction_from_float,
-    gaps_within,
-    merge_spans,
-)
+from .model import Span, TimeError, fraction_from_float, gaps_within, merge_spans
 
 
 class TimelineParseError(ValueError):
