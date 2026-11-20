@@ -71,3 +71,14 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- mediacore Python project ----
+.venv/
+.demo/
+.scratch/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/
+dist/
