@@ -155,38 +155,42 @@ void emit_report(PipelineReport& report, const Timeline& timeline,
           ? 0.0
           : static_cast<double>(boundary_hits) /
                 static_cast<double>(boundary_total);
-  // Shared-cut alignment: every rendition uses the boundary track's
-  // segments, so the error is the largest distance from a cut to the
-  // nearest source frame of the boundary track.
+  // Shared-cut alignment: every rendition must expose its cut on the same
+  // global time axis.  The error is the largest distance between a
+  // rendition's timestamp for a cut and the boundary track's own frame
+  // timestamp for that cut, measured in source frames.
   const TimelineTrack* boundary = nullptr;
   for (const auto& track : timeline.tracks) {
     if (track.id == ladder.boundary_source) {
       boundary = &track;
     }
   }
-  if (boundary != nullptr) {
-    const Micros frame_us = static_cast<Micros>(
-        boundary->timebase.frame_duration_us());
+  if (boundary != nullptr && !ladder.renditions.empty()) {
+    const Micros frame_us =
+        static_cast<Micros>(boundary->timebase.frame_duration_us());
     Micros worst_us = 0;
-    for (const Micros cut : ladder.shared_cuts_us) {
+    for (const auto& rendition : ladder.renditions) {
       auto it = std::lower_bound(
-          boundary->frames.begin(), boundary->frames.end(), cut,
+          boundary->frames.begin(), boundary->frames.end(), rendition.start_us,
           [](const FrameRecord& frame, Micros value) {
             return frame.pts_us < value;
           });
       Micros best = std::numeric_limits<Micros>::max();
       if (it != boundary->frames.end()) {
-        best = std::min(best, std::llabs(it->pts_us - cut));
+        best = std::min(best, std::llabs(it->pts_us - rendition.start_us));
       }
       if (it != boundary->frames.begin()) {
-        best = std::min(best, std::llabs(std::prev(it)->pts_us - cut));
+        best = std::min(best, std::llabs(std::prev(it)->pts_us - rendition.start_us));
       }
       if (best != std::numeric_limits<Micros>::max()) {
         worst_us = std::max<Micros>(worst_us, best);
       }
     }
-    report.aligned_cut_error_frames =
-        frame_us <= 0 ? 0 : static_cast<std::size_t>(worst_us / frame_us);
+    const Micros frame = frame_us <= 0 ? 1 : frame_us;
+    // Rounded up: any residual tolerance still counts as one frame.
+    const std::size_t error_frames =
+        static_cast<std::size_t>((worst_us + frame - 1) / frame);
+    report.aligned_cut_error_frames = error_frames;
   }
   report.downgrades = ladder.downgrades.size();
   report.peak_buffer_bytes = std::max<std::uint64_t>(
