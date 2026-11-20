@@ -237,27 +237,32 @@ def make_timestamps(
         raise InputError("vfr_every must be positive")
     nominal = ticks_from_rate(1, fps)
     drift = 1.0 + drift_ppm / 1_000_000.0
+    durations = []
+    for index in range(count):
+        duration = nominal
+        if vfr_every and index > 0 and index % vfr_every == 0:
+            duration = int(round(nominal * 1.5))
+        durations.append(duration)
+    # Choose a constant wire offset so the clock crosses zero at ``wrap_at``.
+    wrap_offset = 0
+    if wrap_at is not None:
+        capture_at_wrap = sum(durations[:wrap_at])
+        wrap_offset = (wrap_size - int(round(capture_at_wrap * drift))) % wrap_size
     entries: list[dict[str, int]] = []
     media_offset = 0
     segment_start = 0
     for index in range(count):
         if restart_at is not None and index == restart_at:
             segment_start = media_offset
-        duration = nominal
-        if vfr_every and index > 0 and index % vfr_every == 0:
-            duration = int(round(nominal * 1.5))
         capture = int(round((media_offset - segment_start) * drift))
-        wire = capture % wrap_size
-        if wrap_at is not None and index >= wrap_at:
-            wire = (wire + wrap_size - (wrap_size - 1000)) % wrap_size
         entries.append(
             {
-                "pts_ticks": wire,
-                "duration_ticks": duration,
+                "pts_ticks": (capture + wrap_offset) % wrap_size,
+                "duration_ticks": durations[index],
                 "unwrapped_ticks": capture,
             }
         )
-        media_offset += duration
+        media_offset += durations[index]
     return entries
 
 
@@ -305,3 +310,181 @@ def build_index_payload(
         "packets": index_packets,
         "anchors": list(anchors),
     }
+
+
+def synth_audio(
+    path: Path,
+    *,
+    seed: int,
+    seconds: float,
+    sample_rate: int = 48_000,
+    frequency: float = 440.0,
+    amplitude: float = 0.22,
+    drift_ppm: float = 0.0,
+    pad_seconds: float = 0.0,
+) -> None:
+    """Write a deterministic tone-plus-noise WAV file."""
+
+    import soundfile as sf
+
+    if seconds <= 0:
+        raise InputError("audio duration must be positive")
+    if sample_rate <= 0:
+        raise InputError("sample rate must be positive")
+    if pad_seconds < 0:
+        raise InputError("audio pad cannot be negative")
+    rng = np.random.default_rng(seed)
+    count = int(seconds * sample_rate)
+    position = np.arange(count, dtype=np.float64)
+    phase = 2.0 * np.pi * frequency * position / sample_rate
+    phase = phase * (1.0 + drift_ppm / 1_000_000.0)
+    envelope = 0.6 + 0.4 * np.sin(2.0 * np.pi * 0.5 * position / sample_rate) ** 2
+    tone = amplitude * envelope * np.sin(phase)
+    noise = rng.normal(0.0, amplitude * 0.05, count)
+    signal = np.clip(tone + noise, -1.0, 1.0).astype(np.float32)
+    if pad_seconds:
+        pad = int(round(pad_seconds * sample_rate))
+        signal = np.concatenate([np.zeros(pad, dtype=np.float32), signal])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    sf.write(str(path), signal, sample_rate, subtype="PCM_16", format="WAV")
+
+
+def video_anchor_indices(
+    seconds: Sequence[float], fps: Fraction, count: int
+) -> list[int]:
+    indices = []
+    for seconds_value in seconds:
+        index = int(round(seconds_value * float(fps)))
+        if not 0 <= index < count:
+            raise InputError(
+                f"anchor at {seconds_value}s maps to frame {index}, "
+                f"outside 0..{count - 1}"
+            )
+        indices.append(index)
+    return indices
+
+
+def audio_anchor_samples(
+    seconds: Sequence[float], sample_rate: int, pad_seconds: float = 0.0
+) -> list[int]:
+    return [
+        int(round((value + pad_seconds) * sample_rate)) for value in seconds
+    ]
+
+
+def build_video_fixture(
+    root: Path,
+    config: FixtureConfig,
+    *,
+    track_id: str = "video0",
+    role: str = "camera",
+    restart_at: int | None = None,
+    wrap_at: int | None = None,
+    drift_ppm: float = 0.0,
+    vfr_every: int | None = None,
+    anchors_seconds: Sequence[float] = (),
+    bitrate: int | None = None,
+) -> VideoFixture:
+    """Encode one raw stream, scan it and write a matching index."""
+
+    root.mkdir(parents=True, exist_ok=True)
+    suffix = SUFFIX_BY_CODEC[config.codec]
+    path = root / f"{track_id}{suffix}"
+    size = encode_raw_stream(path, config, bitrate=bitrate)
+    packets = scan_packets(path, config.codec)
+    entries = make_timestamps(
+        len(packets),
+        config.fps,
+        restart_at=restart_at,
+        wrap_at=wrap_at,
+        drift_ppm=drift_ppm,
+        vfr_every=vfr_every,
+    )
+    labels = [f"a{index}" for index in range(len(anchors_seconds))]
+    indices = video_anchor_indices(anchors_seconds, config.fps, len(packets))
+    anchors = [
+        {"label": label, "video_index": index}
+        for label, index in zip(labels, indices)
+    ]
+    fixture = VideoFixture(
+        codec=config.codec,
+        path=path,
+        index_path=root / f"{track_id}.index.json",
+        packets=[
+            {
+                **packet,
+                "pts_ticks": entry["pts_ticks"],
+                "duration_ticks": entry["duration_ticks"],
+            }
+            for packet, entry in zip(packets, entries)
+        ],
+        size_bytes=size,
+        fps=config.fps,
+        width=config.width,
+        height=config.height,
+        track_id=track_id,
+        role=role,
+    )
+    payload = build_index_payload(
+        track_id=track_id,
+        role=role,
+        codec=config.codec,
+        stream_name=path.name,
+        stream_size=size,
+        width=config.width,
+        height=config.height,
+        fps=config.fps,
+        keyframe_interval=config.keyframe_interval,
+        packets=packets,
+        entries=entries,
+        anchors=anchors,
+    )
+    fixture.index_path.write_text(
+        json.dumps(payload, indent=2) + "\n", encoding="utf-8"
+    )
+    return fixture
+
+
+def truncate_stream(source: Path, destination: Path, keep_bytes: int) -> Path:
+    """Copy only the first ``keep_bytes`` bytes to model a truncated stream."""
+
+    size = source.stat().st_size
+    if not 0 < keep_bytes < size:
+        raise InputError(
+            f"truncation must keep 1..{size - 1} bytes, got {keep_bytes}"
+        )
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with source.open("rb") as reader, destination.open("wb") as writer:
+        writer.write(reader.read(keep_bytes))
+    return destination
+
+
+def corrupt_index(source: Path, destination: Path, mutate) -> Path:
+    """Load an index, apply ``mutate`` in place and write it back."""
+
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    mutate(payload)
+    destination.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return destination
+
+
+def require_ffmpeg_cli() -> str:
+    """Fail early (exit 2) when the Homebrew FFmpeg CLI is missing."""
+
+    binary = shutil.which("ffmpeg")
+    if not binary:
+        raise DependencyError(
+            "ffmpeg CLI not found; run `brew install ffmpeg libsndfile`"
+        )
+    return binary
+
+
+def ffmpeg_version() -> str:
+    binary = require_ffmpeg_cli()
+    try:
+        output = subprocess.run(
+            [binary, "-version"], capture_output=True, text=True, check=True
+        ).stdout
+    except (OSError, subprocess.CalledProcessError) as exc:  # pragma: no cover
+        raise DependencyError(f"cannot run ffmpeg: {exc}") from exc
+    return output.splitlines()[0] if output else "unknown"
