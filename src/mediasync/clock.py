@@ -253,3 +253,101 @@ def fit_drift(
         max_abs_ticks=max_abs,
         samples=n,
     )
+@dataclass(frozen=True)
+class DisplaySample:
+    """A timestamp with raw provenance and its monotonic display position."""
+
+    index: int
+    raw_ticks: int
+    unwrapped_ticks: int
+    display_ticks: int
+    segment: int
+    restart: bool
+
+
+@dataclass(frozen=True)
+class DisplayTrack:
+    samples: tuple[DisplaySample, ...]
+    restarts: tuple[Restart, ...]
+    corrected: int = 0
+
+    @property
+    def display_ticks(self) -> list[int]:
+        return [sample.display_ticks for sample in self.samples]
+
+
+def build_display_track(
+    raw_ticks: Sequence[int],
+    *,
+    nominal_step_ticks: int,
+    wrap: int = DEFAULT_WRAP_TICKS,
+    origin_ticks: int = 0,
+) -> DisplayTrack:
+    """Expand wraps, detect restarts and lay segments end to end monotonically.
+
+    Restarted segments are shifted forward so display time never goes backward;
+    raw ticks are preserved.  Long forward gaps inside the same segment are
+    clamped to a gap budget so a clock jump cannot silently stretch the
+    timeline into a phantom segment.
+    """
+
+    if nominal_step_ticks <= 0:
+        raise InputError("nominal step must be positive")
+    if not raw_ticks:
+        return DisplayTrack(samples=(), restarts=())
+    unwrapped = unwrap_timestamps(raw_ticks, wrap=wrap)
+    restarts = detect_restarts(
+        unwrapped, nominal_step_ticks=nominal_step_ticks, wrap=wrap
+    )
+    restart_indices = {restart.index: restart for restart in restarts}
+    gap_budget = max(nominal_step_ticks * 1000, 10 * TICKS_PER_SECOND)
+    samples: list[DisplaySample] = []
+    shift = 0
+    segment = 0
+    previous_display: int | None = None
+    corrected = 0
+    for index, (raw, expanded) in enumerate(zip(raw_ticks, unwrapped)):
+        if index in restart_indices and index > 0:
+            segment += 1
+            shift = previous_display + nominal_step_ticks - expanded
+        display = origin_ticks + expanded + shift
+        if previous_display is not None:
+            if index in restart_indices and index > 0:
+                # A restart keeps exactly one nominal cadence gap.
+                pass
+            elif display - previous_display > gap_budget:
+                display = previous_display + min(
+                    display - previous_display, gap_budget
+                )
+            elif display <= previous_display:
+                display = previous_display + 1
+                corrected += 1
+        samples.append(
+            DisplaySample(
+                index=index,
+                raw_ticks=raw,
+                unwrapped_ticks=expanded,
+                display_ticks=display,
+                segment=segment,
+                restart=index in restart_indices,
+            )
+        )
+        previous_display = display
+    return DisplayTrack(
+        samples=tuple(samples),
+        restarts=tuple(restarts),
+        corrected=corrected,
+    )
+
+
+def monotonic_display(
+    raw_ticks: Iterable[int],
+    *,
+    nominal_step_ticks: int = 1,
+    wrap: int = DEFAULT_WRAP_TICKS,
+) -> list[int]:
+    """Convenience wrapper returning only display ticks."""
+
+    return build_display_track(
+        list(raw_ticks), nominal_step_ticks=nominal_step_ticks, wrap=wrap
+    ).display_ticks
