@@ -202,6 +202,30 @@ app/relay_inspect.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_inspect.dir/build.make CMakeFiles/relay_inspect.dir/app/relay_inspect.cpp.s
 .PHONY : app/relay_inspect.cpp.s
 
+src/caption_parser.o: src/caption_parser.cpp.o
+.PHONY : src/caption_parser.o
+
+# target to build an object file
+src/caption_parser.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/caption_parser.cpp.o
+.PHONY : src/caption_parser.cpp.o
+
+src/caption_parser.i: src/caption_parser.cpp.i
+.PHONY : src/caption_parser.i
+
+# target to preprocess a source file
+src/caption_parser.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/caption_parser.cpp.i
+.PHONY : src/caption_parser.cpp.i
+
+src/caption_parser.s: src/caption_parser.cpp.s
+.PHONY : src/caption_parser.s
+
+# target to generate assembly for a file
+src/caption_parser.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/caption_parser.cpp.s
+.PHONY : src/caption_parser.cpp.s
+
 src/transport_reorder.o: src/transport_reorder.cpp.o
 .PHONY : src/transport_reorder.o
 
@@ -289,6 +313,9 @@ help:
 	@echo "... app/relay_inspect.o"
 	@echo "... app/relay_inspect.i"
 	@echo "... app/relay_inspect.s"
+	@echo "... src/caption_parser.o"
+	@echo "... src/caption_parser.i"
+	@echo "... src/caption_parser.s"
 	@echo "... src/transport_reorder.o"
 	@echo "... src/transport_reorder.i"
 	@echo "... src/transport_reorder.s"
