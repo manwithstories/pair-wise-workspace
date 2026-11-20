@@ -3,12 +3,12 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "remuxsync"
+name = "fieldcut"
 version = "0.1.0"
-description = "Multi-track raw-stream repair, timestamp alignment and index rebuild for remote production ingest"
+description = "Multi-camera timeline alignment and multi-bitrate segmented delivery for field production"
 requires-python = ">=3.12"
 dependencies = [
-    "av>=13,<14",
+    "av>=12,<14",
     "numpy>=2,<3",
     "soundfile>=0.12,<0.13",
 ]
@@ -17,10 +17,11 @@ dependencies = [
 test = ["pytest>=8,<9"]
 
 [project.scripts]
-remuxsync = "remuxsync.cli:main"
+fieldcut = "fieldcut.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["fieldcut*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
