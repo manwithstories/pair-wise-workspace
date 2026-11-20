@@ -1,13 +1,14 @@
-"""Low-level container access: PyAV handles and ISO-BMFF box parsing.
+"""Low-level container access: PyAV handles, counters and ISO-BMFF boxes.
 
-This layer knows how to open a file, pick a stream, unwrap a counter, decode
-packets until the first rejection and read the ``stts`` sample-time table
-directly.  It raises no :class:`~mediacore.errors.MediaError` of its own; the
-scan layer above decides what a failure *means*.
+Knows how to open a file, pick a stream, unwrap a counter, decode until the
+first rejected packet, read the ``stts`` sample table and walk top-level boxes
+without libavformat.  Raises no :class:`~mediacore.errors.MediaError`; the scan
+layer decides what a failure means.
 """
 
 from __future__ import annotations
 
+import hashlib
 import struct
 from pathlib import Path
 from typing import Any
@@ -255,4 +256,9 @@ def _child_boxes(data: bytes, start: int, end: int, wanted: bytes) -> list[tuple
             out.append((offset + header, offset + size))
         offset += size
     return out
+
+
+
+
+
 
