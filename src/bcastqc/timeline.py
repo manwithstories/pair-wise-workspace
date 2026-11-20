@@ -230,3 +230,156 @@ class Timeline:
 # ==========================================================================
 # Loading
 # ==========================================================================
+
+
+def _require_int(payload: dict[str, Any], key: str, *, where: str) -> int:
+    value = payload.get(key, 0)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise make_error(
+            ErrorCategory.TIMELINE_INVALID,
+            f"{where}.{key} must be an integer tick count",
+            value=value,
+        )
+    return value
+
+
+def _parse_rate(text: Any, where: str) -> Fraction:
+    if text is None:
+        return Fraction(25, 1)
+    if isinstance(text, int) and not isinstance(text, bool):
+        return Fraction(text, 1)
+    try:
+        if isinstance(text, str):
+            rate = Fraction(text)
+            if rate <= 0:
+                raise ValueError("frame rate must be positive")
+            return rate
+    except (ValueError, ZeroDivisionError) as exc:
+        raise make_error(ErrorCategory.TIMELINE_INVALID, f"{where}: invalid frame rate", value=text) from exc
+    raise make_error(ErrorCategory.TIMELINE_INVALID, f"{where}: invalid frame rate", value=text)
+
+
+def _resolve_path(root: Path, text: str, where: str) -> Path:
+    candidate = Path(text)
+    resolved = (candidate if candidate.is_absolute() else root / candidate).resolve()
+    root_resolved = root.resolve()
+    try:
+        resolved.relative_to(root_resolved)
+    except ValueError:
+        raise make_error(
+            ErrorCategory.PATH_ESCAPE,
+            f"{where} escapes the timeline directory",
+            path=str(resolved),
+            root=str(root_resolved),
+        ) from None
+    return resolved
+
+
+def _parse_track(raw: Any, root: Path, pos: int) -> Track:
+    where = f"tracks[{pos}]"
+    if not isinstance(raw, dict) or not isinstance(raw.get("id"), str) or not raw["id"]:
+        raise make_error(ErrorCategory.TIMELINE_INVALID, f"{where} must have a non-empty id")
+    track_id = raw["id"]
+    kind = TrackKind.parse(str(raw.get("kind", "")))
+    if "path" not in raw:
+        raise make_error(ErrorCategory.TIMELINE_INVALID, f"{where}.path is required", track=track_id)
+    path = _resolve_path(root, str(raw["path"]), f"{where}.path")
+    codec = Codec.parse(raw["codec"]) if raw.get("codec") else None
+    audio = None
+    if kind is TrackKind.AUDIO:
+        if "sample_rate" not in raw:
+            raise make_error(ErrorCategory.AUDIO_FORMAT, f"{where}.sample_rate is required", track=track_id)
+        audio = AudioLayout(int(raw["sample_rate"]), int(raw.get("channels", 1)))
+    elif codec is None:
+        raise make_error(ErrorCategory.TIMELINE_INVALID, f"{where}.codec is required for video", track=track_id)
+    index_path = None
+    if raw.get("index"):
+        index_path = _resolve_path(root, str(raw["index"]), f"{where}.index")
+    depends = raw.get("depends_on", [])
+    if not isinstance(depends, list) or not all(isinstance(d, str) for d in depends):
+        raise make_error(ErrorCategory.TIMELINE_INVALID, f"{where}.depends_on must be a list of track ids")
+    return Track(
+        id=track_id,
+        kind=kind,
+        path=path,
+        codec=codec,
+        index_path=index_path,
+        audio=audio,
+        depends_on=tuple(depends),
+        offset_ticks=_require_int(raw, "offset_ticks", where=where),
+        frame_rate=_parse_rate(raw["frame_rate"], where) if raw.get("frame_rate") is not None else None,
+    )
+
+
+def _parse_clip(raw: Any, pos: int) -> Clip:
+    where = f"clips[{pos}]"
+    if not isinstance(raw, dict) or not isinstance(raw.get("id"), str):
+        raise make_error(ErrorCategory.TIMELINE_INVALID, f"{where} must have a string id")
+    if not isinstance(raw.get("track"), str):
+        raise make_error(ErrorCategory.TIMELINE_INVALID, f"{where}.track is required", clip=raw["id"])
+    duration = _require_int(raw, "duration_ticks", where=where)
+    if duration <= 0:
+        raise make_error(ErrorCategory.TIMELINE_INVALID, f"{where}.duration_ticks must be positive", clip=raw["id"])
+    depends = raw.get("depends_on", [])
+    if not isinstance(depends, list) or not all(isinstance(d, str) for d in depends):
+        raise make_error(ErrorCategory.TIMELINE_INVALID, f"{where}.depends_on must be a list of clip ids")
+    return Clip(
+        id=raw["id"],
+        track=raw["track"],
+        start_ticks=_require_int(raw, "start_ticks", where=where),
+        source_in_ticks=_require_int(raw, "source_in_ticks", where=where),
+        duration_ticks=duration,
+        depends_on=tuple(depends),
+    )
+
+
+def load_timeline(path: Path, *, base_dir: Path | None = None, strict: bool = False) -> Timeline:
+    """Load and validate a timeline JSON document."""
+    path = Path(path)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise make_error(ErrorCategory.TIMELINE_INVALID, "timeline file not found", path=str(path)) from None
+    except json.JSONDecodeError as exc:
+        raise make_error(
+            ErrorCategory.TIMELINE_INVALID, f"timeline is not valid JSON: {exc.msg}", line=exc.lineno
+        ) from exc
+    if not isinstance(payload, dict):
+        raise make_error(ErrorCategory.TIMELINE_INVALID, "timeline root must be an object")
+
+    root = Path(base_dir) if base_dir is not None else path.parent
+    try:
+        time_base = TimeBase.parse(str(payload.get("time_base", "1/90000")))
+    except (ValueError, TypeError) as exc:
+        raise make_error(ErrorCategory.TIMELINE_INVALID, f"invalid time_base: {exc}") from exc
+
+    raw_tracks = payload.get("tracks", [])
+    if not isinstance(raw_tracks, list) or not raw_tracks:
+        raise make_error(ErrorCategory.TIMELINE_INVALID, "timeline must declare at least one track")
+    tracks: dict[str, Track] = {}
+    for pos, raw in enumerate(raw_tracks):
+        track = _parse_track(raw, root, pos)
+        if track.id in tracks:
+            raise make_error(ErrorCategory.TIMELINE_INVALID, f"duplicate track id {track.id!r}", track=track.id)
+        tracks[track.id] = track
+
+    raw_clips = payload.get("clips", [])
+    if not isinstance(raw_clips, list):
+        raise make_error(ErrorCategory.TIMELINE_INVALID, "clips must be a list")
+    clips = [_parse_clip(raw, pos) for pos, raw in enumerate(raw_clips)]
+    if len({c.id for c in clips}) != len(clips):
+        raise make_error(ErrorCategory.TIMELINE_INVALID, "duplicate clip id")
+
+    timeline = Timeline(
+        time_base=time_base,
+        tracks=tracks,
+        clips=clips,
+        width=int(payload.get("width", 160)),
+        height=int(payload.get("height", 90)),
+        frame_rate=_parse_rate(payload.get("frame_rate"), "timeline"),
+        output_channels=int(payload.get("output_channels", 2)),
+        output_sample_rate=int(payload.get("output_sample_rate", 48000)),
+    )
+    validate_timeline(timeline, strict=strict)
+    return timeline
+# Graph validation
