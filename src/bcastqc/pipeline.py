@@ -53,6 +53,11 @@ from .timeline import Timeline
 __all__ = [
     "RunParams",
     "PipelineResult",
+    "run_pipeline",
+    "read_manifest",
+    "verify_manifest",
+    "MANIFEST_VERSION",
+    "BLOCK_FRAMES",
 ]
 
 MANIFEST_VERSION = 2
@@ -513,3 +518,117 @@ def run_pipeline(
 
 
 @dataclass
+class CleanReference:
+    hashes: tuple[str, ...]
+    luma: tuple[float, ...]
+    audio: tuple[float, ...]
+
+    def as_params(self) -> dict:
+        return {"reference_hashes": self.hashes, "reference_signals": (self.luma, self.audio)}
+
+
+def clean_reference(timeline: Timeline, *, block_frames: int = BLOCK_FRAMES) -> CleanReference:
+    """Pixel hashes and marker signals of a clean (loss-free) render.
+
+    This is the reviewable "correct" version of the same timeline.  The pass
+    is bounded the same way as the main render and nothing is written to disk.
+    """
+    reference = Renderer(timeline, policies={}, block_frames=block_frames)
+    hashes: list[str] = []
+    luma: list[float] = []
+    audio: list[float] = []
+    for frame in reference.frames():
+        hashes.append(pixel_hash(frame.array))
+        luma.append(float(np.asarray(frame.array, dtype=np.float32).mean()))
+        audio.append(float(np.sqrt(np.mean(np.square(frame.audio)))) if frame.audio is not None else 0.0)
+    return CleanReference(tuple(hashes), tuple(luma), tuple(audio))
+
+
+def clean_reference_hashes(timeline: Timeline, *, block_frames: int = BLOCK_FRAMES) -> tuple[str, ...]:
+    """Backwards-compatible helper returning only the pixel hashes."""
+    return clean_reference(timeline, block_frames=block_frames).hashes
+
+
+def _write_manifest(path: Path, manifest: dict) -> None:
+    temporary = path.with_suffix(".json.tmp")
+    try:
+        temporary.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        os.replace(temporary, path)
+    except OSError as exc:
+        raise ResourceError(
+            ErrorCategory.OUTPUT_FAILURE,
+            f"cannot write manifest: {exc}",
+            details={"path": str(path)},
+        ) from exc
+
+
+def count_complete_blocks(blocks: list[dict]) -> int:
+    """Number of leading blocks that are internally consistent."""
+    for position, block in enumerate(blocks):
+        if block["frames"] != len(block["entries"]):
+            return position
+        if block["frames"] != len(block["frame_hashes"]):
+            return position
+        if _block_hash(block["entries"]) != block["hash"]:
+            return position
+    return len(blocks)
+
+
+def _decode_png(path: Path) -> np.ndarray | None:
+    """Decode a written PNG; ``None`` means missing or unreadable."""
+    import av
+
+    try:
+        with av.open(str(path)) as container:
+            stream = container.streams.video[0]
+            decoded = next(container.decode(stream))
+            return decoded.to_ndarray(format="rgb24")
+    except (FileNotFoundError, StopIteration):
+        return None
+    except Exception:  # truncated/corrupt file is a verification failure
+        return None
+
+
+def verify_written_frames(blocks: list[dict], output_dir: Path) -> tuple[int, int]:
+    """Re-decode every written PNG and compare it with the recorded hash."""
+    frames_dir = Path(output_dir) / "frames"
+    verified = 0
+    mismatches = 0
+    for block in blocks:
+        for entry in block["entries"]:
+            array = _decode_png(frames_dir / entry["file"])
+            if array is None or pixel_hash(array) != entry["pixel_hash"]:
+                mismatches += 1
+            else:
+                verified += 1
+    return verified, mismatches
+
+
+def verify_manifest(manifest_path: Path) -> dict:
+    """Verify every frame recorded in a manifest (CLI ``verify``)."""
+    manifest = read_manifest(manifest_path)
+    output_dir = Path(manifest_path).parent
+    frames_dir = output_dir / "frames"
+    frames = 0
+    verified = 0
+    mismatches = 0
+    for block in manifest.get("blocks", []):
+        for entry in block.get("entries", []):
+            frames += 1
+            array = _decode_png(frames_dir / entry["file"])
+            if array is not None and pixel_hash(array) == entry["pixel_hash"]:
+                verified += 1
+            else:
+                mismatches += 1
+    block_ok = count_complete_blocks(manifest.get("blocks", [])) == len(manifest.get("blocks", []))
+    exit_code = EXIT_OK if mismatches == 0 and frames > 0 and block_ok else EXIT_MEDIA_UNRECOVERABLE
+    return {
+        "manifest": str(manifest_path),
+        "version": manifest.get("version"),
+        "frames": frames,
+        "verified": verified,
+        "mismatches": mismatches,
+        "complete_blocks": manifest.get("complete_blocks", 0),
+        "blocks_valid": block_ok,
+        "exit_code": exit_code,
+    }
