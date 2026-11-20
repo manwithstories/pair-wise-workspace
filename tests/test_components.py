@@ -8,14 +8,18 @@ import numpy as np
 import pytest
 
 from archive_media.audio import AudioConfig, process_array
-from archive_media.audio_loudness import LoudnessMeter, expected_samples
+from archive_media.audio_loudness import (
+    LoudnessMeter,
+    compute_gain_db,
+    expected_samples,
+)
 from archive_media.errors import Code, ManifestSyntaxError
 from archive_media.index import (
     KeyframeIndex,
     scan_decodable_points,
     verify_hit_rate,
 )
-from archive_media.manifest import parse_hls, parse_manifest, render_plan
+from archive_media.manifest import parse_dash, parse_hls, parse_manifest, render_plan
 from archive_media.timeline import TimelinePlanner, within_tolerance
 from archive_media.verify import roundtrip_consistency
 
@@ -71,6 +75,32 @@ def test_manifest_round_trip_preserves_timing(tmp_path):
     assert score == 1.0 and not diags
 
 
+def test_dash_round_trip_preserves_template_and_synthesized_t(tmp_path):
+    tick = 48000
+    xml = (
+        '<MPD xmlns="urn:mpeg:dash:schema:mpd:2011"><AdaptationSet>'
+        '<SegmentTemplate timescale="48000" '
+        'media="dash-damaged/dash-seg-$RepresentationID$-$Number$.m4s" '
+        'startNumber="0"><SegmentTimeline>'
+        f'<S t="0" d="{tick}"/><S t="{tick}" d="{tick}"/>'
+        f'<S d="{tick}"/><S t="{3 * tick}" d="{tick}"/>'
+        "</SegmentTimeline></SegmentTemplate>"
+        '<Representation id="r0"/></AdaptationSet></MPD>'
+    )
+    manifest = tmp_path / "p.mpd"
+    manifest.write_text(xml)
+    plan = parse_manifest(manifest)
+    assert plan.media_template.startswith("dash-damaged/")
+    reparsed = parse_dash(render_plan(plan), manifest, tmp_path)
+    before = [(s.sequence, s.raw_ref, str(s.start), s.synthesized)
+              for s in plan.segments]
+    after = [(s.sequence, s.raw_ref, str(s.start), s.synthesized)
+             for s in reparsed.segments]
+    assert before == after
+    score, diags = roundtrip_consistency(plan)
+    assert score == 1.0 and not diags
+
+
 def test_missing_extinf_is_synthesized_and_flagged(tmp_path):
     _two_segments(tmp_path)
     manifest = tmp_path / "p.m3u8"
@@ -119,6 +149,26 @@ def test_illegal_layout_is_rejected_with_track():
 
 def test_expected_samples_exact():
     assert expected_samples(Fraction(1, 3), 48000) == 16000
+
+
+def test_gain_backs_off_for_peak_ceiling():
+    # Loudness would ask for +10 dB but that crosses the -1 dBFS ceiling.
+    gain, limited = compute_gain_db(
+        -30.0, -5.0, target_lufs=-20.0, peak_ceiling_dbfs=-1.0
+    )
+    assert limited
+    # Back-off gain = ceiling(-1) - peak(-5) = +4 dB, not the +10 LUFS asks for.
+    assert gain == pytest.approx(4.0)
+    # Loudness-driven case stays under the ceiling and keeps the full gain.
+    gain2, limited2 = compute_gain_db(
+        -25.0, -20.0, target_lufs=-18.0, peak_ceiling_dbfs=-1.0
+    )
+    assert not limited2 and gain2 == pytest.approx(7.0)
+    # Silence never produces gain.
+    gain3, limited3 = compute_gain_db(
+        None, None, target_lufs=-18.0, peak_ceiling_dbfs=-1.0
+    )
+    assert gain3 == 0.0 and not limited3
 
 
 def test_keyframe_scan_and_tolerance_hit_rate():
