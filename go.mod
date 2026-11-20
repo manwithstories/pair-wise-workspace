@@ -1,6 +1,6 @@
 module review
 
-go 1.25.6
+go 1.23
 
 require (
 	github.com/abema/go-mp4 v1.7.4
