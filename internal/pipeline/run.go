@@ -56,6 +56,10 @@ func Run(cfg Config) (*Result, error) {
 	} else {
 		res.Resumed = true
 		res.SkippedStages = cp.SkippedStages()
+		// Backfill outputs produced by stages that this resume will skip.
+		res.FramesTotal = int(cp.Metric(checkpoint.MetricFramesTotal))
+		res.SeekChecked = int(cp.Metric(checkpoint.MetricSeekChecked))
+		res.CorruptLocated = int(cp.Metric(checkpoint.MetricCorruptLocated))
 	}
 
 	// Stage 1: ingest (streaming, bounded concurrency).
@@ -116,6 +120,10 @@ func Run(cfg Config) (*Result, error) {
 		if err := runIndex(cfg, sem, res); err != nil {
 			return res, err
 		}
+		countCorrupt(cfg, res) // idempotent; safe to recompute at finalization
+		cp.SetMetric(checkpoint.MetricFramesTotal, int64(res.FramesTotal))
+		cp.SetMetric(checkpoint.MetricSeekChecked, int64(res.SeekChecked))
+		cp.SetMetric(checkpoint.MetricCorruptLocated, int64(res.CorruptLocated))
 		_ = store.Mark(cp, checkpoint.StageIndex, checkpoint.Position{FrameSeq: uint64(res.FramesTotal)})
 	}
 	if cfg.InterruptAfter == checkpoint.StageIndex {
@@ -127,10 +135,18 @@ func Run(cfg Config) (*Result, error) {
 		if err := runManifest(cfg, res); err != nil {
 			return res, err
 		}
+		cp.OutputSHA = res.OutputSHA256
 		_ = store.Mark(cp, checkpoint.StageManifest, checkpoint.Position{})
+	} else if cp.OutputSHA != "" {
+		// Manifest stage skipped on resume: restore its persisted checksum.
+		res.OutputSHA256 = cp.OutputSHA
 	}
 	res.ResumeMS = time.Since(start).Milliseconds()
-	res.SkippedStages = cp.SkippedStages()
+	// Keep the snapshot of stages that were skipped when this run began; the
+	// manifest stage may have just completed and must not be reported as skip.
+	if !res.Resumed {
+		res.SkippedStages = cp.SkippedStages()
+	}
 	finalizeMetrics(cfg, res)
 	return res, nil
 }

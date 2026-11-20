@@ -164,16 +164,27 @@ func runIndex(cfg Config, sem chan struct{}, res *Result) error {
 }
 
 // runManifest writes the JSON manifest and computes the stable output hash
-// over every generated index file in sorted track order.
+// over every generated index file in sorted track order. On a resume that
+// skips the index stage, the per-track IndexFile handles are empty, so the
+// files are rediscovered from the output directory by their fixed naming.
 func runManifest(cfg Config, res *Result) error {
 	finalizeTrackStatus(res)
+	outDir := filepath.Join(cfg.Root, "output")
 	h := sha256.New()
 	for _, id := range res.sortedTrackIDs() {
 		tr := res.Tracks[id]
-		if tr.IndexFile == "" {
+		indexFile := tr.IndexFile
+		if indexFile == "" {
+			candidate := filepath.Join(outDir, "index-"+id+".mp4")
+			if _, err := os.Stat(candidate); err == nil {
+				indexFile = candidate
+				tr.IndexFile = candidate
+			}
+		}
+		if indexFile == "" {
 			continue
 		}
-		b, err := os.ReadFile(tr.IndexFile)
+		b, err := os.ReadFile(indexFile)
 		if err != nil {
 			return err
 		}

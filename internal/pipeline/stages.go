@@ -25,6 +25,7 @@ func specByID(cfg Config) map[string]fixture.TrackSpec {
 // parsed frames for downstream stages.
 func runIngest(cfg Config, sem chan struct{}, res *Result) error {
 	specs := specByID(cfg)
+	res.FramesTotal = 0 // fresh ingest owns the authoritative frame total
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var firstErr error
@@ -81,7 +82,8 @@ func loadFramesForResume(cfg Config, res *Result) error {
 		res.ensureTrack(in.TrackID, spec.Kind)
 		res.fileByTrack[in.TrackID] = in.File
 		res.frameStore[in.TrackID] = frames
-		res.FramesTotal += len(frames)
+		// On resume the authoritative frame total was backfilled from the
+		// checkpoint before this loader ran; do not add to it again.
 	}
 	return nil
 }

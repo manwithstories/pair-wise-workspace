@@ -52,8 +52,20 @@ type Checkpoint struct {
 	InputDigest string              `json:"input_digest"`
 	Completed   map[string]bool     `json:"completed"`
 	Positions   map[string]Position `json:"positions"`
-	UpdatedAt   time.Time           `json:"updated_at"`
+	// Metrics persists stage outputs that must survive a resume even when the
+	// producing stage is skipped (e.g. seek counts and frame totals).
+	Metrics map[string]int64 `json:"metrics,omitempty"`
+	// OutputSHA is the stable manifest checksum produced by the manifest stage.
+	OutputSHA string    `json:"output_sha,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
+
+// Metric keys shared with the pipeline; kept here to avoid an import cycle.
+const (
+	MetricFramesTotal    = "frames_total"
+	MetricCorruptLocated = "corrupt_located"
+	MetricSeekChecked    = "seek_checked"
+)
 
 // Store owns the checkpoint file inside a run directory.
 type Store struct {
@@ -76,7 +88,25 @@ func Fresh(inputDigest string) *Checkpoint {
 		InputDigest: inputDigest,
 		Completed:   map[string]bool{},
 		Positions:   map[string]Position{},
+		Metrics:     map[string]int64{},
 	}
+}
+
+// SetMetric records a numeric stage output and does not persist by itself;
+// the next Save/Mark writes it to disk.
+func (cp *Checkpoint) SetMetric(key string, value int64) {
+	if cp.Metrics == nil {
+		cp.Metrics = map[string]int64{}
+	}
+	cp.Metrics[key] = value
+}
+
+// Metric returns a persisted stage output, or 0 when absent.
+func (cp *Checkpoint) Metric(key string) int64 {
+	if cp.Metrics == nil {
+		return 0
+	}
+	return cp.Metrics[key]
 }
 
 // Save writes the checkpoint atomically: encode to a temp file in the same

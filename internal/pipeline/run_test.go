@@ -142,7 +142,20 @@ func TestCheckpointDigestMismatchExit4(t *testing.T) {
 
 func TestSingleTrackFailureKeepsOthers(t *testing.T) {
 	root := t.TempDir()
-	cfg := buildConfig(t, root, 150, 0) // no checksum corruption
+	// Clean dataset: no checksum corruption and no injected timeline/color
+	// defects, so only the deliberately broken a2 layout fails.
+	proj, _, err := fixture.Generate(fixture.Options{Root: root, FramesPerTrack: 150})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var inputs []ingest.TrackInput
+	for _, s := range proj.Tracks {
+		inputs = append(inputs, ingest.TrackInput{TrackID: s.ID, File: s.File})
+	}
+	cfg := Config{
+		Root: root, Project: proj, Inputs: inputs,
+		KeyEvery: proj.KeyEvery, MaxWorkers: 4, RandomSeeks: 20, SeekSeed: 1,
+	}
 	// Force one audio track to an invalid layout by editing the project spec.
 	for i := range cfg.Project.Tracks {
 		if cfg.Project.Tracks[i].ID == "a2" {
@@ -157,14 +170,13 @@ func TestSingleTrackFailureKeepsOthers(t *testing.T) {
 	if res.Tracks["a2"].Complete {
 		t.Fatal("invalid-layout track should be incomplete")
 	}
-	// a1 is healthy and independent; v1 has its own clean index. v2 is the
-	// dependent of the failed a2 and must be blocked (see assertion below).
+	// a1 is healthy and independent; v1 has no dependency on the failed audio
+	// track and must still complete with its own index.
 	if !res.Tracks["a1"].Complete || !res.Tracks["v1"].Complete {
 		t.Fatalf("independent healthy tracks must still complete: a1=%v v1=%v",
 			res.Tracks["a1"].Complete, res.Tracks["v1"].Complete)
 	}
-	// Dependency failure must block the downstream video track and mark it
-	// incomplete rather than silently dropping it.
+	// v2 aligns to the failed a2 and must be blocked (see graph pairing).
 	if res.Tracks["v2"].Complete || len(res.Tracks["v2"].BlockedBy) == 0 {
 		t.Fatalf("v2 must be marked blocked by failed a2: %+v", res.Tracks["v2"])
 	}

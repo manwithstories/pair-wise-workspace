@@ -49,22 +49,31 @@ func Build(rep *timeline.Report, outDir string, keyEvery uint32) (*Index, []mode
 	idx := &Index{TrackID: rep.TrackID, KeyEvery: keyEvery}
 	idx.File = filepath.Join(outDir, "index-"+rep.TrackID+".mp4")
 
-	// Gather samples and reject non-monotonic timestamps up front.
+	// Gather samples and reject non-monotonic timestamps up front. Duplicate
+	// sequence numbers are skipped here: the timeline stage already records
+	// them as faults, and a random-access index maps each unique source frame
+	// to one seek point rather than emitting a zero-duration sample.
 	var payloads [][]byte
 	var keySamples []uint32
 	var faults []model.Fault
+	seenSeq := map[uint64]bool{}
 	for i, rf := range rep.Frames {
 		seq := rf.Frame.Seq
-		if len(idx.Entries) > 0 && rf.MasterTS < idx.Entries[len(idx.Entries)-1].MasterTS {
+		if seenSeq[seq] {
+			continue
+		}
+		seenSeq[seq] = true
+		sampleNo := uint32(len(idx.Entries))
+		if len(idx.Entries) > 0 && rf.MasterTS <= idx.Entries[len(idx.Entries)-1].MasterTS {
 			faults = append(faults, model.Fault{
 				Class: model.FaultIndexMonotonic, Severity: model.SeverityFatal,
 				Location: model.SourceLocation{Track: rep.TrackID, Seq: seq, Offset: rf.Frame.Offset},
 				Message:  fmt.Sprintf("non-monotonic master timestamp at sample %d (ts=%d)", i, rf.MasterTS),
 			})
 		}
-		isKey := uint32(i)%keyEvery == 0
+		isKey := sampleNo%keyEvery == 0
 		if isKey {
-			keySamples = append(keySamples, uint32(i)+1) // MP4 sample numbers are 1-based
+			keySamples = append(keySamples, sampleNo+1) // MP4 sample numbers are 1-based
 		}
 		// mdat stores an AVCC-length-prefixed NAL derived from a deterministic
 		// baseline slice so strict demuxers can split the stream. The original
@@ -72,7 +81,7 @@ func Build(rep *timeline.Report, outDir string, keyEvery uint32) (*Index, []mode
 		// is a random-access map, not a re-encoded media track.
 		sample := avccSample(baselineSlice)
 		idx.Entries = append(idx.Entries, Entry{
-			Seq: seq, MasterTS: rf.MasterTS, ChunkIndex: uint32(i),
+			Seq: seq, MasterTS: rf.MasterTS, ChunkIndex: sampleNo,
 			KeyFrame: isKey, PayloadLen: uint32(len(sample)),
 			Offset: rf.Frame.Offset,
 		})

@@ -7,6 +7,10 @@ import (
 	"github.com/mediamend/mediamend/internal/model"
 )
 
+// OptionsFileName stores the exact generation parameters so a later resume
+// rebuilds a byte-identical dataset even though it supplies fewer flags.
+const OptionsFileName = "fixture.json"
+
 // Generate writes the full dataset described by opts and returns the project
 // manifest and the exact list of sequence numbers whose checksum was corrupted.
 // The dataset is deterministic for a fixed (seed, framesPerTrack, every).
@@ -15,6 +19,9 @@ func Generate(opts Options) (*Project, []uint64, error) {
 		opts.FramesPerTrack = DefaultFramesPerTrack
 	}
 	if err := os.MkdirAll(filepath.Join(opts.Root, "input"), 0o755); err != nil {
+		return nil, nil, err
+	}
+	if err := SaveOptions(opts); err != nil {
 		return nil, nil, err
 	}
 	proj := defaultProject(opts.Root, opts.FramesPerTrack)

@@ -92,3 +92,27 @@ func TestAtomicWriteLeavesNoTempFile(t *testing.T) {
 		}
 	}
 }
+
+func TestMetricAndOutputSHARoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	st := NewStore(dir)
+	cp := Fresh("digest-X")
+	cp.SetMetric(MetricFramesTotal, 10000)
+	cp.SetMetric(MetricSeekChecked, 800)
+	cp.SetMetric(MetricCorruptLocated, 100)
+	cp.OutputSHA = "abc123"
+	if err := st.Save(cp); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Metric(MetricFramesTotal) != 10000 || got.Metric(MetricSeekChecked) != 800 ||
+		got.Metric(MetricCorruptLocated) != 100 {
+		t.Fatalf("metrics lost: %+v", got.Metrics)
+	}
+	if got.OutputSHA != "abc123" {
+		t.Fatalf("output sha lost: %q", got.OutputSHA)
+	}
+}

@@ -163,3 +163,38 @@ func checksum(b []byte) string {
 }
 
 func b64(b []byte) string { return base64.StdEncoding.EncodeToString(b) }
+
+// SaveOptions persists the exact generation parameters atomically so a resume
+// can reconstruct the identical dataset without the caller repeating flags.
+func SaveOptions(opts Options) error {
+	if err := os.MkdirAll(opts.Root, 0o755); err != nil {
+		return err
+	}
+	path := filepath.Join(opts.Root, OptionsFileName)
+	data, err := json.MarshalIndent(opts, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// LoadOptions reads previously persisted generation parameters. A missing
+// file returns (zero, false, nil) so callers can fall back to CLI flags.
+func LoadOptions(root string) (Options, bool, error) {
+	data, err := os.ReadFile(filepath.Join(root, OptionsFileName))
+	if os.IsNotExist(err) {
+		return Options{}, false, nil
+	}
+	if err != nil {
+		return Options{}, false, err
+	}
+	var opts Options
+	if err := json.Unmarshal(data, &opts); err != nil {
+		return Options{}, false, err
+	}
+	return opts, true, nil
+}
