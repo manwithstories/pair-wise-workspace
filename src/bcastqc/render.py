@@ -313,3 +313,104 @@ class SyncTracker:
             "sync_error_ms": float(error_ms) if error_ms is not None else 0.0,
             "lag_frames": lag,
         }
+
+
+# ==========================================================================
+# Streaming cursors
+# ==========================================================================
+
+
+class _VideoCursor:
+    """Forward-only access to source frames of one video track.
+
+    Holds at most ``window`` frames.  A backwards request (a clip whose
+    source range precedes the previous one) restarts the track's decoder;
+    this is bounded in memory but costs re-decoding, which is the documented
+    trade-off for arbitrary clip order.
+    """
+
+    def __init__(self, source: VideoSource, *, window: int = 32) -> None:
+        self.source = source
+        self.window = max(window, source.block_frames * 2)
+        self._blocks: Iterator[FrameBlock] | None = None
+        self._buffer: dict[int, DecodedFrame] = {}
+        self._oldest = 0
+        self._exhausted = False
+        self.restarts = 0
+        self.last_good: DecodedFrame | None = None
+        self.frames_seen = 0
+        self.exhausted_cause = "truncated"
+
+    def _start(self) -> None:
+        self._blocks = self.source.blocks()
+        self._buffer.clear()
+        self._oldest = 0
+        self._exhausted = False
+
+    def _pull(self) -> bool:
+        if self._blocks is None:
+            self._start()
+        while not self._exhausted:
+            try:
+                block = next(self._blocks)  # type: ignore[arg-type]
+            except StopIteration:
+                self._exhausted = True
+                return False
+            for frame in block.frames:
+                self._buffer[frame.pts] = frame
+                self.frames_seen += 1
+            if self._buffer:
+                return True
+        return False
+
+    def get(self, frame_index: int) -> DecodedFrame | None:
+        if frame_index < 0:
+            return None
+        if frame_index < self._oldest:
+            # backwards seek: restart the track decoder
+            self._start()
+            self.restarts += 1
+        while True:
+            if frame_index in self._buffer:
+                frame = self._buffer.pop(frame_index)
+                self.last_good = frame
+                self._trim(frame_index + 1)
+                return frame
+            if self._exhausted:
+                self._trim(frame_index + 1)
+                return None
+            if self._buffer and max(self._buffer) < frame_index:
+                # requested frame was concealed or does not exist; drop older
+                self._trim(frame_index)
+            if not self._pull():
+                return None
+
+    def _trim(self, keep_from: int) -> None:
+        self._oldest = max(self._oldest, keep_from)
+        for pts in [p for p in self._buffer if p < keep_from]:
+            self._buffer.pop(pts, None)
+
+
+class _AudioCursor:
+    """Random-access reader for one audio track (seeks per output interval)."""
+
+    def __init__(self, source: AudioSource, channels: int) -> None:
+        self.source = source
+        self.reader = source.reader(channels)
+        self.sample_rate = self.reader.sample_rate
+        self.frames_total = self.reader.frames_total
+
+    def read(self, start_seconds: Fraction, count: int, target_rate: int) -> tuple[np.ndarray, int]:
+        start_sample = round_rational(start_seconds * self.sample_rate, Rounding.FLOOR)
+        if target_rate == self.sample_rate:
+            return self.reader.read_window(start_sample, count)
+        span = int(np.ceil(count * self.sample_rate / target_rate)) + 2
+        raw, padded = self.reader.read_window(start_sample, span)
+        resampled = resample_window(raw, self.sample_rate, target_rate)
+        out = np.zeros((count, raw.shape[1]), dtype=np.float32)
+        take = min(count, resampled.shape[0])
+        out[:take] = resampled[:take]
+        return out, max(0, padded - max(0, span - take))
+
+    def close(self) -> None:
+        self.reader.close()
