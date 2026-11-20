@@ -302,3 +302,105 @@ def manifest_alignment(run_dir: Path) -> dict:
     except (OSError, json.JSONDecodeError):
         return {}
     return manifest.get("alignment", {})
+
+
+def run_demo(
+    *,
+    seed: int,
+    drop_rate: float,
+    queue_frames: int,
+    consumer_delay_ms: float,
+    out: Path,
+    frames: int = 75,
+    keep_existing: bool = False,
+) -> dict[str, Any]:
+    started = time.perf_counter()
+    out = Path(out)
+    if out.exists() and not keep_existing:
+        # only remove what this tool owns
+        for name in ("fixtures", "run", "case_truncated", "case_hard_loss", "case_cycle.json", "timeline.json"):
+            target = out / name
+            if target.is_dir():
+                shutil.rmtree(target)
+            elif target.exists():
+                target.unlink()
+    out.mkdir(parents=True, exist_ok=True)
+    fixture_dir = out / "fixtures"
+    spec = FixtureSpec(seed=seed, frames=frames, gop=25)
+    fixtures = generate_fixture_set(fixture_dir, spec)
+
+    timeline_doc = build_demo_timeline(fixtures, spec)
+    # Media paths are relative to the timeline file, so the timeline lives in
+    # the fixture directory.
+    timeline_path = fixture_dir / "timeline.json"
+    timeline_path.write_text(json.dumps(timeline_doc, indent=2) + "\n", encoding="utf-8")
+    timeline = load_timeline(timeline_path)
+
+    block_frames = 8
+    queue_blocks = max(1, queue_frames // block_frames)
+    params = RunParams(
+        seed=seed,
+        drop_rate=drop_rate,
+        block_frames=block_frames,
+        queue_blocks=queue_blocks,
+        consumer_delay_ms=consumer_delay_ms,
+        slow_consumer_timeout=30.0,
+    )
+    # A clean pass over the same timeline provides the reviewable reference:
+    # pixel hashes for placement and the marker signals for A/V displacement.
+    reference = clean_reference(timeline, block_frames=block_frames)
+    params = RunParams(
+        seed=seed,
+        drop_rate=drop_rate,
+        block_frames=block_frames,
+        queue_blocks=queue_blocks,
+        consumer_delay_ms=consumer_delay_ms,
+        slow_consumer_timeout=30.0,
+        reference=True,
+        **reference.as_params(),
+    )
+    run_dir = out / "run"
+    main_result = run_pipeline(timeline, run_dir, params)
+    report = main_result.report
+
+    verification = verify_manifest(run_dir / "manifest.json")
+    index_check = _exercise_index(fixtures)
+    failure_cases = _exercise_failure_cases(fixtures, timeline_doc, out, spec, timeline)
+    elapsed = time.perf_counter() - started
+
+    result = {
+        "timeline": str(timeline_path),
+        "sync_error_ms_p95": round(report.sync_error_ms_p95, 3),
+        "packet_recovery_rate": round(report.packet_recovery_rate, 4),
+        "latency_ms_p95": round(report.latency_ms_p95, 3),
+        "peak_queue_frames": report.peak_queue_frames,
+        "frame_hash_mismatches": report.frame_hash_mismatches,
+        "exit_code": report.exit_code,
+        "frames": report.frames_rendered,
+        "frames_verified": verification["verified"],
+        "verify_mismatches": verification["mismatches"],
+        "concealed_frames": report.concealed_frames,
+        "recovered_frames": report.recovered_frames,
+        "packets_lost": report.packets_lost,
+        "recovered_packets": report.recovered_packets,
+        "excluded_tracks": sorted(timeline.excluded_tracks),
+        "track_order": [
+            track_id
+            for track_id in topological_order(
+                timeline.active_tracks().keys(),
+                {tid: t.depends_on for tid, t in timeline.active_tracks().items()},
+            )
+        ],
+        "alignment": manifest_alignment(run_dir),
+        "index_check": index_check,
+        "failure_cases": failure_cases,
+        "manifest": str(run_dir / "manifest.json"),
+        "verify_command": f"{run_dir / 'manifest.json'}",
+        "elapsed_seconds": round(elapsed, 2),
+        "seed": seed,
+        "drop_rate": drop_rate,
+        "queue_frames": queue_frames,
+        "consumer_delay_ms": consumer_delay_ms,
+    }
+    (out / "demo_result.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    return result
