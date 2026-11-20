@@ -202,6 +202,30 @@ app/relay_inspect.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_inspect.dir/build.make CMakeFiles/relay_inspect.dir/app/relay_inspect.cpp.s
 .PHONY : app/relay_inspect.cpp.s
 
+src/transport_reorder.o: src/transport_reorder.cpp.o
+.PHONY : src/transport_reorder.o
+
+# target to build an object file
+src/transport_reorder.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/transport_reorder.cpp.o
+.PHONY : src/transport_reorder.cpp.o
+
+src/transport_reorder.i: src/transport_reorder.cpp.i
+.PHONY : src/transport_reorder.i
+
+# target to preprocess a source file
+src/transport_reorder.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/transport_reorder.cpp.i
+.PHONY : src/transport_reorder.cpp.i
+
+src/transport_reorder.s: src/transport_reorder.cpp.s
+.PHONY : src/transport_reorder.s
+
+# target to generate assembly for a file
+src/transport_reorder.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/transport_reorder.cpp.s
+.PHONY : src/transport_reorder.cpp.s
+
 src/version.o: src/version.cpp.o
 .PHONY : src/version.o
 
@@ -265,6 +289,9 @@ help:
 	@echo "... app/relay_inspect.o"
 	@echo "... app/relay_inspect.i"
 	@echo "... app/relay_inspect.s"
+	@echo "... src/transport_reorder.o"
+	@echo "... src/transport_reorder.i"
+	@echo "... src/transport_reorder.s"
 	@echo "... src/version.o"
 	@echo "... src/version.i"
 	@echo "... src/version.s"

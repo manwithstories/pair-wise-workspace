@@ -1,4 +1,6 @@
 file(REMOVE_RECURSE
+  "CMakeFiles/relay_core.dir/src/transport_reorder.cpp.o"
+  "CMakeFiles/relay_core.dir/src/transport_reorder.cpp.o.d"
   "CMakeFiles/relay_core.dir/src/version.cpp.o"
   "CMakeFiles/relay_core.dir/src/version.cpp.o.d"
   "librelay_core.a"

@@ -17,6 +17,7 @@ find_package(Catch2 3 REQUIRED)
 
 add_library(relay_core
   src/version.cpp
+  src/transport_reorder.cpp
 )
 target_include_directories(relay_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(relay_core PUBLIC PkgConfig::FFMPEG)

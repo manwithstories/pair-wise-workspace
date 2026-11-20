@@ -1,2 +1,2 @@
-/usr/bin/ar qc librelay_core.a CMakeFiles/relay_core.dir/src/version.cpp.o
+/usr/bin/ar qc librelay_core.a CMakeFiles/relay_core.dir/src/version.cpp.o CMakeFiles/relay_core.dir/src/transport_reorder.cpp.o
 /usr/bin/ranlib librelay_core.a

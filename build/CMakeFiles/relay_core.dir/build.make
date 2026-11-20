@@ -86,17 +86,33 @@ CMakeFiles/relay_core.dir/src/version.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/relay_core.dir/src/version.cpp.s"
 	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/clearliu/WorkSpace/pair-wise-workspace/14140/src/version.cpp -o CMakeFiles/relay_core.dir/src/version.cpp.s
 
+CMakeFiles/relay_core.dir/src/transport_reorder.cpp.o: CMakeFiles/relay_core.dir/flags.make
+CMakeFiles/relay_core.dir/src/transport_reorder.cpp.o: /Users/clearliu/WorkSpace/pair-wise-workspace/14140/src/transport_reorder.cpp
+CMakeFiles/relay_core.dir/src/transport_reorder.cpp.o: CMakeFiles/relay_core.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/clearliu/WorkSpace/pair-wise-workspace/14140/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Building CXX object CMakeFiles/relay_core.dir/src/transport_reorder.cpp.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/relay_core.dir/src/transport_reorder.cpp.o -MF CMakeFiles/relay_core.dir/src/transport_reorder.cpp.o.d -o CMakeFiles/relay_core.dir/src/transport_reorder.cpp.o -c /Users/clearliu/WorkSpace/pair-wise-workspace/14140/src/transport_reorder.cpp
+
+CMakeFiles/relay_core.dir/src/transport_reorder.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/relay_core.dir/src/transport_reorder.cpp.i"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /Users/clearliu/WorkSpace/pair-wise-workspace/14140/src/transport_reorder.cpp > CMakeFiles/relay_core.dir/src/transport_reorder.cpp.i
+
+CMakeFiles/relay_core.dir/src/transport_reorder.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/relay_core.dir/src/transport_reorder.cpp.s"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/clearliu/WorkSpace/pair-wise-workspace/14140/src/transport_reorder.cpp -o CMakeFiles/relay_core.dir/src/transport_reorder.cpp.s
+
 # Object files for target relay_core
 relay_core_OBJECTS = \
-"CMakeFiles/relay_core.dir/src/version.cpp.o"
+"CMakeFiles/relay_core.dir/src/version.cpp.o" \
+"CMakeFiles/relay_core.dir/src/transport_reorder.cpp.o"
 
 # External object files for target relay_core
 relay_core_EXTERNAL_OBJECTS =
 
 librelay_core.a: CMakeFiles/relay_core.dir/src/version.cpp.o
+librelay_core.a: CMakeFiles/relay_core.dir/src/transport_reorder.cpp.o
 librelay_core.a: CMakeFiles/relay_core.dir/build.make
 librelay_core.a: CMakeFiles/relay_core.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/Users/clearliu/WorkSpace/pair-wise-workspace/14140/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Linking CXX static library librelay_core.a"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/Users/clearliu/WorkSpace/pair-wise-workspace/14140/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_3) "Linking CXX static library librelay_core.a"
 	$(CMAKE_COMMAND) -P CMakeFiles/relay_core.dir/cmake_clean_target.cmake
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/relay_core.dir/link.txt --verbose=$(VERBOSE)
 
