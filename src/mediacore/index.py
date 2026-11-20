@@ -233,8 +233,105 @@ def validate_index(
                            corrected=corrected, supplied=len(raw_entries))
 
 
+def build_index(
+    units: Sequence[AccessUnit],
+    *,
+    time_base: TimeBase,
+    pts_of: Sequence[int] | None = None,
+) -> IndexValidation:
+    """Build a fresh index from scanned keyframe units."""
+    entries: list[IndexEntry] = []
+    if pts_of is None:
+        pts_of = [u.index for u in units]
+    for unit in units:
+        if not unit.keyframe:
+            continue
+        pts = pts_of[unit.index] if unit.index < len(pts_of) else unit.index
+        entries.append(IndexEntry(
+            unit_index=unit.index, offset=unit.offset, size=unit.size,
+            pts=pts, pts_seconds=float(time_base.seconds(pts)),
+            keyframe=True, ordinal=len(entries)))
+    return IndexValidation(accepted=entries, rejected=[], corrected=[], supplied=len(entries))
 
 
-def build_index(*args, **kwargs):
-    """Implemented by the next patch."""
-    raise NotImplementedError
+def seek_target(entries: Sequence[IndexEntry], target_seconds: Fraction | float) -> IndexEntry | None:
+    """Nearest random-access point at or before ``target_seconds``."""
+    if not entries:
+        return None
+    target = float(target_seconds)
+    chosen = entries[0]
+    for entry in entries:
+        if entry.pts_seconds <= target + 1e-9:
+            chosen = entry
+        else:
+            break
+    return chosen
+
+
+def verify_seeks(
+    entries: Sequence[IndexEntry],
+    durations: Sequence[float],
+    *,
+    targets_ms: Iterable[float] | None = None,
+    observed_ms: Sequence[float] | None = None,
+) -> list[SeekCheck]:
+    """Verify random access to each index point.
+
+    By default the target is each index entry's own timestamp, so the check
+    isolates timestamp disagreement (not the unavoidable GOP granularity).  When
+    ``observed_ms`` (timestamps recovered by actually decoding the keyframe at
+    that offset) is supplied, the error is the absolute difference between the
+    index target and the observed frame time; otherwise it is the distance
+    between the requested target and the selected entry.
+    """
+    if not entries:
+        return []
+    if targets_ms is None:
+        targets_ms = [entry.pts_seconds * 1000 for entry in entries]
+    targets = list(targets_ms)
+    checks: list[SeekCheck] = []
+    for position, target_ms in enumerate(targets):
+        target = Fraction(target_ms).limit_denominator(1_000_000) / 1000
+        chosen = seek_target(entries, target)
+        if chosen is None:
+            continue
+        landed_ms = chosen.pts_seconds * 1000
+        if observed_ms is not None and position < len(observed_ms):
+            landed_ms = float(observed_ms[position])
+        error = abs(float(target_ms) - landed_ms)
+        checks.append(SeekCheck(
+            target_ms=float(target_ms), landed_ms=landed_ms,
+            error_ms=error, keyframe_index=chosen.unit_index))
+    return checks
+
+
+def random_access_index(
+    units: Sequence[AccessUnit],
+    *,
+    time_base: TimeBase,
+    supplied: Any | None = None,
+    pts_of: Sequence[int] | None = None,
+    durations: Sequence[float] | None = None,
+    file_size: int | None = None,
+) -> RandomAccessIndex:
+    """Validate an optional index, rebuild it, and verify target seeks."""
+    if pts_of is None:
+        pts_of = [u.index for u in units]
+    if supplied is not None:
+        validation = validate_index(
+            supplied, units, time_base=time_base, pts_of=pts_of, file_size=file_size)
+    else:
+        validation = build_index(units, time_base=time_base, pts_of=pts_of)
+    if durations is None:
+        durations = [0.0] * len(validation.accepted)
+        for i, entry in enumerate(validation.accepted):
+            if i + 1 < len(validation.accepted):
+                durations[i] = validation.accepted[i + 1].pts_seconds - entry.pts_seconds
+    checks = verify_seeks(validation.accepted, durations)
+    issues: list[MediaIssue] = []
+    if not validation.accepted:
+        issues.append(MediaIssue(
+            "index_empty", "no usable random-access points remain", 0))
+    return RandomAccessIndex(
+        entries=validation.accepted, time_base=time_base,
+        validation=validation, seeks=checks, issues=issues)
