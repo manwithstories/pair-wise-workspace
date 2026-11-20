@@ -179,17 +179,22 @@ TrackSegments segment_track(const TimelineTrack& track,
       const FrameRecord& frame = track.frames[i];
       if (lost_at(track, frame.epoch, frame.sequence)) {
         has_gap = true;
-        segment.status_reason = "delivery gap at sequence " +
-                                std::to_string(frame.sequence);
+        if (segment.status_reason.empty()) {
+          segment.status_reason =
+              "delivery gap at sequence " + std::to_string(frame.sequence);
+        }
       }
       if (i + 1 < end) {
         const FrameRecord& next = track.frames[i + 1];
         // A non-contiguous step means a delivery gap sits between frames.
         if (next.epoch == frame.epoch && next.sequence > frame.sequence + 1) {
           has_gap = true;
-          segment.status_reason =
-              "delivery gap between sequences " + std::to_string(frame.sequence) +
-              " and " + std::to_string(next.sequence);
+          if (segment.status_reason.empty()) {
+            segment.status_reason =
+                "delivery gap between sequences " +
+                std::to_string(frame.sequence) + " and " +
+                std::to_string(next.sequence);
+          }
         }
       }
     }
@@ -212,6 +217,8 @@ TrackSegments segment_track(const TimelineTrack& track,
     } else if (has_gap && segment.status != SegmentStatus::kUnseekable) {
       segment.status = SegmentStatus::kGap;
     }
+    // An unseekable segment keeps its primary explanation (missing
+    // keyframe); the gap note above only fills an empty reason.
 
     const bool last = c + 1 == cuts.size();
     const Micros duration = segment.end_us - segment.start_us;
