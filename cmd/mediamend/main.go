@@ -216,6 +216,11 @@ func buildConfig(c *commonFlags, preferSaved bool) (pipeline.Config, error) {
 		InjectRollover: true, InjectDuplicate: true, InjectBackwards: true,
 		InjectMissing: true, InjectColorFault: true,
 	}
+	var (
+		proj    *fixture.Project
+		corrupt []uint64
+		err     error
+	)
 	if preferSaved {
 		if saved, ok, err := fixture.LoadOptions(c.root); err != nil {
 			return pipeline.Config{}, err
@@ -224,9 +229,20 @@ func buildConfig(c *commonFlags, preferSaved bool) (pipeline.Config, error) {
 			opts = saved
 		}
 	}
-	proj, corrupt, err := fixture.Generate(opts)
-	if err != nil {
-		return pipeline.Config{}, err
+	// On resume/verify the existing inputs are authoritative and must not be
+	// overwritten: the checkpoint's input digest has to detect any external
+	// mutation. Only regenerate when the dataset is absent (a fresh demo run).
+	if !(preferSaved && inputsExist(c.root)) {
+		proj, corrupt, err = fixture.Generate(opts)
+		if err != nil {
+			return pipeline.Config{}, err
+		}
+	} else {
+		proj, err = loadProject(c.root)
+		if err != nil {
+			return pipeline.Config{}, err
+		}
+		corrupt = fixture.CorruptSeq(opts.FramesPerTrack, opts.CorruptEvery)
 	}
 	var inputs []ingest.TrackInput
 	for _, s := range proj.Tracks {

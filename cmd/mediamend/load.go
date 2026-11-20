@@ -9,6 +9,18 @@ import (
 	"github.com/mediamend/mediamend/internal/index"
 )
 
+// inputsExist reports whether a previously generated dataset (project
+// manifest) is present so resume can reuse it instead of regenerating.
+func inputsExist(root string) bool {
+	if _, err := os.Stat(filepath.Join(root, "fixture.json")); err != nil {
+		return false
+	}
+	if _, err := os.Stat(filepath.Join(root, "project.json")); err != nil {
+		return false
+	}
+	return true
+}
+
 // loadProject reads the project manifest written by the fixture generator.
 func loadProject(root string) (*fixture.Project, error) {
 	data, err := os.ReadFile(filepath.Join(root, "project.json"))
