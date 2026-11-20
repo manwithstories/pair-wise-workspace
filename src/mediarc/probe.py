@@ -196,6 +196,30 @@ class ProbeResult:
         }
 
 
+def _attach_container_color(
+    path: str, format_name: str, streams: list[StreamProbe]
+) -> None:
+    """Merge MOV/MP4 ``colr`` box values that PyAV's codec view omits.
+
+    Values discovered here are recorded under ``colr:<field>`` so the colour
+    resolver can cite them separately from codec and tag evidence.
+    """
+    from .mp4color import container_color
+
+    short = {part.strip() for part in format_name.split(",")}
+    fmt = "mov" if "mov" in short else "mp4" if ("mp4" in short or "m4a" in short) else ""
+    if not fmt:
+        return
+    found = container_color(path, fmt)
+    video_streams = [s for s in streams if s.kind == "video"]
+    for position, values in found.items():
+        if position >= len(video_streams):
+            continue
+        target = video_streams[position]
+        for field_name, value in values.items():
+            target.color_raw[f"colr:{field_name}"] = str(value)
+
+
 def _format_label(format_name: str) -> str:
     parts = {part.strip() for part in format_name.split(",")}
     for short in ("mov", "mp4", "matroska", "webm", "m4a"):
@@ -391,6 +415,7 @@ def probe(
                 )
                 timeline = TimeBase(rate)
                 errors: list[MediaError] = list(mapping_errors)
+                _attach_container_color(path, format_name, streams)
                 observed_end = _demux_container(
                     container, streams, timeline, errors, path
                 )

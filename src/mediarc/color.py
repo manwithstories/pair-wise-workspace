@@ -187,6 +187,15 @@ def _tag_label(field_name: str, raw: str) -> str | None:
     return _TAG_ALIASES.get(text, text or None)
 
 
+def _evidence(name: str) -> list[tuple[str, str, str, str]]:
+    """Ordered evidence kinds for one field: (kind, raw_key, label_key, precedence)."""
+    return [
+        ("codec", name, name, "bitstream VUI, acted on by decoders"),
+        ("colr", f"colr:{name}", name, "container sample-entry colr box"),
+        ("tag", TAG_KEYS[name], name, "container stream tag"),
+    ]
+
+
 def _known_label(field_name: str, label: str | None) -> bool:
     if label is None:
         return False
@@ -197,96 +206,96 @@ def _known_label(field_name: str, label: str | None) -> bool:
 def resolve(
     stream: StreamProbe, *, path: str | None = None
 ) -> ColorRecord:
-    """Decide the archived colour values for one video stream."""
+    """Decide the archived colour values for one video stream.
+
+    Precedence is bitstream VUI > MP4 ``colr`` box > container tag, because
+    that is the order in which a real decoder consumes the information.  Every
+    disagreement is recorded with both values, and the winner is named in a
+    ``choice``/``reason`` pair so the decision can be re-audited.
+    """
     record = ColorRecord(stream_index=stream.index)
     raw = stream.color_raw
     for name in FIELDS:
-        codec_raw = raw.get(name)
-        tag_raw = raw.get(TAG_KEYS[name])
-        evidence = {k: v for k, v in raw.items() if k in (name, TAG_KEYS[name])}
-        codec_label = None
-        codec_value = None
-        if codec_raw is not None:
-            try:
-                codec_value = int(codec_raw)
-            except ValueError:
-                codec_value = None
-            if codec_value is not None:
-                codec_label = FIELDS[name].get(codec_value)
-        tag_label = _tag_label(name, tag_raw) if tag_raw else None
+        claims: list[tuple[str, int | None, str | None, str]] = []
+        evidence: dict[str, str] = {}
+        for kind, raw_key, _label_key, _why in _evidence(name):
+            if raw_key not in raw:
+                continue
+            text = raw[raw_key]
+            evidence[raw_key] = text
+            value: int | None = None
+            label: str | None = None
+            if kind in ("codec", "colr"):
+                try:
+                    value = int(text)
+                except ValueError:
+                    value = None
+                if value is not None:
+                    label = FIELDS[name].get(value)
+            else:
+                label = _tag_label(name, text)
+            claims.append((kind, value, label, text))
 
-        if codec_label and _known_label(name, codec_label):
-            if tag_label and tag_label != codec_label and _known_label(name, tag_label):
+        trusted = [c for c in claims if _known_label(name, c[2])]
+        if trusted:
+            kind, value, label, _text = trusted[0]
+            entry = ColorField(name, value, label, kind, True, evidence)
+            if kind == "colr":
+                # Numeric colr values look trustworthy but the enum may differ.
+                entry.value = value
+            others = [
+                {"source": c[0], "value": c[2] if c[2] is not None else c[3]}
+                for c in trusted[1:]
+                if c[2] != label
+            ]
+            if others:
                 record.decisions.append({
                     "field": name,
-                    "choice": codec_label,
-                    "source": "codec",
-                    "reason": "codec-and-tag-conflict",
-                    "codec": codec_label,
-                    "tag": tag_label,
+                    "choice": label,
+                    "source": kind,
+                    "reason": "source-conflict",
+                    "conflicts": others,
                 })
                 record.warnings.append(
                     MediaError(
                         "color-conflict",
-                        f"{name}: codec says {codec_label!r}, tag says {tag_label!r}; "
-                        f"kept the codec value a decoder acts on",
+                        f"{name}: {kind} says {label!r}, "
+                        + ", ".join(f"{o['source']} says {o['value']!r}" for o in others)
+                        + f"; kept the {kind} value",
                         stage="color", path=path, stream_index=stream.index,
-                        detail={"codec": codec_label, "tag": tag_label},
+                        detail={"choice": label, "conflicts": others},
                     )
                 )
-            elif tag_label and tag_label == codec_label:
-                record.decisions.append({
-                    "field": name, "choice": codec_label, "source": "codec",
-                    "reason": "codec-and-tag-agree",
-                })
             else:
                 record.decisions.append({
-                    "field": name, "choice": codec_label, "source": "codec",
-                    "reason": "codec-only",
+                    "field": name, "choice": label, "source": kind,
+                    "reason": f"{kind}-only" if len(claims) == 1 else f"{kind}-unanimous",
                 })
-            entry = ColorField(name, codec_value, codec_label, "codec", True, evidence)
-        elif tag_label and _known_label(name, tag_label):
-            codec_note = "absent" if codec_label is None else f"unsupported({codec_label})"
+            record.fields[name] = entry
+            continue
+
+        if claims:
+            kind, value, _label, text = claims[0]
             record.decisions.append({
-                "field": name, "choice": tag_label, "source": "tag",
-                "reason": "tag-only", "codec": codec_note,
-            })
-            entry = ColorField(name, None, tag_label, "tag", True, evidence)
-        elif codec_raw is not None and codec_label is None:
-            record.decisions.append({
-                "field": name, "choice": codec_raw, "source": "codec",
+                "field": name, "choice": text, "source": kind,
                 "reason": "unsupported-value-kept",
             })
-            entry = ColorField(name, codec_value, None, "codec", False, evidence)
             record.warnings.append(
                 MediaError(
                     "color-unsupported",
-                    f"{name} value {codec_raw!r} is not a known enumeration; kept as-is",
+                    f"{name} value {text!r} from {kind} is not a known enumeration; kept as-is",
                     stage="color", path=path, stream_index=stream.index,
-                    detail={"raw": codec_raw},
+                    detail={"raw": text, "source": kind},
                 )
             )
-        elif tag_raw:
-            record.decisions.append({
-                "field": name, "choice": tag_raw, "source": "tag",
-                "reason": "unsupported-tag-kept",
-            })
-            entry = ColorField(name, None, tag_raw, "tag", False, evidence)
-            record.warnings.append(
-                MediaError(
-                    "color-unsupported",
-                    f"{name} tag {tag_raw!r} is not a known enumeration; kept as-is",
-                    stage="color", path=path, stream_index=stream.index,
-                    detail={"raw": tag_raw},
-                )
-            )
-        else:
-            record.decisions.append({
-                "field": name, "choice": None, "source": "absent",
-                "reason": "not-in-source",
-            })
-            entry = ColorField(name, None, None, "absent", False, evidence)
-        record.fields[name] = entry
+            record.fields[name] = ColorField(name, value, None, kind, False, evidence)
+            continue
+
+        record.decisions.append({
+            "field": name, "choice": None, "source": "absent",
+            "reason": "not-in-source",
+        })
+        record.fields[name] = ColorField(name, None, None, "absent", False, evidence)
     return record
 
 
@@ -298,7 +307,7 @@ def summary(record: ColorRecord) -> dict[str, Any]:
         "space": record.label("space"),
         "range": record.label("range"),
         "conflicts": sum(
-            1 for d in record.decisions if d["reason"] == "codec-and-tag-conflict"
+            1 for d in record.decisions if d["reason"] == "source-conflict"
         ),
         "absent": record.unresolved(),
     }
