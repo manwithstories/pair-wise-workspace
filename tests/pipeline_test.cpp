@@ -1,5 +1,6 @@
 #include "relay/fixture.hpp"
 #include "relay/hash.hpp"
+#include "relay/json.hpp"
 #include "relay/frame_reader.hpp"
 #include "relay/packet_reorder.hpp"
 #include "relay/checkpoint.hpp"
@@ -1098,4 +1099,24 @@ TEST_CASE("reorder enforces the per-track cache limit", "[reorder][cache]") {
     }
   }
   CHECK(located);
+}
+
+TEST_CASE("JSON parser rejects malformed numbers and structure",
+          "[manifest][json]") {
+  for (const char* text : {"{\"a\":01}", "{\"a\":1e}", "{\"a\":+1}",
+                           "{\"a\":.5}", "{\"a\":1.}", "{\"a\":1,}",
+                           "[1,]", "{a:1}"}) {
+    json::Value value;
+    json::ParseError error;
+    INFO("input: " << text);
+    CHECK_FALSE(json::parse(text, value, error));
+    CHECK_FALSE(error.message.empty());
+  }
+  json::Value value;
+  json::ParseError error;
+  REQUIRE(json::parse("{\"a\":-12.5e2,\"b\":0,\"c\":[true,false,null]}", value,
+                      error));
+  CHECK(value.find("a")->as_number() == -1250.0);
+  CHECK(value.find("b")->as_int() == 0);
+  CHECK(value.find("c")->as_array().size() == 3);
 }

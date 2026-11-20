@@ -83,25 +83,53 @@ class Parser {
 
   bool parse_number(Value& out) {
     const std::size_t begin = pos_;
-    if (pos_ < text_.size() && (text_[pos_] == '-' || text_[pos_] == '+')) {
+    if (pos_ < text_.size() && text_[pos_] == '-') {
       ++pos_;
     }
-    bool digits = false;
-    while (pos_ < text_.size() &&
-           ((text_[pos_] >= '0' && text_[pos_] <= '9') || text_[pos_] == '.' ||
-            text_[pos_] == 'e' || text_[pos_] == 'E' || text_[pos_] == '+' ||
-            text_[pos_] == '-')) {
-      if (text_[pos_] >= '0' && text_[pos_] <= '9') {
-        digits = true;
+    // JSON grammar: int = "0" | [1-9] digit*; no leading '+', no leading
+    // zeros, exponent and fraction only when complete.
+    if (pos_ < text_.size() && text_[pos_] == '0') {
+      ++pos_;
+      if (pos_ < text_.size() && text_[pos_] >= '0' && text_[pos_] <= '9') {
+        return fail("leading zero in number");
       }
-      ++pos_;
+    } else {
+      const std::size_t digits_begin = pos_;
+      while (pos_ < text_.size() && text_[pos_] >= '0' && text_[pos_] <= '9') {
+        ++pos_;
+      }
+      if (pos_ == digits_begin) {
+        return fail("invalid number");
+      }
     }
-    if (!digits) {
-      return fail("invalid number");
+    bool is_integral = true;
+    if (pos_ < text_.size() && text_[pos_] == '.') {
+      is_integral = false;
+      ++pos_;
+      const std::size_t fraction_begin = pos_;
+      while (pos_ < text_.size() && text_[pos_] >= '0' && text_[pos_] <= '9') {
+        ++pos_;
+      }
+      if (pos_ == fraction_begin) {
+        return fail("fraction without digits");
+      }
+    }
+    if (pos_ < text_.size() && (text_[pos_] == 'e' || text_[pos_] == 'E')) {
+      is_integral = false;
+      ++pos_;
+      if (pos_ < text_.size() && (text_[pos_] == '+' || text_[pos_] == '-')) {
+        ++pos_;
+      }
+      const std::size_t exponent_begin = pos_;
+      while (pos_ < text_.size() && text_[pos_] >= '0' && text_[pos_] <= '9') {
+        ++pos_;
+      }
+      if (pos_ == exponent_begin) {
+        return fail("exponent without digits");
+      }
     }
     const std::string token(text_.substr(begin, pos_ - begin));
-    const bool integral = token.find_first_of(".eE") == std::string::npos;
-    if (integral) {
+    if (is_integral) {
       // Parse integers exactly; doubles would corrupt values above 2^53
       // such as timestamps and bitrates.
       const bool negative = !token.empty() && token.front() == '-';
