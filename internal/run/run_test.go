@@ -1,6 +1,7 @@
 package run
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -99,11 +100,13 @@ func TestInputChangeRecomputes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Add a cue to an input: fingerprint mismatch -> full recompute, and
-	// the new cue shifts the source mapping, so the hash must change.
-	f := filepath.Join(dir, "inputs", "cam00.vtt")
+	// Lengthen a cue text in an input: fingerprint mismatch -> full
+	// recompute, and the shifted byte offsets change the source mapping,
+	// so the hash must change.
+	f := filepath.Join(dir, "inputs", "cam00.srt")
 	data, _ := os.ReadFile(f)
-	os.WriteFile(f, append(data, []byte("extra\n00:00:00.200 --> 00:00:00.900\nnew cue\n\n")...), 0o644)
+	data = bytes.Replace(data, []byte("cam0 cue 0"), []byte("cam0 cue 0!"), 1)
+	os.WriteFile(f, data, 0o644)
 	s2, err := Run(dir, cfg, 0, &sig)
 	if err != nil {
 		t.Fatal(err)
