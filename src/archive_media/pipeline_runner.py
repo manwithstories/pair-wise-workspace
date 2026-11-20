@@ -62,6 +62,9 @@ class RecoveryRunner:
         self.stop_event = threading.Event()
         self.gain_db = 0.0
         self.peak_limited = False
+        # Manifest-level findings (missing index entries, collisions,
+        # reordering) are part of the same audit trail as decode damage.
+        self.collector.extend(plan.all_diagnostics())
 
     # ------------------------------------------------------------------
     def _enforce(self, result: SegmentDecodeResult) -> None:

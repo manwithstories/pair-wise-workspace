@@ -87,27 +87,41 @@ def _build_hls_segments(out: Path) -> list[str]:
     return refs
 
 
+def _copy_segments(out: Path, subdir: str, refs: list[str]) -> list[str]:
+    """Materialize an isolated per-playlist copy of the referenced segments."""
+    target = out / subdir
+    target.mkdir(parents=True, exist_ok=True)
+    copied: list[str] = []
+    for ref in refs:
+        data = (out / ref).read_bytes()
+        local = Path(subdir) / ref
+        (out / local).write_bytes(data)
+        copied.append(str(local))
+    return copied
+
+
 def build_hls(out: Path) -> None:
     refs = _build_hls_segments(out)
     entries = [(ref, SEGMENT_SECONDS) for ref in refs]
     write_hls_manifest(out / "clean.m3u8", entries)
 
-    damaged = list(entries)
-    # Segment 2: truncated container; segment 4: flipped packet bytes.
-    corrupt_packet_region(out / refs[2], keep_fraction=0.55)
-    flip_bytes(out / refs[4])
-    # Segment 3 loses its EXTINF (missing index entry, synthesized from target).
+    # Damaged playlist gets an isolated segment copy so the clean fixtures
+    # stay byte-identical to what the encoder produced.
+    damaged_refs = _copy_segments(out, "damaged", refs)
+    corrupt_packet_region(out / damaged_refs[2], keep_fraction=0.55)
+    flip_bytes(out / damaged_refs[4])
     write_hls_manifest(
         out / "damaged.m3u8",
-        damaged,
-        include_durations=True,
+        [(ref, SEGMENT_SECONDS) for ref in damaged_refs],
     )
     text = (out / "damaged.m3u8").read_text()
-    text = text.replace(f"#EXTINF:{SEGMENT_SECONDS:.6f},\n{refs[3]}", refs[3])
+    text = text.replace(
+        f"#EXTINF:{SEGMENT_SECONDS:.6f},\n{damaged_refs[3]}", damaged_refs[3]
+    )
     (out / "damaged.m3u8").write_text(text)
 
     # Truncated-only playlist used by the --strict fatal demo.
-    trunc_refs = list(refs[:4])
+    trunc_refs = _copy_segments(out, "truncated", refs[:4])
     corrupt_packet_region(out / trunc_refs[1], keep_fraction=0.35)
     write_hls_manifest(out / "truncated.m3u8",
                        [(ref, SEGMENT_SECONDS) for ref in trunc_refs])
@@ -118,9 +132,7 @@ def build_hls(out: Path) -> None:
     order = [0, 4, 1, 2, 3, 5]
     reordered = [entries[i] for i in order]
     starts = [float(i) for i in order]
-    write_hls_manifest(
-        out / "reordered.m3u8", reordered, starts=starts
-    )
+    write_hls_manifest(out / "reordered.m3u8", reordered, starts=starts)
 
     # Timestamp rounding collision: two segments with starts that differ by
     # less than one 90 kHz tick but are distinct rational times.
@@ -148,8 +160,15 @@ def build_dash(out: Path) -> None:
     timeline = [(index * tick, tick) for index in range(DASH_COUNT)]
     write_dash_manifest(out / "clean.mpd", timeline)
 
-    # One S entry drops its t (missing index entry) and one segment is damaged.
-    corrupt_packet_region(out / refs[2], keep_fraction=0.5)
+    # Isolated damaged copy: one S entry drops its t, one segment is truncated.
+    subdir = Path("dash-damaged")
+    (out / subdir).mkdir(parents=True, exist_ok=True)
+    damaged_refs = []
+    for ref in refs:
+        local = str(subdir / ref)
+        (out / local).write_bytes((out / ref).read_bytes())
+        damaged_refs.append(local)
+    corrupt_packet_region(out / damaged_refs[2], keep_fraction=0.5)
     ns = "urn:mpeg:dash:schema:mpd:2011"
     s_tags = (
         f'<S t="0" d="{tick}"/>'
@@ -160,14 +179,15 @@ def build_dash(out: Path) -> None:
     xml = (
         f'<MPD xmlns="{ns}"><AdaptationSet>'
         f'<SegmentTemplate timescale="{DASH_RATE}" '
-        'media="dash-seg-$RepresentationID$-$Number$.m4s" startNumber="0">'
+        f'media="dash-damaged/dash-seg-$RepresentationID$-$Number$.m4s" '
+        'startNumber="0">'
         f"<SegmentTimeline>{s_tags}</SegmentTimeline></SegmentTemplate>"
         f'<Representation id="r0"/></AdaptationSet></MPD>'
     )
     (out / "damaged.mpd").write_text(xml + "\n")
 
     # Distinct t values that collide at a coarser effective tick spacing.
-    collision_timeline = [(0, tick), (tick, tick), (tick + 0, tick)]
+    collision_timeline = [(0, tick), (tick, tick), (tick, tick)]
     write_dash_manifest(out / "collision.mpd", collision_timeline)
 
 
