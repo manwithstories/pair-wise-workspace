@@ -167,12 +167,20 @@ class Segment:
 
 
 def resolve_within(base_dir: str | os.PathLike[str], name: str) -> Path:
-    """把相对路径限制在指定工作目录内，拒绝绝对路径与目录逃逸。"""
+    """把相对路径限制在指定工作目录内，拒绝绝对路径、目录逃逸与符号链接。"""
 
     base = Path(base_dir).resolve()
-    candidate = (base / name).resolve()
+    raw = Path(name)
+    if raw.is_absolute():
+        raise FieldIndexError(f"拒绝绝对路径: {name!r}")
+    candidate_raw = (base / name).absolute()
+    # 逐级检查，中间任一环节是符号链接都拒绝
+    probe = base
+    for part in raw.parts:
+        probe = probe / part
+        if probe.is_symlink():
+            raise FieldIndexError(f"拒绝符号链接: {name!r}")
+    candidate = candidate_raw.resolve()
     if base != candidate and base not in candidate.parents:
         raise FieldIndexError(f"路径越出工作目录: {name!r}")
-    if candidate.is_symlink():
-        raise FieldIndexError(f"拒绝符号链接: {name!r}")
     return candidate
