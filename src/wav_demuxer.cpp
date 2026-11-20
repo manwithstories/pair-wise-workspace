@@ -67,6 +67,26 @@ bool WavDemuxer::readExact(char* dst, std::size_t n, MediaError& err) {
 }
 
 bool WavDemuxer::locateDataChunk(MediaError& err) {
+    // 标准 RIFF 块目录遍历
+    std::streamoff end = 12 + riffSize_;
+    char hdr[8];
+    while (file_.tellg() < end) {
+        const auto pos = file_.tellg();
+        if (!readExact(hdr, 8, err)) {
+            return false;
+        }
+        const std::uint32_t id = readU32(hdr);
+        const std::uint32_t sz = readU32(hdr + 4);
+        if (id == tag("data")) {
+            dataStart_ = static_cast<ByteOffset>(pos) + 8;
+            dataLength_ = static_cast<ByteOffset>(sz);
+            return true;
+        }
+        if (!file_.seekg((sz + 1u) & ~1u, std::ios::cur)) {
+            break;
+        }
+    }
+
     // 索引缺失/不完整：顺序扫描重建（受 scanLimitBytes 约束）
     stats_.indexRebuilt = true;
     stats_.recoverableErrors.push_back(
@@ -116,9 +136,9 @@ bool WavDemuxer::parseHeader(MediaError& err) {
     }
     riffSize_ = readU32(riff + 4);
 
+    // 先遍历块目录定位 fmt 与 data
     bool haveFmt = false;
-    const std::streamoff end =
-        12 + static_cast<std::streamoff>(riffSize_);
+    std::streamoff end = 12 + riffSize_;
     char hdr[8];
     while (file_.tellg() < end) {
         const auto pos = file_.tellg();
@@ -146,7 +166,8 @@ bool WavDemuxer::parseHeader(MediaError& err) {
                 return false;
             }
             format_.channels = readU16(fmtBuf + 2);
-            format_.sampleRate = static_cast<int>(readU32(fmtBuf + 4));
+            format_.sampleRate =
+                static_cast<int>(readU32(fmtBuf + 4));
             format_.bitsPerSample = readU16(fmtBuf + 14);
             if (format_.bitsPerSample != 16) {
                 err = {MediaErrorCode::UnsupportedFormat,
@@ -162,6 +183,7 @@ bool WavDemuxer::parseHeader(MediaError& err) {
             }
             haveFmt = true;
             const std::uint32_t rest = sz > 16 ? sz - 16 : 0;
+            // RIFF 块按字对齐：跳过剩余 fmt 扩展字节及可能的 1 字节填充
             const std::streamoff skip =
                 static_cast<std::streamoff>((rest + 1u) & ~1u);
             if (!file_.seekg(skip, std::ios::cur)) {
@@ -201,7 +223,73 @@ bool WavDemuxer::parseHeader(MediaError& err) {
     return true;
 }
 
-// 块级读取（哨兵/尾部截断）在下一批实现
+bool WavDemuxer::readSentinel(AudioBlock& out, bool& consumed,
+                              MediaError& err) {
+    char body[8];
+    if (!readExact(body, 8, err)) {
+        return false;
+    }
+    const std::uint32_t id = readU32(body);
+    const std::uint32_t arg = readU32(body + 4);
+    cursor_ += 8;
+    out = AudioBlock{};
+    out.format = format_;
+    out.startSample = nextSample_;
+    consumed = true;
+
+    if (id == tag("MCOR")) {
+        const ByteOffset skip = static_cast<ByteOffset>(arg);
+        std::vector<std::uint8_t> scratch(
+            static_cast<std::size_t>(std::min<ByteOffset>(skip, 1 << 16)));
+        ByteOffset left = skip;
+        while (left > 0) {
+            const auto n = static_cast<std::streamsize>(
+                std::min<ByteOffset>(left, scratch.size()));
+            file_.read(reinterpret_cast<char*>(scratch.data()), n);
+            left -= file_.gcount();
+            if (file_.gcount() != n) {
+                break;
+            }
+        }
+        cursor_ += skip;
+        out.kind = BlockKind::Corrupt;
+        auto e = MediaError{MediaErrorCode::CorruptStream,
+                            "corrupt region of " + std::to_string(skip) +
+                                " bytes at sample " +
+                                std::to_string(nextSample_),
+                            true};
+        stats_.recoverableErrors.push_back(e);
+        return true;
+    }
+    if (id == tag("MGAP")) {
+        nextSample_ += static_cast<SampleTick>(arg);
+        out.kind = BlockKind::Gap;
+        stats_.recoverableErrors.push_back(
+            {MediaErrorCode::TimestampGap,
+             "gap of " + std::to_string(arg) + " frames at sample " +
+                 std::to_string(out.startSample),
+             true});
+        return true;
+    }
+    // MDUP：随后的 PCM 与此前区间重叠，读出来但标记 Duplicate 由下游丢弃
+    const SampleTick dupFrames = static_cast<SampleTick>(arg);
+    const std::size_t bytes =
+        static_cast<std::size_t>(dupFrames) * format_.frameBytes();
+    out.interleavedPcm.resize(bytes);
+    if (bytes > 0 && !readExact(
+            reinterpret_cast<char*>(out.interleavedPcm.data()), bytes, err)) {
+        return false;
+    }
+    cursor_ += static_cast<ByteOffset>(bytes);
+    out.kind = BlockKind::Duplicate;
+    stats_.recoverableErrors.push_back(
+        {MediaErrorCode::DuplicateBlock,
+         std::to_string(dupFrames) + " duplicated frames at sample " +
+             std::to_string(nextSample_),
+         true});
+    return true;
+}
+
 bool WavDemuxer::nextBlock(AudioBlock&, MediaError&) { return false; }
 
 } // namespace mediacore
