@@ -14,7 +14,7 @@ from fractions import Fraction
 from pathlib import Path
 
 from .errors import Code, Diagnostic, Locator, ManifestSyntaxError
-from .timeline import rational, to_float_seconds
+from .timeline import TimelinePlanner, rational, to_float_seconds
 
 
 @dataclass
@@ -117,6 +117,33 @@ def normalize_ref(raw: str, manifest_dir: Path, root: Path, locator: Locator) ->
 _normalize_ref = normalize_ref
 
 
+def validate_timeline(plan: SegmentPlan) -> list[Diagnostic]:
+    """Lay every planned segment on one timeline and record discontinuities.
+
+    The plan itself is never reordered or compressed here; the diagnostics
+    describe reordering, timestamp-rounding collisions and non-contiguous
+    joins so the runner and verifier can audit them.
+    """
+    diagnostics: list[Diagnostic] = []
+    planners: dict[str, TimelinePlanner] = {}
+    for segment in plan.segments:
+        planner = planners.setdefault(
+            segment.representation, TimelinePlanner(segment.time_base)
+        )
+        planner.add(
+            segment.sequence,
+            segment.start,
+            segment.duration,
+            representation=segment.representation,
+            manifest_path=str(plan.manifest_path),
+            segment_ref=segment.raw_ref,
+        )
+    for planner in planners.values():
+        diagnostics.extend(planner.diagnostics)
+    plan.diagnostics.extend(diagnostics)
+    return diagnostics
+
+
 def parse_manifest(path: str | Path, root: str | Path | None = None) -> SegmentPlan:
     """Dispatch HLS vs DASH by extension and parse the manifest at ``path``."""
     manifest_path = Path(path).resolve()
@@ -126,16 +153,19 @@ def parse_manifest(path: str | Path, root: str | Path | None = None) -> SegmentP
     if suffix in {".m3u8", ".m3u"}:
         from .manifest_hls import parse_hls
 
-        return parse_hls(text, manifest_path, root_path)
-    if suffix == ".mpd":
+        plan = parse_hls(text, manifest_path, root_path)
+    elif suffix == ".mpd":
         from .manifest_dash import parse_dash
 
-        return parse_dash(text, manifest_path, root_path)
-    raise ManifestSyntaxError(
-        Code.MANIFEST_UNSUPPORTED,
-        f"unsupported manifest extension: {manifest_path.name}",
-        locator=locator_for(manifest_path, "", None),
-    )
+        plan = parse_dash(text, manifest_path, root_path)
+    else:
+        raise ManifestSyntaxError(
+            Code.MANIFEST_UNSUPPORTED,
+            f"unsupported manifest extension: {manifest_path.name}",
+            locator=locator_for(manifest_path, "", None),
+        )
+    validate_timeline(plan)
+    return plan
 
 
 __all__ = [
@@ -144,4 +174,5 @@ __all__ = [
     "locator_for",
     "normalize_ref",
     "parse_manifest",
+    "validate_timeline",
 ]
