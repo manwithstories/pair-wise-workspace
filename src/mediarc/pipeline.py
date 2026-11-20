@@ -159,6 +159,9 @@ class ArchiveReport:
             f"segments_ok={self.healthy} segments_failed={self.failed}",
             f"recovered_segments={self.recovered_segments}",
         ]
+        isolated = [s.segment_id for s in self.manifest.failed_segments()]
+        lines.append(f"isolated_segments={len(isolated)}"
+                     + (f" ids={','.join(isolated)}" if isolated else ""))
         for name, status in self.stage_status.items():
             suffix = " resumed=1" if name in self.resumed_stages else ""
             lines.append(f"stage {name} status={status}{suffix}")
