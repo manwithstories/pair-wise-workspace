@@ -289,12 +289,7 @@ PipelineResult run_pipeline(const PipelineConfig& config) {
       read = ReadResult{};
     }
   }
-  // Replay persisted frame-level failures: a resumed run must not silently
-  // "heal" input that an uninterrupted run would reject.
-  for (const auto& issue : read.issues) {
-    errors.fail("read", issue.track, issue.source_frame, issue.reason);
-  }
-  if (read.tracks.empty()) {
+  if (!read_reused) {
     checkpoints.begin(kStageRead, read_digest, errors);
     read = read_frame_inputs(inputs, errors);
     read.input_digest = read.input_digest.empty() ? raw_input_digest
@@ -303,8 +298,12 @@ PipelineResult run_pipeline(const PipelineConfig& config) {
                               serialize_read_cache(read), errors)) {
       errors.fail("checkpoint", kStageRead, 0, "cannot persist read stage");
     }
-  } else {
     ++result.report.recomputed_stages;
+  }
+  // Replay persisted frame-level failures: a resumed run must not silently
+  // "heal" input that an uninterrupted run would reject.
+  for (const auto& issue : read.issues) {
+    errors.fail("read", issue.track, issue.source_frame, issue.reason);
   }
   if (read.tracks.empty()) {
     result.exit_code = static_cast<int>(ExitCode::kCorrupt);
