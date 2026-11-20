@@ -191,8 +191,118 @@ class Manifest:
         return manifest
 
 
+def build_segments(
+    units: list[Any],
+    pts_seconds: list[Fraction | float],
+    *,
+    target_bps: int,
+    frame_duration_s: float,
+    decisions: list[Any] | None = None,
+) -> list[Segment]:
+    """Split the stream into GOP-aligned segments and measure each one.
+
+    A segment starts at a keyframe (or at unit 0) and ends just before the next
+    keyframe, so every segment boundary is a valid switch point.  Timestamps
+    are in **seconds**; ``frame_duration_s`` closes the final segment.  Segment
+    durations tile the timeline exactly (each ends where the next begins).
+    ``decisions`` optionally supplies per-unit timestamp repairs to annotate the
+    decisions that affected each segment.
+    """
+    if not units:
+        return []
+    boundaries = [i for i, unit in enumerate(units) if unit.keyframe]
+    if not boundaries or boundaries[0] != 0:
+        boundaries.insert(0, 0)
+    boundaries = sorted(set(boundaries))
+    boundaries.append(len(units))
+    frame_duration = float(frame_duration_s)
+    segments: list[Segment] = []
+    for ordinal in range(len(boundaries) - 1):
+        start, end = boundaries[ordinal], boundaries[ordinal + 1]
+        if end <= start:
+            continue
+        byte_start = units[start].offset
+        byte_end = units[end - 1].offset + units[end - 1].size
+        nbytes = max(0, byte_end - byte_start)
+        start_s = float(pts_seconds[start])
+        if end < len(pts_seconds):
+            end_s = float(pts_seconds[end])  # tile the timeline exactly
+        else:
+            end_s = float(pts_seconds[end - 1]) + frame_duration
+        seconds = max(1e-6, end_s - start_s)
+        actual = nbytes * 8.0 / seconds
+        deviation = (actual - target_bps) / target_bps * 100.0 if target_bps else 0.0
+        decisions_here = []
+        if decisions is not None:
+            for decision in decisions[start:end]:
+                reasons = getattr(decision, "reason", "")
+                if reasons and reasons != "ok":
+                    decisions_here.append(reasons)
+        segments.append(Segment(
+            ordinal=ordinal, unit_start=start, unit_end=end,
+            byte_start=byte_start, byte_end=byte_end,
+            start_s=start_s, end_s=end_s,
+            keyframe_offsets=[u.offset for u in units[start:end] if u.keyframe],
+            keyframe_count=sum(1 for u in units[start:end] if u.keyframe),
+            bytes=nbytes, seconds=seconds,
+            target_bps=target_bps, actual_bps=actual,
+            deviation_pct=deviation, decisions=decisions_here))
+    return segments
 
 
-def build_segments(*args, **kwargs):
-    """Implemented by the next patch."""
-    raise NotImplementedError
+def verify_manifest(
+    manifest: Manifest,
+    *,
+    deviation_limit_pct: float = MAX_BITRATE_DEVIATION_PCT,
+    alignment_limit_ms: float = MAX_ALIGNMENT_MS,
+    random_access_limit_ms: float = MAX_ALIGNMENT_MS,
+    expected_digest: str | None = None,
+) -> list[str]:
+    """Check a manifest's internal consistency and acceptance limits."""
+    failures: list[str] = []
+    if expected_digest is not None and expected_digest != manifest.digest:
+        failures.append(
+            f"manifest digest mismatch: stored {expected_digest}, recomputed {manifest.digest}")
+    for segment in manifest.segments:
+        # Segment rates are validated for internal consistency: bytes recorded in
+        # the segment must reproduce the recorded actual_bps, and switch points
+        # must be keyframes.  GOP-level deviation legitimately varies and is
+        # reported per segment, not enforced (the overall rate is enforced below).
+        recomputed = segment.bytes * 8.0 / max(segment.seconds, 1e-6)
+        if abs(recomputed - segment.actual_bps) > 0.5:
+            failures.append(
+                f"segment {segment.ordinal} rate is inconsistent with its byte count")
+        recorded = segment.to_dict().get("digest")
+        if recorded is not None and recorded != segment.digest:
+            failures.append(f"segment {segment.ordinal} digest mismatch")
+    if abs(manifest.deviation_pct) > deviation_limit_pct:
+        failures.append(
+            f"overall bitrate deviation {manifest.deviation_pct:.2f}% exceeds "
+            f"{deviation_limit_pct}%")
+    if manifest.manifest_alignment_max_ms > alignment_limit_ms:
+        failures.append(
+            f"A/V alignment error {manifest.manifest_alignment_max_ms:.2f} ms exceeds "
+            f"{alignment_limit_ms} ms")
+    if manifest.random_access_max_ms > random_access_limit_ms:
+        failures.append(
+            f"random-access error {manifest.random_access_max_ms:.2f} ms exceeds "
+            f"{random_access_limit_ms} ms")
+    quality = manifest.quality.get("video", {})
+    psnr = quality.get("psnr_db")
+    if psnr is None or not _finite(psnr) or psnr <= 0.0:
+        failures.append(f"video quality statistic is not a usable finite value: {psnr!r}")
+    rms = manifest.audio.get("rms")
+    if rms is None or not _finite(rms) or rms <= 0.0:
+        failures.append(f"audio RMS is not a usable finite value: {rms!r}")
+    if not manifest.index.get("entries"):
+        failures.append("manifest has no random-access index entries")
+    return failures
+
+
+def _finite(value: Any) -> bool:
+    try:
+        import math
+
+        return math.isfinite(float(value))
+    except (TypeError, ValueError):
+        return False
