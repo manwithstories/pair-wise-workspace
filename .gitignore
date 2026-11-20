@@ -71,3 +71,15 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ============================================================
+# mediabridge —— 运行产物与本地环境
+# ============================================================
+.venv/
+.work/
+__pycache__/
+*.py[cod]
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
