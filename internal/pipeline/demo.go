@@ -71,13 +71,25 @@ func Run(ctx context.Context, cfg DemoConfig) (*Metrics, *manifest.Manifest, err
 	}
 
 	// 2. 扫描 + 统一时钟 + 索引校验。
+	// 若配置中断点，则先扫描到该块并落检查点，再走恢复路径仅复用
+	// 校验通过的块、续扫剩余块；resumeMS 只统计恢复阶段耗时。
+	var resumeMS int64
+	if cfg.InterruptBlock >= 0 {
+		resumeMS, err = simulateInterruptedScan(tracks, cfg)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
 	reps := make([]align.Representation, 0, len(tracks))
 	var allIssues []stream.Issue
 	inputRefs := map[int]checkpoint.InputRef{}
 	trackStates := make([]checkpoint.TrackState, 0, len(tracks))
 	for _, ta := range tracks {
-		if err := scanAndClock(ta, cfg); err != nil {
-			return nil, nil, err
+		if cfg.InterruptBlock < 0 {
+			if err := scanAndClock(ta, cfg); err != nil {
+				return nil, nil, err
+			}
 		}
 		allIssues = append(allIssues, ta.Scan.Issues...)
 		reps = append(reps, buildRepresentation(ta))
@@ -111,7 +123,7 @@ func Run(ctx context.Context, cfg DemoConfig) (*Metrics, *manifest.Manifest, err
 	}
 
 	// 6. 指标汇总。
-	metrics := assembleMetrics(cfg, injected, aligned, m, start)
+	metrics := assembleMetrics(cfg, injected, aligned, m, start, resumeMS)
 	return metrics, m, nil
 }
 
@@ -153,7 +165,12 @@ func scanAndClock(ta *TrackArtifacts, cfg DemoConfig) error {
 		return err
 	}
 	ta.Scan = scan
+	return buildClockAndIndex(ta, cfg)
+}
 
+// buildClockAndIndex 在已有扫描结果上构建统一时钟并校验/重建关键帧索引。
+func buildClockAndIndex(ta *TrackArtifacts, cfg DemoConfig) error {
+	scan := ta.Scan
 	tl := clock.NewTimeline(ta.Spec.TrackID,
 		clock.Rational{Num: int64(ta.Spec.Timescale), Den: 1},
 		ta.Spec.NominalStep)
@@ -284,13 +301,18 @@ func persistAndMaybeResume(ctx context.Context, cfg DemoConfig, jobID string,
 }
 
 // assembleMetrics 汇总验收指标，含损坏定位误差与恢复耗时。
+// resumeMS 仅统计中断后的恢复阶段；无中断时回退为端到端耗时。
 func assembleMetrics(cfg DemoConfig, injected *fixture.Corruption,
-	aligned *align.Result, m *manifest.Manifest, start time.Time) *Metrics {
+	aligned *align.Result, m *manifest.Manifest, start time.Time, resumeMS int64) *Metrics {
+	rm := resumeMS
+	if rm == 0 {
+		rm = time.Since(start).Milliseconds()
+	}
 	mt := &Metrics{
 		Segments:       m.SegmentCount,
 		AlignmentMaxMS: aligned.MaxDrift / 1000,
 		ManifestSHA256: m.SHA256,
-		ResumeMS:       time.Since(start).Milliseconds(),
+		ResumeMS:       rm,
 	}
 	if injected != nil {
 		mt.CorruptOffset = injected.Offset
