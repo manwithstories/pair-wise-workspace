@@ -483,3 +483,36 @@ def load_audio_track(
         start_pts_ticks=start_pts_ticks,
         anchors=tuple(anchors),
     )
+
+
+def read_stream_slice(track: VideoTrack, record: PacketRecord) -> bytes:
+    """Read one packet's bytes with an explicit bound (no whole-file reads)."""
+
+    if record.size > track.stream_size:
+        raise IndexError_(f"{track.track_id}: packet larger than the stream")
+    with track.path.open("rb") as handle:
+        handle.seek(record.offset)
+        data = handle.read(record.size)
+    if len(data) != record.size:
+        raise StreamError(
+            f"{track.track_id}: truncated read at {record.offset} "
+            f"({len(data)} of {record.size} bytes)"
+        )
+    return data
+
+
+def probe_stream_duration(path: str | Path, codec: str) -> int:
+    """Best-effort duration from packet positions; 0 when unavailable."""
+
+    try:
+        import av
+    except ImportError as exc:  # pragma: no cover
+        raise DependencyError("PyAV is required for probing") from exc
+    try:
+        with av.open(str(path), format=codec) as container:
+            video = container.streams.video[0]
+            if video.duration and video.time_base:
+                return int(float(video.duration * video.time_base) * TICKS_PER_SECOND)
+    except Exception:  # noqa: BLE001 - optional metadata only
+        return 0
+    return 0
