@@ -310,3 +310,46 @@ def verify_manifest(payload: Mapping[str, Any]) -> list[str]:
 
 def manifest_failures_to_error(failures: Sequence[str]) -> QualityGateError:
     return QualityGateError("; ".join(failures))
+
+
+def format_summary(manifest: Manifest) -> list[str]:
+    """Human-readable terminal lines shared by demo and verify."""
+
+    payload = manifest.to_dict()
+    transport = payload["transport"]
+    lines = [
+        f"target_bps={manifest.target_bps} actual_bps={manifest.actual_bps} "
+        f"deviation_pct={payload['bitrate']['deviation_pct']:+.3f}",
+        f"video_frames={manifest.video_frames}",
+        f"audio_peak={manifest.audio.get('peak', 0.0):.6f} "
+        f"audio_rms={manifest.audio.get('rms', 0.0):.6f}",
+        f"loss={transport.get('loss', 0)} recovered={transport.get('recovered', 0)} "
+        f"unrecoverable={transport.get('unrecoverable', 0)}",
+        "loss/recovered/unrecoverable="
+        f"{transport.get('loss', 0)}/{transport.get('recovered', 0)}/"
+        f"{transport.get('unrecoverable', 0)}",
+        f"manifest_max_error_ms={manifest.manifest_max_error_ms:.3f}",
+        f"status={manifest.status()}",
+    ]
+    return lines
+
+
+def verify_summary(payload: Mapping[str, Any], failures: Sequence[str]) -> list[str]:
+    bitrate = payload["bitrate"]
+    transport = payload["transport"]
+    sync = payload.get("sync", {})
+    max_error = sync.get("max_error_ms", 0.0)
+    declared = payload.get("status", "UNKNOWN")
+    lines = [
+        f"target_bps={bitrate['target_bps']} actual_bps={bitrate['actual_bps']} "
+        f"deviation_pct={bitrate.get('deviation_pct', 0.0):+.3f}",
+        f"video_frames={payload['video']['frames']}",
+        f"audio_rms={payload['audio'].get('rms', 0.0):.6f}",
+        f"loss={transport['loss']} recovered={transport['recovered']} "
+        f"unrecoverable={transport['unrecoverable']}",
+        "loss/recovered/unrecoverable="
+        f"{transport['loss']}/{transport['recovered']}/{transport['unrecoverable']}",
+        f"manifest_max_error_ms={float(max_error):.3f}",
+        f"status={'PASS' if not failures and declared == 'PASS' else 'FAIL'}",
+    ]
+    return lines
