@@ -77,12 +77,15 @@ func Generate(opts Options) Case {
 		} else {
 			tf.Kind, tf.Timescale = "audio", 48000
 		}
-		// Audio tracks start 3-18 ms after video: the AV sync the
-		// pipeline must measure, never silently re-zero.
+		// Audio tracks start 3-18 ms after video: declared via EXT-X-START
+		// and mirrored in the tfdt capture clock, so the pipeline must
+		// reconstruct the offset, never silently re-zero it.
 		var startOffsetSrc int64
+		var startOffsetS string
 		if tf.Kind == "audio" {
 			ms := 3 + rng.Float64()*15
 			startOffsetSrc = int64(ms * float64(tf.Timescale) / 1000)
+			startOffsetS = fmt.Sprintf("#EXT-X-START:TIME-OFFSET=%.3f\n", ms/1000)
 		}
 		// One track runs its timebase through a 33-bit wrap.
 		var wrapBase uint64
@@ -100,6 +103,7 @@ func Generate(opts Options) Case {
 			rungJitterSrc := int64(r) * 5 * tf.Timescale / 1000
 			var pl strings.Builder
 			pl.WriteString("#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:4\n#EXT-X-MEDIA-SEQUENCE:0\n")
+			pl.WriteString(startOffsetS)
 			for i := 0; i < segmentsPerRep; i++ {
 				uri := fmt.Sprintf("%s_seg_%d.m4s", rep.ID, i)
 				keyframe := i%5 == 0 && i%23 != 13

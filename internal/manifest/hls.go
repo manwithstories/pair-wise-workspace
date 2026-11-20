@@ -82,6 +82,20 @@ func ParseHLSMedia(track, repID string, data []byte) (Representation, fault.List
 				break
 			}
 			target = r
+		case strings.HasPrefix(s, "#EXT-X-START:"):
+			for _, attr := range strings.Split(s[len("#EXT-X-START:"):], ",") {
+				k, val, ok := strings.Cut(attr, "=")
+				if !ok || k != "TIME-OFFSET" {
+					continue
+				}
+				r, err := parseDecimal(val)
+				if err != nil {
+					faults = append(faults, fault.New(fault.StageManifest, track, ln.offset, true,
+						"malformed EXT-X-START %q", s))
+					break
+				}
+				rep.StartOffset = secondsToTicks(r)
+			}
 		case strings.HasPrefix(s, "#EXTINF:"):
 			d := strings.TrimSuffix(s[len("#EXTINF:"):], ",")
 			r, err := parseDecimal(d)

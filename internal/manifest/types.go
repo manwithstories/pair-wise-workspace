@@ -29,7 +29,10 @@ type SegmentRef struct {
 type Representation struct {
 	ID        string       `json:"id"`
 	Bandwidth int          `json:"bandwidth"`
-	Segments  []SegmentRef `json:"segments"`
+	// StartOffset is the declared presentation start (90 kHz ticks),
+	// from EXT-X-START or a DASH presentation offset; 0 when absent.
+	StartOffset int64        `json:"start_offset_ticks"`
+	Segments    []SegmentRef `json:"segments"`
 }
 
 // Track is one isolated media track: a ladder of representations.
