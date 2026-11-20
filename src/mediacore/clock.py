@@ -186,6 +186,55 @@ def _unwrap(raw: Sequence[int | None], period: int) -> tuple[list[int | None], l
     return out, wrapped, wraps
 
 
+def _reorder_pass(
+    values: Sequence[int | None], window: int, limit: int,
+) -> tuple[list[int | None], list[str]]:
+    """Stable-sort short disorder runs back into value order.
+
+    A run is a maximal span of values that sit at or below the running maximum
+    and stay within ``window`` ticks of it, at most ``limit`` entries long.
+    Sorting only such short, bounded runs cannot reorder genuinely distant
+    discontinuities, which are reported as uncertain instead.
+    """
+    out = list(values)
+    reasons = ["ok"] * len(values)
+    n = len(values)
+    i = 0
+    while i < n:
+        if values[i] is None:
+            i += 1
+            continue
+        run_positions = [i]
+        run_values = [values[i]]
+        max_value = values[i]
+        min_value = values[i]
+        j = i + 1
+        while j < n and len(run_positions) < limit:
+            value = values[j]
+            if value is None:
+                j += 1
+                continue
+            candidate_max = max(max_value, value)
+            candidate_min = min(min_value, value)
+            if value <= max_value and candidate_max - candidate_min <= window:
+                run_positions.append(j)
+                run_values.append(value)
+                min_value = candidate_min
+                j += 1
+                continue
+            break
+        if len(run_positions) > 1:
+            ordered = sorted(run_values)
+            for position, value in zip(run_positions, ordered):
+                if out[position] != value:
+                    out[position] = value
+                    reasons[position] = "reordered"
+            i = j
+        else:
+            i += 1
+    return out, reasons
+
+
 def repair_timestamps(
     raw_values: Sequence[int | None],
     *,
@@ -222,6 +271,10 @@ def repair_timestamps(
         unwrapped = [None if v is None else (v + 2**63 if v < 0 else v) for v in raw_values]
         wrapped = [False] * n
         wraps = 0
+
+    pre_reason = ["ok"] * n
+    if reorder_window is None:
+        unwrapped, pre_reason = _reorder_pass(unwrapped, window, max(2, window // step))
 
     decisions: list[StampDecision] = []
     seen: dict[int, int] = {}
@@ -272,8 +325,9 @@ def repair_timestamps(
                 off, severity="warning", detail={"index": i, "duplicate_of": original}))
             continue
 
+        reordered = pre_reason[i]
         if previous is None:
-            emit(StampDecision(raw=raw, fixed=value, reason="ok"))
+            emit(StampDecision(raw=raw, fixed=value, reason=reordered))
         elif value > previous:
             gap = value - previous
             if gap > gap_limit:
@@ -289,7 +343,11 @@ def repair_timestamps(
                     raw=raw, fixed=value, reason="wrapped",
                     note="timestamp counter wrapped; epoch restored"))
             else:
-                emit(StampDecision(raw=raw, fixed=value, reason="ok"))
+                emit(StampDecision(raw=raw, fixed=value, reason=reordered))
+                if reordered != "ok":
+                    issues.append(MediaIssue(
+                        "timestamp_reordered", "out-of-order timestamp restored to value order",
+                        off, severity="warning", detail={"index": i}))
         else:
             distance = previous - value
             if distance > window:
