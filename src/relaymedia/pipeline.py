@@ -132,6 +132,7 @@ def run_pipeline(
     config: PipelineConfig,
     input_digest: str,
     params_digest: str,
+    timecode_path: str | None = None,
     probe_color_fn=None,
     open_video_fn=None,
 ) -> RunResult:
@@ -210,5 +211,6 @@ def run_pipeline(
     finalize(
         result, sink, checkpoint, config, sources, subtitle_path, video_paths,
         probe_color_fn or default_probe, open_video_fn or av.open,
+        timecode_path=timecode_path,
     )
     return result

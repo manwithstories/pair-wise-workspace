@@ -23,8 +23,9 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from fractions import Fraction
+from pathlib import Path
 
-from .errors import InputError, Stage
+from .errors import ErrorRecord, InputError, Stage
 
 _SECONDS_PER_DAY = 24 * 3600
 
@@ -165,3 +166,63 @@ def master_tick_rate(sample_rates: list[int]) -> int:
             raise InputError(f"sample rate must be positive, got {rate}", stage=Stage.TIMELINE)
         tick = math.lcm(tick, rate)
     return tick
+
+
+@dataclass(frozen=True, slots=True)
+class TimecodeRecord:
+    line: int
+    offset_bytes: int
+    raw: str
+    unified_seconds: Fraction | None  # None when the record was unconvertible
+
+
+def load_timecode_manifest(
+    path: str | Path,
+) -> tuple[list[TimecodeRecord], list[ErrorRecord], TimecodeClock]:
+    """Parse a manifest whose header declares ``# rate=... offset=...``.
+
+    Unconvertible records are returned as located error-like records and left
+    out of the converted list; boundaries downstream are never shifted to hide
+    them. Repeated stamps are legal, and a backwards jump advances the day.
+    """
+    data = Path(path).read_bytes()
+    header = data.split(b"\n", 1)[0].decode("utf-8", errors="replace")
+    rate_text = Fraction(24)
+    offset = Fraction(0)
+    if header.startswith("#"):
+        for token in header[1:].split():
+            if token.startswith("rate="):
+                rate_text = parse_rate(token.split("=", 1)[1])
+            elif token.startswith("offset="):
+                offset = Fraction(token.split("=", 1)[1])
+    clock = TimecodeClock(rate_text, offset_seconds=offset)
+
+    records: list[TimecodeRecord] = []
+    errors: list[ErrorRecord] = []
+    byte_cursor = 0
+    for line_no, raw_line in enumerate(data.split(b"\n"), start=1):
+        line = raw_line.decode("utf-8", errors="replace").strip()
+        line_bytes = len(raw_line) + 1  # include the consumed newline
+        if not line or line.startswith("#"):
+            byte_cursor += line_bytes
+            continue
+        try:
+            stamp = parse_timecode_stamp(
+                line, offset_bytes=byte_cursor, line=line_no
+            )
+            unified = clock.convert(stamp)
+            records.append(TimecodeRecord(line_no, byte_cursor, line, unified))
+        except InputError as exc:
+            errors.append(
+                ErrorRecord(
+                    stage=Stage.TIMELINE.value,
+                    kind=type(exc).__name__,
+                    message=exc.message,
+                    source=str(path),
+                    offset_bytes=byte_cursor,
+                    line=line_no,
+                )
+            )
+            records.append(TimecodeRecord(line_no, byte_cursor, line, None))
+        byte_cursor += line_bytes
+    return records, errors, clock

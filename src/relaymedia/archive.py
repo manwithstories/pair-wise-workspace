@@ -12,6 +12,7 @@ the remaining checkpoints.
 from __future__ import annotations
 
 import datetime
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
@@ -19,6 +20,7 @@ import soundfile as sf
 
 from .audio import SilenceInterval
 from .checkpoint import Checkpoint
+from .clock import load_timecode_manifest
 from .errors import ErrorRecord, Stage
 from .fingerprint import Fingerprint, FingerprintIndex, register_and_match
 from .segments import build_segments, cut_pcm
@@ -171,9 +173,21 @@ def _collect_errors(result, *lists: list[ErrorRecord]) -> None:
 
 def finalize(result, sink: StreamSink, checkpoint: Checkpoint, config,
              sources: list[tuple[str, str]], subtitle_path: str,
-             video_paths: list[str], probe_color_fn, open_video_fn) -> None:
+             video_paths: list[str], probe_color_fn, open_video_fn,
+             timecode_path: str | None = None) -> None:
     sink.finish_node()
     work = sink.work
+
+    # Optional editorial timecode manifest: fractional rates, negative offset,
+    # day wrap, repeated and unconvertible stamps. Errors are located.
+    timecode_errors: list[ErrorRecord] = []
+    timecode_records = []
+    if timecode_path:
+        timecode_records, timecode_errors, clock = load_timecode_manifest(timecode_path)
+        checkpoint.mark_stage(Stage.TIMELINE, {
+            "timecode_wraps": clock.wraps,
+            "converted": [r.line for r in timecode_records if r.unified_seconds is not None],
+        }, completed_at=_now())
 
     # Subtitle + timeline stage.
     track = parse_subtitles(subtitle_path)
@@ -226,8 +240,10 @@ def finalize(result, sink: StreamSink, checkpoint: Checkpoint, config,
     result.duplicate_count = index.duplicate_count
     result.output_files = sorted(output_files)
     _collect_errors(result, track.errors, plan.errors, sink.errors,
+                    timecode_errors,
                     *(r.conflicts for r in result.color_reports))
-    checkpoint.mark_stage(Stage.FINGERPRINT, [m.__dict__ for m in index.matches],
+    checkpoint.mark_stage(Stage.FINGERPRINT,
+                          [asdict(m) for m in index.matches],
                           completed_at=_now())
     checkpoint.mark_stage(Stage.WRITE, {"files": result.output_files},
                           completed_at=_now())
