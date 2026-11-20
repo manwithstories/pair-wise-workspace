@@ -680,6 +680,12 @@ def archive(
     limits.validate()
     settings = AudioSettings(rate=rate, layout=layout, target_lufs=lufs)
     settings.validate()
+    try:
+        os.path.getsize(input_path)
+    except OSError as exc:
+        raise MediaError(
+            "io", f"cannot read source: {exc}", stage="probe", path=input_path
+        ) from exc
 
     store = StageStore(Path(work_dir), resume=resume)
     store.prepare()

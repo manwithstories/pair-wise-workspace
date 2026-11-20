@@ -360,7 +360,8 @@ def verify_manifest(
     source = source_path or str(manifest.source.get("path") or "")
     if source and Path(source).exists():
         try:
-            probed = probe(source)
+            with quiet_libav():
+                probed = probe(source)
         except MediaError as exc:
             report.errors.append(exc)
             probed = None
