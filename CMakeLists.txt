@@ -21,6 +21,15 @@ add_library(mediacore STATIC
   src/error.cpp
   src/pathutil.cpp
   src/json.cpp
+  src/json_parse.cpp
+  src/manifest.cpp
+  src/hls_parser.cpp
+  src/dash_template.cpp
+  src/dash_expand.cpp
+  src/dash_parser.cpp
+  src/serialize.cpp
+  src/materialize.cpp
+  src/roundtrip.cpp
 )
 target_include_directories(mediacore PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -33,3 +42,8 @@ include(CTest)
 add_executable(test_core tests/test_core.cpp)
 target_link_libraries(test_core PRIVATE mediacore Catch2::Catch2WithMain)
 add_test(NAME core COMMAND test_core)
+
+add_executable(test_manifest tests/test_manifest.cpp)
+target_link_libraries(test_manifest PRIVATE
+  mediacore Catch2::Catch2WithMain)
+add_test(NAME manifest COMMAND test_manifest)
