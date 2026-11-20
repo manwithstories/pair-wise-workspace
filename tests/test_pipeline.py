@@ -141,3 +141,48 @@ def test_acceptance_scenario_meets_all_limits(tmp_path):
     assert manifest.quality["video"]["finite"] is True
     assert manifest.audio["rms"] > 0.0
     assert verify_manifest(manifest) == []
+
+
+def test_verification_rejects_broken_segment_boundaries(tiny_dir):
+    from mediacore.manifest import Segment
+
+    units = _units(tiny_dir["video_path"])
+    seconds = [i / 30 for i in range(len(units))]
+    segments = build_segments(units, seconds, target_bps=600_000,
+                              frame_duration_s=1 / 30)
+    manifest = Manifest(
+        run_id="r", codec="h264", time_base={"num": 1, "den": 30},
+        target_bps=600_000, actual_bps=600_000.0, deviation_pct=0.0,
+        video={"bytes": 1, "sha256": "x"}, audio={"rms": 0.2, "path": "a"},
+        segments=segments, index={"entries": [{"offset": 0}]},
+        timeline={}, quality={"video": {"psnr_db": 40.0}},
+        alignment={"max_alignment_ms": 1.0},
+        inputs=[], checkpoint={}, duration_s=2.0)
+    assert verify_manifest(manifest, deviation_limit_pct=50.0) == []
+
+    segments[1].start_s += 0.1  # no longer tiles the timeline
+    failures = verify_manifest(manifest, deviation_limit_pct=50.0)
+    assert any("does not start where" in f for f in failures)
+
+    manifest.segments = []
+    failures = verify_manifest(manifest)
+    assert any("no segments" in f for f in failures)
+
+
+def test_scan_retains_bounded_payload_for_long_streams(tmp_path):
+    from mediacore.fixtures import FixtureSpec, make_fixtures
+    from mediacore.pipeline import scan_stream
+
+    spec = FixtureSpec(codec="h264", duration_s=6, bitrate=600_000, seed=2)
+    files = make_fixtures(tmp_path / "in", spec)
+    stage = scan_stream(tmp_path / "in" / "video.h264", "h264", keep_first=5)
+    retained = sum(len(u.data) for u in stage.units)
+    total = sum(u.size for u in stage.units)
+    assert stage.payload_bytes_released > 0
+    # only the first units and the tail window remain resident
+    assert retained < total * 0.5
+    assert retained <= stage.payload_bytes_released + 30 * max(
+        u.size for u in stage.units)
+    # released payloads are still readable from the source
+    released_unit = next(u for u in stage.units if not u.data)
+    assert released_unit.payload().startswith(b"\x00\x00\x01")
