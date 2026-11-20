@@ -1,81 +1,52 @@
 package testdata
 
-import (
-	"os"
-	"path/filepath"
-	"testing"
-
-	"archive/internal/manifest"
-	"archive/internal/mp4"
-)
-
-func testConfig() Config {
-	return Config{Seed: 41, BurstLoss: 7, Reorder: 12, Bandwidth: []float64{1, 8, 2}}
-}
-
-func TestGenerate(t *testing.T) {
-	root := t.TempDir()
-	f, err := Generate(testConfig(), root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(f.Good) != 5 || len(f.Corrupt) != 4 {
-		t.Fatalf("good=%d corrupt=%d", len(f.Good), len(f.Corrupt))
-	}
-	if len(f.RTP) == 0 {
-		t.Fatal("no RTP packets")
-	}
-	// every good asset manifest parses and its segments demux
-	for _, a := range f.Good {
-		entry := filepath.Join(a.Dir, a.ManifestFile)
-		data, err := os.ReadFile(entry)
-		if err != nil {
-			t.Fatal(err)
-		}
-		m, err := manifest.Parse(a.Name, data)
-		if err != nil {
-			t.Fatalf("%s: %v", a.Name, err)
-		}
-		if m.Type == manifest.TypeHLSMaster {
-			data, _ = os.ReadFile(filepath.Join(a.Dir, m.Variants[0].URI))
-			m, err = manifest.Parse(a.Name, data)
-			if err != nil {
-				t.Fatalf("%s media: %v", a.Name, err)
-			}
-		}
-		if len(m.Segments) == 0 {
-			t.Fatalf("%s: no segments", a.Name)
-		}
-		seg, err := os.ReadFile(filepath.Join(a.Dir, m.Segments[0].URI))
-		if err != nil {
-			t.Fatalf("%s: %v", a.Name, err)
-		}
-		tracks, err := mp4.Demux(a.Name, m.Segments[0].URI, seg)
-		if err != nil {
-			t.Fatalf("%s demux: %v", a.Name, err)
-		}
-		if len(tracks) < 2 {
-			t.Fatalf("%s: tracks %d", a.Name, len(tracks))
-		}
-	}
-}
+import "testing"
 
 func TestGenerateDeterministic(t *testing.T) {
-	r1, r2 := t.TempDir(), t.TempDir()
-	f1, err := Generate(testConfig(), r1)
-	if err != nil {
-		t.Fatal(err)
+	specs := DefaultTracks(500)
+	cfg := Config{Seed: 7, Tracks: specs, Scenario: ScenarioReorderDup, SREvery: 64, BurstSize: 7}
+	a := Generate(cfg)
+	b := Generate(cfg)
+	if len(a.Datagrams) != len(b.Datagrams) {
+		t.Fatal("same seed produced different datagram counts")
 	}
-	f2, err := Generate(testConfig(), r2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(f1.RTP) != len(f2.RTP) {
-		t.Fatal("RTP stream not deterministic")
-	}
-	for i := range f1.RTP {
-		if string(f1.RTP[i]) != string(f2.RTP[i]) {
-			t.Fatalf("RTP packet %d differs", i)
+	for i := range a.Datagrams {
+		if string(a.Datagrams[i]) != string(b.Datagrams[i]) {
+			t.Fatalf("datagram %d differs across same-seed runs", i)
 		}
+	}
+}
+
+func TestGenerateScenarios(t *testing.T) {
+	specs := DefaultTracks(300)
+	cases := map[Scenario]func(g GroundTruth) bool{
+		ScenarioClean:       func(g GroundTruth) bool { return g.Lost == 0 && g.Duplicates == 0 },
+		ScenarioBurstLoss:   func(g GroundTruth) bool { return g.Lost > 0 },
+		ScenarioReorderDup:  func(g GroundTruth) bool { return g.Duplicates > 0 },
+		ScenarioTruncated:   func(g GroundTruth) bool { return g.Truncated > 0 },
+		ScenarioCorruptRTCP: func(g GroundTruth) bool { return g.CorruptReports > 0 },
+		ScenarioArchive:     func(g GroundTruth) bool { return g.Lost > 0 && g.Duplicates > 0 },
+	}
+	for sc, ok := range cases {
+		s := Generate(Config{Seed: 1, Tracks: specs, Scenario: sc, SREvery: 64, BurstSize: 7})
+		if !ok(s.Truth) {
+			t.Errorf("scenario %s did not produce expected impairment: %+v", sc, s.Truth)
+		}
+	}
+}
+
+func TestGenerateEmitsReports(t *testing.T) {
+	specs := DefaultTracks(100)
+	s := Generate(Config{Seed: 1, Tracks: specs, Scenario: ScenarioClean, SREvery: 50, BurstSize: 7})
+	if s.Truth.ValidReports == 0 {
+		t.Error("expected valid RTCP sender reports")
+	}
+}
+
+func TestGroundTruthKeyframes(t *testing.T) {
+	specs := DefaultTracks(200) // video keyframe every 25
+	s := Generate(Config{Seed: 1, Tracks: specs, Scenario: ScenarioClean, SREvery: 64})
+	if s.Truth.Keyframes == 0 {
+		t.Error("expected keyframes in ground truth")
 	}
 }
