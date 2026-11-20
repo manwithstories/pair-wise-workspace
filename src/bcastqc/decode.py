@@ -57,6 +57,7 @@ __all__ = [
     "FrameBlock",
     "DecodeStats",
     "LossModel",
+    "VideoDecoder",
     "reader_for_codec",
     "probe_stream",
 ]
@@ -277,3 +278,185 @@ def probe_stream(path: Path) -> tuple[Codec, int]:
 # ==========================================================================
 # Video decoding
 # ==========================================================================
+
+
+class VideoDecoder:
+    """Stateful raw-stream decoder with explicit loss recovery.
+
+    Access units are fed in stream order; decoded frames are released in
+    display order through a bounded reorder buffer.  After an unrecoverable
+    loss the decoder is marked damaged and skips input until the next
+    keyframe, which guarantees that every frame emitted afterwards matches a
+    clean decode (decoders do not reliably report reference damage).
+    """
+
+    def __init__(self, codec: Codec, frame_rate: Fraction, *, reorder_limit: int = 64) -> None:
+        self.codec = codec
+        self.frame_rate = Fraction(frame_rate)
+        if self.frame_rate <= 0:
+            raise make_error(ErrorCategory.TIMELINE_INVALID, "frame rate must be positive", frame_rate=str(frame_rate))
+        self.reorder_limit = reorder_limit
+        self._ctx = self._new_context()
+        self._pending: dict[int, DecodedFrame] = {}
+        self._next_emit = 0
+        self._damaged = False
+        self._last_frame: DecodedFrame | None = None
+        self.stats = DecodeStats()
+
+    # -- context ---------------------------------------------------------
+    def _new_context(self) -> av.CodecContext:
+        name = {Codec.H264: "h264", Codec.H265: "hevc", Codec.AV1: "libdav1d"}[self.codec]
+        try:
+            ctx = av.CodecContext.create(name, "r")
+        except Exception as exc:  # pragma: no cover - environment dependent
+            raise DecodeError(
+                ErrorCategory.DECODER_UNAVAILABLE,
+                f"decoder {name!r} is not available in this FFmpeg build",
+                details={"decoder": name, "reason": str(exc)},
+            ) from exc
+        ctx.thread_count = 1  # deterministic output ordering
+        return ctx
+
+    def reset(self) -> None:
+        self._ctx = self._new_context()
+        self._damaged = False
+        self.stats.decoder_resets += 1
+
+    @property
+    def damaged(self) -> bool:
+        return self._damaged
+
+    @property
+    def last_frame(self) -> DecodedFrame | None:
+        return self._last_frame
+
+    def _time_of(self, pts: int) -> Fraction:
+        return Fraction(pts, 1) / self.frame_rate
+
+    def _make_frame(self, frame: av.VideoFrame, pts: int, *, keyframe: bool, source: str,
+                    recovered: bool, au: AccessUnit, gap_ms: Fraction = Fraction(0)) -> DecodedFrame:
+        rgb = frame.to_ndarray(format="rgb24")
+        return DecodedFrame(
+            pts=pts,
+            time=self._time_of(pts),
+            array=np.ascontiguousarray(rgb),
+            keyframe=keyframe,
+            source=source,
+            recovered=recovered,
+            gap_ms=gap_ms,
+            source_offset=au.offset,
+            source_size=au.size,
+            au_index=au.index,
+        )
+
+    def _drain_pending(self, *, force: bool = False) -> Iterator[DecodedFrame]:
+        while self._pending and len(self._pending) > self.reorder_limit:
+            frame = self._pending.pop(min(self._pending))
+            if frame.pts > self._next_emit:
+                self._next_emit = frame.pts
+        while True:
+            if self._next_emit in self._pending:
+                frame = self._pending.pop(self._next_emit)
+            elif force:
+                if not self._pending:
+                    return
+                frame = self._pending.pop(min(self._pending))
+                self._next_emit = frame.pts
+            else:
+                return
+            if frame.pts != self._next_emit:
+                # the decoder skipped or repeated a display position
+                self.stats.timestamp_jumps += 1
+            self._next_emit = frame.pts + 1
+            self._last_frame = frame
+            yield frame
+
+    def feed(self, au: AccessUnit, payload: bytes, *, recovered: bool = False,
+             source: str = SOURCE_DECODE) -> Iterator[DecodedFrame]:
+        """Decode one access unit supplied as bytes (possibly from a retry)."""
+        if self._damaged:
+            if not au.is_keyframe:
+                self.stats.delivered += 1
+                return
+            self.reset()
+            self.stats.keyframe_resyncs += 1
+        packet = av.Packet(payload)
+        packet.pts = au.index
+        packet.dts = au.index
+        packet.time_base = Fraction(1, 1)
+        try:
+            frames = list(self._ctx.decode(packet))
+        except (av.error.InvalidDataError, av.error.EOFError) as exc:
+            self.stats.illegal_units += 1
+            self.mark_damaged()
+            raise make_error(
+                ErrorCategory.STREAM_CORRUPT,
+                f"decoder rejected access unit {au.index}: {exc}",
+                au_index=au.index,
+                offset=au.offset,
+                size=au.size,
+            ) from exc
+        for frame in frames:
+            pts = frame.pts if frame.pts is not None else au.index
+            decoded = self._make_frame(
+                frame, int(pts), keyframe=au.is_keyframe, source=source,
+                recovered=recovered, au=au,
+            )
+            self._pending[decoded.pts] = decoded
+        yield from self._drain_pending()
+
+    def mark_damaged(self) -> None:
+        """Declare the stream damaged: discard pending frames, skip to keyframe."""
+        self._damaged = True
+        self._pending.clear()
+
+    def conceal(self, gap_frames: int, *, au: AccessUnit | None = None,
+                until_pts: int | None = None) -> Iterator[DecodedFrame]:
+        """Emit concealed copies of the last good frame for a lost region.
+
+        These frames are explicitly *not* recovered; their ``gap_ms`` states
+        how long the gap was.  A concealed frame is skipped when no reference
+        picture exists yet (loss before the first decoded frame).
+
+        ``until_pts`` clamps the gap so concealment never claims a display
+        position that the resynchronising keyframe will occupy: the concealed
+        count is at most ``until_pts - _next_emit``.
+        """
+        if until_pts is not None:
+            gap_frames = max(0, min(gap_frames, until_pts - self._next_emit))
+        if self._last_frame is None or gap_frames <= 0:
+            if gap_frames > 0:
+                self._next_emit += gap_frames
+            return
+        gap_ms = self._time_of(gap_frames) * 1000
+        offset_au = au or AccessUnit(-1, 0, 0, False)
+        for offset in range(gap_frames):
+            pts = self._next_emit + offset
+            yield DecodedFrame(
+                pts=pts,
+                time=self._time_of(pts),
+                array=self._last_frame.array.copy(),
+                keyframe=False,
+                source=SOURCE_CONCEALED,
+                recovered=False,
+                gap_ms=gap_ms,
+                source_offset=offset_au.offset,
+                source_size=offset_au.size,
+                au_index=offset_au.index,
+            )
+        self._next_emit += gap_frames
+        self.stats.concealed_frames += gap_frames
+
+    def flush(self) -> Iterator[DecodedFrame]:
+        try:
+            for frame in self._ctx.decode(None):
+                pts = frame.pts if frame.pts is not None else self._next_emit
+                decoded = self._make_frame(
+                    frame, int(pts), keyframe=bool(frame.key_frame),
+                    source=SOURCE_FLUSH, recovered=False,
+                    au=AccessUnit(-1, 0, 0, bool(frame.key_frame)),
+                )
+                self._pending[decoded.pts] = decoded
+        except (av.error.InvalidDataError, av.error.EOFError):
+            pass
+        yield from self._drain_pending(force=True)
