@@ -195,3 +195,96 @@ def _check_resume(manifest: dict, signature: dict) -> None:
                 recorded=prior.get("sha256"),
                 current=entry["sha256"],
             )
+
+
+# ==========================================================================
+# Frame export
+# ==========================================================================
+
+
+class _FrameWriter:
+    """Writes one PNG per frame and one manifest block per block of frames."""
+
+    def __init__(self, output_dir: Path, block_frames: int) -> None:
+        self.output_dir = output_dir
+        self.frames_dir = output_dir / "frames"
+        try:
+            self.frames_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise ResourceError(
+                ErrorCategory.OUTPUT_FAILURE,
+                f"cannot create frame directory: {exc}",
+                details={"path": str(self.frames_dir)},
+            ) from exc
+        self.block_frames = block_frames
+        self._encoder = None
+        self.blocks: list[dict] = []
+        self._current: list[dict] = []
+
+    def _png_bytes(self, array: np.ndarray) -> bytes:
+        import av
+
+        if self._encoder is None:
+            encoder = av.CodecContext.create("png", "w")
+            encoder.width = int(array.shape[1])
+            encoder.height = int(array.shape[0])
+            encoder.pix_fmt = "rgb24"
+            encoder.open()
+            self._encoder = encoder
+        video_frame = av.VideoFrame.from_ndarray(np.ascontiguousarray(array, dtype=np.uint8), format="rgb24")
+        packets = self._encoder.encode(video_frame)
+        return b"".join(bytes(packet) for packet in packets)
+
+    def write(self, frame: RenderedFrame) -> dict:
+        entry = frame.to_json()
+        blob = self._png_bytes(frame.array)
+        target = self.frames_dir / f"frame_{frame.number:06d}.png"
+        temporary = target.with_suffix(".png.tmp")
+        try:
+            temporary.write_bytes(blob)
+            os.replace(temporary, target)
+        except OSError as exc:
+            raise ResourceError(
+                ErrorCategory.OUTPUT_FAILURE,
+                f"cannot write frame {frame.number}: {exc}",
+                details={"frame": frame.number, "path": str(target)},
+            ) from exc
+        entry["file"] = target.name
+        entry["png_bytes"] = len(blob)
+        self._current.append(entry)
+        if len(self._current) >= self.block_frames:
+            self.flush_block()
+        return entry
+
+    def flush_block(self) -> dict | None:
+        if not self._current:
+            return None
+        entries = self._current
+        block = {
+            "index": len(self.blocks),
+            "frames": len(entries),
+            "hash": _block_hash(entries),
+            "frame_hashes": [entry["pixel_hash"] for entry in entries],
+            "entries": entries,
+        }
+        self.blocks.append(block)
+        self._current = []
+        return block
+
+    def close(self) -> None:
+        self.flush_block()
+        if self._encoder is not None:
+            try:
+                for _packet in self._encoder.encode(None):
+                    pass
+            except Exception:  # pragma: no cover - flush is best effort
+                pass
+            self._encoder = None
+
+
+def _block_hash(entries: list[dict]) -> str:
+    digest = hashlib.sha256()
+    for entry in entries:
+        digest.update(entry["pixel_hash"].encode())
+        digest.update(b"\n")
+    return digest.hexdigest()
