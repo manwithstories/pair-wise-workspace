@@ -200,37 +200,48 @@ def dejitter(
     highest_buffered = playhead - 1
 
     def expire(now: int, *, final: bool) -> None:
-        """Emit contiguous packets, declaring overdue gaps lost."""
+        """Emit contiguous packets, declaring overdue gaps lost.
+
+        A gap is lost when a later sequence overtook it and the wait budget
+        since that overtake has elapsed, when the overtake distance exceeds
+        the reorder window, or when the stream ends with the gap unfilled.
+        """
 
         nonlocal playhead
         while True:
-            while playhead in buffer:
+            if playhead in buffer:
                 emitted[playhead] = buffer.pop(playhead)
                 overtaken_at.pop(playhead, None)
                 playhead += 1
+                continue
             if playhead in lost:
                 playhead += 1
                 continue
             deadline = overtaken_at.get(playhead)
             next_pending = min(buffer) if buffer else None
-            if next_pending is not None:
-                due = deadline is not None and now >= deadline + config.wait_budget_ms
-                far = next_pending - playhead > config.reorder_window
-                if due or far:
+            if next_pending is None:
+                if deadline is not None and (
+                    final or now >= deadline + config.wait_budget_ms
+                ):
                     lost[playhead] = MissingSequence(
                         seq=playhead,
-                        deadline_ms=(deadline or now) + config.wait_budget_ms,
-                        overtaken_by=next_pending,
+                        deadline_ms=deadline + config.wait_budget_ms,
+                        overtaken_by=-1,
                     )
                     overtaken_at.pop(playhead, None)
                     playhead += 1
                     continue
                 return
-            if deadline is not None and (final or now >= deadline + config.wait_budget_ms):
+            due = final or (
+                deadline is not None and now >= deadline + config.wait_budget_ms
+            )
+            too_far = next_pending - playhead > config.reorder_window
+            if due or too_far:
+                base = deadline if deadline is not None else now
                 lost[playhead] = MissingSequence(
                     seq=playhead,
-                    deadline_ms=deadline + config.wait_budget_ms,
-                    overtaken_by=-1,
+                    deadline_ms=base + config.wait_budget_ms,
+                    overtaken_by=next_pending,
                 )
                 overtaken_at.pop(playhead, None)
                 playhead += 1
@@ -259,6 +270,7 @@ def dejitter(
             overtaken_at.setdefault(gap, packet.arrival_ms)
         highest_buffered = max(highest_buffered, ext)
         buffer[ext] = packet
+        expire(packet.arrival_ms, final=False)
 
     expire(arrivals[-1].arrival_ms, final=True)
     result.ordered = [emitted[ext] for ext in sorted(emitted)]
