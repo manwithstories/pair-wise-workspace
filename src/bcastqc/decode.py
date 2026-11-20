@@ -355,10 +355,15 @@ class VideoDecoder:
         )
 
     def _drain_pending(self, *, force: bool = False) -> Iterator[DecodedFrame]:
+        # Safety valve: a reorder window larger than ``reorder_limit`` means
+        # the stream never delivers the awaited position (for example a long
+        # B-pyramid or a broken timestamp).  Release the oldest frame instead
+        # of discarding it, so no picture is silently lost.
         while self._pending and len(self._pending) > self.reorder_limit:
             frame = self._pending.pop(min(self._pending))
-            if frame.pts > self._next_emit:
-                self._next_emit = frame.pts
+            self._next_emit = max(self._next_emit, frame.pts)
+            self._last_frame = frame
+            yield frame
         while True:
             if self._next_emit in self._pending:
                 frame = self._pending.pop(self._next_emit)

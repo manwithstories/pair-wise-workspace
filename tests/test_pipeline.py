@@ -916,3 +916,50 @@ class TestPlacementRobustness:
 
         result = measure_placement(FakeTracker(), ["a", "b", "c"])
         assert result["missing"] == [1]
+
+
+class TestReorderValve:
+    def test_small_reorder_limit_never_drops_frames(self):
+        # build a short B-frame stream so the reorder buffer is exercised
+        import av
+        from bcastqc.bitstream import AnnexBParser, Codec
+        from bcastqc.decode import VideoDecoder
+
+        import tempfile
+
+        path = Path(tempfile.mkdtemp()) / "bframes.bin"
+        with av.open(str(path), "w", format="h264") as container:
+            stream = container.add_stream("libx264", rate=25)
+            stream.width = 64
+            stream.height = 48
+            stream.pix_fmt = "yuv420p"
+            stream.codec_context.options["preset"] = "ultrafast"
+            stream.codec_context.options["x264-params"] = "aud=1:bframes=3:keyint=12"
+            for index in range(30):
+                array = np.zeros((48, 64, 3), dtype=np.uint8)
+                array[:, :, 0] = (index * 17) % 256
+                frame = av.VideoFrame.from_ndarray(array, format="rgb24")
+                frame.pts = index
+                for packet in stream.encode(frame):
+                    container.mux(packet)
+            for packet in stream.encode(None):
+                container.mux(packet)
+        data = path.read_bytes()
+        units = AnnexBParser(Codec.H264).split(data)
+        # Even with a reorder limit far below the stream's B-frame depth no
+        # frame may be dropped; ordering degrades but the set is complete.
+        decoder = VideoDecoder(Codec.H264, Fraction(25), reorder_limit=2)
+        frames = []
+        for unit in units:
+            frames.extend(decoder.feed(unit, data[unit.offset:unit.end]))
+        frames.extend(decoder.flush())
+        pts = [frame.pts for frame in frames]
+        assert len(pts) == len(set(pts)) == 30
+        # With the default (generous) limit the same stream is display-ordered
+        decoder = VideoDecoder(Codec.H264, Fraction(25))
+        frames = []
+        for unit in units:
+            frames.extend(decoder.feed(unit, data[unit.offset:unit.end]))
+        frames.extend(decoder.flush())
+        pts = [frame.pts for frame in frames]
+        assert pts == sorted(pts)
