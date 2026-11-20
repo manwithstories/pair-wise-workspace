@@ -178,3 +178,135 @@ class Manifest:
             encoding="utf-8",
         )
         return path
+
+
+def build_manifest(
+    *,
+    seed: int,
+    target_bps: int,
+    total_bytes: int,
+    duration_ticks: int,
+    tracks: Sequence[TrackManifest],
+    gaps: Iterable[Mapping[str, Any]] = (),
+    transport: Mapping[str, Any] | None = None,
+    audio: Mapping[str, Any] | None = None,
+    sync: Mapping[str, Any] | None = None,
+    notes: Iterable[str] = (),
+) -> Manifest:
+    """Compute actual bitrate from delivered bytes over the timeline duration."""
+
+    if duration_ticks <= 0:
+        raise InputError("timeline duration must be positive")
+    if total_bytes < 0:
+        raise InputError("delivered byte count cannot be negative")
+    seconds = duration_ticks / TICKS_PER_SECOND
+    actual_bps = int(round(total_bytes * 8 / seconds))
+    return Manifest(
+        seed=seed,
+        target_bps=target_bps,
+        actual_bps=actual_bps,
+        duration_ticks=duration_ticks,
+        tracks=list(tracks),
+        gaps=[dict(gap) for gap in gaps],
+        transport=dict(transport or {}),
+        audio=dict(audio or {}),
+        sync=dict(sync or {}),
+        notes=list(notes),
+    )
+
+
+def load_manifest(path: str | Path) -> dict[str, Any]:
+    path = Path(path)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise InputError(f"cannot read manifest {path}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise InputError(f"manifest {path} is not valid JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise InputError("manifest root must be an object")
+    return payload
+
+
+def verify_manifest(payload: Mapping[str, Any]) -> list[str]:
+    """Re-check a manifest from scratch; returns gate failures."""
+
+    if payload.get("schema") != SCHEMA:
+        raise InputError(
+            f"unsupported manifest schema {payload.get('schema')!r}; "
+            f"expected {SCHEMA!r}"
+        )
+    failures: list[str] = []
+    bitrate = payload.get("bitrate")
+    if not isinstance(bitrate, Mapping):
+        raise InputError("manifest is missing the bitrate section")
+    try:
+        target = int(bitrate["target_bps"])
+        actual = int(bitrate["actual_bps"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise InputError(f"manifest bitrate section is malformed: {exc}") from exc
+    if target <= 0:
+        raise InputError("manifest target bitrate must be positive")
+    deviation = (actual - target) / target
+    if abs(deviation) > BITRATE_TOLERANCE:
+        failures.append(
+            f"bitrate deviation {deviation:.3%} exceeds {BITRATE_TOLERANCE:.0%}"
+        )
+    video = payload.get("video")
+    if not isinstance(video, Mapping):
+        raise InputError("manifest is missing the video section")
+    frames = video.get("frames")
+    if not isinstance(frames, int) or frames <= 0:
+        failures.append("manifest reports no video frames")
+    audio = payload.get("audio")
+    if not isinstance(audio, Mapping):
+        raise InputError("manifest is missing the audio section")
+    rms = audio.get("rms")
+    if not isinstance(rms, (int, float)) or not math.isfinite(float(rms)) or rms <= 0:
+        failures.append("manifest audio RMS must be positive and finite")
+    transport = payload.get("transport")
+    if not isinstance(transport, Mapping):
+        raise InputError("manifest is missing the transport section")
+    for key in ("loss", "recovered", "unrecoverable"):
+        value = transport.get(key)
+        if not isinstance(value, int) or value < 0:
+            raise InputError(f"manifest transport.{key} must be a non-negative int")
+    if transport["unrecoverable"] > 0:
+        failures.append(
+            f"{transport['unrecoverable']} unrecoverable packets in manifest"
+        )
+    tracks = payload.get("tracks")
+    if not isinstance(tracks, list) or not tracks:
+        raise InputError("manifest tracks must be a non-empty list")
+    for entry in tracks:
+        if not isinstance(entry, Mapping):
+            raise InputError("manifest track entries must be objects")
+        status = entry.get("status")
+        error = entry.get("max_error_ms")
+        if status == "ok":
+            if not isinstance(error, (int, float)) or not math.isfinite(float(error)):
+                raise InputError(
+                    f"track {entry.get('track_id')!r} has no usable max_error_ms"
+                )
+            if float(error) > MAX_ERROR_MS:
+                failures.append(
+                    f"{entry.get('track_id')}: alignment error {error} ms "
+                    f"exceeds {MAX_ERROR_MS:g} ms"
+                )
+            if entry.get("complete") is not True:
+                failures.append(
+                    f"{entry.get('track_id')}: status ok but incomplete"
+                )
+        if entry.get("status") not in ("ok", "incomplete", "unrecoverable"):
+            raise InputError(
+                f"track {entry.get('track_id')!r} has unknown status "
+                f"{status!r}"
+            )
+    declared = payload.get("status")
+    if declared == "PASS" and failures:
+        failures.append("manifest claims PASS but fails re-verification")
+    return failures
+
+
+def manifest_failures_to_error(failures: Sequence[str]) -> QualityGateError:
+    return QualityGateError("; ".join(failures))
