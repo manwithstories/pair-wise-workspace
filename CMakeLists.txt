@@ -19,6 +19,7 @@ find_package(Catch2 3 REQUIRED)
 
 # Source files are appended per module below so each committed stage builds.
 set(MEDIAQC_SOURCES
+  src/timeline.cpp
   src/json.cpp)
 
 add_library(mediaqc STATIC ${MEDIAQC_SOURCES})
