@@ -402,8 +402,135 @@ def _tail_complete(codec: str, body: bytes, is_vcl: bool) -> tuple[bool, str]:
 
 
 def scan_av1(chunks: Iterable[bytes]) -> Iterator[AccessUnit | ScanReport]:
-    """AV1 temporal-unit scanner (implemented in the follow-up commit)."""
-    raise NotImplementedError("AV1 scanning is added by the next patch")
+    """Yield AV1 temporal units (one per shown frame) then a final ScanReport.
+
+    Each OBU length is checked against the remaining input, so a cut payload is
+    reported at the OBU's own offset instead of yielding a silently shortened
+    frame.  A temporal delimiter (OBU type 2) closes the previous unit and starts
+    the next, so the offsets remain stable for any chunk size.
+    """
+    reader = _ChunkReader(chunks)
+    report = ScanReport(codec="av1")
+    parts: list[bytes] = []
+    types: list[int] = []
+    key = False
+    unit_offset = 0
+    units: list[AccessUnit] = []
+    tail_truncated = False
+    tail_reason = ""
+
+    def close(complete: bool, reason: str = "") -> AccessUnit | None:
+        nonlocal parts, types, key, unit_offset
+        if not parts:
+            return None
+        unit = AccessUnit(
+            index=report.units, offset=unit_offset, data=b"".join(parts),
+            keyframe=key, is_irap=key, nal_types=tuple(types),
+            complete=complete, truncated=not complete)
+        report.units += 1
+        report.keyframes += int(key)
+        if not complete:
+            report.truncated_tail_offset = unit_offset
+            report.truncated_tail_reason = reason
+            report.issues.append(MediaIssue(
+                "truncated_av1_unit", reason, unit_offset,
+                detail={"obu_types": types[-4:], "size": unit.size}))
+        units.append(unit)
+        parts, types, key = [], [], False
+        return unit
+
+    def read_leb128(pos: int) -> int | None:
+        """Read a leb128 size starting at buffer offset ``pos``."""
+        value = 0
+        shift = 0
+        while True:
+            if not reader.fill(pos + 1):
+                return None
+            byte = reader.peek(pos, 1)[0]
+            pos += 1
+            value |= (byte & 0x7F) << shift
+            shift += 7
+            if not byte & 0x80:
+                return value, pos
+            if shift > 56:
+                return None
+
+    while True:
+        if not reader.fill(1):
+            break
+        if not parts:
+            unit_offset = reader.position
+        if not reader.fill(2):
+            tail_truncated = True
+            tail_reason = "stream ends inside an OBU header"
+            report.issues.append(MediaIssue(
+                "truncated_obu_header", tail_reason, reader.position))
+            break
+        header = reader.peek(0, 1)[0]
+        if header & 0x80:
+            report.issues.append(MediaIssue(
+                "obu_forbidden_bit", "OBU forbidden bit set; resynchronised by one byte",
+                reader.position))
+            parts.append(reader.consume(1))
+            continue
+        obu_type = (header >> 3) & 0x0F
+        has_size = bool((header >> 1) & 0x01)
+        has_ext = bool((header >> 2) & 0x01)
+        header_len = 1 + has_ext
+        if not reader.fill(header_len + 1):
+            tail_truncated = True
+            tail_reason = "stream ends inside an OBU header"
+            report.issues.append(MediaIssue(
+                "truncated_obu_header", tail_reason, reader.position))
+            break
+        if has_size:
+            parsed = read_leb128(header_len)
+            if parsed is None:
+                tail_truncated = True
+                tail_reason = "stream ends inside an OBU length field"
+                report.issues.append(MediaIssue(
+                    "truncated_obu_length", tail_reason, reader.position))
+                break
+            size, body_at = parsed
+            frame_end = body_at + size
+            if not reader.fill(frame_end):
+                tail_truncated = True
+                tail_reason = "stream ends inside an OBU payload"
+                report.issues.append(MediaIssue(
+                    "truncated_obu_payload", tail_reason, reader.position,
+                    detail={"obu_type": obu_type, "declared": size,
+                            "available": max(0, reader.available() - body_at)}))
+                parts.append(reader.consume(reader.available()))
+                types.append(obu_type)
+                break
+        else:
+            # A size-less OBU (only legal last in a temporal unit) runs to EOF.
+            body_at = header_len
+            frame_end = -1
+        obu = reader.consume(frame_end if frame_end >= 0 else reader.available())
+        parts.append(obu)
+        types.append(obu_type)
+        if obu_type in (3, 6):
+            body = obu[body_at:]
+            if body and not body[0] >> 7:
+                frame_type = (body[0] >> 5) & 0x03
+                if frame_type == 0:
+                    key = True
+        if obu_type == 2:
+            # The delimiter belongs to the unit it opens: hold it back.
+            delimiter = parts.pop()
+            types.pop()
+            close(True)
+            parts, types = [delimiter], [2]
+            unit_offset = reader.position - len(delimiter)
+
+    if parts:
+        close(not tail_truncated, tail_reason)
+    for unit in units:
+        yield unit
+    report.bytes_consumed = reader.position
+    report.skipped = reader.skipped
+    yield report
 
 
 def scan(chunks: Iterable[bytes], *, codec: str) -> Iterator[AccessUnit | ScanReport]:
