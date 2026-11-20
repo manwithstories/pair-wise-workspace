@@ -33,6 +33,7 @@ from .errors import (
 )
 from .cli_report import (
     _build_report,
+    _exit_for,
     _final_exit,
     _print_error,
     _print_headline,

@@ -11,9 +11,7 @@ from __future__ import annotations
 import hashlib
 import struct
 from pathlib import Path
-from typing import Any
 
-from .errors import ParameterError
 from .timebase import Timebase, Us, round_half_away
 
 def _av():

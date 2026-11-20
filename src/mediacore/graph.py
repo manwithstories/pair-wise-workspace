@@ -23,7 +23,6 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Iterable
 
 from .errors import GraphError
 from .timeline import Timeline

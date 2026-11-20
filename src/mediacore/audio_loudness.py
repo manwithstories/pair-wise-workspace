@@ -16,7 +16,7 @@ from __future__ import annotations
 import numpy as np
 
 from .audio_kweighting import _KWeighting
-from .audio_model import AudioBuffer, LoudnessStats, _finite
+from .audio_model import AudioBuffer, LoudnessStats
 from .errors import AudioError
 
 BLOCK_SECONDS = 0.400

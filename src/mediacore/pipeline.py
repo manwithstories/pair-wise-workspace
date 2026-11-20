@@ -13,7 +13,6 @@ that leaves a consistent checkpoint for the resumed run to reuse.
 
 from __future__ import annotations
 
-import os
 import time
 from pathlib import Path
 from typing import Callable
@@ -21,7 +20,7 @@ from typing import Callable
 from .audio import render_clip
 from .audio_io import render_blend
 from .checkpoint import write_checkpoint
-from .errors import AudioError, OutputError, ParameterError
+from .errors import AudioError
 from .graph import Plan, build_plan
 from .integrity import file_sha256 as source_sha256
 from .pipeline_types import (
@@ -33,8 +32,7 @@ from .pipeline_types import (
 from .pipeline_assembly import assemble_output, safe_name
 from .pipeline_checkpoint import Digester, load_checkpoint_soft
 from .probe import scan_tracks
-from .timebase import samples_for_duration
-from .timeline import ClipSpec, Timeline
+from .timeline import Timeline
 
 __all__ = [
     "PipelineSettings",

@@ -28,7 +28,7 @@ between the exact rational position and the integer microsecond we stored.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from fractions import Fraction
 from typing import Iterable
 

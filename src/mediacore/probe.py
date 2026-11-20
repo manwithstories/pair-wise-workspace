@@ -34,10 +34,9 @@ from .probe_container import (
     _open,
     _pick_stream,
     _short,
-    _stream_by_index,
     _Unwrapper,
 )
-from .integrity import file_sha256, structural_integrity
+from .integrity import structural_integrity
 from .timebase import Timebase, Us, round_half_away
 
 __all__ = [
@@ -52,8 +51,9 @@ __all__ = [
 DamageKind = str  # "truncated" | "corrupt" | "index_gap" | "index_missing"
 
 # ---------------------------------------------------------------------------
-# container access
+# scanning
 # ---------------------------------------------------------------------------
+
 
 def probe_track(
     path: str | Path,
