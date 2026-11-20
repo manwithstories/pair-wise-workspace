@@ -4,7 +4,6 @@ package pipeline
 
 import (
 	"context"
-	"errors"
 	"io"
 	"path/filepath"
 	"sort"
@@ -87,6 +86,7 @@ func Run(opts Options) (*Outcome, error) {
 	}()
 
 	// 消费者：弹出、修复、索引、哈希。
+	var runErr error
 	for {
 		s, ok := q.Pop(ctx)
 		if !ok {
@@ -98,21 +98,21 @@ func Run(opts Options) (*Outcome, error) {
 		trk, _ := tl.TrackByID(s.TrackID)
 		rs, err := clock.Process(s)
 		if err != nil {
-			q.Close()
-			return out, err
+			runErr = err
+			break
 		}
 		if err := ix.AddSample(rs); err != nil {
-			q.Close()
-			return out, err
+			runErr = err
+			break
 		}
 		if err := hasher.Add(rs); err != nil {
-			q.Close()
-			return out, err
+			runErr = err
+			break
 		}
 		if opts.SampleSink != nil {
 			if err := report.WriteSamples(opts.SampleSink, rs); err != nil {
-				q.Close()
-				return out, fault.Wrap(fault.StageReport, rs.TrackID, rs.SourceOffset, false, "输出样本失败", err)
+				runErr = fault.Wrap(fault.StageReport, rs.TrackID, rs.SourceOffset, false, "输出样本失败", err)
+				break
 			}
 		}
 		roundtripTotal++
@@ -127,19 +127,19 @@ func Run(opts Options) (*Outcome, error) {
 		}
 		if opts.SlowConsumer > 0 {
 			if err := sleepCtx(ctx, opts.SlowConsumer); err != nil {
-				q.Close()
-				return out, fault.Wrap(fault.StageIO, rs.TrackID, -1, false, "流水线已取消", err)
+				runErr = fault.Wrap(fault.StageIO, rs.TrackID, -1, false, "流水线已取消", err)
+				break
 			}
 		}
 	}
-	if err := <-prodErr; err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return out, fault.Wrap(fault.StageIO, 0, -1, false, "流水线已取消", err)
-		}
-		return out, err
+	// 终止生产者：关闭队列会唤醒其阻塞的 Push，避免泄漏。
+	q.Close()
+	prodErrVal := <-prodErr
+	if runErr == nil && prodErrVal != nil {
+		runErr = prodErrVal
 	}
-	if err := ctx.Err(); err != nil {
-		return out, fault.Wrap(fault.StageIO, 0, -1, false, "流水线已取消", err)
+	if runErr == nil && ctx.Err() != nil {
+		runErr = fault.Wrap(fault.StageIO, 0, -1, false, "流水线已取消", ctx.Err())
 	}
 
 	rtpRep, rtpErr := processRTP(ctx, opts.Input, tl, opts.Strategy)
@@ -148,6 +148,7 @@ func Run(opts Options) (*Outcome, error) {
 	}
 	out.RTP = rtpRep
 
+	// 已验证片段仍可输出：先汇总已处理部分，再按需返回错误。
 	ix.Finalize()
 	out.Segments = clock.Segments()
 	for _, s := range out.Segments {
@@ -158,8 +159,24 @@ func Run(opts Options) (*Outcome, error) {
 	out.Stats = q.Stats()
 	res := buildResult(opts, tl, clock, ix, hasher.Finalize(), out, restored, roundtripHit, roundtripTotal)
 	res.RTP = &out.RTP
+	if runErr != nil {
+		markFailure(res, runErr)
+	}
+	res.Summary = res.SummaryText()
 	out.Result = res
+	if runErr != nil {
+		return out, runErr
+	}
 	return out, nil
+}
+
+// markFailure 把错误定位写入报告。
+func markFailure(res *report.Result, err error) {
+	if fe, ok := fault.As(err); ok {
+		res.MarkFailure(string(fe.Stage), fe.Offset, fe.Recoverable, fe.Error())
+		return
+	}
+	res.MarkFailure(string(fault.StageIO), -1, false, err.Error())
 }
 
 // resumeSet 返回续跑时应跳过的片段集合：验证边界及其之前的所有片段。

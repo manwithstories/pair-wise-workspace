@@ -147,6 +147,7 @@ type Result struct {
 	RepairedInput     string          `json:"repaired_input,omitempty"`
 	RoundtripMatch    float64         `json:"roundtrip_match"`
 	KeyframeHitRate   float64         `json:"keyframe_hit_rate"`
+	Summary           string          `json:"summary"`
 	SegmentHashCount  int             `json:"segment_hash_count"`
 	PeakBufferSamples int             `json:"peak_buffer_samples"`
 	BackpressureWait  int64           `json:"backpressure_wait_ms"`
@@ -185,11 +186,19 @@ type SegmentReport struct {
 	Repairs    uint64 `json:"repairs"`
 }
 
-// Summary 渲染验收所需的单行摘要字段。
-func (r *Result) Summary() string {
+// SummaryText 渲染验收所需的单行摘要字段。
+func (r *Result) SummaryText() string {
 	return fmt.Sprintf(
 		"roundtrip_match=%.4f keyframe_hit_rate=%.4f segment_hashes=%d peak_buffer_samples=%d backpressure_wait_ms=%d",
 		r.RoundtripMatch, r.KeyframeHitRate, len(r.SegmentHashes), r.PeakBufferSamples, r.BackpressureWait)
+}
+
+// MarkFailure 记录失败阶段、原始字节偏移与可恢复性，供机器读取。
+func (r *Result) MarkFailure(stage string, offset int64, recoverable bool, msg string) {
+	r.FailedStage = stage
+	r.FailedOffset = offset
+	r.Recoverable = recoverable
+	r.Error = msg
 }
 
 // MarshalIndent 以两空格缩进输出 JSON 报告。

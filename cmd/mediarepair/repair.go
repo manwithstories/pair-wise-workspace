@@ -73,6 +73,9 @@ func cmdRepair(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		if out != nil && out.Result != nil {
 			printReport(stdout, out.Result, *format)
+		} else if *format == "json" {
+			// 输入未能进入流水线：仍输出机器可读的失败定位。
+			printOpenFailure(stdout, *input, err)
 		}
 		reportError(stderr, err)
 		return exitCodeOf(err)
@@ -91,6 +94,22 @@ func cmdRepair(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// printOpenFailure 输出打开/解析阶段失败的最小 JSON 报告。
+func printOpenFailure(w io.Writer, input string, err error) {
+	r := &report.Result{Schema: "mediarepair/report/v1", Input: input}
+	if fe, ok := asFault(err); ok {
+		r.MarkFailure(string(fe.Stage), fe.Offset, fe.Recoverable, fe.Error())
+	} else {
+		r.MarkFailure("io", -1, false, err.Error())
+	}
+	data, mErr := r.MarshalIndent()
+	if mErr != nil {
+		return
+	}
+	w.Write(data)
+	w.Write([]byte("\n"))
 }
 
 // accept 检查验收阈值。
@@ -119,7 +138,7 @@ func printReport(w io.Writer, r *report.Result, format string) {
 		w.Write([]byte("\n"))
 		return
 	}
-	fmt.Fprintln(w, r.Summary())
+	fmt.Fprintln(w, r.SummaryText())
 	fmt.Fprintf(w, "input=%s buffer_capacity=%d\n", r.Input, r.BufferCapacity)
 	for _, t := range r.Tracks {
 		fmt.Fprintf(w, "track=%d kind=%s timescale=%d samples=%d wraps=%d duplicates=%d regressions=%d clip_jumps=%d keyframes=%d hit_rate=%.4f\n",
