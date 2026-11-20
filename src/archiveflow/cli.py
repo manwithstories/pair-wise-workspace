@@ -44,6 +44,10 @@ class RecoverConfig:
     queue_size: int = 256
     segment_ms: float = 4000.0
     fps: int = 15
+    max_segments: int = 500
+    max_output_bytes: int = 2 * 1024 ** 3  # hard ceiling on total media output
+
+
 
 
 def _parse_stream(bundle: Bundle, queue_size: int):
@@ -209,12 +213,36 @@ def _quality_for_rep(bundle: Bundle, rep, rep_results, idx_by_seg, out_dir):
     return summarize_quality(psnrs, ssims)
 
 
+def _enforce_output_limits(cfg: RecoverConfig, segments, reps) -> None:
+    """Reject jobs that would exceed segment-count or total-output caps.
+
+    Checked before any segment is encoded so an over-limit run writes no
+    partial media and never registers a half-finished manifest. The byte
+    estimate is an upper-bound projection from target bitrates and planned
+    durations across every representation.
+    """
+    total_segments = len(segments) * len(reps)
+    if total_segments > cfg.max_segments:
+        raise ParameterError(
+            f"output would contain {total_segments} segments, exceeding the "
+            f"limit of {cfg.max_segments}; shorten duration or raise "
+            f"--segment-ms")
+    projected_bytes = 0.0
+    for s in segments:
+        dur_s = s.duration_ms / 1000.0
+        for rep in reps:
+            projected_bytes += rep.target_bps * dur_s / 8.0
+    if projected_bytes > cfg.max_output_bytes:
+        raise ParameterError(
+            f"projected output {projected_bytes / 1024**2:.1f} MiB exceeds "
+            f"the limit of {cfg.max_output_bytes / 1024**2:.0f} MiB")
+
+
 def recover(bundle: Bundle, cfg: RecoverConfig) -> dict:
     """Run the full recovery pipeline and write an atomic manifest."""
     if not bundle.packets:
         raise UnrecoverableError("input contains no packets (empty capture)")
     out_dir = Path(cfg.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
     organizer, domain, pstats = _parse_stream(bundle, cfg.queue_size)
     video_frames, vstats = _reassemble(organizer, domain, bundle.video_ssrc,
                                        cfg.reorder_window)
@@ -252,6 +280,10 @@ def recover(bundle: Bundle, cfg: RecoverConfig) -> dict:
     if not segments:
         raise UnrecoverableError("no segments could be planned")
     reps = build_ladder(cfg.targets)
+    _enforce_output_limits(cfg, segments, reps)
+    # Only create the output directory once all limits have passed, so a
+    # rejected run leaves no directory, media or half-written manifest.
+    out_dir.mkdir(parents=True, exist_ok=True)
     results, idx_by_seg = _encode_ladder(timeline, segments, reps, fps,
                                          out_dir, time_of)
     bandwidth = simulate_bandwidth(len(segments), seed=bundle.seed)
@@ -335,6 +367,8 @@ MAX_DURATION_S = 600.0
 MAX_TARGETS = 8
 MAX_QUEUE = 4096
 MAX_SEGMENT_MS = 60_000.0
+MAX_SEGMENTS = 500
+MAX_OUTPUT_BYTES = 2 * 1024 ** 3
 
 CORRUPT_PRESETS = {
     "none": {},
@@ -372,6 +406,13 @@ def _cmd_demo(args) -> int:
         raise ParameterError("--reorder-window must be within [1, 1024]")
     if not 1 <= args.queue_size <= MAX_QUEUE:
         raise ParameterError(f"--queue-size must be within [1, {MAX_QUEUE}]")
+    if not 1 <= args.max_segments <= MAX_SEGMENTS:
+        raise ParameterError(
+            f"--max-segments must be within [1, {MAX_SEGMENTS}]")
+    if not 1 <= args.max_output_mib <= MAX_OUTPUT_BYTES // 1024**2:
+        raise ParameterError(
+            f"--max-output-mib must be within "
+            f"[1, {MAX_OUTPUT_BYTES // 1024**2}]")
     impairments = {"loss_burst_prob": args.loss_burst, "reorder_span": 16,
                    "duplicate_prob": 0.02}
     impairments.update(CORRUPT_PRESETS[args.corrupt])
@@ -383,7 +424,9 @@ def _cmd_demo(args) -> int:
     cfg = RecoverConfig(out_dir=Path(args.out), targets=targets,
                         reorder_window=args.reorder_window,
                         queue_size=args.queue_size,
-                        segment_ms=args.segment_ms, fps=params.fps)
+                        segment_ms=args.segment_ms, fps=params.fps,
+                        max_segments=args.max_segments,
+                        max_output_bytes=args.max_output_mib * 1024**2)
     manifest = recover(bundle, cfg)
     _write_and_summarize(manifest, Path(args.out))
     return 0
@@ -418,6 +461,11 @@ def build_parser() -> argparse.ArgumentParser:
     demo.add_argument("--out", required=True)
     demo.add_argument("--segment-ms", type=float, default=4000.0)
     demo.add_argument("--queue-size", type=int, default=256)
+    demo.add_argument("--max-segments", type=int, default=MAX_SEGMENTS,
+                      help="hard cap on total encoded segment files")
+    demo.add_argument("--max-output-mib", type=int,
+                      default=MAX_OUTPUT_BYTES // 1024**2,
+                      help="hard cap on projected total media output (MiB)")
     demo.add_argument("--seed", type=int, default=12772)
     demo.add_argument("--corrupt", choices=sorted(CORRUPT_PRESETS),
                       default="none", help="damaged-sample preset")
