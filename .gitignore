@@ -74,3 +74,8 @@ AGENTS.md.local
 
 # 本地构建产物
 /mediaroute
+
+# 本地构建产物
+/build/
+/build-*/
+/mediaroute
