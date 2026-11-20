@@ -485,7 +485,9 @@ def probe(
     streams: list[StreamProbe] = []
     try:
         with av.logging.Capture() as capture:
-            av.logging.set_level(av.logging.WARNING)
+            if av.logging.get_level() is None:
+                # No guard is active; a fresh probe should surface warnings.
+                av.logging.set_level(av.logging.WARNING)
             try:
                 container = av.open(path)
                 format_name = container.format.name if container.format else ""
@@ -515,10 +517,10 @@ def probe(
                 )
                 logs = [line[2].strip() for line in capture]
             finally:
-                # ``Capture.__exit__`` is not reached through this path, so the
-                # level is restored here; the callback itself is restored by
-                # whichever guard (or default) is active when probing starts.
-                av.logging.set_level(av.logging.WARNING)
+                # ``Capture.__exit__`` is not reached through this path.  The
+                # level is intentionally *not* changed here: an enclosing
+                # quiet guard must stay in force so repair work stays silent.
+                pass
     except MediaError:
         raise
     except Exception as exc:  # noqa: BLE001 - libavformat raises many types

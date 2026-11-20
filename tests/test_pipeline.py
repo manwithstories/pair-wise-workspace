@@ -572,10 +572,14 @@ class PipelineTests(unittest.TestCase):
             error = failed[0].errors[0]
             self.assertEqual(error.code, "corrupt-packet")
             self.assertEqual(error.stage, "archive")
-            # Healthy segments still hash correctly.
+            # Healthy segments still hash correctly; the isolated one is
+            # reported, not silently dropped.
             verification = verify_manifest(manifest)
             self.assertEqual(verification.hash_ok, verification.hash_total)
             self.assertGreater(verification.hash_total, 0)
+            self.assertEqual(
+                [item[0] for item in verification.isolated_segments], [failed[0].segment_id]
+            )
 
     def test_empty_track_is_isolated_not_fatal(self):
         with Workspace() as work:

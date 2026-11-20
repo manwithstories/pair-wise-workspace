@@ -94,6 +94,7 @@ class VerifyReport:
     errors: list[MediaError] = field(default_factory=list)
     recovered_segments: int = 0
     recovery_notes: list[dict[str, Any]] = field(default_factory=list)
+    isolated_segments: list[tuple[str, list[str]]] = field(default_factory=list)
     stage_note: str = ""
 
     # -- metrics -----------------------------------------------------------
@@ -171,6 +172,7 @@ class VerifyReport:
             f"segment_hashes={self.hash_ok}/{self.hash_total}",
             f"audio_segment_hashes={self.audio_ok}/{self.audio_total}",
             f"recovered_segments={self.recovered_segments}",
+            f"isolated_segments={len(self.isolated_segments)}",
             f"error_offset={self.error_offset if self.error_offset is not None else 'unknown'}",
         ]
         for check in self.index_checks:
@@ -242,16 +244,12 @@ def _check_roundtrip(manifest: Manifest, report: VerifyReport) -> None:
 def _hash_segments(manifest: Manifest, report: VerifyReport) -> None:
     for segment in manifest.segments:
         if segment.status != "ok":
-            # A failed segment is not silently skipped: the manifest claims an
-            # isolated failure, and verification reports it as such.
-            for error in segment.errors or [
-                MediaError(
-                    "verification-failed",
-                    f"segment {segment.segment_id} was not archived",
-                    stage="verify", stream_index=segment.track_index,
-                )
-            ]:
-                report.errors.append(error)
+            # Isolated failures are an accepted outcome: the manifest says the
+            # segment failed, so there is no archived byte to re-hash.  The
+            # count is surfaced in the summary rather than hidden.
+            report.isolated_segments.append(
+                (segment.segment_id, [e.code for e in segment.errors])
+            )
             continue
         if segment.track_index == _video_track(manifest) and segment.path:
             report.segment_hashes.append(

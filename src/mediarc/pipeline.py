@@ -687,6 +687,35 @@ def archive(
     resumed: list[str] = []
 
     # -- stage: probe ------------------------------------------------------
+    with quiet_libav():
+        return _archive_inner(
+            input_path, manifest_path,
+            rate=rate, layout=layout, lufs=lufs, mapping=mapping,
+            work_dir=work_dir, resume=resume, limits=limits,
+            cut_every_seconds=cut_every_seconds, transitions=transitions,
+            store=store, segment_dir=segment_dir, settings=settings,
+            resumed=resumed,
+        )
+
+
+def _archive_inner(
+    input_path: str,
+    manifest_path: str,
+    *,
+    rate: int,
+    layout: str,
+    lufs: float | None,
+    mapping: Iterable[str],
+    work_dir: str,
+    resume: bool,
+    limits: Limits,
+    cut_every_seconds: float | None,
+    transitions: Iterable[str],
+    store: StageStore,
+    segment_dir: Path,
+    settings: AudioSettings,
+    resumed: list[str],
+) -> ArchiveReport:
     source_sha = sha256_file(input_path)
     probe_input = stage_input_digest(
         path=os.path.abspath(input_path),

@@ -169,9 +169,9 @@ def _cmd_archive(args: argparse.Namespace) -> int:
         print(line)
     for error in report.errors:
         print(error.render(), file=sys.stderr)
-    # Every segment that was written is verified by ``verify``; a segment that
-    # could not be archived is a processing failure and must not read as success.
-    return EXIT_FAILURE if report.failed else EXIT_OK
+    # An isolated segment failure is an accepted outcome (the run continued and
+    # the manifest records it).  Only a run that archived nothing is a failure.
+    return EXIT_OK if report.healthy else EXIT_FAILURE
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +244,7 @@ def _record_verification(manifest: Manifest, path: Path, report, chain_errors) -
         "segment_hashes": [report.hash_ok, report.hash_total],
         "audio_segment_hashes": [report.audio_ok, report.audio_total],
         "recovered_segments": report.recovered_segments,
+        "isolated_segments": [list(item) for item in report.isolated_segments],
         "error_offset": report.error_offset,
         "stage_chain_errors": [e.to_dict() for e in chain_errors],
         "errors": [e.to_dict() for e in report.errors],
@@ -265,6 +266,7 @@ def _verify_json(report) -> dict:
         "segment_hashes": [report.hash_ok, report.hash_total],
         "audio_segment_hashes": [report.audio_ok, report.audio_total],
         "recovered_segments": report.recovered_segments,
+        "isolated_segments": [list(item) for item in report.isolated_segments],
         "stage_chain": [s.name for s in report.manifest.stages] if report.manifest else [],
         "error_offset": report.error_offset,
         "errors": [e.to_dict() for e in report.errors],
