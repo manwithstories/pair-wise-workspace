@@ -179,25 +179,54 @@ func markFailure(res *report.Result, err error) {
 	res.MarkFailure(string(fault.StageIO), -1, false, err.Error())
 }
 
-// resumeSet 返回续跑时应跳过的片段集合：验证边界及其之前的所有片段。
+// resumeSet 返回续跑时应跳过的片段集合：以边界片段在统一时间线上的起点
+// 为截止时间，所有在该时刻之前（含边界自身）结束的片段均视为已验证。
 func resumeSet(tl *model.Timeline, boundary string) map[string]bool {
 	if boundary == "" {
 		return nil
 	}
+	cutoff, ok := segmentEnd(tl, boundary)
+	if !ok {
+		return nil // 边界不存在：不跳过任何片段，避免误吞数据
+	}
 	skip := make(map[string]bool)
 	for _, c := range tl.Clips {
-		skip[c.ID] = true
-		if c.ID == boundary {
-			return skip
+		if start, ok := segStartUnified(tl, c.TrackID, c.StartTick); ok && start < cutoff {
+			skip[c.ID] = true
 		}
 	}
 	for _, tr := range tl.Transitions {
-		skip[tr.ID] = true
-		if tr.ID == boundary {
-			return skip
+		if start, ok := segStartUnified(tl, tr.TrackID, tr.StartTick); ok && start < cutoff {
+			skip[tr.ID] = true
 		}
 	}
-	return nil // 边界不存在：不跳过任何片段，避免误吞数据
+	skip[boundary] = true
+	return skip
+}
+
+// segStartUnified 把片段起点换算到统一时间基准。
+func segStartUnified(tl *model.Timeline, trackID uint32, tick uint64) (uint64, bool) {
+	t, ok := tl.TrackByID(trackID)
+	if !ok {
+		return 0, false
+	}
+	v, err := model.ToUnified(t.Timescale, tick)
+	return v, err == nil
+}
+
+// segmentEnd 返回边界片段起点的统一时间。
+func segmentEnd(tl *model.Timeline, boundary string) (uint64, bool) {
+	for _, c := range tl.Clips {
+		if c.ID == boundary {
+			return segStartUnified(tl, c.TrackID, c.StartTick)
+		}
+	}
+	for _, tr := range tl.Transitions {
+		if tr.ID == boundary {
+			return segStartUnified(tl, tr.TrackID, tr.StartTick)
+		}
+	}
+	return 0, false
 }
 
 // segmentOfSample 按样本区间查找所属片段。
