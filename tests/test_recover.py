@@ -102,7 +102,7 @@ def test_boundary_repair_clamps_to_last_usable_packet() -> None:
     assert result.repairs
     assert result.segment.end_ticks == 24000
     assert not result.segment.complete
-    assert result.segment.reason == "truncated-boundary-repaired"
+    assert result.segment.reason == "truncated-index-boundary"
     assert result.gaps[0].reason == "truncated-index-boundary"
 
 
@@ -113,10 +113,13 @@ def test_boundary_repair_respects_budget() -> None:
         interval,
         ordered=ordered,
         missing=[],
-        truncated_seqs=range(2, 10),
+        truncated_seqs=range(1, 10),
         config=config(boundary_budget_ticks=100),
     )
-    assert not result.repairs
+    # A clamp would drop more than the budget allows, so the whole span is
+    # marked unrecoverable instead of being silently shortened.
+    assert not result.segment.complete
+    assert result.repairs and result.repairs[0].reason == "unrecoverable-tail"
 
 
 def test_holes_are_attributed_to_one_interval_only() -> None:
