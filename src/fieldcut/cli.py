@@ -81,7 +81,10 @@ def _run_demo(args) -> dict:
         raise UsageError("--cameras must be >= 1")
     if args.duration <= 0:
         raise UsageError("--duration must be positive")
-    defects = parse_defects(args.inject)
+    try:
+        defects = parse_defects(args.inject)
+    except ValueError as exc:
+        raise UsageError(str(exc)) from exc
     source_dir = os.path.join(args.output, "sources")
     cameras = []
     for i in range(args.cameras):
@@ -96,13 +99,14 @@ def _run_demo(args) -> dict:
 
 
 def _run_process(args) -> dict:
-    from .synthdata import reference_rgb
     cameras = []
     for path in args.input:
         if not os.path.isfile(path):
             raise UsageError(f"input file not readable: {path}")
         cameras.append((os.path.splitext(os.path.basename(path))[0], path))
-    return _execute(cameras, args, reference_rgb)
+    # No synthetic generator for real media: PSNR is measured against the
+    # decoded source frames of each segment instead.
+    return _execute(cameras, args, None)
 
 
 def _execute(cameras, args, reference_frame_fn) -> dict:
@@ -122,6 +126,7 @@ def _execute(cameras, args, reference_frame_fn) -> dict:
         "segments": len(result.plan.segments),
         "representations": len(result.representations),
         "recovered_segments": result.recovered_segments,
+        "unrecovered_count": len(result.log.unrecovered),
         "damaged_ranges": damaged,
         "manifest_alignment_ms": alignment_ms,
         "first_manifest_issue": first_inconsistency(result.manifest),
@@ -136,6 +141,7 @@ def _print_human(report: dict) -> None:
     print(f"segments={report['segments']}")
     print(f"representations={report['representations']}")
     print(f"recovered_segments={report['recovered_segments']}")
+    print(f"unrecovered_count={report['unrecovered_count']}")
     print(f"manifest_alignment_ms={report['manifest_alignment_ms']}")
     print(f"peak_memory_mb={report['peak_memory_mb']}")
     if report["damaged_ranges"]:
@@ -171,6 +177,10 @@ def main(argv: list[str] | None = None) -> int:
     if report["first_manifest_issue"] is not None:
         issue = report["first_manifest_issue"]
         print(f"manifest validation failed: {issue}", file=sys.stderr)
+        return 2
+    if report["unrecovered_count"] > 0:
+        print(f"unrecovered errors: {report['unrecovered_count']}",
+              file=sys.stderr)
         return 2
     if report["peak_memory_mb"] > MEMORY_LIMIT_MB:
         print(f"memory limit exceeded: {report['peak_memory_mb']} MiB",

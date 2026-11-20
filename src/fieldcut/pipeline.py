@@ -154,11 +154,13 @@ def run_stage(name: str, process_item, in_q: BoundedQueue | None,
                 except PipelineCancelled:
                     raise
                 except Exception as exc:  # stage-level recovery boundary
+                    # Record and surface via state; never let a traceback
+                    # escape the worker (the driver inspects any_failed).
                     state.fail_stage(name, exc)
                     state.log.add(Stage.PIPELINE, name,
                                   f"stage item failed: {exc}",
                                   recovery=Recovery.UNRECOVERABLE)
-                    raise
+                    break
                 for result in results:
                     if out_q is not None:
                         out_q.put(result, state.cancel)

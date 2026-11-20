@@ -91,7 +91,7 @@ def run_job(
     cameras: list[tuple[str, str]],      # (camera name, source path)
     out_dir: str,
     bitrates: list[int],
-    reference_frame_fn,
+    reference_frame_fn=None,
     target_seconds: float = 2.0,
     queue_capacity: int = DEFAULT_QUEUE_CAPACITY,
     inject: tuple[str, ...] = (),
