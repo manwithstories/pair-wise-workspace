@@ -26,7 +26,7 @@ from .audio import AudioSegment
 from .color import ColorRecord
 from .errors import MediaError
 from .probe import MappingRecord, ProbeResult
-from .timeline import Rational, TimeBase, Timeline
+from .timeline import Timeline
 from .util import canonical_json, sha256_bytes
 
 SCHEMA = "mediarc.manifest/v1"
@@ -413,7 +413,3 @@ def _round_numbers(value: Any, places: int = 6) -> Any:
 def keyframe_digest(ticks: Iterable[int]) -> str:
     """Stable digest of a keyframe index (the thing verify re-checks)."""
     return sha256_bytes(canonical_json(sorted(int(t) for t in ticks)))
-
-
-def time_base_of(manifest: Manifest) -> TimeBase:
-    return TimeBase(Rational.parse(manifest.timeline.to_dict()["time_base"]))

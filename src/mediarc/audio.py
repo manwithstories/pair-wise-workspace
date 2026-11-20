@@ -22,7 +22,7 @@ import math
 import os
 from dataclasses import dataclass, field
 from fractions import Fraction
-from typing import Any, Iterator, Sequence
+from typing import Any, Sequence
 
 import av
 import numpy as np
@@ -31,7 +31,7 @@ import soundfile as sf
 from .errors import MediaError, bridge
 from .probe import ProbeResult, StreamProbe
 from .timeline import Segment
-from .util import iter_packets, sha256_file
+from .util import sha256_file
 
 SUPPORTED_RATES = (44_100, 48_000, 96_000)
 SUPPORTED_LAYOUTS = ("mono", "stereo", "5.1")

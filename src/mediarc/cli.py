@@ -23,7 +23,6 @@ import argparse
 import json
 import os
 import sys
-import tempfile
 import traceback
 from pathlib import Path
 from typing import Sequence
@@ -35,7 +34,6 @@ from .errors import MediaError
 from .manifest import Manifest
 from .pipeline import Limits, archive
 from .probe import probe
-from .timeline import Rational
 from .util import quiet_libav
 from .verify import _index_checks, integrity_scan, recover, verify_manifest
 

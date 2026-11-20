@@ -11,7 +11,7 @@ the rendered diagnostic says ``offset=unknown`` rather than inventing a value.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Iterable
+from typing import Any
 
 #: Pipeline stages, in execution order.  A stage name is part of the public
 #: diagnostic contract, so we keep them as plain strings and validate early.
@@ -115,13 +115,3 @@ class MediaError(Exception):
 def bridge(code: str, exc: BaseException, **kwargs: Any) -> MediaError:
     """Wrap a foreign exception (OSError, av.FFmpegError, ...) as MediaError."""
     return MediaError(code, f"{type(exc).__name__}: {exc}", **kwargs)
-
-
-def make(code: str, message: str, **kwargs: Any) -> MediaError:
-    return MediaError(code, message, **kwargs)
-
-
-def minimal_offset(errors: Iterable[MediaError]) -> int | None:
-    """Smallest known byte offset among errors (used for terminal summaries)."""
-    known = [e.offset for e in errors if e.offset is not None]
-    return min(known) if known else None

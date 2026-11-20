@@ -12,7 +12,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import Any
 
 from .errors import MediaError
 
@@ -70,51 +70,6 @@ def load_json(path: str | os.PathLike[str], *, stage: str = "archive") -> Any:
         raise MediaError(
             "manifest-corrupt", f"cannot parse JSON: {exc}", stage=stage, path=str(path)
         ) from exc
-
-
-def copy_prefix(src: str | os.PathLike[str], dst: str | os.PathLike[str], ratio: float) -> int:
-    """Copy the first ``ratio`` of a file; returns bytes written."""
-    with open(src, "rb") as reader, open(dst, "wb") as writer:
-        size = os.fstat(reader.fileno()).st_size
-        remaining = int(size * max(0.0, min(1.0, ratio)))
-        while remaining:
-            chunk = reader.read(min(CHUNK, remaining))
-            if not chunk:
-                break
-            writer.write(chunk)
-            remaining -= len(chunk)
-        return int(size * ratio)
-
-
-def flip_packet_bytes(
-    src: str | os.PathLike[str],
-    dst: str | os.PathLike[str],
-    offset: int,
-    payload_skip: int = 8,
-    length: int = 64,
-    mask: int = 0xFF,
-) -> None:
-    """Copy ``src`` to ``dst`` and scramble one packet's payload region.
-
-    ``offset`` is the packet's container byte position as reported by
-    libavformat; ``payload_skip`` skips the container block header so the codec
-    payload itself is damaged.  Used to prove that diagnostics land on a source
-    byte offset.
-    """
-    data = bytearray(Path(src).read_bytes())
-    start = max(0, offset + payload_skip)
-    stop = min(len(data), start + length)
-    if stop <= start:
-        raise ValueError(f"offset {offset} is outside {src}")
-    data[start:stop] = bytes((byte ^ mask) for byte in data[start:stop])
-    atomic_write_bytes(dst, bytes(data))
-
-
-def stream_digest(handle: BinaryIO) -> str:
-    digest = hashlib.sha256()
-    for chunk in iter(lambda: handle.read(CHUNK), b""):
-        digest.update(chunk)
-    return digest.hexdigest()
 
 
 def iter_packets(container: Any, stream: Any, target_seconds: Any = 0):

@@ -17,18 +17,16 @@ offset is ``None`` and renders as ``unknown``.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 from fractions import Fraction
 from pathlib import Path
 from typing import Any, Iterable
 
-import contextlib
 import os
 
 import av
 
-from .errors import MediaError, bridge
+from .errors import MediaError
 from .manifest import Manifest, SegmentRecord, keyframe_digest
 from .probe import ProbeResult, StreamProbe, probe
 from .util import quiet_libav, sha256_file

@@ -14,7 +14,6 @@ from typing import Any, Iterable
 
 import av
 
-from . import __version__
 from .errors import MediaError, bridge
 from .timeline import (
     Rational,
@@ -711,36 +710,3 @@ def _completeness(
     return errors
 
 
-def keyframe_ticks(probe_stream: StreamProbe) -> list[int]:
-    return [k.ticks for k in probe_stream.keyframes]
-
-
-def packet_at(probe_stream: StreamProbe, ticks: int, timeline: TimeBase) -> PacketMeta | None:
-    """First packet whose presentation tick is >= ``ticks``."""
-    for meta in probe_stream.packets:
-        if meta.pts is None:
-            continue
-        if timeline.to_ticks(Fraction(meta.pts) * probe_stream.time_base.value) >= ticks:
-            return meta
-    return None
-
-
-def safe_boundary(probe_stream: StreamProbe, ticks: int) -> Keyframe | None:
-    """Latest keyframe at or before ``ticks`` (the repair restart point)."""
-    found = None
-    for key in probe_stream.keyframes:
-        if key.ticks <= ticks:
-            found = key
-        else:
-            break
-    return found
-
-
-def probe_summary(result: ProbeResult) -> dict[str, Any]:
-    return {
-        "tool": f"mediarc/{__version__}",
-        "path": result.path,
-        "size": result.size,
-        "format": result.format_name,
-        "source_sha256": result.source_sha256,
-    }
