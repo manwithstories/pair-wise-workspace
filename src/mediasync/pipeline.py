@@ -526,3 +526,72 @@ def run_pipeline(
     finally:
         if temp is not None and not keep_workdir:
             temp.cleanup()
+
+
+def _track_entries(
+    results: Sequence[tuple[VideoTrack, VideoFixture, JitterResult]],
+    recovery: RecoveryReport,
+    sync: SyncReport,
+    audio,
+) -> list[TrackManifest]:
+    entries: list[TrackManifest] = []
+    for video, _fixture, _jitter in results:
+        segments = [
+            segment
+            for segment in recovery.segments
+            if segment.track_id == video.track_id
+        ]
+        complete = bool(segments) and all(item.complete for item in segments)
+        track_sync = sync.by_id(video.track_id)
+        aligned = bool(track_sync and track_sync.aligned)
+        reason = ""
+        if not complete:
+            reasons = sorted({item.reason for item in segments if item.reason})
+            reason = ",".join(reasons) or "incomplete"
+        elif track_sync is not None and not aligned:
+            reason = track_sync.reason or "misaligned"
+        entries.append(
+            TrackManifest(
+                track_id=video.track_id,
+                kind="av",
+                role=video.role,
+                codec=video.codec,
+                start_ticks=0,
+                end_ticks=max((item.end_ticks for item in segments), default=0),
+                complete=complete,
+                aligned=aligned,
+                max_error_ms=track_sync.max_error_ms if track_sync else 0.0,
+                drift_ppm=track_sync.drift_ppm if track_sync else 0.0,
+                packets=len(video.packets),
+                recovered=sum(len(item.recovered_seqs) for item in segments),
+                lost=sum(len(item.loss_seqs) for item in segments),
+                status="ok" if complete and aligned else "incomplete",
+                reason=reason,
+            )
+        )
+    audio_sync = sync.by_id("program")
+    if audio_sync is not None:
+        entries.append(
+            TrackManifest(
+                track_id="program",
+                kind="audio",
+                role="program",
+                codec="pcm_s16le",
+                start_ticks=0,
+                end_ticks=audio.duration_ticks,
+                complete=True,
+                aligned=audio_sync.aligned,
+                max_error_ms=audio_sync.max_error_ms,
+                packets=0,
+                status="ok" if audio_sync.aligned else "incomplete",
+                reason=audio_sync.reason,
+            )
+        )
+    return entries
+
+
+def _dedupe(gaps: Sequence[Gap]) -> list[Gap]:
+    unique = {
+        (gap.track, gap.start_ticks, gap.end_ticks, gap.reason): gap for gap in gaps
+    }
+    return [unique[key] for key in sorted(unique)]
