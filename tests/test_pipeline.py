@@ -1,353 +1,283 @@
-"""Pipeline tests: success, corruption and boundary paths.
+"""fieldcut pipeline tests: recovery, boundary and failure paths.
 
-The sample generator is invoked in a tmp directory so tests are deterministic
-and never touch the real input/output locations.
+Each test builds deterministic synthetic media in a tmp directory, so runs are
+reproducible and never touch real input/output locations.
 """
 
 from __future__ import annotations
 
-import json
-import subprocess
-import sys
-from pathlib import Path
+import threading
 
 import numpy as np
 import pytest
 
-from remuxsync import annexb, index as index_mod
-from remuxsync.cli import main as cli_main
-from remuxsync.clock import (
-    TICKS_PER_MS,
-    WRAP_HALF,
-    WRAP_MODULUS,
+from fieldcut.align import align_cameras, cross_correlation_lag
+from fieldcut.cli import main as cli_main
+from fieldcut.errors import ErrorLog, UsageError
+from fieldcut.ladder import encode_representation
+from fieldcut.manifest import build_manifest, first_inconsistency
+from fieldcut.orchestrator import run_job
+from fieldcut.pipeline import (
+    BoundedQueue,
+    PipelineCancelled,
+    PipelineState,
+    QUEUE_CLOSED,
+    run_stage,
+)
+from fieldcut.probe import probe_file
+from fieldcut.segment import plan_segments
+from fieldcut.timebase import (
+    DEFAULT_WRAP_MODULUS,
     fit_drift,
+    profile_frame_rate,
     unwrap_timestamps,
 )
-from remuxsync.errors import ErrorLog, InputError, Recovery, Stage
-from remuxsync.packets import (
-    FLAG_KEY,
-    HEADER_SIZE,
-    encode_packet,
-    parse_stream,
+
+from synthesize import (
+    CameraSpec,
+    generate_camera,
+    parse_defects,
+    reference_rgb,
 )
-from remuxsync.pipeline import run
-
-ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "scripts" / "make_samples.py"
 
 
-def _make_samples(tmp_path: Path, seed: int = 41) -> Path:
-    out = tmp_path / "samples"
-    subprocess.run(
-        [sys.executable, str(SCRIPT), "--out", str(out), "--seed", str(seed)],
-        check=True, capture_output=True)
-    return out
+def _camera(tmp_path, name, duration=8.0, defects=("normal",), seed=7):
+    info = generate_camera(
+        CameraSpec(name, duration, tuple(defects), seed),
+        str(tmp_path / "src"))
+    return info["path"]
+
+
+def _probes(tmp_path, specs):
+    probes = []
+    for name, defects in specs:
+        path = _camera(tmp_path, name, defects=parse_defects(defects))
+        probes.append(probe_file(path, name, ErrorLog()))
+    return probes
 
 
 # --------------------------------------------------------------------------
-# clock: unwrap and drift
+# timebase: wrap vs regression, drift confidence, VFR
 # --------------------------------------------------------------------------
 
 def test_unwrap_distinguishes_wrap_from_regression():
-    seq = [WRAP_MODULUS - 100, WRAP_MODULUS - 10, 5, 20]
-    out, wraps = unwrap_timestamps(seq)
-    assert wraps == [2]                       # wrap detected at the rollover
-    assert out[2] == WRAP_MODULUS + 5         # monotonic after unwrap
-    assert out == sorted(out)
-
-    # a small genuine backward step is not a wrap
-    back, back_wraps = unwrap_timestamps([1000, 900, 1100])
-    assert back_wraps == []
-    assert back[1] == 900
+    m = DEFAULT_WRAP_MODULUS
+    res = unwrap_timestamps([m - 100, m - 10, 5, 20], m)
+    assert res.wrap_indices == [2]
+    assert res.values == sorted(res.values)
+    back = unwrap_timestamps([1000, 900, 1100])
+    assert back.wrap_indices == []
+    assert back.regression_indices == [1]
+    assert back.values[1] == 900
 
 
-def test_fit_drift_splits_on_persistent_step():
-    xs = list(range(0, 200, 2))
-    ys = [x + (100 * TICKS_PER_MS if x >= 100 else 0) for x in xs]
-    model, breaks = fit_drift(xs, ys)
-    assert breaks == [50]
-    assert len(model.segments) == 2
+def test_drift_fit_sign_and_confidence():
+    ref = [i * 3750 for i in range(120)]
+    capture = [int(r / 1.001) for r in ref]   # slow oscillator -> positive ppm
+    fit = fit_drift(capture, ref)
+    assert fit.rate_ppm > 500
+    assert fit.ci_half_width_ppm >= 0
+    assert fit.residual_rms_ms < 1.0
+
+
+def test_vfr_profile_flags_variable_cadence():
+    constant = profile_frame_rate([0, 3750, 7500, 11250])
+    assert constant.variable is False
+    variable = profile_frame_rate([0, 3750, 7000, 11250])
+    assert variable.variable is True
+
+
+def test_parse_defects_rejects_unknown():
+    with pytest.raises(ValueError):
+        parse_defects("drift,bogus")
 
 
 # --------------------------------------------------------------------------
-# packets: recovery paths
+# bounded queue: backpressure and cancellation
 # --------------------------------------------------------------------------
 
-def _write(path: Path, blob: bytes) -> None:
-    path.write_bytes(blob)
+def test_bounded_queue_backpressure_blocks_producer():
+    q = BoundedQueue(2)
+    cancel = threading.Event()
+    done = threading.Event()
+
+    def fill():
+        try:
+            for i in range(5):
+                q.put(i, cancel)
+        except PipelineCancelled:
+            pass
+        done.set()
+
+    t = threading.Thread(target=fill)
+    t.start()
+    t.join(timeout=0.3)
+    assert t.is_alive()                      # blocked on the full queue
+    assert q.peak_size <= 2
+    assert q.get(cancel) == 0
+    cancel.set()                            # release any remaining blocked put
+    t.join(timeout=1.0)
+    assert not t.is_alive()
 
 
-def test_packet_loss_retransmission_and_duplicate(tmp_path):
-    p = tmp_path / "t.pkt"
-    blob = b"".join([
-        encode_packet(0, 100, b"a", 0),
-        encode_packet(2, 300, b"c", 0),                       # seq 1 lost
-        encode_packet(1, 200, b"b", 0b100),                   # retransmitted
-        encode_packet(3, 400, b"d", 0),
-        encode_packet(3, 400, b"d", 0b100),                   # duplicate
-    ])
-    _write(p, blob)
+def test_cancelled_put_raises():
+    q = BoundedQueue(1)
+    cancel = threading.Event()
+    q.put("x", cancel)                  # queue now full
+    cancel.set()
+    with pytest.raises(PipelineCancelled):
+        q.put("y", cancel)             # cancelled -> never blocks, raises
+
+
+def test_stage_chain_processes_and_closes():
+    inq, outq = BoundedQueue(4), BoundedQueue(4)
+    state = PipelineState(threading.Event(), ErrorLog())
+    run_stage("inc", lambda item, _s: [item + 1], inq, outq, state)
+    for v in (1, 2, 3):
+        inq.put(v, state.cancel)
+    inq.close(state.cancel)
+    out = []
+    while True:
+        item = outq.get(state.cancel)
+        if item is QUEUE_CLOSED:
+            break
+        out.append(item)
+    state.shutdown()
+    assert out == [2, 3, 4]
+    assert not any(th.is_alive() for th in state.threads.values())
+
+
+# --------------------------------------------------------------------------
+# probe: damage, truncation and recovery
+# --------------------------------------------------------------------------
+
+def test_probe_detects_bad_packet_and_resyncs(tmp_path):
+    path = _camera(tmp_path, "bp", defects=("bad_packet",))
+    result = probe_file(path, "bp", ErrorLog())
+    video = result.videos[0]
+    assert video.damaged_ranges
+    # frames after the hole remain decodable (resync, not total loss)
+    assert video.frame_decoded > video.packet_count * 0.8
+
+
+def test_probe_detects_truncation_and_keeps_head(tmp_path):
+    path = _camera(tmp_path, "tr", duration=12.0,
+                   defects=("truncated", "wrap"))
+    result = probe_file(path, "tr", ErrorLog())
+    video = result.videos[0]
+    assert video.truncated is True
+    assert video.readable_end_ticks > 0
+    assert video.wrap_indices                  # wrap still reconstructed
+
+
+# --------------------------------------------------------------------------
+# alignment + segmentation
+# --------------------------------------------------------------------------
+
+def test_alignment_marks_damaged_camera_review_ranges(tmp_path):
+    probes = _probes(tmp_path, [
+        ("a", "normal"), ("b", "truncated,bad_packet")])
+    alignment = align_cameras(probes, ErrorLog())
+    damaged = next(c for c in alignment.cameras if c.camera == "b")
+    assert damaged.review_ranges
+    healthy = next(c for c in alignment.cameras if c.camera == "a")
+    assert not healthy.review_ranges
+
+
+def test_segment_plan_common_cuts_and_damaged_flag(tmp_path):
+    probes = _probes(tmp_path, [
+        ("a", "normal"), ("b", "truncated,bad_packet")])
     log = ErrorLog()
-    ps = parse_stream(str(p), "t", log, 120)
-    assert [q.seq for q in ps.packets] == [0, 1, 2, 3]
-    assert not ps.unrecovered_seqs
-    kinds = {r.recovery for r in log.records}
-    assert Recovery.RETRANSMITTED.value in kinds
-    assert Recovery.DEDUPLICATED.value in kinds
+    alignment = align_cameras(probes, log)
+    plan = plan_segments(probes, alignment, log)
+    assert plan.segments
+    assert all(s.end_ticks > s.start_ticks for s in plan.segments)
+    assert any(s.damaged for s in plan.segments)
 
 
-def test_reorder_within_window_and_late_unrecoverable(tmp_path):
-    p = tmp_path / "tmp.pkt"
-    # frames 1 and 2 swapped; each ~33 ms apart, inside the 120 ms window
-    blob = b"".join([
-        encode_packet(0, 0, b"0", 0),
-        encode_packet(2, 2 * 3000, b"2", 0),
-        encode_packet(1, 1 * 3000, b"1", 0),
-        encode_packet(3, 3 * 3000, b"3", 0),
-    ])
-    _write(p, blob)
+def test_cross_correlation_lag_sign():
+    sr = 44100
+    rng = np.random.default_rng(0)
+    ref = rng.normal(0, 1, sr // 4).astype(np.float32)
+    delayed = np.concatenate([np.zeros(31, np.float32), ref])[: len(ref)]
+    assert cross_correlation_lag(delayed, ref, sr) == 31
+
+
+# --------------------------------------------------------------------------
+# end-to-end orchestration, resume and manifest
+# --------------------------------------------------------------------------
+
+def _run(tmp_path, name, defects, duration, cameras, bitrates=(800000,)):
+    cams = []
+    for i in range(cameras):
+        d = "normal" if i == 0 else defects
+        path = _camera(tmp_path, f"{name}{i}", duration=duration,
+                       defects=parse_defects(d), seed=50 + i)
+        cams.append((f"{name}{i}", path))
+    out = str(tmp_path / f"out-{name}")
+    return run_job(cams, out, list(bitrates), reference_rgb), out
+
+
+def test_healthy_job_produces_consistent_manifest(tmp_path):
+    result, _ = _run(tmp_path, "ok", "drift,wrap,vfr", 12.0, 2)
+    assert result.manifest.ok
+    assert first_inconsistency(result.manifest) is None
+    assert all(a.continuous for a in result.audio)
+    for rep in result.representations:
+        errs = [abs(m.bitrate_error_pct) for m in rep.segments
+                if m.actual_bps]
+        assert max(errs) <= 15.0
+
+
+def test_damaged_job_recovers_segments_and_flags_ranges(tmp_path):
+    result, _ = _run(tmp_path, "dam", "truncated,bad_packet,wrap",
+                     12.0, 2)
+    assert result.recovered_segments >= 1
+    assert any(s.damaged for s in result.plan.segments)
+    # recoverable region still yields a usable manifest
+    assert result.manifest.ok
+
+
+def test_resume_reuses_valid_segments(tmp_path):
+    result1, out = _run(tmp_path, "res", "normal", 8.0, 1)
+    before = result1.recovered_segments
+    result2, _ = _run(tmp_path, "res", "normal", 8.0, 1)
+    assert result2.manifest.ok
+    assert result2.recovered_segments == before
+
+
+def test_psnr_uncomputable_reason_on_empty_segment(tmp_path):
+    path = _camera(tmp_path, "p", defects=("normal",))
+    probe = probe_file(path, "p", ErrorLog())
     log = ErrorLog()
-    ps = parse_stream(str(p), "tmp", log, 120)
-    assert [q.seq for q in ps.packets] == [0, 1, 2, 3]
-    assert any(r.recovery == Recovery.REORDERED.value for r in log.records)
-
-    # same data but a 33 ms window cannot hold the displaced packet
-    log2 = ErrorLog()
-    ps2 = parse_stream(str(p), "tmp", log2, 10)
-    assert ps2.unrecovered_seqs
-    assert any(r.recovery == Recovery.UNRECOVERABLE.value for r in log2.records)
-
-
-def test_timestamp_wrap_recovered(tmp_path):
-    p = tmp_path / "w.pkt"
-    near = WRAP_MODULUS - 3000
-    blob = b"".join([
-        encode_packet(0, near, b"a", 0),
-        encode_packet(1, (near + 3000) & (WRAP_MODULUS - 1), b"b", 0),
-    ])
-    _write(p, blob)
-    log = ErrorLog()
-    ps = parse_stream(str(p), "w", log, 120)
-    assert ps.packets[1].ts_unwrapped > ps.packets[0].ts_unwrapped
-    assert any(r.recovery == Recovery.UNWRAPPED.value for r in log.records)
-
-
-def test_truncated_header_is_unrecoverable(tmp_path):
-    p = tmp_path / "h.pkt"
-    _write(p, encode_packet(0, 0, b"x", 0) + b"\x52\x58\x00")  # cut header
-    log = ErrorLog()
-    ps = parse_stream(str(p), "h", log, 120)
-    assert ps.packets and any(
-        r.recovery == Recovery.UNRECOVERABLE.value for r in log.records)
+    alignment = align_cameras([probe], log)
+    plan = plan_segments([probe], alignment, log)
+    rep = encode_representation(
+        probe, alignment, plan, 0, 800000,
+        str(tmp_path / "enc"), log, reference_rgb)
+    assert all(m.psnr_db is not None or m.psnr_reason
+               for m in rep.segments)
 
 
 # --------------------------------------------------------------------------
-# annexb scanner boundary defects
+# CLI exit codes
 # --------------------------------------------------------------------------
 
-def test_annexb_truncated_head_and_tail(tmp_path):
-    p = tmp_path / "x.h264"
-    good = b"\x00\x00\x00\x01\x65" + b"k" * 8       # IDR
-    p.write_bytes(b"\xff\xff" + good + b"\x00\x00\x00\x01\x65ab")
-    res = annexb.scan(str(p), "h264", tail_complete=False)
-    msgs = " ".join(e.message for e in res.errors)
-    assert "truncated head" in msgs
-    assert "incomplete tail" in msgs
-    assert res.errors[0].byte_offset == 0
-
-
-def test_av1_invalid_leb_and_forbidden_bit(tmp_path):
-    p = tmp_path / "x.av1"
-    # forbidden bit set
-    p.write_bytes(bytes([0x80]))
-    res = annexb.scan(str(p), "av1")
-    assert res.errors and "forbidden bit" in res.errors[0].message
-    assert res.errors[0].byte_offset == 0
-
-
-# --------------------------------------------------------------------------
-# index validation and rebuild
-# --------------------------------------------------------------------------
-
-def test_index_quarantine_and_seek_verify():
-    log = ErrorLog()
-    key_offsets = {0, 100, 200}
-    entries = [
-        index_mod.IndexEntry(0, 0),
-        index_mod.IndexEntry(1, 999),             # out of bounds
-        index_mod.IndexEntry(0, 0),               # duplicate
-        index_mod.IndexEntry(2, 50),              # not a keyframe
-        index_mod.IndexEntry(3, 200),             # good
-    ]
-    valid = index_mod.validate_index(entries, 300, key_offsets, log, "t")
-    assert [e.frame for e in valid] == [0, 3]
-    assert len([r for r in log.records
-                if r.recovery == Recovery.QUARANTINED.value]) == 3
-
-    rebuilt = index_mod.rebuild_index(
-        [type("U", (), {"offset": o})() for o in sorted(key_offsets)],
-        {0: 0, 100: 5, 200: 10}, {0: 0, 100: 1, 200: 2})
-    failures = index_mod.verify_seeks(rebuilt, key_offsets, log, "t")
-    assert failures == 0
-    assert rebuilt.seek(7).frame == 5            # nearest preceding keyframe
-
-
-def test_empty_index_seek_failure():
-    log = ErrorLog()
-    failures = index_mod.verify_seeks(
-        index_mod.RandomAccessIndex(), {0}, log, "t")
-    assert failures == 1
-    assert log.unrecovered
-
-
-# --------------------------------------------------------------------------
-# end-to-end pipeline and CLI exit codes
-# --------------------------------------------------------------------------
-
-def test_full_pipeline_success(tmp_path):
-    samples = _make_samples(tmp_path)
-    out = tmp_path / "out"
-    result = run(str(samples), str(out), reorder_window_ms=120)
-    s = result.summary
-    assert s["sync_error_ms_p95"] <= 20
-    assert s["packet_recovery_rate"] >= 0.90
-    assert s["latency_ms_p95"] <= 500
-    assert s["index_seek_failures"] == 0
-    assert not result.errors.unrecovered
-    # every error carries a stage; byte offsets present where applicable
-    stages = {e.stage for e in result.errors.records}
-    assert {st.value for st in Stage} & stages
-    for v in result.videos:
-        assert len(v.frames) == 120
-        assert len(v.drift.segments) >= 2          # clock step segmented
-    # repaired index files published and seek targets land on keyframes
-    for v in result.videos:
-        idx_file = out / f"{v.track}.{v.codec}.index.repaired.json"
-        data = json.loads(idx_file.read_text())
-        assert data["entries"]
-    # input directory untouched (no outputs written inside it)
-    assert not (samples / "out").exists()
-
-
-def test_cli_exit_codes(tmp_path, capsys):
-    samples = _make_samples(tmp_path)
-
-    # exit 2: unreadable input
-    assert cli_main(["repair", "--input", str(tmp_path / "nope"),
-                     "--output", str(tmp_path / "o"), "--json"]) == 2
-    capsys.readouterr()
-
-    # exit 2: output nested inside input (refuse to overwrite sources)
-    assert cli_main(["repair", "--input", str(samples),
-                     "--output", str(samples / "nested"),
-                     "--json"]) == 2
-    capsys.readouterr()
-
-    # exit 2: invalid window argument
-    assert cli_main(["repair", "--input", str(samples),
-                     "--output", str(tmp_path / "o2"),
-                     "--reorder-window-ms", "0"]) == 2
-    capsys.readouterr()
-
-    # exit 0: healthy run
-    ok = tmp_path / "ok"
-    assert cli_main(["repair", "--input", str(samples),
-                     "--output", str(ok),
-                     "--reorder-window-ms", "120", "--json"]) == 0
-    report = json.loads(capsys.readouterr().out)
-    assert report["index_seek_failures"] == 0
-    assert report["packet_recovery_rate"] >= 0.90
-
-
-def test_corruption_forces_exit_one(tmp_path):
-    samples = _make_samples(tmp_path)
-    # drop a video packet file's middle packet entirely with no retransmission
-    pkt = next(samples.glob("cam_studio*.pkt"))
-    blob = pkt.read_bytes()
-    # remove the packet whose header starts at HEADER_SIZE (seq 0 stays valid)
-    _magic, flags, seq, length, ts = __import__(
-        "remuxsync.packets", fromlist=["HEADER_STRUCT"]
-    ).HEADER_STRUCT.unpack(blob[:HEADER_SIZE])
-    pkt.write_bytes(blob[:HEADER_SIZE] + blob[HEADER_SIZE + HEADER_SIZE + length:])
-    out = tmp_path / "out"
-    code = cli_main(["repair", "--input", str(samples),
-                     "--output", str(out), "--reorder-window-ms", "120",
-                     "--json"])
+def test_cli_usage_error_returns_1(tmp_path):
+    code = cli_main(["demo", "--output", str(tmp_path / "o"),
+                     "--duration", "4", "--cameras", "1",
+                     "--inject", "not_a_defect"])
     assert code == 1
 
 
-def test_deterministic_samples_and_audio_offset(tmp_path):
-    a = _make_samples(tmp_path / "run1", seed=7)
-    b = _make_samples(tmp_path / "run2", seed=7)
-    assert (a / "manifest.json").read_bytes() == (b / "manifest.json").read_bytes()
-    result = run(str(a), str(tmp_path / "out"), 120)
-    lav = next(t for t in result.audios if t.track == "audio_lav")
-    # measured 60 ms capture offset within one 48 kHz sample (~0.02 ms)
-    assert abs(lav.measured_offset_ticks - 60 * TICKS_PER_MS) <= 2
-    assert lav.overrun_ticks > 0                   # retained, never clipped
+def test_cli_demo_success_returns_0(tmp_path):
+    code = cli_main(["demo", "--output", str(tmp_path / "o"),
+                     "--duration", "8", "--cameras", "2",
+                     "--bitrates", "800000", "--inject", "drift,wrap"])
+    assert code == 0
 
 
-def test_pyav_probe_parses_recovered_streams(tmp_path):
-    from remuxsync.probe import probe_stream
-    samples = _make_samples(tmp_path)
-    out = tmp_path / "out"
-    run(str(samples), str(out), 120)
-    for codec in ("h264", "h265", "av1"):
-        es = next(out.glob(f"*.{codec}.recovered.es"))
-        info = probe_stream(str(es), codec)
-        assert info["available"] is True
-        assert info["parsed_packets"] > 0  # framing independently confirmed
-
-
-def test_ambiguous_timestamp_marks_uncertain_interval(tmp_path):
-    from remuxsync.annexb import Unit
-    from remuxsync.packets import Packet, PacketStream
-    from remuxsync.timeline import build_video_timeline
-
-    # four 30 fps frames, then a 10x gap -> ambiguous interval, still parsed
-    tss = [0, 3000, 6000, 9000, 39000]
-    packets, spans, units = [], [], []
-    off = 0
-    for i, ts in enumerate(tss):
-        payload = bytes([0x65 if i == 0 else 0x61]) + b"x" * 10
-        packets.append(Packet(seq=i, ts33=ts, ts_unwrapped=ts, flags=0,
-                              payload=payload, offset=i * 32))
-        spans.append((i, off, off + len(payload), ts))
-        units.append(Unit("h264", 5 if i == 0 else 1, off,
-                          len(payload), i == 0))
-        off += len(payload)
-    stream = PacketStream(packets=packets, expected_seq_max=4)
-    log = ErrorLog()
-    tl = build_video_timeline("t", "h264", stream, units, spans,
-                              str(tmp_path / "x.es"), off, log)
-    assert len(tl.frames) == 5
-    assert any(f.uncertain for f in tl.frames)
-    assert any("ambiguous timestamp interval" in e.message for e in log.records)
-
-
-def test_reorder_buffer_bounded_by_window(tmp_path):
-    p = tmp_path / "b.pkt"
-    n = 60
-    step = 3000  # 33.3 ms at 90 kHz
-    # fully reversed delivery in blocks of 3: heavy reordering, all in-window
-    chunks = [
-        encode_packet(i, i * step, bytes([i & 0xFF]), 0)
-        for i in range(n)
-    ]
-    blob = b""
-    for block in range(0, n, 3):
-        blob += b"".join(reversed(chunks[block:block + 3]))
-    p.write_bytes(blob)
-
-    log = ErrorLog()
-    ps = parse_stream(str(p), "b", log, 120)
-    # all recovered, and the live buffer never exceeds the 120 ms window:
-    # at most ceil(120/33.3)+1 ~ 5 packets, far below the stream length
-    assert not ps.unrecovered_seqs
-    assert ps.max_buffer_packets <= 5
-    assert ps.max_buffer_packets < n  # never buffered the whole stream
-
-    # a 33 ms window cannot absorb a 3-slot displacement -> unrecoverable
-    tight = ErrorLog()
-    ps_tight = parse_stream(str(p), "b", tight, 33)
-    assert ps_tight.unrecovered_seqs
+def test_cli_process_missing_file_returns_1(tmp_path):
+    code = cli_main(["process", "--output", str(tmp_path / "o"),
+                     "--input", str(tmp_path / "missing.mp4")])
+    assert code == 1
