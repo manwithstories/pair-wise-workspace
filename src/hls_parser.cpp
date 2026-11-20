@@ -50,8 +50,91 @@ bool isTag(const std::string& l, const char* tag) {
 
 }  // namespace
 
+// Forward declaration: media-playlist parser implemented below.
+Manifest parseHlsMedia(const std::filesystem::path& path,
+                       const ParseOptions& opts, ErrorLog& errors);
+
+// Master playlists reference child media playlists; parse each child and
+// merge their content into one manifest.
+static Manifest parseHlsMaster(const std::filesystem::path& path,
+                               const ParseOptions& opts,
+                               ErrorLog& errors) {
+    Manifest m;
+    m.format = ManifestFormat::Hls;
+    m.sourcePath = path;
+    m.baseUrl = path.parent_path().string();
+    const auto dir = path.parent_path();
+
+    std::ifstream in(path);
+    std::string line;
+    bool expectChild = false;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.rfind("#EXT-X-STREAM-INF", 0) == 0) {
+            expectChild = true;
+            continue;
+        }
+        if (line.rfind("#EXT-X-MEDIA:", 0) == 0) {
+            // External audio rendition: capture its URI attribute.
+            auto attrs = attrsOf(line);
+            if (auto it = attrs.find("URI"); it != attrs.end()) {
+                auto resolved =
+                    resolveManifestUri(dir, it->second, opts.root);
+                if (resolved) {
+                    auto child =
+                        parseHlsMedia(*resolved, opts, errors);
+                    for (auto& pl : child.playlists)
+                        m.playlists.push_back(std::move(pl));
+                } else {
+                    errors.add({ErrorCode::PathEscape, "", -1,
+                                it->second, {0, 0, {1, 1}}, false,
+                                "child playlist escapes input directory"});
+                }
+            }
+            continue;
+        }
+        if (line.empty() || line.starts_with('#')) continue;
+        if (expectChild) {
+            auto resolved = resolveManifestUri(dir, line, opts.root);
+            if (!resolved) {
+                errors.add({ErrorCode::PathEscape, "", -1, line,
+                            {0, 0, {1, 1}}, false,
+                            "child playlist escapes input directory"});
+            } else {
+                auto child = parseHlsMedia(*resolved, opts, errors);
+                for (auto& pl : child.playlists)
+                    m.playlists.push_back(std::move(pl));
+            }
+            expectChild = false;
+        }
+    }
+    return m;
+}
+
 Manifest parseHls(const std::filesystem::path& path,
                   const ParseOptions& opts, ErrorLog& errors) {
+    // Detect master vs media playlist from the tag set before parsing.
+    std::ifstream probeFile(path);
+    std::string scan;
+    bool isMaster = false;
+    while (std::getline(probeFile, scan)) {
+        // Exact tag names: "#EXT-X-MEDIA-SEQUENCE" must NOT match the
+        // master-only "#EXT-X-MEDIA" rendition tag.
+        const bool streamInf =
+            scan.rfind("#EXT-X-STREAM-INF:", 0) == 0;
+        const bool mediaRendition =
+            scan.rfind("#EXT-X-MEDIA:", 0) == 0;
+        if (streamInf || mediaRendition) {
+            isMaster = true;
+            break;
+        }
+    }
+    if (isMaster) return parseHlsMaster(path, opts, errors);
+    return parseHlsMedia(path, opts, errors);
+}
+
+Manifest parseHlsMedia(const std::filesystem::path& path,
+                       const ParseOptions& opts, ErrorLog& errors) {
     Manifest m;
     m.format = ManifestFormat::Hls;
     m.sourcePath = path;
