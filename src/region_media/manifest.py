@@ -220,7 +220,8 @@ def _parse_hls_media(path: str, kind: TrackKind,
 
 def _parse_dash(path: str) -> ManifestModel:
     base_dir = os.path.dirname(os.path.abspath(path))
-    raw = open(path, "rb").read()
+    with open(path, "rb") as fh:
+        raw = fh.read()
     try:
         root = ET.fromstring(raw)
     except ET.ParseError as exc:
