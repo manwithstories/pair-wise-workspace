@@ -15,7 +15,7 @@ from typing import Any, Iterable
 
 #: Pipeline stages, in execution order.  A stage name is part of the public
 #: diagnostic contract, so we keep them as plain strings and validate early.
-STAGES = ("generate", "probe", "timeline", "audio", "color", "archive", "verify")
+STAGES = ("generate", "probe", "timeline", "audio", "color", "transform", "archive", "verify")
 
 #: Stable machine-readable error codes.  Each code maps to one line in the
 #: terminal diagnostic; codes are never reused for a different meaning.

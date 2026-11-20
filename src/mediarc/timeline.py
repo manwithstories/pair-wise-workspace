@@ -185,10 +185,12 @@ def analyze_timestamps(
     ``entries`` holds ``(packet_index, pts, dts, source_offset)`` in demux
     order, with raw stream ticks.  Checks, in order:
 
-    * negative presentation or decode timestamps,
-    * non-monotonic decode timestamps,
+    * negative presentation timestamps (decode timestamps are exempt: MP4 edit
+      lists legitimately start DTS before zero while the first PTS is 0),
+    * non-monotonic decode or presentation order,
     * two distinct presentation times collapsing onto one timeline tick.
     """
+    negative_dts = 0
     issues: list[TimestampIssue] = []
     seen: dict[int, Fraction] = {}
     last_dts: Fraction | None = None
@@ -205,14 +207,7 @@ def analyze_timestamps(
             )
             continue
         if dts is not None and dts < 0:
-            issues.append(
-                TimestampIssue(
-                    "non-monotonic-timestamp", stream_index, packet_index,
-                    dts, Fraction(dts) * time_base.value,
-                    f"decode timestamp {dts} is before origin",
-                    source_offset,
-                )
-            )
+            negative_dts += 1
             continue
         if dts is not None:
             dts_exact = Fraction(dts) * time_base.value

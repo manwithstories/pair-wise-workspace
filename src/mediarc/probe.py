@@ -47,6 +47,31 @@ class PacketMeta:
     keyframe: bool
     corrupt: bool
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "index": self.index,
+            "pts": self.pts,
+            "dts": self.dts,
+            "duration": self.duration,
+            "size": self.size,
+            "offset": self.offset,
+            "keyframe": self.keyframe,
+            "corrupt": self.corrupt,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "PacketMeta":
+        return cls(
+            index=int(data["index"]),
+            pts=None if data.get("pts") is None else int(data["pts"]),
+            dts=None if data.get("dts") is None else int(data["dts"]),
+            duration=None if data.get("duration") is None else int(data["duration"]),
+            size=int(data.get("size", 0)),
+            offset=None if data.get("offset") is None else int(data["offset"]),
+            keyframe=bool(data.get("keyframe", False)),
+            corrupt=bool(data.get("corrupt", False)),
+        )
+
 
 @dataclass(slots=True)
 class Keyframe:
@@ -115,9 +140,32 @@ class StreamProbe:
             "metadata": dict(self.metadata),
             "color_raw": dict(self.color_raw),
             "packet_count": self.packet_count,
+            "packets": [p.to_dict() for p in self.packets],
             "keyframes": [k.to_dict() for k in self.keyframes],
-            "last_offset": self.packets[-1].offset if self.packets else None,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "StreamProbe":
+        """Rebuild a probe record; packets are restored without payloads."""
+        return cls(
+            index=int(data["index"]),
+            kind=str(data["kind"]),
+            codec=str(data["codec"]),
+            time_base=Rational.parse(data["time_base"]),
+            start_raw=data.get("start_raw"),
+            duration_raw=data.get("duration_raw"),
+            sample_rate=data.get("sample_rate"),
+            channels=data.get("channels"),
+            layout=data.get("layout"),
+            width=data.get("width"),
+            height=data.get("height"),
+            framerate=None if data.get("framerate") is None else Rational.parse(data["framerate"]),
+            language=data.get("language"),
+            metadata={str(k): str(v) for k, v in (data.get("metadata") or {}).items()},
+            color_raw={str(k): str(v) for k, v in (data.get("color_raw") or {}).items()},
+            packets=[PacketMeta.from_dict(p) for p in data.get("packets", [])],
+            keyframes=[Keyframe.from_dict(k) for k in data.get("keyframes", [])],
+        )
 
 
 @dataclass(slots=True)
@@ -194,6 +242,21 @@ class ProbeResult:
             "errors": [e.to_dict() for e in self.errors],
             "logs": list(self.logs),
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ProbeResult":
+        return cls(
+            path=str(data["path"]),
+            size=int(data["size"]),
+            format_name=str(data["format_name"]),
+            duration_us=data.get("duration_us"),
+            time_base=TimeBase(Rational.parse(data["time_base"])),
+            streams=[StreamProbe.from_dict(s) for s in data.get("streams", [])],
+            mapping=MappingRecord.from_dict(data["mapping"]),
+            source_sha256=str(data.get("source_sha256", "")),
+            errors=[MediaError.from_dict(e) for e in data.get("errors", [])],
+            logs=[str(x) for x in data.get("logs", [])],
+        )
 
 
 def _attach_container_color(
@@ -421,9 +484,7 @@ def probe(
                 )
                 duration_us = container.duration
                 errors.extend(
-                    _completeness(
-                        path, streams, observed_end, duration_us, timeline
-                    )
+                    _completeness(path, streams, observed_end, timeline)
                 )
                 logs = [line[2].strip() for line in capture]
             finally:
@@ -566,43 +627,53 @@ def _demux_container(
     return end
 
 
+def _declared_seconds(stream: StreamProbe) -> Fraction | None:
+    """Duration this stream promises, from its own header (not the container)."""
+    if stream.duration_raw is not None:
+        return Fraction(stream.duration_raw) * stream.time_base.value
+    tag = stream.metadata.get("DURATION") or stream.metadata.get("duration")
+    if tag:
+        try:
+            hours, minutes, seconds = tag.split(":")
+            return Fraction(hours) * 3600 + Fraction(minutes) * 60 + Fraction(seconds)
+        except (ValueError, ZeroDivisionError):
+            return None
+    return None
+
+
 def _completeness(
     path: str,
     streams: list[StreamProbe],
     observed_end: dict[int, Fraction],
-    duration_us: int | None,
     timeline: TimeBase,
 ) -> list[MediaError]:
-    """Flag a container whose packets stop well short of its declared duration."""
-    if not duration_us:
-        return []
-    declared = Fraction(duration_us, 1_000_000)
+    """Flag streams whose packets stop well short of what their header declares.
+
+    Per-stream declarations are used because a container duration describes the
+    longest track, not each track: a deliberately short audio track is not a
+    truncated file.  A 250 ms tolerance absorbs frame rounding.
+    """
     errors: list[MediaError] = []
     for stream in streams:
-        end = observed_end.get(stream.index, Fraction(0))
         if not stream.packets:
+            continue  # an empty track is reported by the timeline stage instead
+        declared = _declared_seconds(stream)
+        if declared is None:
             continue
-        # A container may round its duration to a frame; allow 250 ms of slack.
+        end = observed_end.get(stream.index, Fraction(0))
         if declared - end > Fraction(1, 4):
             last = stream.packets[-1]
             errors.append(
                 MediaError(
                     "truncated-container",
-                    f"stream {stream.index} ends at {float(end):.3f}s but the container "
+                    f"stream {stream.index} ends at {float(end):.3f}s but its header "
                     f"declares {float(declared):.3f}s",
                     stage="probe", path=path, stream_index=stream.index,
                     offset=last.offset,
-                    detail={"declared_seconds": float(declared), "observed_seconds": float(end)},
-                )
-            )
-    for index, end in observed_end.items():
-        if end > declared + Fraction(1, 2):
-            errors.append(
-                MediaError(
-                    "corrupt-packet",
-                    f"stream {index} presents past the declared duration",
-                    stage="probe", path=path, stream_index=index,
-                    detail={"observed_seconds": float(end)},
+                    detail={
+                        "declared_seconds": round(float(declared), 3),
+                        "observed_seconds": round(float(end), 3),
+                    },
                 )
             )
     return errors

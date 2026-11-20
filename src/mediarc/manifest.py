@@ -32,7 +32,7 @@ SCHEMA = "mediarc.manifest/v1"
 #: Bump when a field changes meaning; readers reject unknown majors.
 SCHEMA_VERSION = 1
 
-STAGE_ORDER = ("probe", "timeline", "audio", "color", "archive", "verify")
+STAGE_ORDER = ("generate", "probe", "timeline", "audio", "color", "transform", "archive", "verify")
 
 
 @dataclass(slots=True)

@@ -115,3 +115,51 @@ def stream_digest(handle: BinaryIO) -> str:
     for chunk in iter(lambda: handle.read(CHUNK), b""):
         digest.update(chunk)
     return digest.hexdigest()
+
+
+def iter_packets(container: Any, stream: Any, target_seconds: Any = 0):
+    """Yield packets of ``stream`` beginning at or before ``target_seconds``.
+
+    Container seeking is advisory: some demuxers ignore it, and a backward seek
+    only guarantees "at or before the target *keyframe*".  This iterator
+    verifies where the seek actually landed using the first packet it reads;
+    if the landing time is past the target it restarts the demuxer and reads
+    linearly.  No packet is dropped either way, so callers see a complete
+    packet stream and can make sample-exact cuts themselves.
+    """
+    from fractions import Fraction
+
+    target = Fraction(target_seconds) if not isinstance(target_seconds, Fraction) else target_seconds
+    if target > 0:
+        try:
+            container.seek(int(target / stream.time_base), stream=stream, backward=True)
+        except Exception:  # noqa: BLE001 - demuxer may not support seeking
+            target = Fraction(0)
+    attempt = 0
+    while True:
+        first = True
+        restart = False
+        for packet in container.demux(stream):
+            if first:
+                first = False
+                if packet.pts is None and packet.dts is None:
+                    # Flush packet at EOF; nothing to verify against.
+                    yield packet
+                    continue
+                when = Fraction(
+                    packet.pts if packet.pts is not None else packet.dts
+                ) * stream.time_base
+                if target > 0 and when > target:
+                    restart = True
+                    break
+            yield packet
+        if not restart:
+            return
+        attempt += 1
+        if attempt > 1:
+            return
+        target = Fraction(0)
+        try:
+            container.seek(0)
+        except Exception:  # noqa: BLE001
+            return

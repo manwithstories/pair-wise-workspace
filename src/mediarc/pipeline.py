@@ -1,17 +1,18 @@
 """Pipeline orchestration: parse -> transform -> verify, staged on disk.
 
-Every stage persists a JSON record containing:
+Each stage writes a JSON record holding:
 
-* the digest of the inputs it consumed (source hash, settings, upstream stage),
-* the digest of the output it produced,
-* any isolated errors.
+* ``input_sha256`` - digest of everything the stage consumed,
+* ``output_sha256`` - digest of what it produced,
+* the output payload itself.
 
-On ``--resume`` a stage is reused only when its recorded input digest matches
-the current one; a changed input is rejected with ``stage-hash-mismatch``
-instead of silently mixing stale and fresh artefacts.
+On ``--resume`` a stage is reused only when its recorded input digest equals the
+current one.  A changed input raises ``stage-hash-mismatch`` instead of silently
+mixing stale artefacts with fresh ones.
 
-Segments are the unit of failure isolation: a segment that cannot be archived
-is marked failed with its locatable error and the rest of the run continues.
+Failure isolation happens at the segment level: a segment that cannot be
+archived is recorded with its locatable error and the remaining segments still
+archive, so one damaged GOP never costs a whole master.
 """
 
 from __future__ import annotations
@@ -36,9 +37,9 @@ from .manifest import (
     keyframe_digest,
     stage_input_digest,
 )
-from .probe import Keyframe, ProbeResult, StreamProbe, probe
-from .timeline import Segment, Track, contiguous_segments, Timeline
-from .util import atomic_write_json, load_json, sha256_file
+from .probe import ProbeResult, StreamProbe, probe
+from .timeline import Segment, Timeline, Track, contiguous_segments
+from .util import atomic_write_json, iter_packets, load_json, sha256_file
 
 STAGE_DIR = "stages"
 SEGMENT_DIR = "segments"
@@ -70,7 +71,7 @@ class Limits:
 
 @dataclass(slots=True)
 class StageStore:
-    """On-disk stage records, the basis of safe resume."""
+    """On-disk stage records; the basis of safe resume."""
 
     root: Path
     resume: bool = False
@@ -93,7 +94,8 @@ class StageStore:
         payload = load_json(record_path, stage="archive")
         if not isinstance(payload, dict):
             raise MediaError(
-                "manifest-corrupt", f"stage record {name} is not an object", stage="archive"
+                "manifest-corrupt", f"stage record {name} is not an object",
+                stage="archive", path=str(record_path),
             )
         recorded = payload.get("input_sha256")
         if recorded != expected_input:
@@ -101,14 +103,11 @@ class StageStore:
                 "stage-hash-mismatch",
                 f"stage {name} was produced from {str(recorded)[:16]}, current input "
                 f"hashes to {expected_input[:16]}",
-                stage="archive",
-                path=str(record_path),
+                stage="archive", path=str(record_path),
                 detail={"recorded": recorded, "current": expected_input},
             )
         output = payload.get("output")
-        if isinstance(output, dict):
-            return output
-        return None
+        return output if isinstance(output, dict) else None
 
     def save(self, name: str, input_sha: str, output_sha: str, output: dict[str, Any]) -> None:
         atomic_write_json(
@@ -128,6 +127,7 @@ class ArchiveReport:
     errors: list[MediaError] = field(default_factory=list)
     recovered_segments: int = 0
     stage_status: dict[str, str] = field(default_factory=dict)
+    resumed_stages: list[str] = field(default_factory=list)
 
     @property
     def healthy(self) -> int:
@@ -139,30 +139,26 @@ class ArchiveReport:
 
     def summary_lines(self) -> list[str]:
         lines = [
-            f"archive source={self.manifest.source['path']} format={self.manifest.source['format']}",
+            f"archive source={self.manifest.source['path']} "
+            f"format={self.manifest.source['format']}",
             f"segments_total={len(self.manifest.segments)} "
             f"segments_ok={self.healthy} segments_failed={self.failed}",
-            f"isolated_failures={self.failed} recovered_segments={self.recovered_segments}",
+            f"recovered_segments={self.recovered_segments}",
         ]
         for name, status in self.stage_status.items():
-            lines.append(f"stage {name} status={status}")
-        if self.errors:
-            offset = min(
-                (e.offset for e in self.errors if e.offset is not None), default=None
-            )
-            lines.append(
-                "error_offset=" + (str(offset) if offset is not None else "unknown")
-            )
+            suffix = " resumed=1" if name in self.resumed_stages else ""
+            lines.append(f"stage {name} status={status}{suffix}")
+        offset = min((e.offset for e in self.errors if e.offset is not None), default=None)
+        lines.append("error_offset=" + (str(offset) if offset is not None else "unknown"))
         return lines
 
 
-def _mapped_streams(result: ProbeResult) -> list[StreamProbe]:
-    return [s for s in result.streams if result.mapping.role_of(s.index) is not None]
+# ---------------------------------------------------------------------------
+# Timeline construction
+# ---------------------------------------------------------------------------
 
 
-def _stream_end_seconds(result: ProbeResult, stream: StreamProbe) -> float:
-    if not stream.packets:
-        return float(stream.start_raw or 0) / (stream.time_base.value or 1)
+def _stream_end_seconds(stream: StreamProbe) -> float:
     last = stream.packets[-1]
     if last.pts is None:
         return 0.0
@@ -177,30 +173,33 @@ def build_timeline(
     limits: Limits,
     *,
     cut_every_seconds: float | None = None,
-) -> list[MediaError]:
-    """Create tracks and segments in the probe's integer tick base."""
-    rate = result.time_base.rate.value
+) -> tuple[Timeline, list[MediaError]]:
+    """Tracks and segments in the probe's integer tick base.
+
+    Video segments split on keyframes plus the duration ceiling; audio segments
+    split on the same tick positions so the two stay aligned.
+    """
+    tb = result.time_base
+    rate = tb.rate.value
     errors: list[MediaError] = []
-    end_ticks = result.time_base.to_ticks(Fraction(result.duration_us or 0, 1_000_000))
+    mapped = [s for s in result.streams if result.mapping.role_of(s.index) is not None]
+    declared_end = tb.to_ticks(Fraction(result.duration_us or 0, 1_000_000))
+    end_ticks = declared_end
     tracks: list[Track] = []
-    segments: list[Segment] = []
-    for stream in _mapped_streams(result):
+    per_stream_cuts: dict[int, list[int]] = {}
+    for stream in mapped:
         if not stream.packets:
             errors.append(
                 MediaError(
                     "missing-stream",
-                    f"mapped {stream.kind} stream has no packets; it is isolated from this archive",
+                    f"mapped {stream.kind} stream has no packets; isolated from this archive",
                     stage="timeline", path=result.path, stream_index=stream.index,
                 )
             )
             continue
-        end_seconds = _stream_end_seconds(result, stream)
-        stream_end = result.time_base.to_ticks(Fraction(end_seconds))
-        stream_start = result.time_base.to_ticks(
-            Fraction(stream.start_raw or 0) * stream.time_base.value
-        )
-        if end_ticks == 0 or stream_end > end_ticks:
-            end_ticks = stream_end
+        stream_end = tb.to_ticks(Fraction(_stream_end_seconds(stream)))
+        stream_start = tb.to_ticks(Fraction(stream.start_raw or 0) * stream.time_base.value)
+        end_ticks = max(end_ticks, stream_end)
         tracks.append(
             Track(
                 index=stream.index,
@@ -212,63 +211,72 @@ def build_timeline(
                 language=stream.language,
             )
         )
+        per_stream_cuts[stream.index] = _cut_points(
+            stream, stream_start, stream_end, limits, cut_every_seconds, rate
+        )
+    segments: list[Segment] = []
+    for stream in mapped:
+        if stream.index not in per_stream_cuts:
+            continue
+        track = next(t for t in tracks if t.index == stream.index)
+        end = track.start_ticks + (track.duration_ticks or 0)
         segments.extend(
-            _segments_for_stream(
-                result, stream, stream_start, stream_end, limits, cut_every_seconds
+            _segments_for(
+                stream, track.start_ticks, end, per_stream_cuts[stream.index]
             )
         )
-    result.timeline = Timeline(  # type: ignore[attr-defined]
-        result.time_base, end_ticks, tracks, segments
-    )
-    return errors
+    return Timeline(tb, end_ticks, tracks, segments), errors
 
 
-def _segments_for_stream(
-    result: ProbeResult,
+def _cut_points(
     stream: StreamProbe,
     start: int,
     end: int,
     limits: Limits,
     cut_every_seconds: float | None,
-) -> list[Segment]:
-    rate = result.time_base.rate.value
-    limit_ticks = int(limits.max_segment_seconds * rate)
+    rate: int,
+) -> list[int]:
+    ceiling = int(limits.max_segment_seconds * rate)
     if cut_every_seconds:
-        limit_ticks = min(limit_ticks, int(cut_every_seconds * rate))
+        ceiling = min(ceiling, int(cut_every_seconds * rate))
     if stream.kind == "video" and stream.keyframes:
-        cuts = [
-            k.ticks for k in stream.keyframes
-            if start < k.ticks < end
-        ]
+        cuts = sorted({k.ticks for k in stream.keyframes if start < k.ticks < end})
     else:
         cuts = []
-    # Enforce the per-segment duration ceiling even between keyframes.
-    bounds = [start] + [c for c in cuts if c > start] + [end]
+    bounds = [start, *cuts, end]
     enforced: list[int] = [bounds[0]]
     for bound in bounds[1:]:
-        while bound - enforced[-1] > limit_ticks:
-            enforced.append(enforced[-1] + limit_ticks)
-        enforced.append(bound)
+        while bound - enforced[-1] > ceiling:
+            enforced.append(enforced[-1] + ceiling)
+        if bound > enforced[-1]:
+            enforced.append(bound)
+    return enforced[1:-1]
+
+
+def _segments_for(
+    stream: StreamProbe, start: int, end: int, cuts: list[int]
+) -> list[Segment]:
     segments = contiguous_segments(
-        stream.index,
-        enforced[1:-1],
-        end,
-        source_origin=0,
+        stream.index, cuts, end,
+        source_origin=start,
         prefix=f"{stream.kind[0]}{stream.index:02d}_",
     )
     for segment in segments:
-        segment.source_start_ticks = segment.start_ticks
-        segment.source_end_ticks = segment.end_ticks
         segment.mapping = {
             "kind": stream.kind,
             "codec": stream.codec,
-            "role": result.mapping.role_of(stream.index),
+            "role": "video" if stream.kind == "video" else "audio",
         }
     return segments
 
 
+# ---------------------------------------------------------------------------
+# Segment transforms
+# ---------------------------------------------------------------------------
+
+
 def _color_values(record: ColorRecord) -> list[tuple[str, int]]:
-    values = []
+    values: list[tuple[str, int]] = []
     for name, attr in (
         ("primaries", "color_primaries"),
         ("transfer", "color_trc"),
@@ -282,7 +290,7 @@ def _color_values(record: ColorRecord) -> list[tuple[str, int]]:
 
 
 def _color_tags(record: ColorRecord) -> dict[str, str]:
-    tags = {}
+    tags: dict[str, str] = {}
     for name, key in (
         ("primaries", "COLOR_PRIMARIES"),
         ("transfer", "COLOR_TRANSFER"),
@@ -302,19 +310,17 @@ def remux_video_segment(
     output_path: str,
     color: ColorRecord,
 ) -> SegmentRecord:
-    """Stream-copy one video segment into an MP4 without re-encoding."""
+    """Stream-copy one segment to MP4, preserving colour and source offsets."""
     rate = result.time_base.rate.value
-    start_seconds = float(Fraction(segment.source_start_ticks or 0) / rate)
-    end_seconds = float(Fraction(segment.source_end_ticks or segment.end_ticks) / rate)
+    start_ticks = segment.source_start_ticks if segment.source_start_ticks is not None else segment.start_ticks
+    end_ticks = segment.source_end_ticks if segment.source_end_ticks is not None else segment.end_ticks
+    start_seconds = float(Fraction(start_ticks) / rate)
+    end_seconds = float(Fraction(end_ticks) / rate)
     container = av.open(result.path)
     output = None
     try:
         input_stream = container.streams[stream.index]
-        if start_seconds > 0:
-            try:
-                container.seek(int(start_seconds * 1_000_000), stream=input_stream, backward=True)
-            except Exception:  # noqa: BLE001
-                pass
+        packets = iter_packets(container, input_stream, Fraction(start_ticks) / rate)
         output = av.open(output_path, "w", format="mp4")
         output.bit_exact = True
         output_stream = output.add_stream(template=input_stream)
@@ -328,12 +334,10 @@ def remux_video_segment(
         base: int | None = None
         keyframes: list[int] = []
         count = 0
-        for packet in container.demux(input_stream):
+        for packet in packets:
             if packet.pts is None and packet.dts is None:
                 continue
-            pts = packet.pts
-            if pts is None:
-                pts = packet.dts
+            pts = packet.pts if packet.pts is not None else packet.dts
             when = float(Fraction(pts) * input_stream.time_base)
             duration = float(Fraction(packet.duration or 0) * input_stream.time_base)
             if when + duration <= start_seconds + 1e-9:
@@ -342,22 +346,28 @@ def remux_video_segment(
                 break
             if base is None:
                 base = packet.dts if packet.dts is not None else pts
+            source_pts = packet.pts
+            source_dts = packet.dts if packet.dts is not None else packet.pts
+            # Some demuxers omit DTS on the first packet only.  The MP4 muxer
+            # warns and guesses when DTS is absent, so fall back to PTS for that
+            # packet rather than leaving the field unset.
             if packet.pts is not None:
                 packet.pts -= base
-            if packet.dts is not None:
-                packet.dts -= base
+            if source_dts is not None:
+                packet.dts = source_dts - base
             packet.stream = output_stream
             output.mux(packet)
             count += 1
-            if packet.is_keyframe and packet.pts is not None:
-                ticks = result.time_base.to_ticks(
-                    Fraction(packet.pts + base) * stream.time_base.value
+            if packet.is_keyframe and source_pts is not None:
+                keyframes.append(
+                    result.time_base.to_ticks(
+                        Fraction(source_pts) * stream.time_base.value
+                    )
                 )
-                keyframes.append(ticks)
         if count == 0:
             raise MediaError(
                 "corrupt-packet",
-                f"segment {segment.segment_id} contains no decodable packets",
+                f"segment {segment.segment_id} contains no muxable packets",
                 stage="archive", path=result.path, stream_index=stream.index,
             )
     finally:
@@ -373,6 +383,7 @@ def remux_video_segment(
         sha256=sha256_file(output_path),
         keyframe_ticks=keyframes,
         keyframe_hash=keyframe_digest(keyframes),
+        audio=None,
     )
 
 
@@ -387,17 +398,18 @@ def _archive_segment(
     if stream is None:
         return None, MediaError(
             "type-mismatch",
-            f"segment {segment.segment_id} references a stream the source lost",
+            f"segment {segment.segment_id} references a stream the source lacks",
             stage="archive", path=result.path, stream_index=segment.track_index,
         )
-    output_path = str(segment_dir / f"{segment.segment_id}.mp4")
     try:
         if stream.kind == "video":
-            return remux_video_segment(result, stream, segment, output_path, color), None
+            return remux_video_segment(
+                result, stream, segment, str(segment_dir / f"{segment.segment_id}.mp4"), color
+            ), None
         if stream.kind == "audio":
             audio_path = str(segment_dir / f"{segment.segment_id}.wav")
             audio = extract_segment(result, stream, segment, settings, audio_path)
-            record = SegmentRecord(
+            return SegmentRecord(
                 segment_id=segment.segment_id,
                 track_index=stream.index,
                 start_ticks=segment.start_ticks,
@@ -405,8 +417,7 @@ def _archive_segment(
                 path=audio_path,
                 sha256=audio.sha256,
                 audio=audio,
-            )
-            return record, None
+            ), None
         return None, MediaError(
             "type-mismatch",
             f"segment {segment.segment_id} has unsupported kind {stream.kind}",
@@ -414,11 +425,29 @@ def _archive_segment(
         )
     except MediaError as exc:
         return None, exc
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 - keep the other segments archiving
         return None, bridge(
             "corrupt-packet", exc, stage="archive",
             path=result.path, stream_index=stream.index,
         )
+
+
+def _failed_record(segment: Segment, error: MediaError | None) -> SegmentRecord:
+    return SegmentRecord(
+        segment_id=segment.segment_id,
+        track_index=segment.track_index,
+        start_ticks=segment.start_ticks,
+        end_ticks=segment.end_ticks,
+        path="",
+        sha256="",
+        status="failed",
+        errors=[] if error is None else [error],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
 
 def archive(
@@ -443,6 +472,7 @@ def archive(
     store = StageStore(Path(work_dir), resume=resume)
     store.prepare()
     segment_dir = Path(work_dir) / SEGMENT_DIR
+    resumed: list[str] = []
 
     # -- stage: probe ------------------------------------------------------
     source_sha = sha256_file(input_path)
@@ -450,15 +480,15 @@ def archive(
         path=os.path.abspath(input_path),
         sha256=source_sha,
         mapping=list(mapping),
-        limits=limits.to_dict(),
+        max_file_bytes=limits.max_file_bytes,
     )
     cached = store.load("probe", probe_input)
     if cached is not None:
-        result = _probe_from_dict(cached)
+        result = ProbeResult.from_dict(cached)
+        resumed.append("probe")
     else:
         result = probe(
-            input_path,
-            mapping,
+            input_path, mapping,
             limits={"max_file_bytes": limits.max_file_bytes},
         )
         store.save(
@@ -467,55 +497,77 @@ def archive(
             result.to_dict(),
         )
 
-    report = ArchiveReport(manifest=Manifest.create(result, Timeline(result.time_base)))
-    report.stage_status["probe"] = "ok"
-
     # -- stage: timeline ---------------------------------------------------
     timeline_input = stage_input_digest(
-        probe=result.source_sha256, limits=limits.to_dict(),
+        probe=result.source_sha256,
+        max_segment_seconds=limits.max_segment_seconds,
         cut_every_seconds=cut_every_seconds,
     )
     cached = store.load("timeline", timeline_input)
     if cached is not None:
         timeline = Timeline.from_dict(cached["timeline"])
         timeline_errors = [MediaError.from_dict(e) for e in cached.get("errors", [])]
+        resumed.append("timeline")
     else:
-        timeline_errors = build_timeline(result, limits, cut_every_seconds=cut_every_seconds)
-        timeline = result.timeline  # type: ignore[attr-defined]
+        timeline, timeline_errors = build_timeline(
+            result, limits, cut_every_seconds=cut_every_seconds
+        )
         store.save(
             "timeline", timeline_input,
             stage_input_digest(timeline=timeline.to_dict()),
-            {"timeline": timeline.to_dict(),
-             "errors": [e.to_dict() for e in timeline_errors]},
+            {
+                "timeline": timeline.to_dict(),
+                "errors": [e.to_dict() for e in timeline_errors],
+            },
         )
-    timeline_errors.extend(timeline.validate(path=result.path))
-    report.errors.extend(timeline_errors)
-    report.stage_status["timeline"] = "partial" if timeline_errors else "ok"
+    isolated_timeline = _isolate_timeline_errors(timeline_errors, timeline)
+    all_timeline_errors = timeline_errors + timeline.validate(path=result.path)
+    all_timeline_errors.extend(isolated_timeline)
 
+    # -- stage: color ------------------------------------------------------
     color: ColorRecord | None = None
     if result.video is not None:
         color = resolve_color(result.video, path=result.path)
-        report.errors.extend(color.warnings)
-    manifest = Manifest.create(result, timeline, color=color)
-    manifest.errors = []  # type: ignore[attr-defined]
-    report.manifest = manifest
-    report.manifest.notes.extend(e.render() for e in timeline_errors)
 
-    # -- stage: transform (video remux + audio normalise) ------------------
+    manifest = Manifest.create(result, timeline, color=color)
+    report = ArchiveReport(manifest=manifest, resumed_stages=resumed)
+    report.errors.extend(all_timeline_errors)
+    if color is not None:
+        report.errors.extend(color.warnings)
+    report.errors.extend(result.errors)
+    report.stage_status["probe"] = "ok" if not result.errors else "partial"
+    report.stage_status["timeline"] = "partial" if all_timeline_errors else "ok"
+    report.stage_status["color"] = "partial" if color and color.warnings else "ok"
+
+    # -- stage: transform -------------------------------------------------
+    failed_ids = {
+        e.detail.get("segment_id")
+        for e in all_timeline_errors
+        if e.detail.get("segment_id")
+    }
     transform_input = stage_input_digest(
         timeline=stage_input_digest(timeline=timeline.to_dict()),
-        rate=rate, layout=layout, lufs=lufs, limits=limits.to_dict(),
+        rate=rate, layout=layout, lufs=lufs,
         source=result.source_sha256,
+        isolated=sorted(str(x) for x in failed_ids),
     )
     cached = store.load("transform", transform_input)
     if cached is not None:
-        records = _segments_from_dict(cached.get("segments", []))
+        records = [SegmentRecord.from_dict(r) for r in cached.get("segments", [])]
+        report.recovered_segments = int(cached.get("recovered_segments", 0))
+        resumed.append("transform")
     else:
-        records = _run_transform(result, timeline, settings, color, segment_dir, limits)
+        records, recovered = _run_transform(
+            result, timeline, settings, color, segment_dir, limits, failed_ids
+        )
+        report.recovered_segments = recovered
         store.save(
             "transform", transform_input,
             stage_input_digest(segments=[r.to_dict() for r in records]),
-            {"segments": [r.to_dict() for r in records]},
+            {
+                "segments": [r.to_dict() for r in records],
+                "recovered_segments": recovered,
+            },
         )
     manifest.segments = records
     failed = [r for r in records if r.status != "ok"]
@@ -523,39 +575,36 @@ def archive(
     report.stage_status["transform"] = "partial" if failed else "ok"
 
     # -- stage: archive (manifest on disk) --------------------------------
-    manifest.record_stage(
-        StageRecord(
-            "probe", "ok", probe_input,
-            stage_input_digest(probe=result.source_sha256),
-            errors=list(result.errors),
-            detail={"streams": len(result.streams), "format": result.format_name},
-        )
-    )
-    manifest.record_stage(
-        StageRecord(
-            "timeline", report.stage_status["timeline"], timeline_input,
-            stage_input_digest(timeline=timeline.to_dict()),
-            errors=timeline_errors,
-            detail={"tracks": len(timeline.tracks), "segments": len(timeline.segments)},
-        )
-    )
-    manifest.record_stage(
-        StageRecord(
-            "transform", report.stage_status["transform"], transform_input,
-            stage_input_digest(segments=[r.to_dict() for r in records]),
-            errors=[e for r in failed for e in r.errors],
-            detail={"segments": len(records), "failed": len(failed)},
-        )
-    )
-    manifest.record_stage(
-        StageRecord(
-            "archive", "ok" if records else "failed",
-            stage_input_digest(segments=[r.sha256 for r in records]),
-            stage_input_digest(manifest=manifest.to_dict()),
-            detail={"manifest": str(manifest_path)},
-        )
-    )
-    report.stage_status["archive"] = "ok" if records else "failed"
+    probe_output = stage_input_digest(probe=result.source_sha256)
+    timeline_output = stage_input_digest(timeline=timeline.to_dict())
+    transform_output = stage_input_digest(segments=[r.to_dict() for r in records])
+    manifest.record_stage(StageRecord(
+        "probe", report.stage_status["probe"], probe_input, probe_output,
+        errors=list(result.errors),
+        detail={"streams": len(result.streams), "format": result.format_name},
+    ))
+    manifest.record_stage(StageRecord(
+        "timeline", report.stage_status["timeline"], timeline_input, timeline_output,
+        errors=all_timeline_errors,
+        detail={"tracks": len(timeline.tracks), "segments": len(timeline.segments)},
+    ))
+    manifest.record_stage(StageRecord(
+        "transform", report.stage_status["transform"], transform_input, transform_output,
+        errors=[e for r in failed for e in r.errors],
+        detail={
+            "segments": len(records),
+            "failed": len(failed),
+            "recovered_segments": report.recovered_segments,
+        },
+    ))
+    manifest.record_stage(StageRecord(
+        "archive",
+        "ok" if records else "failed",
+        transform_output,
+        stage_input_digest(manifest=manifest.to_dict()),
+        detail={"manifest": os.path.abspath(manifest_path)},
+    ))
+    report.stage_status["archive"] = manifest.stage("archive").status
     manifest.write(manifest_path)
     if not records:
         raise MediaError(
@@ -565,6 +614,24 @@ def archive(
     return report
 
 
+def _isolate_timeline_errors(
+    errors: list[MediaError], timeline: Timeline
+) -> list[MediaError]:
+    """Attach the affected segment id to timeline errors, for isolation."""
+    stamped: list[MediaError] = []
+    for error in errors:
+        if error.code in ("transition-overlap", "transition-mismatch"):
+            continue
+        candidates = [
+            s for s in timeline.segments
+            if error.stream_index is None or s.track_index == error.stream_index
+        ]
+        if len(candidates) == 1:
+            error.detail.setdefault("segment_id", candidates[0].segment_id)
+        stamped.append(error)
+    return stamped
+
+
 def _run_transform(
     result: ProbeResult,
     timeline: Timeline,
@@ -572,94 +639,42 @@ def _run_transform(
     color: ColorRecord | None,
     segment_dir: Path,
     limits: Limits,
-) -> list[SegmentRecord]:
-    color = color or _empty_color(result)
-    tasks = list(timeline.segments)
-    if limits.jobs == 1:
+    failed_ids: set[str],
+) -> tuple[list[SegmentRecord], int]:
+    from .color import ColorRecord as _ColorRecord
+
+    colors = color or _ColorRecord(stream_index=-1)
+    tasks = [s for s in timeline.segments if s.segment_id not in failed_ids]
+    skipped = [s for s in timeline.segments if s.segment_id in failed_ids]
+    if limits.jobs == 1 or len(tasks) <= 1:
         outcomes = [
-            _archive_segment(result, segment, settings, color, segment_dir)
+            _archive_segment(result, segment, settings, colors, segment_dir)
             for segment in tasks
         ]
     else:
         with ThreadPoolExecutor(max_workers=limits.jobs) as pool:
             outcomes = list(
                 pool.map(
-                    lambda seg: _archive_segment(result, seg, settings, color, segment_dir),
+                    lambda seg: _archive_segment(result, seg, settings, colors, segment_dir),
                     tasks,
                 )
             )
     records: list[SegmentRecord] = []
+    recovered = 0
     for segment, (record, error) in zip(tasks, outcomes):
         if record is None:
-            record = SegmentRecord(
-                segment_id=segment.segment_id,
-                track_index=segment.track_index,
-                start_ticks=segment.start_ticks,
-                end_ticks=segment.end_ticks,
-                path="",
-                sha256="",
-                status="failed",
-                errors=[] if error is None else [error],
-            )
+            records.append(_failed_record(segment, error))
+            continue
         records.append(record)
-    return records
-
-
-def _empty_color(result: ProbeResult) -> ColorRecord:
-    return ColorRecord(stream_index=-1)
-
-
-def _probe_from_dict(data: dict[str, Any]) -> ProbeResult:
-    from .probe import MappingRecord, StreamProbe
-
-    streams = []
-    for raw in data.get("streams", []):
-        stream = StreamProbe(
-            index=int(raw["index"]),
-            kind=str(raw["kind"]),
-            codec=str(raw["codec"]),
-            time_base=__import__("mediarc.timeline", fromlist=["Rational"]).Rational.parse(
-                raw["time_base"]
-            ),
-            start_raw=raw.get("start_raw"),
-            duration_raw=raw.get("duration_raw"),
-            sample_rate=raw.get("sample_rate"),
-            channels=raw.get("channels"),
-            layout=raw.get("layout"),
-            width=raw.get("width"),
-            height=raw.get("height"),
-            language=raw.get("language"),
-            metadata=dict(raw.get("metadata") or {}),
-            color_raw=dict(raw.get("color_raw") or {}),
+    for segment in skipped:
+        error = MediaError(
+            "edit-out-of-range",
+            f"segment {segment.segment_id} was isolated by timeline validation",
+            stage="timeline",
+            path=result.path,
+            stream_index=segment.track_index,
+            detail={"segment_id": segment.segment_id},
         )
-        from .probe import Keyframe, PacketMeta
-
-        stream.keyframes = [Keyframe.from_dict(k) for k in raw.get("keyframes", [])]
-        count = int(raw.get("packet_count", 0))
-        last_offset = raw.get("last_offset")
-        for index in range(count):
-            stream.packets.append(
-                PacketMeta(index, None, None, None, 0,
-                           last_offset if index == count - 1 else None, False, False)
-            )
-        streams.append(stream)
-    return ProbeResult(
-        path=str(data["path"]),
-        size=int(data["size"]),
-        format_name=str(data["format_name"]),
-        duration_us=data.get("duration_us"),
-        time_base=__import__("mediarc.timeline", fromlist=["TimeBase"]).TimeBase(
-            __import__("mediarc.timeline", fromlist=["Rational"]).Rational.parse(
-                data["time_base"]
-            )
-        ),
-        streams=streams,
-        mapping=MappingRecord.from_dict(data["mapping"]),
-        source_sha256=str(data.get("source_sha256", "")),
-        errors=[MediaError.from_dict(e) for e in data.get("errors", [])],
-        logs=[str(x) for x in data.get("logs", [])],
-    )
-
-
-def _segments_from_dict(data: list[dict[str, Any]]) -> list[SegmentRecord]:
-    return [SegmentRecord.from_dict(raw) for raw in data]
+        records.append(_failed_record(segment, error))
+    records.sort(key=lambda r: (r.track_index, r.start_ticks))
+    return records, recovered

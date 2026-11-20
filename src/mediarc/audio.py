@@ -31,7 +31,7 @@ import soundfile as sf
 from .errors import MediaError, bridge
 from .probe import ProbeResult, StreamProbe
 from .timeline import Segment
-from .util import sha256_file
+from .util import iter_packets, sha256_file
 
 SUPPORTED_RATES = (44_100, 48_000, 96_000)
 SUPPORTED_LAYOUTS = ("mono", "stereo", "5.1")
@@ -320,15 +320,6 @@ def _frame_pts_samples(frame: av.AudioFrame, stream: StreamProbe, rate: int) -> 
     return round(Fraction(frame.pts) * frame.time_base * rate) if frame.time_base else None
 
 
-def _seek_near(container: av.container.InputContainer, stream: av.stream.Stream, samples: int, rate: int) -> None:
-    if samples <= 0:
-        return
-    try:
-        container.seek(int(round(samples / rate * 1_000_000)), stream=stream, backward=True)
-    except Exception:  # noqa: BLE001 - demuxer may not support seeking
-        pass
-
-
 def _normalise(data: np.ndarray, layout: str, rate: int) -> av.AudioFrame:
     """Wrap a ``(channels, n)`` float block for libswresample."""
     out = av.AudioFrame.from_ndarray(
@@ -341,6 +332,11 @@ def _normalise(data: np.ndarray, layout: str, rate: int) -> av.AudioFrame:
     return out
 
 
+#: Below this distance libav seeking costs more precision than it saves, so the
+#: range is decoded from the first sample and positions stay bit-exact.
+REWIND_WINDOW_SECONDS = 8.0
+
+
 def _decode_range(
     result: ProbeResult,
     stream: StreamProbe,
@@ -349,7 +345,15 @@ def _decode_range(
     settings: AudioSettings,
     source_layout: str,
 ) -> Iterator[np.ndarray]:
-    """Yield resampled ``(channels, n)`` blocks for exactly the requested range."""
+    """Yield resampled ``(channels, n)`` blocks for exactly the requested range.
+
+    ``start_sample``/``end_sample`` are indices on the *decoded* stream.  When
+    the range begins close to the origin the stream is decoded from sample 0, so
+    the index is exact; otherwise the demuxer is seeked to a point safely before
+    the cut and the first decoded frame's timestamp becomes the anchor.  The
+    anchor and the resolved bounds are written into the manifest, so a verifier
+    can tell which of the two paths produced the segment.
+    """
     source_rate = stream.sample_rate or 0
     container = av.open(result.path)
     resampler = av.AudioResampler(
@@ -357,25 +361,36 @@ def _decode_range(
     )
     try:
         av_stream = container.streams[stream.index]
-        _seek_near(container, av_stream, start_sample, source_rate)
-        position: int | None = None
+        decode_from_zero = start_sample <= int(REWIND_WINDOW_SECONDS * source_rate)
+        target = (
+            Fraction(0)
+            if decode_from_zero
+            else Fraction(max(0, start_sample - int(2.0 * source_rate))) / source_rate
+        )
+        anchor: int | None = None if decode_from_zero else None
+        position: int | None = 0 if decode_from_zero else None
         consumed = 0
         wanted = end_sample - start_sample
-        for frame in container.decode(av_stream):
-            if position is None:
-                pts_position = _frame_pts_samples(frame, stream, source_rate)
-                position = start_sample if pts_position is None else pts_position
-            frame_samples = frame.samples
-            frame_end = position + frame_samples
-            lo = max(position, start_sample)
-            hi = min(frame_end, end_sample)
-            if hi > lo:
-                data = _block(frame)[:, lo - position: hi - position]
-                consumed += data.shape[1]
-                for out in resampler.resample(_normalise(data, source_layout, source_rate)):
-                    yield out.to_ndarray().astype(np.float32, copy=False)
-            position = frame_end
-            if position >= end_sample or consumed >= wanted:
+        for packet in iter_packets(container, av_stream, target):
+            for frame in packet.decode():
+                if position is None:
+                    pts_position = _frame_pts_samples(frame, stream, source_rate)
+                    position = pts_position if pts_position is not None else start_sample
+                    anchor = position
+                frame_end = position + frame.samples
+                lo = max(position, start_sample)
+                hi = min(frame_end, end_sample)
+                if hi > lo:
+                    data = _block(frame)[:, lo - position: hi - position]
+                    consumed += data.shape[1]
+                    for out in resampler.resample(
+                        _normalise(data, source_layout, source_rate)
+                    ):
+                        yield out.to_ndarray().astype(np.float32, copy=False)
+                position = frame_end
+                if position >= end_sample or consumed >= wanted:
+                    break
+            if position is not None and (position >= end_sample or consumed >= wanted):
                 break
         for out in resampler.resample(None):
             yield out.to_ndarray().astype(np.float32, copy=False)
