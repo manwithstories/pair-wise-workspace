@@ -390,47 +390,56 @@ def align_audio_to_video(
     sample_rate: int,
     tolerance_ms: float = 40.0,
 ) -> dict[str, Any]:
-    """Measure how well audio block boundaries line up with video frame times.
+    """Measure A/V sync: stream origin offset plus per-block residuals.
 
-    Returns the best-fit offset (audio minus video), its residual spread and the
-    maximum nearest-boundary distance in milliseconds.  A positive offset means
-    audio starts later than video.
+    Audio blocks and video frames have independent periods (e.g. 4096 samples
+    at 48 kHz vs. a 33.3 ms frame), so a block start will not generally fall on
+    a frame boundary.  Two separate numbers are therefore reported:
+
+    * ``offset_ms`` - the origin shift between the first audio block and the
+      first video frame (positive: audio starts later).  This is the actual
+      sync error a player would hear.
+    * ``max_alignment_ms`` - the worst distance from an origin-corrected audio
+      block start to the nearest video frame on the regular frame grid.  With
+      aligned origins this is bounded by half a frame period, and sample-level
+      quantisation of block starts is included exactly.
+
+    ``sample_offset`` is the origin shift rounded to whole audio samples, which
+    is the only resolution at which PCM can actually be shifted.
     """
     av = [Fraction(x) for x in audio_seconds]
     vv = [Fraction(x) for x in video_seconds]
     if not av or not vv:
         return {"offset_ms": 0.0, "max_alignment_ms": 0.0, "mean_alignment_ms": 0.0,
-                "within_tolerance": True, "pairs": 0}
-    frame_period = (vv[-1] - vv[0]) / max(1, len(vv) - 1) if len(vv) > 1 else Fraction(1, 25)
-    # Estimate offset by the median of each block start minus its nearest frame
-    # start, limited to one frame period; this is robust to dropped blocks.
-    raw_offsets = []
+                "within_tolerance": True, "pairs": 0, "sample_offset": 0,
+                "frame_period_ms": 0.0, "sample_rate": sample_rate}
+    if len(vv) > 1:
+        frame_period = (vv[-1] - vv[0]) / (len(vv) - 1)
+    else:
+        frame_period = Fraction(1, 25)
+    origin = av[0] - vv[0]
+    grid_start = vv[0]
+    residuals: list[Fraction] = []
     for a in av:
-        nearest = min(vv, key=lambda v: abs(v - a))
-        delta = a - nearest
-        if abs(delta) <= frame_period:
-            raw_offsets.append(delta)
-    if not raw_offsets:
-        raw_offsets = [av[0] - vv[0]]
-    offset = statistics.median(sorted(raw_offsets))
-    residuals = []
-    for a in av:
-        target = a - offset
-        nearest = min(vv, key=lambda v: abs(v - target))
+        target = a - origin
+        # index of the nearest point on the regular frame grid (may lie past
+        # the last frame, since audio may run to the end of the last frame).
+        index = _round_half_up((target - grid_start) / frame_period)
+        nearest = grid_start + index * frame_period
         residuals.append(abs(target - nearest))
-    max_res = max(residuals) if residuals else Fraction(0)
-    mean_res = sum(residuals, Fraction(0)) / len(residuals) if residuals else Fraction(0)
+    max_res = max(residuals)
+    mean_res = sum(residuals, Fraction(0)) / len(residuals)
     max_ms = float(max_res) * 1000.0
     mean_ms = float(mean_res) * 1000.0
     return {
-        "offset_ms": float(offset) * 1000.0,
+        "offset_ms": float(origin) * 1000.0,
         "max_alignment_ms": max_ms,
         "mean_alignment_ms": mean_ms,
         "within_tolerance": max_ms <= tolerance_ms,
         "pairs": len(residuals),
         "frame_period_ms": float(frame_period) * 1000.0,
         "sample_rate": sample_rate,
-        "sample_offset": _round_half_up(offset * sample_rate),
+        "sample_offset": _round_half_up(origin * sample_rate),
     }
 
 
