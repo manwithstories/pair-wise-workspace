@@ -189,3 +189,219 @@ class RetransmitOracle:
         digest = hashlib.blake2b(key, digest_size=8).digest()
         value = int.from_bytes(digest, "big") / float(1 << 64)
         return value < self.config.retransmit_success_rate
+
+
+def _hole_bounds(
+    missing: MissingSequence,
+    ordered: Sequence[TransportPacket],
+) -> tuple[int, int]:
+    """Media bounds of a missing sequence, from its surviving neighbours."""
+
+    before = [p for p in ordered if p.seq < missing.seq]
+    after = [p for p in ordered if p.seq > missing.seq]
+    if before and after:
+        start = before[-1].pts_ticks + before[-1].duration_ticks
+        end = after[0].pts_ticks
+    elif before:
+        start = before[-1].pts_ticks + before[-1].duration_ticks
+        end = start + max(before[-1].duration_ticks, 1)
+    elif after:
+        end = after[0].pts_ticks
+        start = max(0, end - max(after[0].duration_ticks, 1))
+    else:
+        start, end = 0, 1
+    if end <= start:
+        end = start + 1
+    return start, end
+
+
+def _boundary_repair(
+    interval: Interval,
+    ordered: Sequence[TransportPacket],
+    truncated_seqs: Iterable[int],
+    config: RecoveryConfig,
+) -> BoundaryRepair | None:
+    """Clamp a damaged interval end to the last fully available packet."""
+
+    truncated = sorted(truncated_seqs)
+    if not truncated or not ordered:
+        return None
+    first_bad = truncated[0]
+    usable = [p for p in ordered if p.seq < first_bad]
+    if not usable:
+        return None
+    repaired_end = min(
+        interval.end_ticks,
+        usable[-1].pts_ticks + usable[-1].duration_ticks,
+    )
+    if repaired_end <= interval.start_ticks:
+        return None
+    shortfall = max(0, interval.end_ticks - repaired_end)
+    if shortfall > config.boundary_budget_ticks:
+        return None
+    dropped = sum(
+        1 for p in ordered if p.seq >= first_bad
+    )
+    return BoundaryRepair(
+        interval_id=interval.interval_id,
+        original_end_ticks=interval.end_ticks,
+        repaired_end_ticks=repaired_end,
+        dropped_bytes=dropped,
+        reason="truncated-index-boundary",
+    )
+
+
+def recover_interval(
+    interval: Interval,
+    *,
+    ordered: Sequence[TransportPacket],
+    missing: Sequence[MissingSequence],
+    truncated_seqs: Iterable[int] = (),
+    config: RecoveryConfig | None = None,
+    oracle: RetransmitOracle | None = None,
+) -> TrackRecovery:
+    """Recover one interval by retransmission, boundary repair or gap marking."""
+
+    config = config or RecoveryConfig()
+    oracle = oracle or RetransmitOracle(config)
+    if interval.start_ticks >= interval.end_ticks:
+        raise PlanError(f"{interval.interval_id}: invalid interval bounds")
+    in_span = [
+        packet for packet in ordered
+        if packet.pts_ticks < interval.end_ticks
+        and packet.pts_ticks + packet.duration_ticks > interval.start_ticks
+    ]
+    recovered_seqs: list[int] = []
+    retransmissions: list[Retransmission] = []
+    repair: BoundaryRepair | None = None
+    for item in missing:
+        success = False
+        for attempt in range(1, config.max_retransmit_attempts + 1):
+            ok = oracle.attempt(interval.track_id, item.seq, attempt)
+            retransmissions.append(
+                Retransmission(interval.track_id, item.seq, attempt, ok)
+            )
+            if ok:
+                success = True
+                recovered_seqs.append(item.seq)
+                break
+        if not success:
+            continue
+
+    truncated = list(truncated_seqs)
+    if truncated:
+        repair = _boundary_repair(interval, in_span, truncated, config)
+
+    end_ticks = repair.repaired_end_ticks if repair else interval.end_ticks
+    losses: list[int] = []
+    gaps: list[Gap] = []
+    for item in missing:
+        if item.seq in recovered_seqs:
+            continue
+        start, end = _hole_bounds(item, in_span)
+        start = max(start, interval.start_ticks)
+        end = min(end, end_ticks)
+        losses.append(item.seq)
+        if end <= start:
+            end = start + 1
+        gaps.append(Gap(interval.track_id, start, end, "packet-loss"))
+    if repair is not None and repair.repaired_end_ticks < interval.end_ticks:
+        gaps.append(
+            Gap(
+                interval.track_id,
+                repair.repaired_end_ticks,
+                interval.end_ticks,
+                "truncated-index-boundary",
+            )
+        )
+
+    complete = not losses and repair is None
+    reason = ""
+    if losses and repair is not None:
+        reason = "packet-loss-and-truncated-boundary"
+    elif losses:
+        reason = "packet-loss"
+    elif repair is not None:
+        reason = "truncated-boundary-repaired"
+    segment = Segment(
+        interval_id=interval.interval_id,
+        track_id=interval.track_id,
+        start_ticks=interval.start_ticks,
+        end_ticks=end_ticks,
+        complete=complete,
+        seqs=tuple(packet.seq for packet in in_span),
+        recovered_seqs=tuple(sorted(recovered_seqs)),
+        loss_seqs=tuple(sorted(losses)),
+        reason=reason,
+    )
+    return TrackRecovery(
+        interval=interval,
+        segment=segment,
+        retransmissions=retransmissions,
+        repairs=[repair] if repair else [],
+        gaps=gaps,
+    )
+
+
+def recover_timeline(
+    timeline: Timeline,
+    recoveries: dict[str, TrackRecovery],
+    *,
+    propagate_incomplete: bool = True,
+) -> RecoveryReport:
+    """Assemble interval recoveries in dependency order and propagate damage.
+
+    A dependent interval is downgraded to incomplete when any prerequisite is
+    incomplete, so a manifest can never claim a synchronized output that rests
+    on an unrepaired gap.  The downgrade is recorded in ``propagated``.
+    """
+
+    timeline.validate()
+    missing = [key for key in timeline.intervals if key not in recoveries]
+    if missing:
+        raise PlanError(
+            "recovery missing for intervals: " + ", ".join(sorted(missing))
+        )
+    report = RecoveryReport()
+    done: dict[str, Segment] = {}
+    for interval in timeline.recovery_order():
+        source = recoveries[interval.interval_id]
+        segment = source.segment
+        report.retransmissions.extend(source.retransmissions)
+        report.repairs.extend(source.repairs)
+        report.gaps.extend(source.gaps)
+        if propagate_incomplete:
+            broken = [
+                name for name in interval.depends_on
+                if name in done and not done[name].complete
+            ]
+            if broken and segment.complete:
+                segment = Segment(
+                    interval_id=segment.interval_id,
+                    track_id=segment.track_id,
+                    start_ticks=segment.start_ticks,
+                    end_ticks=segment.end_ticks,
+                    complete=False,
+                    seqs=segment.seqs,
+                    recovered_seqs=segment.recovered_seqs,
+                    loss_seqs=segment.loss_seqs,
+                    reason="prerequisite-incomplete",
+                )
+                report.propagated.append(
+                    {
+                        "interval_id": interval.interval_id,
+                        "blocked_by": sorted(broken),
+                    }
+                )
+                report.gaps.append(
+                    Gap(
+                        segment.track_id,
+                        segment.start_ticks,
+                        max(segment.start_ticks + 1, segment.end_ticks),
+                        "prerequisite-incomplete",
+                    )
+                )
+        done[interval.interval_id] = segment
+        report.segments.append(segment)
+    report.segments.sort(key=lambda item: (item.track_id, item.start_ticks))
+    return report
