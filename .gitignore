@@ -74,3 +74,6 @@ AGENTS.md.local
 
 # ---- 本项目生成物 ----
 demo-work/
+
+# ---- 构建产物 ----
+build/
