@@ -269,6 +269,30 @@ src/hash.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/hash.cpp.s
 .PHONY : src/hash.cpp.s
 
+src/packet_reorder.o: src/packet_reorder.cpp.o
+.PHONY : src/packet_reorder.o
+
+# target to build an object file
+src/packet_reorder.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/packet_reorder.cpp.o
+.PHONY : src/packet_reorder.cpp.o
+
+src/packet_reorder.i: src/packet_reorder.cpp.i
+.PHONY : src/packet_reorder.i
+
+# target to preprocess a source file
+src/packet_reorder.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/packet_reorder.cpp.i
+.PHONY : src/packet_reorder.cpp.i
+
+src/packet_reorder.s: src/packet_reorder.cpp.s
+.PHONY : src/packet_reorder.s
+
+# target to generate assembly for a file
+src/packet_reorder.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/packet_reorder.cpp.s
+.PHONY : src/packet_reorder.cpp.s
+
 src/types.o: src/types.cpp.o
 .PHONY : src/types.o
 
@@ -341,6 +365,9 @@ help:
 	@echo "... src/hash.o"
 	@echo "... src/hash.i"
 	@echo "... src/hash.s"
+	@echo "... src/packet_reorder.o"
+	@echo "... src/packet_reorder.i"
+	@echo "... src/packet_reorder.s"
 	@echo "... src/types.o"
 	@echo "... src/types.i"
 	@echo "... src/types.s"

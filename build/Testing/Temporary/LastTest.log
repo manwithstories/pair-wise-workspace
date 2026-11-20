@@ -1,14 +1,54 @@
-Start testing: Nov 21 06:35 CST
+Start testing: Nov 21 06:40 CST
 ----------------------------------------------------------
-4/4 Testing: timebase converts frames and microseconds symmetrically
-4/4 Test: timebase converts frames and microseconds symmetrically
+2/9 Testing: corrupt payload is quarantined with camera and frame number
+2/9 Test: corrupt payload is quarantined with camera and frame number
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/relay_tests" "corrupt payload is quarantined with camera and frame number" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/13308/build
+"corrupt payload is quarantined with camera and frame number" start time: Nov 21 06:40 CST
+Output:
+----------------------------------------------------------
+Filters: "corrupt payload is quarantined with camera and frame number"
+Randomness seeded to: 3916585174
+===============================================================================
+All tests passed (6 assertions in 1 test case)
+
+<end of output>
+Test time =   0.03 sec
+----------------------------------------------------------
+Test Passed.
+"corrupt payload is quarantined with camera and frame number" end time: Nov 21 06:40 CST
+"corrupt payload is quarantined with camera and frame number" time elapsed: 00:00:00
+----------------------------------------------------------
+
+4/9 Testing: fixture frames pass SHA-256 and FFmpeg decode
+4/9 Test: fixture frames pass SHA-256 and FFmpeg decode
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/relay_tests" "fixture frames pass SHA-256 and FFmpeg decode" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/13308/build
+"fixture frames pass SHA-256 and FFmpeg decode" start time: Nov 21 06:40 CST
+Output:
+----------------------------------------------------------
+Filters: "fixture frames pass SHA-256 and FFmpeg decode"
+Randomness seeded to: 1181688254
+===============================================================================
+All tests passed (79 assertions in 1 test case)
+
+<end of output>
+Test time =   0.03 sec
+----------------------------------------------------------
+Test Passed.
+"fixture frames pass SHA-256 and FFmpeg decode" end time: Nov 21 06:40 CST
+"fixture frames pass SHA-256 and FFmpeg decode" time elapsed: 00:00:00
+----------------------------------------------------------
+
+8/9 Testing: timebase converts frames and microseconds symmetrically
+8/9 Test: timebase converts frames and microseconds symmetrically
 Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/relay_tests" "timebase converts frames and microseconds symmetrically" "--order decl"
 Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/13308/build
-"timebase converts frames and microseconds symmetrically" start time: Nov 21 06:35 CST
+"timebase converts frames and microseconds symmetrically" start time: Nov 21 06:40 CST
 Output:
 ----------------------------------------------------------
 Filters: "timebase converts frames and microseconds symmetrically"
-Randomness seeded to: 1132774815
+Randomness seeded to: 2847122925
 ===============================================================================
 All tests passed (6 assertions in 1 test case)
 
@@ -16,19 +56,19 @@ All tests passed (6 assertions in 1 test case)
 Test time =   0.02 sec
 ----------------------------------------------------------
 Test Passed.
-"timebase converts frames and microseconds symmetrically" end time: Nov 21 06:35 CST
+"timebase converts frames and microseconds symmetrically" end time: Nov 21 06:40 CST
 "timebase converts frames and microseconds symmetrically" time elapsed: 00:00:00
 ----------------------------------------------------------
 
-3/4 Testing: structured errors locate stage track and frame
-3/4 Test: structured errors locate stage track and frame
+7/9 Testing: structured errors locate stage track and frame
+7/9 Test: structured errors locate stage track and frame
 Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/relay_tests" "structured errors locate stage track and frame" "--order decl"
 Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/13308/build
-"structured errors locate stage track and frame" start time: Nov 21 06:35 CST
+"structured errors locate stage track and frame" start time: Nov 21 06:40 CST
 Output:
 ----------------------------------------------------------
 Filters: "structured errors locate stage track and frame"
-Randomness seeded to: 817687207
+Randomness seeded to: 622340636
 ===============================================================================
 All tests passed (7 assertions in 1 test case)
 
@@ -36,48 +76,108 @@ All tests passed (7 assertions in 1 test case)
 Test time =   0.02 sec
 ----------------------------------------------------------
 Test Passed.
-"structured errors locate stage track and frame" end time: Nov 21 06:35 CST
+"structured errors locate stage track and frame" end time: Nov 21 06:40 CST
 "structured errors locate stage track and frame" time elapsed: 00:00:00
 ----------------------------------------------------------
 
-1/4 Testing: corrupt payload is quarantined with camera and frame number
-1/4 Test: corrupt payload is quarantined with camera and frame number
-Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/relay_tests" "corrupt payload is quarantined with camera and frame number" "--order decl"
+1/9 Testing: a packet arriving later than the window is dropped
+1/9 Test: a packet arriving later than the window is dropped
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/relay_tests" "a packet arriving later than the window is dropped" "--order decl"
 Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/13308/build
-"corrupt payload is quarantined with camera and frame number" start time: Nov 21 06:35 CST
+"a packet arriving later than the window is dropped" start time: Nov 21 06:40 CST
 Output:
 ----------------------------------------------------------
-Filters: "corrupt payload is quarantined with camera and frame number"
-Randomness seeded to: 1138621888
+Filters: "a packet arriving later than the window is dropped"
+Randomness seeded to: 611065698
 ===============================================================================
-All tests passed (6 assertions in 1 test case)
+All tests passed (3 assertions in 1 test case)
 
 <end of output>
 Test time =   0.02 sec
 ----------------------------------------------------------
 Test Passed.
-"corrupt payload is quarantined with camera and frame number" end time: Nov 21 06:35 CST
-"corrupt payload is quarantined with camera and frame number" time elapsed: 00:00:00
+"a packet arriving later than the window is dropped" end time: Nov 21 06:40 CST
+"a packet arriving later than the window is dropped" time elapsed: 00:00:00
 ----------------------------------------------------------
 
-2/4 Testing: fixture frames pass SHA-256 and FFmpeg decode
-2/4 Test: fixture frames pass SHA-256 and FFmpeg decode
-Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/relay_tests" "fixture frames pass SHA-256 and FFmpeg decode" "--order decl"
+3/9 Testing: delivery gaps are marked per track policy
+3/9 Test: delivery gaps are marked per track policy
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/relay_tests" "delivery gaps are marked per track policy" "--order decl"
 Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/13308/build
-"fixture frames pass SHA-256 and FFmpeg decode" start time: Nov 21 06:35 CST
+"delivery gaps are marked per track policy" start time: Nov 21 06:40 CST
 Output:
 ----------------------------------------------------------
-Filters: "fixture frames pass SHA-256 and FFmpeg decode"
-Randomness seeded to: 3155323543
+Filters: "delivery gaps are marked per track policy"
+Randomness seeded to: 1935239935
 ===============================================================================
-All tests passed (79 assertions in 1 test case)
+All tests passed (3 assertions in 1 test case)
 
 <end of output>
 Test time =   0.02 sec
 ----------------------------------------------------------
 Test Passed.
-"fixture frames pass SHA-256 and FFmpeg decode" end time: Nov 21 06:35 CST
-"fixture frames pass SHA-256 and FFmpeg decode" time elapsed: 00:00:00
+"delivery gaps are marked per track policy" end time: Nov 21 06:40 CST
+"delivery gaps are marked per track policy" time elapsed: 00:00:00
 ----------------------------------------------------------
 
-End testing: Nov 21 06:35 CST
+5/9 Testing: late packets beyond the window are dropped, not re-emitted
+5/9 Test: late packets beyond the window are dropped, not re-emitted
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/relay_tests" "late packets beyond the window are dropped\, not re-emitted" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/13308/build
+"late packets beyond the window are dropped, not re-emitted" start time: Nov 21 06:40 CST
+Output:
+----------------------------------------------------------
+Filters: "late packets beyond the window are dropped\, not re-emitted"
+Randomness seeded to: 1573285194
+===============================================================================
+All tests passed (3 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"late packets beyond the window are dropped, not re-emitted" end time: Nov 21 06:40 CST
+"late packets beyond the window are dropped, not re-emitted" time elapsed: 00:00:00
+----------------------------------------------------------
+
+6/9 Testing: reorder dedupes and orders packets without re-emitting frames
+6/9 Test: reorder dedupes and orders packets without re-emitting frames
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/relay_tests" "reorder dedupes and orders packets without re-emitting frames" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/13308/build
+"reorder dedupes and orders packets without re-emitting frames" start time: Nov 21 06:40 CST
+Output:
+----------------------------------------------------------
+Filters: "reorder dedupes and orders packets without re-emitting frames"
+Randomness seeded to: 1275483630
+===============================================================================
+All tests passed (50 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"reorder dedupes and orders packets without re-emitting frames" end time: Nov 21 06:40 CST
+"reorder dedupes and orders packets without re-emitting frames" time elapsed: 00:00:00
+----------------------------------------------------------
+
+9/9 Testing: timestamp wrap opens a new epoch instead of splicing
+9/9 Test: timestamp wrap opens a new epoch instead of splicing
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/13308/build/relay_tests" "timestamp wrap opens a new epoch instead of splicing" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/13308/build
+"timestamp wrap opens a new epoch instead of splicing" start time: Nov 21 06:40 CST
+Output:
+----------------------------------------------------------
+Filters: "timestamp wrap opens a new epoch instead of splicing"
+Randomness seeded to: 3629013582
+===============================================================================
+All tests passed (4 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"timestamp wrap opens a new epoch instead of splicing" end time: Nov 21 06:40 CST
+"timestamp wrap opens a new epoch instead of splicing" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Nov 21 06:40 CST

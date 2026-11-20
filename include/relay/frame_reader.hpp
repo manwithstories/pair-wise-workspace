@@ -27,6 +27,9 @@ struct TrackInput {
   Timebase timebase;
   std::vector<CatalogFrame> catalog;
   std::vector<Arrival> arrivals;
+  /// Arrival order is preserved above; `reorder_window` comes from the
+  /// header and the track policy inherits it.
+  std::uint32_t reorder_window = 32;
   std::size_t checksum_failures = 0;
   std::size_t decode_failures = 0;
   std::string file_digest;

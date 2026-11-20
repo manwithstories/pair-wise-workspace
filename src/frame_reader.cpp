@@ -75,6 +75,7 @@ struct Header {
   std::string track;
   Timebase timebase;
   std::vector<TrackId> dependencies;
+  std::uint32_t window = 32;
   bool required = true;
   std::uint64_t count = 0;
   bool have_count = false;
@@ -115,6 +116,10 @@ bool parse_header(std::istream& in, Header& header, std::string& reason) {
       while (tokens >> key) {
         header.dependencies.push_back(key);
       }
+    } else if (key == "window") {
+      int window = 0;
+      tokens >> window;
+      header.window = window > 0 ? static_cast<std::uint32_t>(window) : 32;
     } else if (key == "required") {
       int flag = 1;
       tokens >> flag;
@@ -270,6 +275,8 @@ ReadResult read_frame_inputs(const std::filesystem::path& input_dir,
     track.spec.kind = "video";
     track.spec.depends_on = header.dependencies;
     track.spec.required = header.required;
+    track.spec.policy.reorder_window = header.window;
+    track.reorder_window = header.window;
     track.timebase = header.timebase;
 
     std::string line;
