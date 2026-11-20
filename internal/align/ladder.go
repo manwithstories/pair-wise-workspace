@@ -33,25 +33,21 @@ type Gap struct {
 
 // Result is the aligned ladder for one track.
 type Result struct {
-	Cuts    []int64 `json:"cuts"` // canonical cut times from the reference rung
+	Cuts    []int64 `json:"cuts"` // canonical manifest-declared cut times
 	ErrorMs float64 `json:"error_ms"`
 	Gaps    []Gap   `json:"gaps,omitempty"`
 }
 
-// Align uses rungs[0] as the reference. Every other rung must place a cut
-// within tolerance of each reference cut; failing that it may fall back to
-// a keyframe cut within maxFallback; failing that the interval is reported
-// as a gap for that rung.
-func Align(rungs []Rung, tolerance, maxFallback int64) Result {
-	res := Result{}
-	if len(rungs) == 0 {
-		return res
-	}
-	for _, c := range rungs[0].Cuts {
-		res.Cuts = append(res.Cuts, c.Ticks)
-	}
+// Align matches every rung's parsed cuts against the canonical cut list
+// (the manifest-declared boundaries, which exist even where media is
+// damaged). A rung must place a cut within tolerance of each canonical
+// cut; failing that it may fall back to a keyframe cut within
+// maxFallback; failing that the interval is reported as a gap for that
+// rung. Canonical cuts are never dropped and neighbors never stretched.
+func Align(canonical []int64, rungs []Rung, tolerance, maxFallback int64) Result {
+	res := Result{Cuts: append([]int64(nil), canonical...)}
 	var maxDev int64
-	for _, rung := range rungs[1:] {
+	for _, rung := range rungs {
 		for i, ct := range res.Cuts {
 			end := gapEnd(res.Cuts, i)
 			idx := nearest(rung.Cuts, ct)

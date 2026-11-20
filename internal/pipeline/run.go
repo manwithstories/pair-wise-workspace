@@ -131,10 +131,24 @@ func processTrack(tf testkit.TrackFixture) TrackReport {
 	tr := TrackReport{Name: tf.Name, Kind: tf.Kind, Status: "ok"}
 	var faults fault.List
 	var rungs []align.Rung
+	var canonical []int64
 	var haveRange bool
-	for _, rep := range tf.Reps {
+	for ri, rep := range tf.Reps {
 		model, mf := manifest.ParseHLSMedia(tf.Name, rep.ID, rep.Playlist)
 		faults = append(faults, mf...)
+		if ri == 0 {
+			// Canonical boundaries come from the declared index, so a
+			// cut missing from every rung still becomes an explicit gap.
+			for _, seg := range model.Segments {
+				canonical = append(canonical, model.StartOffset+seg.Start)
+			}
+		}
+		if n := len(model.Segments); n > 0 {
+			last := model.Segments[n-1]
+			if end := model.StartOffset + last.Start + last.Duration; end > tr.End {
+				tr.End = end
+			}
+		}
 		dataByURI := make(map[string][]byte, len(rep.Segments))
 		for _, s := range rep.Segments {
 			dataByURI[s.URI] = s.Data
@@ -196,7 +210,7 @@ func processTrack(tf testkit.TrackFixture) TrackReport {
 		rungs = append(rungs, rung)
 		tr.Reps = append(tr.Reps, repRep)
 	}
-	tr.Alignment = align.Align(rungs, alignTolerance, alignFallback)
+	tr.Alignment = align.Align(canonical, rungs, alignTolerance, alignFallback)
 	tr.RTP = recoverRTP(tf, &faults)
 	tr.Faults = faults
 	switch {

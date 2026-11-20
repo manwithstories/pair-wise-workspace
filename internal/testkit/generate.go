@@ -98,16 +98,16 @@ func Generate(opts Options) Case {
 				ID:        fmt.Sprintf("%s-r%d", tf.Name, r),
 				Bandwidth: (r + 1) * 400000,
 			}
-			// Each rung carries a small constant cut offset (<=10 ms)
+			// Each rung carries a small per-segment cut jitter (<=8 ms)
 			// that alignment must report, not absorb.
-			rungJitterSrc := int64(r) * 5 * tf.Timescale / 1000
 			var pl strings.Builder
 			pl.WriteString("#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:4\n#EXT-X-MEDIA-SEQUENCE:0\n")
 			pl.WriteString(startOffsetS)
 			for i := 0; i < segmentsPerRep; i++ {
 				uri := fmt.Sprintf("%s_seg_%d.m4s", rep.ID, i)
 				keyframe := i%5 == 0 && i%23 != 13
-				decode := (wrapBase + uint64(startOffsetSrc+rungJitterSrc) +
+				jitterSrc := int64(r) * int64(i%5) * tf.Timescale / 1000
+				decode := (wrapBase + uint64(startOffsetSrc+jitterSrc) +
 					uint64(int64(i)*segDurSrc)) & ((1 << 33) - 1)
 				payload := make([]byte, 600+r*200+i%97)
 				for k := range payload {

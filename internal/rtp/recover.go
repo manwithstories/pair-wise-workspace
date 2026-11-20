@@ -77,6 +77,15 @@ func (r *Recoverer) Feed(p rtp.Packet) {
 		r.stats.Duplicates++
 		return
 	}
+	if int16(seq-r.next) < 0 {
+		// Straggler behind the emit frontier that was never accounted
+		// (e.g. adjacent reorder): emit immediately, never park it in
+		// the window where it could never be drained.
+		r.accounted[seq] = accountedEmitted
+		r.stats.Recovered++
+		r.beginRun()
+		return
+	}
 	r.pending[seq] = pendingPkt{pkt: p, outOfOrder: seq != r.next}
 	r.drain()
 	for len(r.pending) > r.window {
