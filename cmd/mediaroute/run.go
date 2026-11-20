@@ -212,6 +212,13 @@ func execute(pp execParams) (*execResult, int, error) {
 	if err := provenance.Write(manPath, man); err != nil {
 		return nil, exitUsage, err
 	}
+	if pp.useCheckpoint {
+		// The run completed: the checkpoint is consumed and must not
+		// be reused for a later run.
+		if err := os.Remove(pp.ckPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, exitUsage, err
+		}
+	}
 	res.report = pipe.Report()
 	res.outputSHA = sha
 	return res, exitOK, nil
