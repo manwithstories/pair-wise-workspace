@@ -104,3 +104,30 @@ func TestRepairFlagString(t *testing.T) {
 		t.Fatalf("String()=%q", got)
 	}
 }
+
+func TestFromUnifiedOverflow(t *testing.T) {
+	if _, err := FromUnified(90_000, math.MaxUint64); err == nil {
+		t.Fatal("FromUnified 超大输入应溢出报错")
+	}
+	// timescale 高于统一基准（1e6）时允许 1 tick 往返误差。
+	const hi = uint32(90_000_000)
+	v, err := ToUnified(hi, uint64(hi))
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := FromUnified(hi, v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := func(a, b uint64) uint64 {
+		if a > b {
+			return a - b
+		}
+		return b - a
+	}(back, uint64(hi)); diff > RoundtripTolerance(hi) {
+		t.Fatalf("往返误差 %d 超过容差", diff)
+	}
+	if RoundtripTolerance(hi) != 1 || RoundtripTolerance(90_000) != 0 {
+		t.Fatal("容差规则错误")
+	}
+}

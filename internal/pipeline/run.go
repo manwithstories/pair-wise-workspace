@@ -116,8 +116,17 @@ func Run(opts Options) (*Outcome, error) {
 			}
 		}
 		roundtripTotal++
-		if back, err := model.FromUnified(trk.Timescale, rs.UnifiedDTS); err == nil && back == rs.RepairedDTS {
-			roundtripHit++
+		if back, err := model.FromUnified(trk.Timescale, rs.UnifiedDTS); err == nil {
+			tol := model.RoundtripTolerance(trk.Timescale)
+			diff := uint64(0)
+			if back > rs.RepairedDTS {
+				diff = back - rs.RepairedDTS
+			} else {
+				diff = rs.RepairedDTS - back
+			}
+			if diff <= tol {
+				roundtripHit++
+			}
 		}
 		meta := rs
 		meta.Data = nil

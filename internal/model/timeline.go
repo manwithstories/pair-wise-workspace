@@ -205,10 +205,22 @@ func FromUnified(timescale uint32, unified uint64) (uint64, error) {
 	g := gcd(UnifiedTimescale, ts)
 	mul := ts / g
 	div := UnifiedTimescale / g
-	if unified > math.MaxUint64/mul {
+	// 四舍五入需要加 div/2，先留出这部分余量再检查乘法溢出。
+	half := div / 2
+	if unified > (math.MaxUint64-half)/mul {
 		return 0, fmt.Errorf("%w: unified=%d timescale=%d", ErrOverflow, unified, timescale)
 	}
-	return (unified*mul + div/2) / div, nil
+	return (unified*mul + half) / div, nil
+}
+
+// RoundtripTolerance 返回统一基准往返到轨道时钟时可接受的误差（tick）。
+// timescale 不超过统一基准时为 0（精确可逆）；更高频率下多个 tick 映射到
+// 同一统一单位，存在固有损失，允许 1 tick。
+func RoundtripTolerance(timescale uint32) uint64 {
+	if uint64(timescale) > UnifiedTimescale {
+		return 1
+	}
+	return 0
 }
 
 func gcd(a, b uint64) uint64 {
