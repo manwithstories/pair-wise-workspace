@@ -394,6 +394,61 @@ class AudioTests(unittest.TestCase):
             self.assertEqual(segment.mapping["source_layout"], "stereo")
             self.assertEqual(segment.mapping["operation"], "downmix+resample")
 
+    def test_segment_cuts_are_sample_exact(self):
+        import numpy as np
+        import av
+
+        from mediarc.audio import FloatSink, _block, _decode_range, sample_bounds
+
+        result = probe(str(fixtures() / "good.mkv"))
+        segment = Segment(
+            "cut", result.audio.index, 0, 2_000_000,
+            source_start_ticks=1_000_000, source_end_ticks=1_500_000,
+        )
+        start, end = sample_bounds(result, result.audio, segment)
+        self.assertEqual((start, end), (100_000, 150_000))
+        with Workspace() as work:
+            sink = FloatSink(str(work / "raw.wav"), 44_100, "stereo")
+            _decode_range(
+                result, result.audio, [(start, end)],
+                AudioSettings(44_100, "stereo"), "stereo", [sink],
+            )
+            sink.close()
+            import soundfile as sf
+
+            produced, _ = sf.read(sink.path, always_2d=True)
+        container = av.open(str(fixtures() / "good.mkv"))
+        try:
+            full = np.concatenate(
+                [_block(frame) for frame in container.decode(container.streams[1])], axis=1
+            )
+        finally:
+            container.close()
+        # Byte-for-byte: no container timestamp and no seek is involved.
+        self.assertTrue(np.array_equal(produced.T, full[:, start:end]))
+
+    def test_multi_segment_audio_is_one_pass_and_matches(self):
+        from mediarc.audio import extract_segments
+
+        result = probe(str(fixtures() / "good.mkv"))
+        segments = [
+            Segment("a0", result.audio.index, 0, 1_000_000,
+                    source_start_ticks=0, source_end_ticks=1_000_000),
+            Segment("a1", result.audio.index, 1_000_000, 2_000_000,
+                    source_start_ticks=1_000_000, source_end_ticks=2_000_000),
+        ]
+        with Workspace() as work:
+            produced = extract_segments(
+                result, result.audio, segments,
+                AudioSettings(48_000, "stereo", -16.0),
+                [str(work / "a0.wav"), str(work / "a1.wav")],
+            )
+        self.assertEqual([p.segment_id for p in produced], ["a0", "a1"])
+        self.assertTrue(all(p.error is None and p.samples > 0 for p in produced))
+        # Bounds are source samples: ticks are on a 441 kHz base, so
+        # 1_000_000 ticks = 1e6/441000 s = 100_000 samples at 44.1 kHz.
+        self.assertEqual(produced[1].mapping["sample_bounds"], [100_000, 200_000])
+
     def test_unsupported_rate_is_rejected_before_any_output(self):
         settings = AudioSettings(rate=22_050, layout="stereo")
         with self.assertRaises(MediaError) as caught:

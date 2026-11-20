@@ -22,7 +22,7 @@ import math
 import os
 from dataclasses import dataclass, field
 from fractions import Fraction
-from typing import Any, Iterator
+from typing import Any, Iterator, Sequence
 
 import av
 import numpy as np
@@ -229,6 +229,8 @@ class AudioSegment:
     measured_seconds: float
     sha256: str
     mapping: dict[str, Any] = field(default_factory=dict)
+    #: Set when the segment could not be archived; ``path`` is then empty.
+    error: MediaError | None = field(default=None, repr=False)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -252,6 +254,7 @@ class AudioSegment:
             "measured_seconds": round(self.measured_seconds, 3),
             "sha256": self.sha256,
             "mapping": dict(self.mapping),
+            "error": None if self.error is None else self.error.to_dict(),
         }
 
     @classmethod
@@ -277,6 +280,7 @@ class AudioSegment:
             measured_seconds=float(data.get("measured_seconds", 0.0)),
             sha256=str(data["sha256"]),
             mapping=dict(data.get("mapping") or {}),
+            error=None if data.get("error") is None else MediaError.from_dict(data["error"]),
         )
 
 
@@ -314,12 +318,6 @@ def _block(frame: av.AudioFrame) -> np.ndarray:
     return data.astype(np.float32, copy=False)
 
 
-def _frame_pts_samples(frame: av.AudioFrame, stream: StreamProbe, rate: int) -> int | None:
-    if frame.pts is None:
-        return None
-    return round(Fraction(frame.pts) * frame.time_base * rate) if frame.time_base else None
-
-
 def _normalise(data: np.ndarray, layout: str, rate: int) -> av.AudioFrame:
     """Wrap a ``(channels, n)`` float block for libswresample."""
     out = av.AudioFrame.from_ndarray(
@@ -332,68 +330,97 @@ def _normalise(data: np.ndarray, layout: str, rate: int) -> av.AudioFrame:
     return out
 
 
-#: Below this distance libav seeking costs more precision than it saves, so the
-#: range is decoded from the first sample and positions stay bit-exact.
-REWIND_WINDOW_SECONDS = 8.0
-
-
 def _decode_range(
     result: ProbeResult,
     stream: StreamProbe,
-    start_sample: int,
-    end_sample: int,
+    ranges: Sequence[tuple[int, int]],
     settings: AudioSettings,
     source_layout: str,
-) -> Iterator[np.ndarray]:
-    """Yield resampled ``(channels, n)`` blocks for exactly the requested range.
+    sinks: Sequence[Any],
+) -> None:
+    """Decode the stream once and cut every requested range sample-exactly.
 
-    ``start_sample``/``end_sample`` are indices on the *decoded* stream.  When
-    the range begins close to the origin the stream is decoded from sample 0, so
-    the index is exact; otherwise the demuxer is seeked to a point safely before
-    the cut and the first decoded frame's timestamp becomes the anchor.  The
-    anchor and the resolved bounds are written into the manifest, so a verifier
-    can tell which of the two paths produced the segment.
+    ``ranges`` are ``(start_sample, end_sample)`` pairs on the decoded stream and
+    ``sinks`` are per-range callables receiving resampled blocks.  Sample
+    positions are counted from the **first decoded frame**, never from container
+    timestamps: a Matroska audio track's time base is often 1/1000 s, so a
+    timestamp anchor cannot express an arbitrary sample index and seeking would
+    silently shift a cut by up to half a millisecond.  One pass also means the
+    total decode work is bounded by the file, not by the number of segments.
+
+    A ``MediaError`` is stored on the sink (``sink.error``) rather than raised:
+    one damaged stretch of audio must not abort the other ranges.
     """
     source_rate = stream.sample_rate or 0
+    ordered = sorted(range(len(ranges)), key=lambda index: ranges[index][0])
+    last_needed = max((ranges[i][1] for i in ordered), default=0)
+    active: list[int] = []
+    next_position = 0
     container = av.open(result.path)
-    resampler = av.AudioResampler(
-        format="fltp", layout=settings.layout, rate=settings.rate
-    )
+    resamplers: dict[int, av.AudioResampler] = {}
+    emitted = [0] * len(ranges)
     try:
         av_stream = container.streams[stream.index]
-        decode_from_zero = start_sample <= int(REWIND_WINDOW_SECONDS * source_rate)
-        target = (
-            Fraction(0)
-            if decode_from_zero
-            else Fraction(max(0, start_sample - int(2.0 * source_rate))) / source_rate
-        )
-        anchor: int | None = None if decode_from_zero else None
-        position: int | None = 0 if decode_from_zero else None
-        consumed = 0
-        wanted = end_sample - start_sample
-        for packet in iter_packets(container, av_stream, target):
-            for frame in packet.decode():
-                if position is None:
-                    pts_position = _frame_pts_samples(frame, stream, source_rate)
-                    position = pts_position if pts_position is not None else start_sample
-                    anchor = position
-                frame_end = position + frame.samples
-                lo = max(position, start_sample)
-                hi = min(frame_end, end_sample)
-                if hi > lo:
-                    data = _block(frame)[:, lo - position: hi - position]
-                    consumed += data.shape[1]
-                    for out in resampler.resample(
-                        _normalise(data, source_layout, source_rate)
-                    ):
-                        yield out.to_ndarray().astype(np.float32, copy=False)
-                position = frame_end
-                if position >= end_sample or consumed >= wanted:
+        for packet in container.demux(av_stream):
+            if packet.size == 0 and packet.pts is None:
+                continue
+            try:
+                frames = list(packet.decode())
+            except Exception as exc:  # noqa: BLE001 - damaged audio
+                error = bridge(
+                    "audio-decode", exc, stage="audio", path=result.path,
+                    stream_index=stream.index,
+                    offset=_packet_offset(packet),
+                )
+                for index in active:
+                    sinks[index].error = sinks[index].error or error
+                continue
+            for frame in frames:
+                frame_start, frame_end = next_position, next_position + frame.samples
+                next_position = frame_end
+                while active and ranges[ordered[active[0]]][1] <= frame_start:
+                    _finish_resampler(resamplers.pop(ordered[active[0]], None), sinks[active[0]], emitted[active[0]])
+                    active.pop(0)
+                for index in ordered:
+                    lo_bound, hi_bound = ranges[index]
+                    if hi_bound <= frame_start:
+                        continue
+                    if lo_bound >= frame_end:
+                        break
+                    if index not in active:
+                        active.append(index)
+                        active.sort(key=lambda i: ranges[ordered[i]][1])
+                    lo = max(lo_bound, frame_start)
+                    hi = min(hi_bound, frame_end)
+                    data = _block(frame)[:, lo - frame_start:hi - frame_start]
+                    resampler = resamplers.get(index)
+                    if resampler is None:
+                        resampler = av.AudioResampler(
+                            format="fltp", layout=settings.layout, rate=settings.rate
+                        )
+                        resamplers[index] = resampler
+                    try:
+                        blocks = [
+                            out.to_ndarray().astype(np.float32, copy=False)
+                            for out in resampler.resample(
+                                _normalise(data, source_layout, source_rate)
+                            )
+                        ]
+                    except Exception as exc:  # noqa: BLE001
+                        sinks[index].error = sinks[index].error or bridge(
+                            "audio-decode", exc, stage="audio", path=result.path,
+                            stream_index=stream.index,
+                        )
+                        continue
+                    for block in blocks:
+                        sinks[index].write(block)
+                        emitted[index] += block.shape[1]
+                if next_position >= last_needed:
                     break
-            if position is not None and (position >= end_sample or consumed >= wanted):
+            if next_position >= last_needed:
                 break
-        for out in resampler.resample(None):
-            yield out.to_ndarray().astype(np.float32, copy=False)
+        for index, resampler in list(resamplers.items()):
+            _finish_resampler(resampler, sinks[index], emitted[index])
     except MediaError:
         raise
     except Exception as exc:  # noqa: BLE001 - libav error types vary
@@ -405,28 +432,71 @@ def _decode_range(
         container.close()
 
 
-def _write_float(path: str, blocks: Iterator[np.ndarray], rate: int, layout: str) -> int:
-    channels = len(layout_channels(layout))
-    written = 0
+def _finish_resampler(resampler, sink, emitted: int) -> None:
+    if resampler is None:
+        return
     try:
-        with sf.SoundFile(
-            path, mode="w", samplerate=rate, channels=channels,
-            subtype="FLOAT", format="WAV",
-        ) as handle:
-            for block in blocks:
-                if block.shape[0] != channels:
-                    raise MediaError(
-                        "audio-decode",
-                        f"resampler returned {block.shape[0]} channels, expected {channels}",
-                        stage="audio",
-                    )
-                handle.write(np.ascontiguousarray(block.T))
-                written += block.shape[1]
-    except MediaError:
-        raise
-    except Exception as exc:  # noqa: BLE001
-        raise bridge("io", exc, stage="audio", path=path) from exc
-    return written
+        for out in resampler.resample(None):
+            sink.write(out.to_ndarray().astype(np.float32, copy=False))
+    except Exception:  # noqa: BLE001 - flushing a broken resampler is not fatal
+        pass
+
+
+def _packet_offset(packet) -> int | None:
+    position = getattr(packet, "pos", None)
+    return position if position is not None and position >= 0 else None
+
+
+class FloatSink:
+    """Bounded-memory writer for one resampled audio range.
+
+    The decoder pushes blocks here; the file is never held in memory.  A decode
+    failure is stored on ``error`` so the surrounding pass can keep filling the
+    other ranges before the caller decides what to do.
+    """
+
+    __slots__ = ("path", "channels", "handle", "written", "error")
+
+    def __init__(self, path: str, rate: int, layout: str) -> None:
+        self.path = path
+        self.channels = len(layout_channels(layout))
+        self.written = 0
+        self.error: MediaError | None = None
+        try:
+            self.handle = sf.SoundFile(
+                path, mode="w", samplerate=rate, channels=self.channels,
+                subtype="FLOAT", format="WAV",
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise bridge("io", exc, stage="audio", path=path) from exc
+
+    def write(self, block: np.ndarray) -> None:
+        if block.shape[0] != self.channels:
+            self.error = self.error or MediaError(
+                "audio-decode",
+                f"resampler returned {block.shape[0]} channels, expected {self.channels}",
+                stage="audio", path=self.path,
+            )
+            return
+        try:
+            self.handle.write(np.ascontiguousarray(block.T))
+        except Exception as exc:  # noqa: BLE001
+            self.error = self.error or bridge("io", exc, stage="audio", path=self.path)
+            return
+        self.written += block.shape[1]
+
+    def close(self) -> int:
+        try:
+            self.handle.close()
+        except Exception as exc:  # noqa: BLE001
+            self.error = self.error or bridge("io", exc, stage="audio", path=self.path)
+        return self.written
+
+    def __enter__(self) -> "FloatSink":
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
 
 
 # ---------------------------------------------------------------------------
@@ -493,8 +563,216 @@ def apply_gain_and_encode(raw_path: str, output_path: str, gain: float, layout: 
 
 
 # ---------------------------------------------------------------------------
-# Public entry point
+# Public entry points
 # ---------------------------------------------------------------------------
+
+
+def sample_bounds(result: ProbeResult, stream: StreamProbe, segment: Segment) -> tuple[int, int]:
+    """``(start, end)`` sample indices for one segment on the decoded stream."""
+    source_rate = stream.sample_rate or 0
+    rate_value = result.time_base.rate.value
+    source_start = (
+        segment.source_start_ticks
+        if segment.source_start_ticks is not None
+        else segment.start_ticks
+    )
+    source_end = (
+        segment.source_end_ticks
+        if segment.source_end_ticks is not None
+        else segment.end_ticks
+    )
+    return (
+        round(Fraction(source_start) / rate_value * source_rate),
+        round(Fraction(source_end) / rate_value * source_rate),
+    )
+
+
+def extract_segments(
+    result: ProbeResult,
+    stream: StreamProbe,
+    segments: Sequence[Segment],
+    settings: AudioSettings,
+    output_paths: Sequence[str],
+) -> list[AudioSegment]:
+    """Archive several audio segments from a single decode pass.
+
+    Cutting each segment with its own decode would read the master N times; the
+    same sample-exact result is available from one pass, which is what makes a
+    long multi-segment master practical.  A segment whose decode fails is
+    recorded with its own error and does not disturb the others.
+    """
+    settings.validate()
+    if len(segments) != len(output_paths):
+        raise ValueError("segments and output paths must be the same length")
+    source_rate = stream.sample_rate or 0
+    source_layout = canonical_layout(stream.layout, stream.channels)
+    if source_rate <= 0:
+        raise MediaError(
+            "audio-decode", "stream reports no sample rate",
+            stage="audio", path=result.path, stream_index=stream.index,
+        )
+    if source_layout is None:
+        raise MediaError(
+            "unsupported-layout",
+            f"stream layout {stream.layout!r} with {stream.channels} channels is not "
+            f"one of {SUPPORTED_LAYOUTS}",
+            stage="audio", path=result.path, stream_index=stream.index,
+        )
+    rate_value = result.time_base.rate.value
+    ranges: list[tuple[int, int]] = []
+    for segment in segments:
+        seconds = Fraction(segment.duration_ticks) / rate_value
+        if float(seconds) > settings.max_segment_seconds:
+            raise MediaError(
+                "limit-exceeded",
+                f"segment {segment.segment_id} is {float(seconds):.1f}s, limit is "
+                f"{settings.max_segment_seconds:.1f}s",
+                stage="audio", path=result.path, stream_index=stream.index,
+            )
+        start, end = sample_bounds(result, stream, segment)
+        if end <= start:
+            raise MediaError(
+                "edit-out-of-range",
+                f"segment {segment.segment_id} maps to an empty sample range",
+                stage="audio", path=result.path, stream_index=stream.index,
+            )
+        ranges.append((start, end))
+
+    raw_paths = [f"{path}.raw.wav" for path in output_paths]
+    sinks = [FloatSink(path, settings.rate, settings.layout) for path in raw_paths]
+    try:
+        _decode_range(result, stream, ranges, settings, source_layout, sinks)
+        for sink in sinks:
+            sink.close()
+        finished: list[AudioSegment] = []
+        for segment, start_end, sink, raw_path, output_path in zip(
+            segments, ranges, sinks, raw_paths, output_paths
+        ):
+            if sink.error is not None:
+                finished.append(_failed_audio(segment, stream.index, sink.error))
+                continue
+            if sink.written == 0:
+                finished.append(_failed_audio(
+                    segment, stream.index,
+                    MediaError(
+                        "audio-decode",
+                        f"segment {segment.segment_id} decoded to no samples",
+                        stage="audio", path=result.path, stream_index=stream.index,
+                    ),
+                ))
+                continue
+            finished.append(
+                _finish_segment(
+                    result, stream, segment, settings, source_rate, source_layout,
+                    start_end, raw_path, output_path,
+                )
+            )
+        return finished
+    finally:
+        for path in raw_paths:
+            if os.path.exists(path):
+                os.unlink(path)
+
+
+def _failed_audio(segment: Segment, stream_index: int, error: MediaError) -> AudioSegment:
+    """Placeholder that carries the failure instead of a fabricated artefact."""
+    return AudioSegment(
+        segment_id=segment.segment_id,
+        track_index=stream_index,
+        path="",
+        sample_rate=0,
+        layout="",
+        channels=0,
+        samples=0,
+        source_sample_rate=0,
+        source_layout=None,
+        source_start_ticks=segment.source_start_ticks or 0,
+        source_end_ticks=segment.source_end_ticks or 0,
+        output_start_ticks=segment.start_ticks,
+        gain_db=0.0,
+        lufs_in=None,
+        lufs_out=None,
+        peak_in=0.0,
+        peak_out=0.0,
+        measured_seconds=0.0,
+        sha256="",
+        mapping={"failed": True, "reason": error.message},
+        error=error,
+    )
+
+
+def _finish_segment(
+    result: ProbeResult,
+    stream: StreamProbe,
+    segment: Segment,
+    settings: AudioSettings,
+    source_rate: int,
+    source_layout: str,
+    start_end: tuple[int, int],
+    raw_path: str,
+    output_path: str,
+) -> AudioSegment:
+    start_sample, end_sample = start_end
+    before = measure(raw_path, settings.layout, settings.rate, settings.measure_seconds)
+    gain = gain_for(settings, before)
+    apply_gain_and_encode(raw_path, output_path, gain, settings.layout)
+    after = measure(output_path, settings.layout, settings.rate, settings.measure_seconds)
+    if after.peak > 0 and linear_to_db(after.peak) > settings.peak_ceiling_db + 1e-6:
+        return _failed_audio(
+            segment, stream.index,
+            MediaError(
+                "audio-loudness",
+                f"peak {linear_to_db(after.peak):.2f} dBFS exceeds ceiling "
+                f"{settings.peak_ceiling_db:.2f} dBFS after gain",
+                stage="audio", path=result.path, stream_index=stream.index,
+            ),
+        )
+    gain_db = linear_to_db(gain)
+    mapping = {
+        "source_rate": source_rate,
+        "source_layout": source_layout,
+        "target_rate": settings.rate,
+        "target_layout": settings.layout,
+        "rate_changed": source_rate != settings.rate,
+        "layout_changed": source_layout != settings.layout,
+        "operation": _operation(source_layout, settings.layout, source_rate, settings.rate),
+        "gain_db": round(gain_db, 6),
+        "peak_ceiling_db": settings.peak_ceiling_db,
+        "target_lufs": settings.target_lufs,
+        "sample_bounds": [start_sample, end_sample],
+        "boundary_basis": "decoded-sample-index",
+        "measured_seconds": round(after.seconds, 3),
+    }
+    with sf.SoundFile(output_path) as handle:
+        samples = handle.frames
+    return AudioSegment(
+        segment_id=segment.segment_id,
+        track_index=segment.track_index,
+        path=output_path,
+        sample_rate=settings.rate,
+        layout=settings.layout,
+        channels=len(layout_channels(settings.layout)),
+        samples=samples,
+        source_sample_rate=source_rate,
+        source_layout=source_layout,
+        source_start_ticks=int(
+            segment.source_start_ticks if segment.source_start_ticks is not None
+            else segment.start_ticks
+        ),
+        source_end_ticks=int(
+            segment.source_end_ticks if segment.source_end_ticks is not None
+            else segment.end_ticks
+        ),
+        output_start_ticks=segment.start_ticks,
+        gain_db=gain_db,
+        lufs_in=before.lufs,
+        lufs_out=after.lufs,
+        peak_in=before.peak,
+        peak_out=after.peak,
+        measured_seconds=after.seconds,
+        sha256=sha256_file(output_path),
+        mapping=mapping,
+    )
 
 
 def _operation(source_layout: str, target_layout: str, source_rate: int, rate: int) -> str:
@@ -552,12 +830,20 @@ def extract_segment(
 
     raw_path = output_path + ".raw.wav"
     try:
-        written = _write_float(
-            raw_path,
-            _decode_range(result, stream, start_sample, end_sample, settings, source_layout),
-            settings.rate,
-            settings.layout,
-        )
+        with FloatSink(raw_path, settings.rate, settings.layout) as sink:
+            _decode_range(
+                result, stream, [(start_sample, end_sample)],
+                settings, source_layout, [sink],
+            )
+        if sink.error is not None:
+            raise sink.error
+        written = sink.written
+        if written == 0:
+            raise MediaError(
+                "audio-decode",
+                f"segment {segment.segment_id} decoded to no samples",
+                stage="audio", path=result.path, stream_index=stream.index,
+            )
         before = measure(raw_path, settings.layout, settings.rate, settings.measure_seconds)
         gain = gain_for(settings, before)
         apply_gain_and_encode(raw_path, output_path, gain, settings.layout)
@@ -586,6 +872,9 @@ def extract_segment(
         "peak_ceiling_db": settings.peak_ceiling_db,
         "target_lufs": settings.target_lufs,
         "sample_bounds": [start_sample, end_sample],
+        # Cuts are counted from the first decoded frame; no container
+        # timestamp takes part, so the bound is sample-exact.
+        "boundary_basis": "decoded-sample-index",
         "measured_seconds": round(after.seconds, 3),
     }
     return AudioSegment(

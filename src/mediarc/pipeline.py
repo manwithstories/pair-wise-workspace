@@ -27,7 +27,7 @@ from typing import Any, Iterable
 
 import av
 
-from .audio import AudioSegment, AudioSettings, extract_segment
+from .audio import AudioSegment, AudioSettings, extract_segment, extract_segments
 from .color import ColorRecord, resolve as resolve_color
 from .errors import MediaError, bridge
 from .manifest import (
@@ -877,26 +877,74 @@ def _run_transform(
     colors = color or _ColorRecord(stream_index=-1)
     tasks = [s for s in timeline.segments if s.segment_id not in failed_ids]
     skipped = [s for s in timeline.segments if s.segment_id in failed_ids]
-    if limits.jobs == 1 or len(tasks) <= 1:
+    by_stream: dict[int, list] = {}
+    for segment in tasks:
+        by_stream.setdefault(segment.track_index, []).append(segment)
+    # Audio for one stream is cut in a single decode pass, so a long master is
+    # read once per audio stream rather than once per segment.
+    audio_records: dict[str, AudioSegment] = {}
+    for index, segments in by_stream.items():
+        stream = result.stream(index)
+        if stream is None or stream.kind != "audio":
+            continue
+        outputs = [
+            str(segment_dir / f"{segment.segment_id}.wav") for segment in segments
+        ]
+        for produced in extract_segments(result, stream, segments, settings, outputs):
+            audio_records[produced.segment_id] = produced
+    video_tasks = [
+        segment for segment in tasks
+        if (result.stream(segment.track_index) or None) is not None
+        and result.stream(segment.track_index).kind == "video"
+    ]
+    if limits.jobs == 1 or len(video_tasks) <= 1:
         outcomes = [
             _archive_segment(result, segment, settings, colors, segment_dir)
-            for segment in tasks
+            for segment in video_tasks
         ]
     else:
         with ThreadPoolExecutor(max_workers=limits.jobs) as pool:
             outcomes = list(
                 pool.map(
                     lambda seg: _archive_segment(result, seg, settings, colors, segment_dir),
-                    tasks,
+                    video_tasks,
                 )
             )
     records: list[SegmentRecord] = []
     recovered = 0
-    for segment, (record, error) in zip(tasks, outcomes):
+    for segment, (record, error) in zip(video_tasks, outcomes):
         if record is None:
             records.append(_failed_record(segment, error))
             continue
         records.append(record)
+    for segment in tasks:
+        if result.stream(segment.track_index).kind != "audio":
+            continue
+        produced = audio_records.get(segment.segment_id)
+        if produced is None:
+            records.append(_failed_record(
+                segment,
+                MediaError(
+                    "audio-decode",
+                    f"no audio artefact was produced for {segment.segment_id}",
+                    stage="audio", path=result.path, stream_index=segment.track_index,
+                ),
+            ))
+            continue
+        if produced.error is not None:
+            records.append(_failed_record(segment, produced.error))
+            continue
+        records.append(
+            SegmentRecord(
+                segment_id=segment.segment_id,
+                track_index=segment.track_index,
+                start_ticks=segment.start_ticks,
+                end_ticks=segment.end_ticks,
+                path=produced.path,
+                sha256=produced.sha256,
+                audio=produced,
+            )
+        )
     for segment in skipped:
         error = MediaError(
             "edit-out-of-range",
