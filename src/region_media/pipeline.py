@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import os
+import signal
 from dataclasses import dataclass, field
 
 from .buffer import JitterBuffer
@@ -37,6 +38,14 @@ from .model import (
 )
 from .recovery import RecoveryEngine
 from .sync import SyncAnalyzer
+
+
+class PipelineInterrupted(KeyboardInterrupt):
+    """收到中断信号、在分片边界安全停止后抛出，最后检查点保持有效。"""
+
+    def __init__(self, last_seq: int) -> None:
+        super().__init__(f"流水线在分片 {last_seq} 边界收到中断，已保留检查点")
+        self.last_seq = last_seq
 
 
 @dataclass
@@ -84,6 +93,28 @@ class Pipeline:
         self._global_seq: dict[TrackKind, int] = {
             TrackKind.AUDIO: 0, TrackKind.VIDEO: 0}
         self._wrap_tracks: set[TrackKind] = set()
+        self._interrupted = False
+        self._prev_handlers: dict[int, object] = {}
+
+    def _handle_signal(self, signum, frame) -> None:  # noqa: ANN001
+        self._interrupted = True
+
+    def install_signal_handlers(self) -> None:
+        """安装 SIGINT/SIGTERM 处理器；仅主线程可安装，失败静默忽略。"""
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                self._prev_handlers[sig] = signal.signal(
+                    sig, self._handle_signal)
+            except (ValueError, OSError):
+                pass
+
+    def restore_signal_handlers(self) -> None:
+        for sig, handler in self._prev_handlers.items():
+            try:
+                signal.signal(sig, handler)
+            except (ValueError, OSError):
+                pass
+        self._prev_handlers.clear()
 
     # ---- 生命周期 --------------------------------------------------
     def open(self) -> None:
@@ -101,6 +132,20 @@ class Pipeline:
         self.resumed = not is_new
         if self.resumed:
             self._restore_state()
+            # 恢复注入 RNG/游标，使续跑的丢包/抖动序列与完整运行一致
+            cstate = self.store.load_conditioner_state()
+            if cstate is not None and self._conditioner is not None:
+                self._conditioner.set_state(cstate)
+            # 恢复同步评估输入与延迟样本，保证部分续跑指标基于完整时间线
+            sync_state = self.store.load_pipeline_state("sync")
+            if sync_state is not None:
+                self.sync.set_state(sync_state)
+            lat = self.store.load_pipeline_state("latency")
+            if lat is not None:
+                self.counters.latency_samples_us = list(lat["samples"])
+            rec = self.store.load_pipeline_state("recovery")
+            if rec is not None:
+                self.recovery.set_state(rec)
 
     def _restore_state(self) -> None:
         """续跑：载入历史计数器与错误，已提交分片不再处理。"""
@@ -139,6 +184,11 @@ class Pipeline:
         chunk_counters = self._zero_counters()
         processed = 0
         for seq in pending:
+            # 中断只在分片边界生效：当前分块已原子提交，最后有效
+            # 检查点不受影响，续跑可从该位置继续
+            if self._interrupted:
+                self.store.save_summary(self._summary())
+                raise PipelineInterrupted(self.store.resume_from())
             refs = [r for r in self.manifest.refs if r.seq == seq]
             row = self._process_segment(seq, refs, chunk_errors,
                                         chunk_counters)
@@ -269,6 +319,14 @@ class Pipeline:
                       for k, v in cc.items()}
         chunk_id = last_seq // max(1, self.config.chunk_size)
         self.store.commit_chunk(chunk_id, last_seq, persist_cc, rows, errors)
+        # 同一提交点保存注入 RNG 状态，续跑可精确还原随机序列
+        if self._conditioner is not None:
+            self.store.save_conditioner_state(self._conditioner.get_state())
+        # 同步输入与延迟样本一并持久化，支撑部分续跑的完整指标重算
+        self.store.save_pipeline_state("sync", self.sync.get_state())
+        self.store.save_pipeline_state(
+            "latency", {"samples": list(self.counters.latency_samples_us)})
+        self.store.save_pipeline_state("recovery", self.recovery.get_state())
 
     @staticmethod
     def _zero_counters() -> dict:
@@ -291,6 +349,8 @@ def run_pipeline(config: PipelineConfig) -> dict:
     pipe = Pipeline(config)
     try:
         pipe.open()
+        pipe.install_signal_handlers()
         return pipe.run()
     finally:
+        pipe.restore_signal_handlers()
         pipe.close()

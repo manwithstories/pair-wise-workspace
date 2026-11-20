@@ -200,6 +200,24 @@ class NetworkConditioner:
         self._wrap_cursor: dict[TrackKind, int] = {}
         self._wrap_step: dict[TrackKind, int] = {}
 
+    def get_state(self) -> dict:
+        """导出随机数/丢包预算/回绕游标，供检查点持久化。"""
+        return {
+            "rng": self._rng.getstate(),
+            "drop_budget": self._drop_budget,
+            "wrap_cursor": {k.value: v for k, v in self._wrap_cursor.items()},
+            "wrap_step": {k.value: v for k, v in self._wrap_step.items()},
+        }
+
+    def set_state(self, state: dict) -> None:
+        """恢复检查点中的注入状态，保证续跑与一次完整运行确定性一致。"""
+        self._rng.setstate(tuple(state["rng"]))
+        self._drop_budget = state["drop_budget"]
+        self._wrap_cursor = {TrackKind(k): v
+                             for k, v in state["wrap_cursor"].items()}
+        self._wrap_step = {TrackKind(k): v
+                           for k, v in state["wrap_step"].items()}
+
     def _apply_wrap(self, pkt: PacketModel) -> int:
         """把节点 33 位计数器回绕注入到 raw_pts。
 

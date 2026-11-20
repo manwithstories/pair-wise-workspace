@@ -86,6 +86,29 @@ class SyncAnalyzer:
             return "drop" if offset_us > 0 else "duplicate"
         return "shrink" if offset_us > 0 else "stretch"
 
+    def get_state(self) -> dict:
+        """导出同步评估输入与已评分帧，供检查点持久化。"""
+        return {
+            "audio_pts": list(self._audio_pts),
+            "video_frames": [list(t) for t in self._video_frames],
+            "frames": [
+                {"video_seq": f.video_seq, "common_pts_us": f.common_pts_us,
+                 "audio_ref_us": f.audio_ref_us, "offset_ms": f.offset_ms,
+                 "action": f.action}
+                for f in self._report.frames],
+            "actions": dict(self._report.actions),
+        }
+
+    def set_state(self, state: dict) -> None:
+        """恢复检查点中的同步状态，续跑可在完整时间线上重新评分。"""
+        self._audio_pts = list(state["audio_pts"])
+        self._video_frames = [tuple(t) for t in state["video_frames"]]
+        self._report.frames = [
+            SyncFrame(f["video_seq"], f["common_pts_us"],
+                      f["audio_ref_us"], f["offset_ms"], f["action"])
+            for f in state["frames"]]
+        self._report.actions = dict(state["actions"])
+
     def finalize(self) -> SyncReport:
         frames = self._report.frames
         if not frames:

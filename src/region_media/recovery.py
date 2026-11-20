@@ -53,6 +53,27 @@ class RecoveryEngine:
             TrackKind.AUDIO: None, TrackKind.VIDEO: None}
         self.stats = RecoveryStats()
 
+    def get_state(self) -> dict:
+        """导出各轨最近包与累计计数，供检查点持久化。"""
+        return {
+            "last": {k.value: (v.__dict__ if v is not None else None)
+                     for k, v in self._last.items()},
+            "missing": self.stats.missing,
+            "recovered": self.stats.recovered,
+            "unrecoverable": self.stats.unrecoverable,
+            "duplicates": self.stats.duplicates,
+        }
+
+    def set_state(self, state: dict) -> None:
+        """恢复检查点状态，续跑在原缺口判定上下文上继续。"""
+        self._last = {
+            TrackKind(k): (PacketModel(**v) if v is not None else None)
+            for k, v in state["last"].items()}
+        self.stats.missing = state["missing"]
+        self.stats.recovered = state["recovered"]
+        self.stats.unrecoverable = state["unrecoverable"]
+        self.stats.duplicates = state["duplicates"]
+
     def note_duplicate(self, pkt: PacketModel) -> None:
         """重复包：仅记账，绝不进入时间线。"""
         self.stats.duplicates += 1

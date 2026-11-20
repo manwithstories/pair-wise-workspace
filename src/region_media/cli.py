@@ -66,6 +66,11 @@ def _cmd_process(args) -> int:
     except ManifestError as exc:
         print(f"输入无效: {exc}", file=sys.stderr)
         return EXIT_INVALID_INPUT
+    except KeyboardInterrupt as exc:
+        # 中断：最后有效检查点已保留，提示可用 --resume 续跑
+        print(f"已中断: {exc}（使用 --resume 从最后检查点续跑）",
+              file=sys.stderr)
+        return EXIT_PROCESS_FAILED
     except Exception as exc:  # 处理失败：保留最后有效检查点
         print(f"处理失败: {type(exc).__name__}: {exc}", file=sys.stderr)
         return EXIT_PROCESS_FAILED
@@ -80,9 +85,11 @@ def _cmd_process(args) -> int:
 def _run_with_summary(config: PipelineConfig) -> dict:
     pipe = Pipeline(config)
     pipe.open()
+    pipe.install_signal_handlers()
     try:
         return pipe.run()
     finally:
+        pipe.restore_signal_handlers()
         pipe.close()
 
 

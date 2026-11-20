@@ -121,6 +121,38 @@ class CheckpointStore:
             "SELECT value FROM meta WHERE key='summary'").fetchone()
         return json.loads(row[0]) if row else None
 
+    def save_conditioner_state(self, state: dict) -> None:
+        """持久化传输注入 RNG/游标状态（JSON 可序列化的元组转列表）。"""
+        payload = json.dumps(state, sort_keys=True, ensure_ascii=False)
+        with self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO meta(key, value)"
+                " VALUES('conditioner', ?)", (payload,))
+
+    def load_conditioner_state(self) -> dict | None:
+        row = self._conn.execute(
+            "SELECT value FROM meta WHERE key='conditioner'").fetchone()
+        if not row:
+            return None
+        state = json.loads(row[0])
+        # random.Random.getstate() 返回 (version, internal_tuple, gauss)；
+        # JSON 把元组转为列表，这里还原内部整数为 tuple
+        version, internal, gauss = state["rng"]
+        state["rng"] = (version, tuple(internal), gauss)
+        return state
+
+    def save_pipeline_state(self, key: str, state: dict) -> None:
+        """保存任意可 JSON 序列化的流水线子状态（sync/latency 等）。"""
+        with self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)",
+                (key, json.dumps(state, sort_keys=True, ensure_ascii=False)))
+
+    def load_pipeline_state(self, key: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+        return json.loads(row[0]) if row else None
+
     def commit_chunk(self, chunk_id: int, last_segment_seq: int,
                      counters: dict, segment_rows: list[tuple],
                      errors: list[ErrorEvent]) -> None:
