@@ -94,6 +94,7 @@ class VerifyReport:
     errors: list[MediaError] = field(default_factory=list)
     recovered_segments: int = 0
     recovery_notes: list[dict[str, Any]] = field(default_factory=list)
+    stage_note: str = ""
 
     # -- metrics -----------------------------------------------------------
     @property
@@ -184,6 +185,8 @@ class VerifyReport:
                 lines.append(
                     f"keyframes_missing segment={check.segment_id} ticks={check.missing}"
                 )
+        if self.stage_note:
+            lines.append(self.stage_note)
         for error in self.errors:
             lines.append(error.render())
         for note in self.recovery_notes:

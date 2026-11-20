@@ -173,6 +173,7 @@ def build_timeline(
     limits: Limits,
     *,
     cut_every_seconds: float | None = None,
+    transitions: Iterable[str] = (),
 ) -> tuple[Timeline, list[MediaError]]:
     """Tracks and segments in the probe's integer tick base.
 
@@ -225,7 +226,56 @@ def build_timeline(
                 stream, track.start_ticks, end, per_stream_cuts[stream.index]
             )
         )
-    return Timeline(tb, end_ticks, tracks, segments), errors
+    timeline = Timeline(tb, end_ticks, tracks, segments)
+    timeline.transitions = _parse_transitions(transitions, segments, errors, result.path)
+    return timeline, errors
+
+
+def _parse_transitions(
+    specs: Iterable[str],
+    segments: list[Segment],
+    errors: list[MediaError],
+    path: str,
+) -> list[Any]:
+    """Parse ``FROM:TO:START_MS:END_MS`` cross-track overlap declarations.
+
+    A transition is the only way two segments may overlap; declaring one that
+    does not match the material is an error against *both* segments, which the
+    caller then isolates, leaving every other segment archivable.
+    """
+    from .timeline import Transition
+
+    by_id = {segment.segment_id: segment for segment in segments}
+    parsed: list[Transition] = []
+    for spec in specs:
+        parts = spec.split(":")
+        if len(parts) != 4:
+            raise MediaError(
+                "transition-mismatch",
+                f"transition {spec!r} must be FROM:TO:START_MS:END_MS",
+                stage="timeline", path=path,
+            )
+        source, target, start_ms, end_ms = parts
+        if source not in by_id or target not in by_id:
+            errors.append(
+                MediaError(
+                    "transition-mismatch",
+                    f"transition {spec!r} references an unknown segment",
+                    stage="timeline", path=path, detail={"segments": [source, target]},
+                )
+            )
+            continue
+        try:
+            start = int(start_ms) * 1_000
+            end = int(end_ms) * 1_000
+        except ValueError:
+            raise MediaError(
+                "transition-mismatch",
+                f"transition {spec!r} has non-numeric bounds",
+                stage="timeline", path=path,
+            ) from None
+        parsed.append(Transition(f"t{len(parsed):02d}", source, target, start, end))
+    return parsed
 
 
 def _content_start_ticks(result: ProbeResult, stream: StreamProbe) -> int:
@@ -623,6 +673,7 @@ def archive(
     resume: bool = False,
     limits: Limits | None = None,
     cut_every_seconds: float | None = None,
+    transitions: Iterable[str] = (),
 ) -> ArchiveReport:
     """Run the archive pipeline; isolated failures do not abort the run."""
     limits = limits or Limits()
@@ -663,6 +714,7 @@ def archive(
         probe=result.source_sha256,
         max_segment_seconds=limits.max_segment_seconds,
         cut_every_seconds=cut_every_seconds,
+        transitions=list(transitions),
     )
     cached = store.load("timeline", timeline_input)
     if cached is not None:
@@ -671,7 +723,9 @@ def archive(
         resumed.append("timeline")
     else:
         timeline, timeline_errors = build_timeline(
-            result, limits, cut_every_seconds=cut_every_seconds
+            result, limits,
+            cut_every_seconds=cut_every_seconds,
+            transitions=transitions,
         )
         store.save(
             "timeline", timeline_input,
@@ -746,11 +800,13 @@ def archive(
     ))
     manifest.record_stage(StageRecord(
         "timeline", report.stage_status["timeline"], timeline_input, timeline_output,
+        upstream_sha256=probe_output,
         errors=all_timeline_errors,
         detail={"tracks": len(timeline.tracks), "segments": len(timeline.segments)},
     ))
     manifest.record_stage(StageRecord(
         "transform", report.stage_status["transform"], transform_input, transform_output,
+        upstream_sha256=timeline_output,
         errors=[e for r in failed for e in r.errors],
         detail={
             "segments": len(records),
@@ -763,6 +819,7 @@ def archive(
         "ok" if records else "failed",
         transform_output,
         stage_input_digest(manifest=manifest.to_dict()),
+        upstream_sha256=transform_output,
         detail={"segments": len(records), "failed": len(failed)},
     ))
     report.stage_status["archive"] = manifest.stage("archive").status

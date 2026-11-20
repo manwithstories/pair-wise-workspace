@@ -5,6 +5,7 @@ Fixtures produced (all under ``--out``):
 ===============  ===========================================================
 good.mkv         3 video GOPs + stereo 44.1 kHz PCM, BT.709 tags
 good.mp4         the same material in MP4, exercising the colr-box reader
+good.mov         the same material in MOV, exercising the brand whitelist
 multi.mkv        two video tracks + one audio track, for explicit mapping
 empty_track.mkv  a mapped audio track that carries no packets
 truncated.mkv    a good file cut off before its declared duration
@@ -372,6 +373,12 @@ def generate(out_dir: Path) -> dict[str, Path]:
     multi = out_dir / "multi.mkv"
     make_multitrack(multi)
     made["multi.mkv"] = multi
+
+    # MOV is the same box structure as MP4 with a different brand; it exists to
+    # prove the container whitelist and colr reader accept both spellings.
+    good_mov = out_dir / "good.mov"
+    make_good(good_mov, container="mov")
+    made["good.mov"] = good_mov
 
     empty = out_dir / "empty_track.mkv"
     make_empty_track(empty)

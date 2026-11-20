@@ -250,6 +250,73 @@ class ProbeTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
+class ContainerFormatTests(unittest.TestCase):
+    def test_mov_is_accepted_and_colour_is_read(self):
+        result = probe(str(fixtures() / "good.mov"))
+        self.assertEqual(result.format_name, "mov")
+        record = resolve_color(result.video, path=result.path)
+        self.assertEqual(record.label("primaries"), "bt709")
+        self.assertEqual(result.video.color_raw.get("colr:primaries"), "1")
+
+    def test_mkv_and_mp4_and_mov_all_archive(self):
+        with Workspace() as work:
+            for name in ("good.mkv", "good.mp4", "good.mov"):
+                report = archive(
+                    str(fixtures() / name),
+                    str(work / f"{name}.json"),
+                    work_dir=str(work / name),
+                    limits=Limits(jobs=1),
+                )
+                self.assertEqual(report.failed, 0, name)
+                self.assertGreater(report.healthy, 0, name)
+
+
+class TransitionTests(unittest.TestCase):
+    def test_declared_transition_between_overlapping_segments_is_accepted(self):
+        from mediarc.timeline import Transition
+
+        base = TimeBase(48_000)
+        tracks = [Track(0, "video", "h264", Rational(1, 1000), 0, 96_000)]
+        timeline = Timeline(
+            base, 96_000, tracks,
+            [
+                Segment("v00", 0, 0, 48_000),
+                Segment("v01", 0, 40_000, 96_000),
+            ],
+        )
+        timeline.transitions = [Transition("t0", "v00", "v01", 40_000, 48_000)]
+        self.assertEqual(timeline.validate(path="x.mkv"), [])
+
+    def test_undeclared_overlap_isolates_only_the_overlapping_segments(self):
+        from mediarc.pipeline import _isolate_timeline_errors
+        from mediarc.timeline import Transition
+
+        base = TimeBase(48_000)
+        tracks = [Track(0, "video", "h264", Rational(1, 1000), 0, 96_000)]
+        timeline = Timeline(
+            base, 96_000, tracks,
+            [
+                Segment("v00", 0, 0, 48_000),
+                Segment("v01", 0, 40_000, 96_000),
+                Segment("v02", 0, 96_000, 96_001),
+            ],
+        )
+        errors = timeline.validate(path="x.mkv")
+        self.assertEqual([e.code for e in errors], ["transition-overlap"])
+        stamped = _isolate_timeline_errors(errors, timeline)
+        # Ambiguous attribution must not guess a single segment.
+        self.assertNotIn("segment_id", stamped[0].detail)
+
+    def test_transition_to_missing_segment_is_reported(self):
+        from mediarc.pipeline import _parse_transitions
+
+        errors = []
+        segments = [Segment("v00", 0, 0, 10), Segment("v01", 0, 10, 20)]
+        parsed = _parse_transitions(["v00:missing:0:1"], segments, errors, "x.mkv")
+        self.assertEqual(parsed, [])
+        self.assertEqual([e.code for e in errors], ["transition-mismatch"])
+
+
 class ColorTests(unittest.TestCase):
     def test_conflicting_values_keep_the_decoder_visible_one(self):
         result = probe(str(fixtures() / "color_conflict.mkv"))

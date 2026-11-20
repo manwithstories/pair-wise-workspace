@@ -169,22 +169,33 @@ import contextlib as _contextlib
 import os as _os
 
 
+_QUIET_DEPTH = 0
+
+
 @_contextlib.contextmanager
 def quiet_libav():
     """Silence libav's log callback for expected-failure work.
 
     Damaged fixtures are decoded on purpose, so the library's error stream is
-    noise; diagnoses are captured structurally instead.  Set
+    noise; diagnoses are captured structurally instead.  The guard is
+    re-entrant: nested uses (repair inside self-test, for example) must not
+    restore the default callback while an outer guard is still active.  Set
     ``MEDIARC_LIBAV_LOG=1`` to see the raw messages while debugging.
     """
+    global _QUIET_DEPTH
     if _os.environ.get("MEDIARC_LIBAV_LOG"):
         yield
         return
     import av as _av
 
+    _QUIET_DEPTH += 1
+    if _QUIET_DEPTH == 1:
+        capture = _av.logging.Capture()
+        capture.__enter__()
+        _av.logging.set_level(_av.logging.PANIC)
     try:
-        with _av.logging.Capture():
-            _av.logging.set_level(_av.logging.PANIC)
-            yield
+        yield
     finally:
-        _av.logging.restore_default_callback()
+        _QUIET_DEPTH -= 1
+        if _QUIET_DEPTH == 0:
+            _av.logging.restore_default_callback()

@@ -32,7 +32,10 @@ SCHEMA = "mediarc.manifest/v1"
 #: Bump when a field changes meaning; readers reject unknown majors.
 SCHEMA_VERSION = 1
 
-STAGE_ORDER = ("generate", "probe", "timeline", "audio", "color", "transform", "archive", "verify")
+#: Stages that are *recorded* in a manifest, in execution order.  Audio
+#: and colour are sub-steps of ``transform`` and appear in error records, not
+#: as their own stage.
+STAGE_ORDER = ("probe", "timeline", "transform", "archive", "verify")
 
 
 @dataclass(slots=True)
@@ -43,6 +46,7 @@ class StageRecord:
     status: str  # "ok" | "partial" | "failed" | "skipped"
     input_sha256: str
     output_sha256: str
+    upstream_sha256: str = ""
     errors: list[MediaError] = field(default_factory=list)
     detail: dict[str, Any] = field(default_factory=dict)
 
@@ -52,6 +56,7 @@ class StageRecord:
             "status": self.status,
             "input_sha256": self.input_sha256,
             "output_sha256": self.output_sha256,
+            "upstream_sha256": self.upstream_sha256,
             "errors": [e.to_dict() for e in self.errors],
             "detail": _round_numbers(self.detail),
         }
@@ -73,6 +78,7 @@ class StageRecord:
             status=status,
             input_sha256=str(data["input_sha256"]),
             output_sha256=str(data["output_sha256"]),
+            upstream_sha256=str(data.get("upstream_sha256", "")),
             errors=[MediaError.from_dict(e) for e in data.get("errors", [])],
             detail=dict(data.get("detail") or {}),
         )
@@ -219,6 +225,53 @@ class Manifest:
 
     def healthy_segments(self) -> list[SegmentRecord]:
         return [s for s in self.segments if s.status == "ok"]
+
+    def verify_chain(self, upto: str = "archive") -> list[MediaError]:
+        """Check the recorded stage chain is complete and self-consistent.
+
+        Each stage must be present up to ``upto`` and its output digest must
+        equal the next stage's *recorded* input digest.  That makes an
+        interrupted run detectable from the manifest alone: a stage whose input
+        does not match its predecessor's output cannot have produced the bytes
+        the archive claims.
+        """
+        from .errors import MediaError as _Error
+
+        errors: list[_Error] = []
+        wanted = STAGE_ORDER[: STAGE_ORDER.index(upto) + 1]
+        recorded = {stage.name: stage for stage in self.stages}
+        for name in wanted:
+            if name not in recorded:
+                errors.append(
+                    _Error(
+                        "stage-missing-input",
+                        f"manifest has no record for stage {name}",
+                        stage="verify",
+                    )
+                )
+        chain = [recorded[name] for name in wanted if name in recorded]
+        for previous, following in zip(chain, chain[1:]):
+            # A partial stage records the error that broke the chain; only a
+            # successful predecessor is required to line up with its successor.
+            if previous.status != "ok":
+                continue
+            if not following.upstream_sha256:
+                continue
+            if following.upstream_sha256 != previous.output_sha256:
+                errors.append(
+                    _Error(
+                        "stage-hash-mismatch",
+                        f"stage {following.name} was built on upstream "
+                        f"{following.upstream_sha256[:16]}, but stage "
+                        f"{previous.name} produced {previous.output_sha256[:16]}",
+                        stage="verify",
+                        detail={
+                            "upstream_recorded": following.upstream_sha256,
+                            "upstream_actual": previous.output_sha256,
+                        },
+                    )
+                )
+        return errors
 
     # -- digests -----------------------------------------------------------
     def digest(self) -> str:

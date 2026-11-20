@@ -110,6 +110,10 @@ def build_parser() -> argparse.ArgumentParser:
                      help="hard ceiling on a single archived segment")
     arc.add_argument("--cut-every", type=_positive_float, default=None,
                      help="force an extra cut at least this often (seconds)")
+    arc.add_argument("--transition", dest="transitions", action="append", default=[],
+                     metavar="FROM:TO:START_MS:END_MS",
+                     help="declare a cross-segment overlap; only declared overlaps "
+                          "are legal")
 
     ver = sub.add_parser("verify", help="verify a manifest and optionally self-test")
     ver.add_argument("--manifest", required=True)
@@ -156,6 +160,7 @@ def _cmd_archive(args: argparse.Namespace) -> int:
             resume=args.resume,
             limits=limits,
             cut_every_seconds=args.cut_every,
+            transitions=args.transitions,
         )
     except MediaError as exc:
         print(exc.render(), file=sys.stderr)
@@ -185,7 +190,11 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         print(exc.render(), file=sys.stderr)
         return EXIT_FAILURE
 
-    report = verify_manifest(manifest, source_path=args.source)
+    with quiet_libav():
+        report = verify_manifest(manifest, source_path=args.source)
+    chain_errors = manifest.verify_chain()
+    if chain_errors:
+        report.errors.extend(chain_errors)
     recovered = 0
     if args.self_test:
         if not args.fixtures:
@@ -195,7 +204,12 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         report.errors.extend(fixture_errors)
         report.recovered_segments = recovered
 
-    for line in report.lines():
+    lines = report.lines()
+    if not chain_errors:
+        lines.insert(5, "stage_chain=ok")
+    else:
+        lines.insert(5, f"stage_chain=broken/{len(chain_errors)}")
+    for line in lines:
         print(line)
     if args.json:
         print(json.dumps(_verify_json(report), indent=2, ensure_ascii=False, default=str))
@@ -211,6 +225,7 @@ def _verify_json(report) -> dict:
         "segment_hashes": [report.hash_ok, report.hash_total],
         "audio_segment_hashes": [report.audio_ok, report.audio_total],
         "recovered_segments": report.recovered_segments,
+        "stage_chain": [s.name for s in report.manifest.stages] if report.manifest else [],
         "error_offset": report.error_offset,
         "errors": [e.to_dict() for e in report.errors],
         "recovery": report.recovery_notes,
