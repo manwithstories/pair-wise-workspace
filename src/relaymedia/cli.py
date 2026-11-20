@@ -127,7 +127,7 @@ def run_demo(args: argparse.Namespace) -> int:
         ("node-a", str(fixtures / "audio/node-a.wav")),
         ("node-b", str(fixtures / "audio/node-b.wav")),
         ("node-c", str(fixtures / "audio/node-c.wav")),
-        ("node-damaged", str(fixtures / "audio/node-damaged.aac")),
+        ("node-d-damaged", str(fixtures / "audio/node-damaged.aac")),
     ]
     input_digest = digest_json(
         {name: digest_file(path) for name, path in sorted(sources)}
