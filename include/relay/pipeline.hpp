@@ -94,4 +94,11 @@ PipelineResult run_pipeline(const PipelineConfig& config);
 /// `demo` command so a fresh work directory needs no external input.
 PipelineResult run_demo(const PipelineConfig& config);
 
+/// Persists/restores the effective run configuration next to the
+/// checkpoints, so `resume` reproduces the original run exactly.
+bool save_run_config(const std::filesystem::path& work_dir,
+                     const PipelineConfig& config, std::string& error);
+bool load_run_config(const std::filesystem::path& work_dir,
+                     PipelineConfig& config, std::string& error);
+
 }  // namespace relay

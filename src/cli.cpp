@@ -210,9 +210,23 @@ int execute(const CommandLine& command_line) {
   if (!command_line.error.empty()) {
     return usage_error(command_line.error);
   }
+  PipelineConfig effective = command_line.config;
+  if (command_line.command == "resume") {
+    std::string load_error;
+    PipelineConfig saved;
+    if (!load_run_config(effective.work_dir, saved, load_error)) {
+      std::cerr << "error stage=resume: " << load_error << '\n';
+      return static_cast<int>(ExitCode::kCorrupt);
+    }
+    // A resume keeps the original configuration so its checkpoints stay
+    // valid; explicit CLI overrides are honoured only for --verify.
+    const bool verify = effective.verify;
+    effective = saved;
+    effective.verify = effective.verify || verify;
+  }
   PipelineResult result = command_line.command == "resume"
-                              ? run_pipeline(command_line.config)
-                              : run_demo(command_line.config);
+                              ? run_pipeline(effective)
+                              : run_demo(effective);
   const PipelineReport& report = result.report;
 
   for (const auto& event : result.errors) {
@@ -222,8 +236,7 @@ int execute(const CommandLine& command_line) {
   }
   if (report.interrupted) {
     std::cout << "interrupted=true\n";
-    std::cout << "resume_hint=relay resume --work " << command_line.config.work_dir
-              << '\n';
+    std::cout << "resume_hint=relay resume --work " << effective.work_dir << '\n';
     std::cout << "completed_stages=" << report.stage_order.size() << '\n';
     for (const auto& stage : report.stage_order) {
       std::cout << "stage=" << stage << " status=done\n";
@@ -283,7 +296,7 @@ int execute(const CommandLine& command_line) {
   // verification is a failure even if every other number looks healthy.
   if (result.exit_code == 0 &&
       (report.roundtrip_rate != 1.0 || report.segments == 0)) {
-    if (command_line.config.verify) {
+    if (effective.verify) {
       std::cerr << "relay: verification failed (roundtrip_rate != 1.0 or no "
                    "segments produced)\n";
     }

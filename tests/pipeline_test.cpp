@@ -771,12 +771,38 @@ TEST_CASE("interrupted run resumes to the same manifest digest",
   CHECK(resumed.exit_code == 0);
   CHECK(resumed.report.resumed);
   CHECK(resumed.report.resumed_stages >= 2);
-  // The resumed manifest is byte-identical to an uninterrupted run's
-  // manifest modulo the input digest, which is seed-derived and differs
-  // here; check structural equality instead.
-  REQUIRE(resumed.manifest.segments_count() == full.manifest.segments_count());
+  CHECK(resumed.report.manifest_digest == full.report.manifest_digest);
   CHECK(resumed.report.segment_hashes == full.report.segment_hashes);
   CHECK(resumed.report.roundtrip_rate == 1.0);
+}
+
+TEST_CASE("resume restores the persisted run configuration",
+          "[pipeline][resume][config]") {
+  PipelineConfig config = demo_config("pipeline-config");
+  config.frames = 90;
+  config.gop = 30;
+  config.cameras = {"cam-a", "cam-b", "cam-c"};
+  config.segment_ms = 1000;
+  PipelineResult first = run_demo(config);
+  REQUIRE(first.exit_code == 0);
+
+  PipelineConfig restored;
+  std::string error;
+  REQUIRE(load_run_config(config.work_dir, restored, error));
+  CHECK(restored.seed == config.seed);
+  CHECK(restored.frames == 90);
+  CHECK(restored.gop == 30);
+  CHECK(restored.cameras == config.cameras);
+  CHECK(restored.segment_ms == 1000);
+  CHECK(restored.bandwidth == config.bandwidth);
+  CHECK(restored.ladder == config.ladder);
+  CHECK(restored.resume);
+
+  // A resume with a missing run configuration is a corrupt-input error,
+  // not a silent fallback to defaults.
+  PipelineConfig missing;
+  CHECK_FALSE(load_run_config(config.work_dir / "nope", missing, error));
+  CHECK(error.find("run `relay demo` first") != std::string::npos);
 }
 
 TEST_CASE("changed input rejects reuse of the previous stage result",

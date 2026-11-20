@@ -221,7 +221,6 @@ std::string PipelineConfig::config_digest() const {
 }
 
 PipelineResult run_demo(const PipelineConfig& config) {
-  PipelineResult result;
   std::error_code ec;
   std::filesystem::remove_all(config.work_dir, ec);
   std::filesystem::create_directories(config.work_dir / "inputs", ec);
@@ -244,6 +243,14 @@ PipelineResult run_demo(const PipelineConfig& config) {
   options.reorder_stride = static_cast<int>(config.reorder_stride);
   ErrorSink generator_errors;
   fixture::generate(options, generator_errors);
+  std::string save_error;
+  if (!save_run_config(config.work_dir, config, save_error)) {
+    PipelineResult failed;
+    failed.exit_code = static_cast<int>(ExitCode::kCorrupt);
+    failed.errors.push_back(RelayError{Severity::kError, ExitCode::kCorrupt,
+                                       Ids{"demo", "", 0}, save_error, {}});
+    return failed;
+  }
   return run_pipeline(config);
 }
 
@@ -259,7 +266,7 @@ PipelineResult run_pipeline(const PipelineConfig& config) {
   const std::string raw_input_digest =
       fixture::directory_digest(inputs);
   const std::string read_digest =
-      stage_input_digest(kStageRead, raw_input_digest + config_digest);
+      stage_input_digest(kStageRead, raw_input_digest);
   StageOutcome read_outcome;
   const bool read_reused =
       config.resume &&
@@ -293,7 +300,7 @@ PipelineResult run_pipeline(const PipelineConfig& config) {
 
   // ---- reorder ----------------------------------------------------------
   const std::string reorder_digest =
-      stage_input_digest(kStageReorder, read.input_digest + config_digest);
+      stage_input_digest(kStageReorder, read.input_digest);
   std::vector<TrackStream> streams;
   StageOutcome reorder_outcome;
   const bool reorder_reused =
@@ -325,7 +332,7 @@ PipelineResult run_pipeline(const PipelineConfig& config) {
 
   // ---- timeline ---------------------------------------------------------
   const std::string timeline_digest =
-      stage_input_digest(kStageTimeline, read.input_digest + config_digest);
+      stage_input_digest(kStageTimeline, read.input_digest);
   checkpoints.begin(kStageTimeline, timeline_digest, errors);
   Timeline timeline = build_timeline(read.tracks, streams, errors);
   if (timeline.graph.empty()) {
@@ -477,8 +484,7 @@ PipelineResult run_pipeline(const PipelineConfig& config) {
     report.roundtrip_rate = 0.0;
   }
   const std::string manifest_stage_digest =
-      stage_input_digest(kStageManifest,
-                         report.manifest_digest + config_digest);
+      stage_input_digest(kStageManifest, report.manifest_digest);
   checkpoints.begin(kStageManifest, manifest_stage_digest, errors);
   if (!errors.has_errors()) {
     checkpoints.complete(kStageManifest, manifest_stage_digest,
@@ -495,6 +501,168 @@ PipelineResult run_pipeline(const PipelineConfig& config) {
   result.errors = errors.events();
   result.exit_code = errors.exit_code();
   return result;
+}
+
+}  // namespace relay
+
+namespace relay {
+namespace {
+
+std::string work_config_text(const PipelineConfig& config) {
+  std::ostringstream out;
+  out << "RELAYCONFIG 1\n";
+  out << "seed " << config.seed << '\n';
+  out << "frames " << config.frames << '\n';
+  out << "gop " << config.gop << '\n';
+  out << "width " << config.width << '\n';
+  out << "height " << config.height << '\n';
+  out << "segment_ms " << config.segment_ms << '\n';
+  out << "loss_burst " << config.loss_burst << '\n';
+  out << "duplicate_stride " << config.duplicate_stride << '\n';
+  out << "reorder_stride " << config.reorder_stride << '\n';
+  out << "verify " << (config.verify ? 1 : 0) << '\n';
+  out << "cams";
+  for (const auto& camera : config.cameras) {
+    out << ' ' << camera;
+  }
+  out << '\n';
+  out << "ladder";
+  for (const auto& rendition : config.ladder) {
+    out << ' ' << rendition;
+  }
+  out << '\n';
+  out << "bandwidth";
+  for (const auto value : config.bandwidth) {
+    out << ' ' << value;
+  }
+  out << '\n';
+  return out.str();
+}
+
+}  // namespace
+
+bool save_run_config(const std::filesystem::path& work_dir,
+                     const PipelineConfig& config, std::string& error) {
+  std::error_code ec;
+  std::filesystem::create_directories(work_dir, ec);
+  const std::filesystem::path path = work_dir / "run.config";
+  const std::filesystem::path temporary = work_dir / "run.config.tmp";
+  {
+    std::ofstream out(temporary, std::ios::trunc);
+    if (!out) {
+      error = "cannot write " + temporary.string();
+      return false;
+    }
+    out << work_config_text(config);
+  }
+  std::filesystem::rename(temporary, path, ec);
+  if (ec) {
+    error = "cannot replace " + path.string() + ": " + ec.message();
+    return false;
+  }
+  return true;
+}
+
+bool load_run_config(const std::filesystem::path& work_dir,
+                     PipelineConfig& config, std::string& error) {
+  const std::filesystem::path path = work_dir / "run.config";
+  std::ifstream in(path);
+  if (!in) {
+    error = "no run configuration at " + path.string() +
+            "; run `relay demo` first";
+    return false;
+  }
+  std::string magic;
+  std::getline(in, magic);
+  if (magic != "RELAYCONFIG 1") {
+    error = "run configuration magic rejected";
+    return false;
+  }
+  std::string line;
+  while (std::getline(in, line)) {
+    if (line.empty()) {
+      continue;
+    }
+    std::istringstream tokens(line);
+    std::string key;
+    tokens >> key;
+    std::uint64_t number = 0;
+    auto read_number = [&]() {
+      std::string token;
+      if (!(tokens >> token)) {
+        return false;
+      }
+      try {
+        number = std::stoull(token);
+      } catch (const std::exception&) {
+        return false;
+      }
+      return true;
+    };
+    auto read_list = [&](std::vector<std::string>& target) {
+      target.clear();
+      std::string token;
+      while (tokens >> token) {
+        target.push_back(token);
+      }
+      return !target.empty();
+    };
+    bool ok = true;
+    if (key == "seed") {
+      ok = read_number();
+      config.seed = static_cast<unsigned>(number);
+    } else if (key == "frames") {
+      ok = read_number();
+      config.frames = static_cast<int>(number);
+    } else if (key == "gop") {
+      ok = read_number();
+      config.gop = static_cast<int>(number);
+    } else if (key == "width") {
+      ok = read_number();
+      config.width = static_cast<int>(number);
+    } else if (key == "height") {
+      ok = read_number();
+      config.height = static_cast<int>(number);
+    } else if (key == "segment_ms") {
+      ok = read_number();
+      config.segment_ms = static_cast<Micros>(number);
+    } else if (key == "loss_burst") {
+      ok = read_number();
+      config.loss_burst = static_cast<int>(number);
+    } else if (key == "duplicate_stride") {
+      ok = read_number();
+      config.duplicate_stride = static_cast<std::size_t>(number);
+    } else if (key == "reorder_stride") {
+      ok = read_number();
+      config.reorder_stride = static_cast<std::size_t>(number);
+    } else if (key == "verify") {
+      ok = read_number();
+      config.verify = number != 0;
+    } else if (key == "cams") {
+      ok = read_list(config.cameras);
+    } else if (key == "ladder") {
+      ok = read_list(config.ladder);
+    } else if (key == "bandwidth") {
+      config.bandwidth.clear();
+      std::string token;
+      while (tokens >> token) {
+        try {
+          config.bandwidth.push_back(std::stoull(token));
+        } catch (const std::exception&) {
+          ok = false;
+          break;
+        }
+      }
+      ok = ok && !config.bandwidth.empty();
+    }
+    if (!ok) {
+      error = "malformed run configuration field: " + key;
+      return false;
+    }
+  }
+  config.work_dir = work_dir;
+  config.resume = true;
+  return true;
 }
 
 }  // namespace relay
