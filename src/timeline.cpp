@@ -73,6 +73,7 @@ std::vector<TrackTimeline> buildTimelines(const Manifest& manifest,
             for (const auto& s : rep.segments)
                 if (s.startTick) expectExplicit = true;
             std::optional<Tick> prevEnd;
+            std::optional<Tick> prevStart;
 
             for (std::size_t i = 0; i < rep.segments.size(); ++i) {
                 const auto& seg = rep.segments[i];
@@ -89,17 +90,22 @@ std::vector<TrackTimeline> buildTimelines(const Manifest& manifest,
                     tt.incomplete = true;
                 }
                 if (expectExplicit && prevEnd) {
-                    if (placed.range.start < *prevEnd) {
+                    if (prevStart &&
+                        placed.range.start == *prevStart) {
+                        // Same start tick as the previous segment: a real
+                        // duplicate, distinct from contiguous placement
+                        // where this start equals the previous END.
+                        errors.add({ErrorCode::DuplicateSegment,
+                                    tt.trackId, static_cast<int>(i),
+                                    seg.uri, placed.range, true,
+                                    "segment repeats the previous start"});
+                        tt.incomplete = true;
+                    } else if (placed.range.start < *prevEnd) {
                         errors.add({ErrorCode::TimestampBackward,
                                     tt.trackId, static_cast<int>(i),
                                     seg.uri, placed.range, true,
                                     "segment start moves backward"});
                         tt.incomplete = true;
-                    } else if (placed.range.start == *prevEnd) {
-                        errors.add({ErrorCode::DuplicateSegment,
-                                    tt.trackId, static_cast<int>(i),
-                                    seg.uri, placed.range, true,
-                                    "segment starts at previous boundary"});
                     } else if (placed.range.start > *prevEnd) {
                         errors.add({ErrorCode::TimelineGap, tt.trackId,
                                     static_cast<int>(i), seg.uri,
@@ -108,6 +114,7 @@ std::vector<TrackTimeline> buildTimelines(const Manifest& manifest,
                                     true, "gap between segments"});
                     }
                 }
+                prevStart = placed.range.start;
                 prevEnd = placed.range.end;
                 tt.cursor = placed.range.end;
                 tt.segments.push_back(std::move(placed));
