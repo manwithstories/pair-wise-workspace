@@ -277,3 +277,248 @@ class TrackClock:
     last_note: str = ""
 
     # -- helpers ----------------------------------------------------------
+    def _median_interval(self) -> Fraction | None:
+        if not self.intervals:
+            return self.interval
+        ordered = sorted(self.intervals)
+        mid = len(ordered) // 2
+        if len(ordered) % 2:
+            return ordered[mid]
+        return (ordered[mid - 1] + ordered[mid]) / 2
+
+    def _remember_interval(self, delta: Fraction) -> None:
+        if delta <= 0:
+            return
+        self.intervals.append(delta)
+        if len(self.intervals) > 64:
+            del self.intervals[0]
+        self.interval = self._median_interval()
+
+    def _step(self) -> Fraction:
+        return self.interval or self.spec.nominal_interval() or Fraction(1, 30)
+
+    def _predict(self) -> Fraction:
+        if self.next_expected is not None:
+            return self.next_expected
+        base = self.last_out if self.last_out is not None else (self.origin or ORIGIN_FLOOR)
+        return base + self._step()
+
+    def _emit(self, packet: PacketTimestamps, dts: Fraction, pts: Fraction, note: str,
+              *, discontinuity: bool = False, deviation: Fraction | None = None) -> RepairDecision:
+        self.last_out = dts
+        self.last_out_pts = pts
+        self.next_expected = dts + self._step()
+        self.last_note = note
+        if note:
+            self.repairs += 1
+        return RepairDecision(
+            action=RepairAction.REWRITE if note else RepairAction.KEEP,
+            dts=to_ticks(dts, packet.time_base),
+            pts=to_ticks(pts, packet.time_base),
+            dts_seconds=dts,
+            pts_seconds=pts,
+            note=note,
+            repaired=bool(note),
+            discontinuity=discontinuity,
+            deviation_seconds=deviation,
+            raw_dts=packet.dts,
+            raw_pts=packet.pts,
+        )
+
+    # -- main state machine ----------------------------------------------
+    def observe(self, packet: PacketTimestamps) -> RepairDecision:
+        self.packets_seen += 1
+        raw_dts = packet.dts_seconds
+        raw_pts = packet.pts_seconds
+        offset = (raw_pts - raw_dts) if (raw_pts is not None and raw_dts is not None) else Fraction(0)
+
+        if packet.dts is None or raw_dts is None:
+            if self.last_out is None and self.origin is None:
+                raise TimestampToleranceError(
+                    "packet has no timestamps before the track produced any",
+                    track_index=packet.track_index,
+                    stream_index=packet.stream_index,
+                    packet_index=packet.packet_index,
+                    context={"global_packet": packet.global_index},
+                )
+            predicted = self._predict()
+            self.last_raw_seconds = predicted + (self.origin or ORIGIN_FLOOR)
+            self.last_raw_ticks = packet.dts
+            return self._emit(packet, predicted, predicted + offset, "missing timestamp reconstructed")
+
+        effective = packet.dts + self.unwrap
+        if self.last_raw_ticks is not None and self._is_wrap(self.last_raw_ticks, packet.dts):
+            self.unwrap = 0 if self.unwrap else WRAP_MODULUS
+            effective = packet.dts + self.unwrap
+            self.wraps += 1
+            note_hint = "timestamp wrap repaired"
+        else:
+            note_hint = ""
+
+        if not self.first_seen:
+            self.first_seen = True
+            origin = self.origin if self.origin is not None else seconds(effective, packet.time_base)
+            self.origin = origin
+            out = seconds(effective, packet.time_base) - origin
+            note = note_hint
+            if out < 0:
+                out = ORIGIN_FLOOR
+                note = note or "negative start clamped to origin"
+            self.last_raw_seconds = raw_dts
+            self.last_raw_ticks = packet.dts
+            self.next_expected = out + self._step()
+            self.last_out = out
+            self.last_out_pts = out + offset
+            self.last_note = note
+            if note:
+                self.repairs += 1
+            return RepairDecision(
+                action=RepairAction.REWRITE if note else RepairAction.KEEP,
+                dts=to_ticks(out, packet.time_base),
+                pts=to_ticks(out + offset, packet.time_base),
+                dts_seconds=out,
+                pts_seconds=out + offset,
+                note=note,
+                repaired=bool(note),
+            )
+
+        out_dts = seconds(effective, packet.time_base) - (self.origin or ORIGIN_FLOOR) + self.rebase
+        raw_delta = out_dts - (self.last_out if self.last_out is not None else out_dts)
+        self.last_raw_ticks = packet.dts
+        self.last_raw_seconds = raw_dts
+
+        if self.awaiting_resync:
+            # Packets were dropped between this track's previous packet and
+            # this one (damage repair).  Keep the source timeline position
+            # but do not treat the gap as a clock anomaly or let it pollute
+            # the interval estimate.
+            self.awaiting_resync = False
+            self.consecutive_reversals = 0
+            return self._emit(packet, out_dts, out_dts + offset, "")
+
+        if note_hint:
+            return self._emit(packet, out_dts, out_dts + offset, note_hint)
+
+        if abs(raw_delta) > self.tolerance:
+            # Clock discontinuity: the encoder jumped (forward or backward)
+            # by more than the tolerance.  Rebase the whole track so the
+            # repaired timeline continues one nominal step after the last
+            # output, and report the original timestamps.
+            self.discontinuities += 1
+            if self.discontinuities > self.max_discontinuities:
+                raise TimestampToleranceError(
+                    "too many timestamp discontinuities to repair reliably",
+                    track_index=packet.track_index,
+                    stream_index=packet.stream_index,
+                    packet_index=packet.packet_index,
+                    dts=packet.dts,
+                    pts=packet.pts,
+                    time_base=format_time_base(packet.time_base),
+                    deviation=float(raw_delta),
+                    context={"discontinuities": self.discontinuities,
+                             "raw_dts": packet.dts, "raw_pts": packet.pts},
+                )
+            target = self._predict()
+            self.rebase += target - out_dts
+            out_dts = target
+            self.consecutive_reversals = 0
+            direction = "forward" if raw_delta > 0 else "backwards"
+            return self._emit(packet, out_dts, out_dts + offset,
+                              f"{direction} clock jump rebased", discontinuity=True,
+                              deviation=raw_delta)
+
+        if raw_delta <= 0:
+            self.consecutive_reversals += 1
+            if self.consecutive_reversals > self.max_consecutive_reversals:
+                raise TimestampToleranceError(
+                    "timestamp sequence reverses more often than the tolerance allows",
+                    track_index=packet.track_index,
+                    stream_index=packet.stream_index,
+                    packet_index=packet.packet_index,
+                    dts=packet.dts,
+                    pts=packet.pts,
+                    time_base=format_time_base(packet.time_base),
+                    context={
+                        "raw_dts": packet.dts,
+                        "raw_pts": packet.pts,
+                        "consecutive_reversals": self.consecutive_reversals,
+                    },
+                )
+            predicted = self._predict()
+            note = "duplicate timestamp" if raw_delta == 0 else "backwards timestamp"
+            return self._emit(packet, predicted, predicted + offset, note)
+
+        self.consecutive_reversals = 0
+        self._remember_interval(raw_delta)
+        return self._emit(packet, out_dts, out_dts + offset, "")
+
+    @staticmethod
+    def _is_wrap(previous_ticks: int, current_ticks: int) -> bool:
+        """True when consecutive raw ticks jumped by roughly the 32-bit modulus."""
+        span = current_ticks - previous_ticks
+        return abs(span) >= int(WRAP_MODULUS * (1 - WRAP_SLACK))
+
+    # -- persistence ------------------------------------------------------
+    def state_dict(self) -> dict:
+        return {
+            "stream_index": self.spec.stream_index,
+            "origin": dump_fraction(self.origin) if self.origin is not None else None,
+            "first_seen": self.first_seen,
+            "last_out": dump_fraction(self.last_out) if self.last_out is not None else None,
+            "last_out_pts": dump_fraction(self.last_out_pts) if self.last_out_pts is not None else None,
+            "next_expected": dump_fraction(self.next_expected) if self.next_expected is not None else None,
+            "interval": dump_fraction(self.interval) if self.interval is not None else None,
+            "intervals": [dump_fraction(v) for v in self.intervals],
+            "last_raw_seconds": dump_fraction(self.last_raw_seconds) if self.last_raw_seconds is not None else None,
+            "last_raw_ticks": self.last_raw_ticks,
+            "unwrap": self.unwrap,
+            "rebase": dump_fraction(self.rebase),
+            "discontinuities": self.discontinuities,
+            "consecutive_reversals": self.consecutive_reversals,
+            "packets_seen": self.packets_seen,
+            "repairs": self.repairs,
+            "wraps": self.wraps,
+            "awaiting_resync": self.awaiting_resync,
+            "last_note": self.last_note,
+        }
+
+    def restore_state(self, payload: dict) -> None:
+        self.first_seen = bool(payload.get("first_seen"))
+        for name in ("origin", "last_out", "last_out_pts", "next_expected", "interval", "last_raw_seconds"):
+            raw = payload.get(name)
+            setattr(self, name, load_fraction(raw) if raw is not None else None)
+        self.intervals = [load_fraction(v) for v in payload.get("intervals", [])]
+        self.last_raw_ticks = payload.get("last_raw_ticks")
+        self.unwrap = int(payload.get("unwrap", 0))
+        self.rebase = load_fraction(payload.get("rebase", [0, 1]))
+        self.discontinuities = int(payload.get("discontinuities", 0))
+        self.consecutive_reversals = int(payload.get("consecutive_reversals", 0))
+        self.packets_seen = int(payload.get("packets_seen", 0))
+        self.repairs = int(payload.get("repairs", 0))
+        self.wraps = int(payload.get("wraps", 0))
+        self.awaiting_resync = bool(payload.get("awaiting_resync", False))
+        self.last_note = payload.get("last_note", "")
+
+    def set_origin(self, origin: Fraction) -> None:
+        self.origin = origin
+
+    def resync(self) -> None:
+        """Note that packets were dropped before the next observation.
+
+        Called after damage repair skips packets.  The next packet keeps its
+        source timeline position but bypasses the forward-jump check and the
+        interval estimate, so a skipped run is not mistaken for a clock
+        discontinuity.
+        """
+        self.awaiting_resync = True
+        self.consecutive_reversals = 0
+
+def build_clocks(tracks: Iterable[TrackSpec], profile: TimelineProfile) -> dict[int, TrackClock]:
+    return {
+        spec.stream_index: TrackClock(
+            spec=spec,
+            tolerance=profile.tolerance_seconds,
+            max_consecutive_reversals=profile.max_consecutive_reversals,
+        )
+        for spec in tracks
+    }
