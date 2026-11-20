@@ -97,6 +97,9 @@ class FixtureCase(unittest.TestCase):
         return self.spec_by_name[name].metadata
 
 
+# ---------------------------------------------------------------------------
+# Timeline unit tests
+# ---------------------------------------------------------------------------
 class TimelineTests(unittest.TestCase):
     def make_clock(self, kind="video", tolerance=Fraction(5, 1), rate=30):
         spec = TrackSpec(
@@ -196,6 +199,9 @@ class TimelineTests(unittest.TestCase):
         self.assertEqual(first.dts_seconds, ORIGIN_FLOOR)
 
 
+# ---------------------------------------------------------------------------
+# Fixture / generator tests
+# ---------------------------------------------------------------------------
 class SampleTests(FixtureCase):
     def test_all_fixtures_generated(self):
         names = {spec.name for spec in self.specs}
@@ -238,6 +244,9 @@ class SampleTests(FixtureCase):
             shutil.rmtree(second, ignore_errors=True)
 
 
+# ---------------------------------------------------------------------------
+# Probe tests
+# ---------------------------------------------------------------------------
 class ProbeTests(FixtureCase):
     def test_probe_reports_tracks_and_packets(self):
         result = probe_mod.probe(self.sample("normal"))
@@ -257,6 +266,9 @@ class ProbeTests(FixtureCase):
             probe_mod.probe(path)
 
 
+# ---------------------------------------------------------------------------
+# Repair tests
+# ---------------------------------------------------------------------------
 class RepairTests(FixtureCase):
     def run_repair(self, source: str, *, chunk_packets=64, **kwargs):
         work = self.workdir()
@@ -426,6 +438,9 @@ class RepairTests(FixtureCase):
             container.close()
 
 
+# ---------------------------------------------------------------------------
+# Resume tests
+# ---------------------------------------------------------------------------
 class ResumeTests(FixtureCase):
     def test_resume_matches_full_run(self):
         work = self.workdir()
@@ -567,6 +582,9 @@ class ResumeTests(FixtureCase):
         self.assertEqual(resume.exit_code, EXIT_RESUME_MISMATCH)
 
 
+# ---------------------------------------------------------------------------
+# Verify tests
+# ---------------------------------------------------------------------------
 class VerifyTests(FixtureCase):
     def repair_fixture(self, name: str):
         work = self.workdir()
@@ -661,6 +679,9 @@ class VerifyTests(FixtureCase):
         self.assertEqual(result.error["code"], "index_incompatible")
 
 
+# ---------------------------------------------------------------------------
+# CLI contract tests
+# ---------------------------------------------------------------------------
 class CliTests(FixtureCase):
     def run_cli(self, *args: str) -> subprocess.CompletedProcess:
         env = dict(os.environ)
