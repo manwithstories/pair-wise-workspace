@@ -57,9 +57,9 @@ __all__ = [
     "SourceSpan",
     "RenderedFrame",
     "SyncTracker",
+    "Renderer",
     "VideoSource",
     "AudioSource",
-    "pixel_hash",
 ]
 
 # Frames are converted to this pixel hash domain so exports are byte-exact.
@@ -414,3 +414,248 @@ class _AudioCursor:
 
     def close(self) -> None:
         self.reader.close()
+
+
+# ==========================================================================
+# Renderer
+# ==========================================================================
+
+
+@dataclass
+class RenderStats:
+    frames: int = 0
+    recovered_frames: int = 0
+    concealed_frames: int = 0
+    video_restarts: int = 0
+    audio_blocks: int = 0
+    tail_padded_samples: int = 0
+    negative_offset_clips: int = 0
+    channel_conversions: int = 0
+
+    def to_json(self) -> dict:
+        return {
+            "frames": self.frames,
+            "recovered_frames": self.recovered_frames,
+            "concealed_frames": self.concealed_frames,
+            "video_restarts": self.video_restarts,
+            "audio_blocks": self.audio_blocks,
+            "tail_padded_samples": self.tail_padded_samples,
+            "negative_offset_clips": self.negative_offset_clips,
+            "channel_conversions": self.channel_conversions,
+        }
+
+
+class Renderer:
+    """Offscreen compositor: timeline + decoded sources -> RenderedFrame stream.
+
+    Only tracks referenced by clips participate; ``timeline.excluded_tracks``
+    names any others.  Each output frame records every contributing source
+    span, including byte ranges and recovery/concealment flags.
+    """
+
+    def __init__(
+        self,
+        timeline: Timeline,
+        *,
+        policies: dict[str, LossPolicy] | None = None,
+        block_frames: int = 8,
+    ) -> None:
+        self.timeline = timeline
+        self.block_frames = block_frames
+        self.policies = policies or {}
+        self.stats = RenderStats()
+        self.resume_from_frame = 0
+        self.skip_render = False
+        active = timeline.active_tracks()
+        self.video: dict[str, VideoSource] = {
+            tid: VideoSource(track, timeline, block_frames=block_frames, policy=self.policies.get(tid))
+            for tid, track in active.items()
+            if track.kind is TrackKind.VIDEO
+        }
+        self.audio: dict[str, AudioSource] = {
+            tid: AudioSource(track, timeline)
+            for tid, track in active.items()
+            if track.kind is TrackKind.AUDIO
+        }
+        self._cursors: dict[str, _VideoCursor] = {}
+        self._audio_cursors: dict[str, _AudioCursor] = {}
+        self._clip_by_track: dict[str, list[Clip]] = {
+            tid: timeline.clips_for(tid) for tid in timeline.tracks
+        }
+        self.width = timeline.width
+        self.height = timeline.height
+        self._canvas = np.zeros((self.height, self.width, 3), dtype=np.uint8)
+
+    # -- geometry --------------------------------------------------------
+    def frame_count(self) -> int:
+        """Frames needed to cover the whole timeline (final partial frame
+        included).
+
+        Using ceil keeps the audio sample total equal to the declared duration
+        when the duration is not an exact multiple of the frame period (for
+        example 2 s at 30000/1001 fps).  The final frame's audio block is
+        clipped to the remaining samples, so no extra material is invented.
+        """
+        duration = self.timeline.duration().seconds()
+        count = round_rational(duration * self.timeline.frame_rate, Rounding.CEIL)
+        return max(0, int(count))
+
+    def frame_time(self, number: int) -> Fraction:
+        return Fraction(number, 1) / self.timeline.frame_rate
+
+    def _clip_at(self, track_id: str, seconds: Fraction) -> Clip | None:
+        for clip in self._clip_by_track.get(track_id, ()):
+            start = self.timeline.ticks_to_seconds(clip.start_ticks)
+            end = self.timeline.ticks_to_seconds(clip.end_ticks)
+            if start <= seconds < end:
+                return clip
+        return None
+
+    def _source_offset_seconds(self, track: Track, clip: Clip, seconds: Fraction) -> Fraction:
+        """Seconds inside the *source* file for a timeline instant."""
+        start = self.timeline.ticks_to_seconds(clip.start_ticks)
+        source_in = self.timeline.ticks_to_seconds(clip.source_in_ticks)
+        track_offset = self.timeline.ticks_to_seconds(track.offset_ticks)
+        return source_in + (seconds - start) - track_offset
+
+    # -- video -----------------------------------------------------------
+    def _cursor(self, track_id: str) -> _VideoCursor:
+        cursor = self._cursors.get(track_id)
+        if cursor is None:
+            cursor = _VideoCursor(self.video[track_id], window=self.block_frames * 4)
+            self._cursors[track_id] = cursor
+        return cursor
+
+    def _video_for(self, seconds: Fraction) -> tuple[np.ndarray | None, list[SourceSpan]]:
+        canvas = None
+        spans: list[SourceSpan] = []
+        for track_id in sorted(self.video):
+            track = self.video[track_id].track
+            clip = self._clip_at(track_id, seconds)
+            if clip is None:
+                continue
+            offset = self._source_offset_seconds(track, clip, seconds)
+            if offset < 0:
+                self.stats.negative_offset_clips += 1
+                continue
+            frame_rate = self.video[track_id].frame_rate
+            frame_index = round_rational(offset * frame_rate, Rounding.FLOOR)
+            cursor = self._cursor(track_id)
+            frame = cursor.get(frame_index)
+            if frame is None:
+                # The source ran out (truncation or a lost tail): record the
+                # gap explicitly rather than a silent zero.
+                last = cursor.last_good.pts if cursor.last_good is not None else -1
+                gap_frames = max(1, frame_index - last)
+                spans.append(
+                    SourceSpan(
+                        track=track_id,
+                        clip=clip.id,
+                        source_index=frame_index,
+                        source_offset=0,
+                        source_size=0,
+                        concealed=True,
+                        gap_ms=Fraction(gap_frames, 1) / self.video[track_id].frame_rate * 1000,
+                        cause=cursor.exhausted_cause,
+                    )
+                )
+                continue
+            spans.append(
+                SourceSpan(
+                    track=track_id,
+                    clip=clip.id,
+                    source_index=frame_index,
+                    source_offset=frame.source_offset,
+                    source_size=frame.source_size,
+                    recovered=frame.recovered,
+                    concealed=frame.source == SOURCE_CONCEALED,
+                    gap_ms=frame.gap_ms,
+                    recovery_source=(frame.source if frame.recovered else None),
+                    cause=("concealed" if frame.source == SOURCE_CONCEALED else None),
+                )
+            )
+            canvas = self._composite(canvas, frame.array)
+        return canvas, spans
+
+    def _composite(self, base: np.ndarray | None, layer: np.ndarray) -> np.ndarray:
+        if base is None:
+            return layer
+        h = min(base.shape[0], layer.shape[0])
+        w = min(base.shape[1], layer.shape[1])
+        out = base.copy()
+        out[:h, :w] = layer[:h, :w]
+        return out
+
+    # -- audio -----------------------------------------------------------
+    def _audio_for(self, seconds: Fraction, duration: Fraction) -> np.ndarray | None:
+        # Exact per-frame sample count: difference of rounded absolute
+        # positions, not a rounded duration.  At NTSC rates (30000/1001) a
+        # rounded duration would accumulate ~0.4 samples per frame of drift.
+        rate = self.timeline.output_sample_rate
+        start = round_rational(seconds * rate, Rounding.FLOOR)
+        end = round_rational((seconds + duration) * rate, Rounding.FLOOR)
+        samples = max(0, end - start)
+        if samples <= 0:
+            return None
+        mix = np.zeros((samples, self.timeline.output_channels), dtype=np.float32)
+        contributed = False
+        for track_id in sorted(self.audio):
+            track = self.audio[track_id].track
+            clip = self._clip_at(track_id, seconds)
+            if clip is None:
+                continue
+            offset = self._source_offset_seconds(track, clip, seconds)
+            if offset < 0:
+                # negative source offset inside a clip: the source has not
+                # started yet, so this track contributes silence (documented)
+                contributed = True
+                continue
+            cursor = self._audio_cursors.get(track_id)
+            if cursor is None:
+                cursor = _AudioCursor(self.audio[track_id], self.timeline.output_channels)
+                self._audio_cursors[track_id] = cursor
+            block, padded = cursor.read(offset, samples, self.timeline.output_sample_rate)
+            self.stats.tail_padded_samples += padded
+            self.stats.audio_blocks += 1
+            if block.shape[1] != mix.shape[1]:
+                block = np.resize(block, (block.shape[0], mix.shape[1]))
+            mix += block
+            contributed = True
+        return mix if contributed else None
+
+    # -- driver ----------------------------------------------------------
+    def frames(self) -> Iterator[RenderedFrame]:
+        total = self.frame_count()
+        end = self.timeline.duration().seconds()
+        try:
+            for number in range(self.resume_from_frame, total):
+                seconds = self.frame_time(number)
+                # the final frame may be partial: never emit audio past the
+                # declared programme end
+                duration = min(self.frame_time(number + 1), end) - seconds
+                if duration <= 0:
+                    break
+                canvas, spans = self._video_for(seconds)
+                if canvas is None:
+                    canvas = self._canvas
+                audio = self._audio_for(seconds, duration)
+                pts_ticks = round_rational(seconds / self.timeline.time_base.seconds_per_tick, Rounding.HALF_EVEN)
+                frame = RenderedFrame(
+                    number=number,
+                    pts_ticks=pts_ticks,
+                    time_base=self.timeline.time_base,
+                    array=canvas,
+                    spans=tuple(spans),
+                    audio=audio,
+                )
+                self.stats.frames += 1
+                if frame.recovered:
+                    self.stats.recovered_frames += 1
+                if frame.concealed:
+                    self.stats.concealed_frames += 1
+                yield frame
+        finally:
+            for cursor in self._audio_cursors.values():
+                cursor.close()
+            for cursor in self._cursors.values():
+                self.stats.video_restarts += cursor.restarts
