@@ -53,11 +53,15 @@ def repair_timecodes(
                 day += 1
                 errors.append(_err(rec, "cross-day-wrap",
                                    f"跨日回绕 +{day}d", "wrap", True))
-            elif base < prev_time:
-                rec.flags.append("ambiguous-rewind")
+            elif base <= prev_time:
+                rec.flags.append(
+                    "duplicate-timecode" if base == prev_time
+                    else "ambiguous-rewind"
+                )
+                label = "重复时间码" if base == prev_time else "非单调回退"
                 errors.append(_err(
                     rec, "ambiguous-timestamp",
-                    f"非单调回退 {float(prev_time - base):.3f}s，保留原值",
+                    f"{label} {float(prev_time - base):.3f}s，保留原值",
                     "flag-ambiguous", False,
                 ))
         value = base + day * period

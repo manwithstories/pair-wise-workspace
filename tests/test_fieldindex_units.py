@@ -206,6 +206,24 @@ def test_small_rewind_is_ambiguous_and_kept():
     assert errors[0].action == "flag-ambiguous"
 
 
+def test_duplicate_timecode_is_flagged_and_retained():
+    recs = [_rec("00:00:01:00", 0), _rec("00:00:01:00", 1),
+            _rec("00:00:02:00", 2)]
+    out, errors = repair_timecodes(recs, RepairConfig(enable_drift=False))
+    assert "duplicate-timecode" in out[1].flags
+    assert len(out) == 3  # 记录保留不隔离
+    assert errors[0].action == "flag-ambiguous"
+
+
+def test_unrecoverable_records_isolated_while_stream_continues():
+    data = b"00:00:00:00\nBROKEN!!\n00:00:60:00\n00:00:00:02\n"
+    records, errors = parse_timecode_bytes(data, "tc.txt", Fraction(24))
+    assert [r.frame for r in records] == [0, 2]
+    assert len(errors) == 2 and all(not e.recoverable for e in errors)
+    for err, token in zip(errors, (b"BROKEN!!", b"00:00:60:00")):
+        assert token in data[err.start:err.end]
+
+
 def test_drift_under_threshold_is_clamped():
     recs = [_rec(f"00:00:{s:02d}:00", i) for i, s in enumerate(range(0, 12, 2))]
     for i in (3, 4, 5):
