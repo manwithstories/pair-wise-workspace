@@ -1,39 +1,38 @@
 #pragma once
 
 #include <cstdint>
-#include <cstdio>
 #include <string>
 #include <vector>
 
+#include "media/fixture_generator.hpp"
 #include "media/types.hpp"
 
 namespace mediaqc::testing {
 
-// Builds the media payloads for generated deliveries: a lossless FFV1 video
-// container and a PCM audio container, both matching what the pipeline's
-// decoder expects.  These are compiled into the test/generator target so no
-// external fixture files are ever referenced.
-class MediaWriter {
- public:
-  virtual ~MediaWriter() = default;
-  // Opens `path`; returns false and sets `error` on failure.
-  virtual bool open(const std::string& path, std::string& error) = 0;
-  virtual bool write_frame(const std::uint8_t* data, std::size_t size,
-                           bool keyframe, std::string& error) = 0;
-  virtual bool close(std::string& error) = 0;
+// Test-side convenience wrapper over the library container writers.  Keeps
+// test cases short and makes the deterministic spec explicit at the call
+// site.  Production code calls the writers in media/fixture_generator.hpp
+// directly.
+struct VideoContainer {
+  VideoSpec spec;
+  std::vector<std::vector<std::uint8_t>> packets;
 };
 
-// Encodes deterministic pattern frames with FFV1 so the output bytes are
-// stable across runs on the same FFmpeg build.
-[[nodiscard]] bool write_video_container(const std::string& path, int width,
-                                         int height, Rational rate,
-                                         std::vector<std::vector<std::uint8_t>>& frames_out,
-                                         std::string& error);
+struct AudioContainer {
+  AudioSpec spec;
+  std::vector<std::vector<std::uint8_t>> packets;
+};
 
-// Writes a PCM s16le audio container carrying a deterministic tone.
-[[nodiscard]] bool write_audio_container(const std::string& path,
-                                         int sample_rate, int channels,
-                                         std::vector<std::vector<std::uint8_t>>& frames_out,
-                                         std::string& error);
+[[nodiscard]] inline bool write_video(const std::string& path, VideoContainer& out,
+                                      std::string& error) {
+  out.packets.clear();
+  return write_video_container(path, out.spec, &out.packets, error);
+}
+
+[[nodiscard]] inline bool write_audio(const std::string& path, AudioContainer& out,
+                                      std::string& error) {
+  out.packets.clear();
+  return write_audio_container(path, out.spec, &out.packets, error);
+}
 
 }  // namespace mediaqc::testing
