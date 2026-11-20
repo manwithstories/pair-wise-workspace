@@ -71,3 +71,9 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- mediaqc C++ 构建产物 ----
+/build/
+/build-*/
+*.o
+*.a
