@@ -94,7 +94,8 @@ func renderStage(ctx context.Context, cancel context.CancelFunc,
 		for _, rec := range seg.Records {
 			items = append(items, timeline.Item{
 				Track: rec.Track, Source: rec.Source, Sequence: rec.Sequence,
-				Offset: rec.Offset, Start: rec.Start, End: rec.End, Text: rec.Text,
+				Priority: cfg.TrackPriority[rec.Track],
+				Offset:   rec.Offset, Start: rec.Start, End: rec.End, Text: rec.Text,
 			})
 		}
 		lanes, summary := timeline.Merge(items, cfg.Horizon)

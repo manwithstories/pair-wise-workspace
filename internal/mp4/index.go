@@ -71,8 +71,7 @@ func BuildIndex(r io.ReadSeeker, source string) (*Index, *diag.Error) {
 	}
 	boxes, err := gomp4.ExtractBoxesWithPayload(r, nil, paths)
 	if err != nil {
-		return nil, indexErr(source, "box.read", "incomplete or malformed MP4 boxes",
-			diag.OffsetUnknown, err)
+		return nil, indexErr(source, "box.read", "incomplete or malformed MP4 boxes", 0, err)
 	}
 
 	var (
@@ -83,8 +82,10 @@ func BuildIndex(r io.ReadSeeker, source string) (*Index, *diag.Error) {
 		stco *gomp4.Stco
 		co64 *gomp4.Co64
 		stss *gomp4.Stss
+		offs = map[string]int64{}
 	)
 	for _, b := range boxes {
+		offs[b.Info.Type.String()] = int64(b.Info.Offset)
 		switch p := b.Payload.(type) {
 		case *gomp4.Mdhd:
 			mdhd = p
@@ -108,26 +109,26 @@ func BuildIndex(r io.ReadSeeker, source string) (*Index, *diag.Error) {
 	}
 	if mdhd.Timescale == 0 {
 		return nil, indexErr(source, "mdhd.timescale", "zero timescale",
-			diag.OffsetUnknown, diag.ErrInvalid)
+			offs["mdhd"], diag.ErrInvalid)
 	}
 
-	sizes, derr := sampleSizes(source, stsz)
+	sizes, derr := sampleSizes(source, stsz, offs["stsz"])
 	if derr != nil {
 		return nil, derr
 	}
-	dts, derr := sampleDTS(source, stts, len(sizes))
+	dts, derr := sampleDTS(source, stts, len(sizes), offs["stts"])
 	if derr != nil {
 		return nil, derr
 	}
-	chunks, derr := chunkOffsets(source, stco, co64, fileSize)
+	chunks, derr := chunkOffsets(source, stco, co64, fileSize, offs["stco"], offs["co64"])
 	if derr != nil {
 		return nil, derr
 	}
-	perChunk, derr := samplesPerChunk(source, stsc, len(chunks), len(sizes))
+	perChunk, derr := samplesPerChunk(source, stsc, len(chunks), len(sizes), offs["stsc"])
 	if derr != nil {
 		return nil, derr
 	}
-	keySet, derr := keySet(source, stss, len(sizes))
+	keyMap, derr := keySet(source, stss, len(sizes), offs["stss"])
 	if derr != nil {
 		return nil, derr
 	}
@@ -154,7 +155,7 @@ func BuildIndex(r io.ReadSeeker, source string) (*Index, *diag.Error) {
 				return nil, indexErr(source, "clock.mp4", terr.Error(),
 					diag.OffsetUnknown, terr)
 			}
-			_, isKey := keySet[sampleNo]
+			_, isKey := keyMap[sampleNo]
 			idx.Samples = append(idx.Samples, Sample{
 				Number: sampleNo, Chunk: uint32(chunkIdx + 1),
 				Offset: cursor, Size: size, DTS: dts[sampleNo-1],

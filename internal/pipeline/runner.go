@@ -39,13 +39,14 @@ type SubtitleSource struct {
 
 // Config controls a run.
 type Config struct {
-	QueueCap     int
-	MemoryBudget int64
-	SegmentTicks clock.Tick // boundary between segment windows
-	Horizon      clock.Tick // merge overflow horizon
-	SlowConsumer func()     // optional delay applied by the sink
-	Output       SegmentStore
-	Media        *mp4.Index // optional shared media index
+	QueueCap      int
+	MemoryBudget  int64
+	SegmentTicks  clock.Tick // boundary between segment windows
+	Horizon       clock.Tick // merge overflow horizon
+	SlowConsumer  func()     // optional delay applied by the sink
+	Output        SegmentStore
+	Media         *mp4.Index // optional shared media index
+	TrackPriority map[string]int
 }
 
 // SegmentStore is the durable sink abstraction implemented by the report
