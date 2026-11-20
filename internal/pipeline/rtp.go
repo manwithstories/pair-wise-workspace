@@ -22,6 +22,10 @@ func processRTP(ctx context.Context, inputPath string, tl *model.Timeline, strat
 	if tl.RTPTrackID == 0 {
 		return rep, nil
 	}
+	// 已取消时不再做可选的 RTP 解析，保证中断路径仍能产出已验证片段报告。
+	if err := ctx.Err(); err != nil {
+		return rep, nil
+	}
 	path := filepath.Join(filepath.Dir(inputPath), "rtp.dump")
 	f, err := os.Open(path)
 	if err != nil {
