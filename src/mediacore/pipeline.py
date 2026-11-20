@@ -410,6 +410,7 @@ def run_pipeline(
 
     resource = budget.stats()
     resource.update({
+        "memory_limit_bytes": config.memory_limit,
         "read_queue_max_items": QUEUE_MAX_UNITS * 4,
         "read_queue_high_water": stage.queue_stats.get("high_water", 0),
         "read_queue_blocked_puts": stage.queue_stats.get("blocked_puts", 0),
