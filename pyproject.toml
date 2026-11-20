@@ -3,9 +3,9 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "region-media"
+name = "archive-media"
 version = "0.1.0"
-description = "Deterministic regional live-media packet repair, normalization and chunked delivery"
+description = "Cold-storage archive recovery: HLS/DASH repair, timeline-safe audio restoration and verification"
 requires-python = ">=3.12"
 dependencies = [
   "av>=12,<13",
@@ -17,7 +17,7 @@ dependencies = [
 test = ["pytest>=8,<9"]
 
 [project.scripts]
-region-media = "region_media.cli:main"
+archive-media = "archive_media.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
