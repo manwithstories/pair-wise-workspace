@@ -137,13 +137,14 @@ def scan_stream(path: Path, codec: str, *, chunk: int = READ_CHUNK,
     Access-unit *metadata* is collected (needed for indexing and the manifest),
     but payloads are dropped as soon as they can no longer be needed:
 
-    * keyframe payloads are kept for random-access observation,
     * the first ``keep_first`` units are kept for quality scoring,
     * the last ``tail_window`` units are kept for the strict tail probe.
 
-    Dropped payloads remain reachable through :meth:`AccessUnit.payload`, which
-    re-reads the exact byte range from the source file.  Peak resident payload
-    is therefore bounded by those three windows, not by fixture duration.
+    Everything else, keyframes included, is released.  Keyframe payloads are
+    only needed for random-access observation, and that stage calls
+    :meth:`AccessUnit.payload`, which re-reads the exact byte range from the
+    source file.  Peak resident payload is therefore bounded by the two windows
+    plus the metadata list, not by fixture duration.
     """
     started = time.perf_counter()
     queue: BoundedQueue[bytes] = BoundedQueue(queue_depth, name="read")
@@ -200,8 +201,7 @@ def scan_stream(path: Path, codec: str, *, chunk: int = READ_CHUNK,
             tail.append(item)
             if len(tail) > tail_window:
                 old = tail.popleft()
-                if (old.index >= keep_first and not old.keyframe
-                        and old.data):
+                if old.index >= keep_first and old.data:
                     released += old.release_payload()
             retained = max(retained, sum(len(u.data) for u in units))
     finally:
@@ -211,8 +211,7 @@ def scan_stream(path: Path, codec: str, *, chunk: int = READ_CHUNK,
     if report is None:
         raise MediaInputError("scanner produced no report", code="scan_failed")
     for unit in tail:
-        passes = unit.index < keep_first or unit.keyframe
-        if not passes and unit.data:
+        if unit.index >= keep_first and unit.data:
             released += unit.release_payload()
     result = StageResult(
         units=units, report=report, scan_seconds=time.perf_counter() - started,
@@ -508,4 +507,15 @@ def _reference_lookup(config: PipelineConfig):
         bitrate=config.target_bps, seed=config.seed,
         width=config.width, height=config.height,
         fps=config.fps, gop=config.gop)
-    return lambda unit_index: make_frame(unit_index, spec)[0]
+
+    # A one-entry memo keeps only the reference currently being compared with
+    # the decoded picture, so scoring stays bounded for long fixtures.
+    memo: dict[int, object] = {}
+
+    def lookup(unit_index: int):
+        if unit_index not in memo:
+            memo.clear()
+            memo[unit_index] = make_frame(unit_index, spec)[0]
+        return memo[unit_index]
+
+    return lookup

@@ -324,8 +324,6 @@ def scan_annexb(chunks: Iterable[bytes], *, codec: str) -> Iterator[AccessUnit |
     report = ScanReport(codec=codec)
     aud_type = _aud_type(codec)
     param_types = _parameter_types(codec)
-    units: list[AccessUnit] = []
-
     current: list[bytes] = []
     nal_types: list[int] = []
     key = irap = have_vcl = False
@@ -333,10 +331,10 @@ def scan_annexb(chunks: Iterable[bytes], *, codec: str) -> Iterator[AccessUnit |
     tail_truncated = False
     tail_reason = ""
 
-    def close(complete: bool, reason: str = "") -> None:
+    def build(complete: bool, reason: str = "") -> AccessUnit | None:
         nonlocal current, nal_types, key, irap, have_vcl, unit_offset
         if not current:
-            return
+            return None
         payload = b"".join(b"\x00\x00\x01" + nal for nal in current)
         unit = AccessUnit(
             index=report.units, offset=unit_offset, data=payload,
@@ -350,9 +348,9 @@ def scan_annexb(chunks: Iterable[bytes], *, codec: str) -> Iterator[AccessUnit |
             report.issues.append(MediaIssue(
                 "truncated_tail", reason, unit_offset, detail={"size": unit.size}))
         report.issues.extend(_validate_au(codec, unit))
-        units.append(unit)
         current, nal_types = [], []
         key = irap = have_vcl = False
+        return unit
 
     while True:
         offset = _read_start_code(reader, report)
@@ -382,12 +380,12 @@ def scan_annexb(chunks: Iterable[bytes], *, codec: str) -> Iterator[AccessUnit |
         if not current:
             unit_offset = offset
         elif have_vcl and (nal_type == aud_type or nal_type in param_types):
-            close(True)
+            # Yield the finished unit immediately: the previous unit's payload
+            # must not stay resident until the end of a long stream.
+            finished = build(True)
+            if finished is not None:
+                yield finished
             unit_offset = offset
-        elif nal_type in param_types and not any(t not in param_types for t in nal_types):
-            # leading parameter sets form part of the picture that follows; the
-            # unit's offset is where its very first NAL starts.
-            pass
         current.append(body)
         nal_types.append(nal_type)
         if is_vcl:
@@ -402,9 +400,9 @@ def scan_annexb(chunks: Iterable[bytes], *, codec: str) -> Iterator[AccessUnit |
             break
 
     if current:
-        close(not tail_truncated, tail_reason)
-    for unit in units:
-        yield unit
+        finished = build(not tail_truncated, tail_reason)
+        if finished is not None:
+            yield finished
     report.bytes_consumed = reader.offset
     report.skipped = reader.skipped
     yield report
@@ -455,7 +453,6 @@ def scan_av1(chunks: Iterable[bytes]) -> Iterator[AccessUnit | ScanReport]:
     types: list[int] = []
     key = False
     unit_offset = 0
-    units: list[AccessUnit] = []
     tail_truncated = False
     tail_reason = ""
 
@@ -476,7 +473,6 @@ def scan_av1(chunks: Iterable[bytes]) -> Iterator[AccessUnit | ScanReport]:
             report.issues.append(MediaIssue(
                 "truncated_av1_unit", reason, unit_offset,
                 detail={"obu_types": types[-4:], "size": unit.size}))
-        units.append(unit)
         parts, types, key = [], [], False
         return unit
 
@@ -558,17 +554,20 @@ def scan_av1(chunks: Iterable[bytes]) -> Iterator[AccessUnit | ScanReport]:
                 if frame_type == 0:
                     key = True
         if obu_type == 2:
-            # The delimiter belongs to the unit it opens: hold it back.
+            # The delimiter belongs to the unit it opens: hold it back, then
+            # yield the finished unit so its payload leaves memory immediately.
             delimiter = parts.pop()
             types.pop()
-            close(True)
+            finished = close(True)
+            if finished is not None:
+                yield finished
             parts, types = [delimiter], [2]
             unit_offset = reader.position - len(delimiter)
 
     if parts:
-        close(not tail_truncated, tail_reason)
-    for unit in units:
-        yield unit
+        finished = close(not tail_truncated, tail_reason)
+        if finished is not None:
+            yield finished
     report.bytes_consumed = reader.position
     report.skipped = reader.skipped
     yield report
