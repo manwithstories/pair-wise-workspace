@@ -18,6 +18,7 @@ struct Args {
   std::string command;
   u64 seed = 417;
   bool json = false;
+  double loss = -1.0;  // <0 keeps the fixture default; overridden for tests
   std::string output_dir;
 };
 
@@ -40,6 +41,8 @@ Args parse_args(int argc, char** argv) {
       a.seed = static_cast<u64>(std::strtoull(argv[++i], nullptr, 10));
     } else if (arg == "--out" && i + 1 < argc) {
       a.output_dir = argv[++i];
+    } else if (arg == "--loss" && i + 1 < argc) {
+      a.loss = std::strtod(argv[++i], nullptr);
     } else {
       a.ok = false;
     }
@@ -51,9 +54,10 @@ void print_help() {
   std::printf(
       "media_batch - local multi-camera ingest packaging tool\n"
       "usage:\n"
-      "  media_batch selftest [--seed N] [--json] [--out DIR]\n"
-      "  media_batch process  --seed N [--json] [--out DIR]\n"
+      "  media_batch selftest [--seed N] [--json] [--out DIR] [--loss P]\n"
+      "  media_batch process  --seed N [--json] [--out DIR] [--loss P]\n"
       "  media_batch help\n"
+      "  --loss P overrides synthetic packet-loss probability (for exit-1 checks)\n"
       "exit codes: 0 metrics met, 1 metrics not met, 2 bad arguments/config\n");
 }
 
@@ -122,6 +126,7 @@ std::string build_json(const PipelineSummary& s, u64 seed) {
 int run_pipeline(const Args& args) {
   FixtureOptions opt;
   opt.seed = args.seed;
+  if (args.loss >= 0.0) opt.loss_probability = args.loss;
   FixtureGenerator gen(opt);
   GeneratedFixture fx = gen.generate();
 
