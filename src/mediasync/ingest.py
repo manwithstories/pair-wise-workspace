@@ -438,3 +438,48 @@ def load_video_track(
         truncated_indices=truncated,
         declared_stream_size=declared_size,
     )
+
+
+def load_audio_track(
+    path: str | Path,
+    *,
+    track_id: str | None = None,
+    role: str = "audio",
+    start_pts_ticks: int = 0,
+    anchors: Iterable[Anchor] = (),
+    limits: Limits | None = None,
+) -> AudioTrack:
+    """Validate a WAV/FLAC file and record its sample layout."""
+
+    limits = limits or Limits()
+    path = Path(path)
+    if start_pts_ticks < 0:
+        raise InputError(f"{track_id or path.name}: negative audio start time")
+    try:
+        info = sf.info(str(path))
+    except (RuntimeError, OSError) as exc:
+        raise DependencyError(f"cannot open audio {path}: {exc}") from exc
+    if info.samplerate <= 0:
+        raise StreamError(f"{path.name}: invalid sample rate {info.samplerate}")
+    if info.channels <= 0 or info.channels > limits.max_audio_channels:
+        raise InputError(
+            f"{path.name}: {info.channels} channels unsupported "
+            f"(limit {limits.max_audio_channels})"
+        )
+    if info.frames <= 0:
+        raise StreamError(f"{path.name}: empty audio stream")
+    if info.frames > int(limits.max_audio_seconds * info.samplerate):
+        raise InputError(
+            f"{path.name}: {info.frames / info.samplerate:.1f}s audio exceeds "
+            f"{limits.max_audio_seconds:.1f}s limit"
+        )
+    return AudioTrack(
+        track_id=track_id or path.stem,
+        role=role,
+        path=path,
+        sample_rate=info.samplerate,
+        channels=info.channels,
+        frames=info.frames,
+        start_pts_ticks=start_pts_ticks,
+        anchors=tuple(anchors),
+    )
