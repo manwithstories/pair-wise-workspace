@@ -234,7 +234,7 @@ def _decode_stream(
         if info.kind == "video":
             step = info.rate.frame_duration if info.rate else Fraction(0)
             location = MediaLocation(
-                pts=step * (frames_seen + 1) if step else None,
+                pts=step * frames_seen if step else None,
                 frame=frames_seen,
                 stream_index=info.index,
             )
