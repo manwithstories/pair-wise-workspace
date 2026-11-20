@@ -43,4 +43,8 @@ target_include_directories(mediacore PUBLIC
 )
 target_link_libraries(mediacore PUBLIC PkgConfig::FFMPEG)
 
+# ---- 终端可执行文件 ----
+add_executable(media_tool app/main.cpp)
+target_link_libraries(media_tool PRIVATE mediacore)
+
 enable_testing()

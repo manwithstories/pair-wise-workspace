@@ -85,6 +85,7 @@ Result<FileResult> RemuxPipeline::processFile(const std::string& input,
                 break;
             }
         }
+        queue.close();
     });
 
     // 消费者：映射 -> 封装 -> 统计
@@ -101,18 +102,17 @@ Result<FileResult> RemuxPipeline::processFile(const std::string& input,
         if (blk.kind == BlockKind::Corrupt ||
             blk.kind == BlockKind::Gap ||
             blk.kind == BlockKind::Duplicate) {
-            const SampleTick end = blk.startSample +
-                (blk.kind == BlockKind::Duplicate ? blk.frameCount() : 0);
+            const SampleTick spanEnd = blk.endSample();
             skipped.push_back(
-                {{blk.startSample, end},
+                {{blk.startSample, spanEnd},
                  errorCodeName(blk.kind == BlockKind::Corrupt
                                    ? MediaErrorCode::CorruptStream
                                : blk.kind == BlockKind::Gap
                                    ? MediaErrorCode::TimestampGap
                                    : MediaErrorCode::DuplicateBlock),
                  "skipped by recovery"});
-            quality.addSkippedRange({blk.startSample, end});
-            expected = end; // 后续有效块从该刻度接续
+            quality.addSkippedRange({blk.startSample, spanEnd});
+            expected = spanEnd; // 后续有效块从该刻度接续
             continue;
         }
 
@@ -221,6 +221,9 @@ BatchSummary runBatch(const std::vector<std::string>& inputs,
             continue; // 单文件失败：保留已完成输出，继续后续文件
         }
         FileResult fr = std::move(r.value());
+        if (fr.rejected) {
+            ++summary.rejected; // 不可恢复（截断头部/扫描超限/映射非法）
+        }
         if (fr.recovered) {
             ++summary.recovered;
         }
