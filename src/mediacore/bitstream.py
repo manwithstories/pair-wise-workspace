@@ -69,6 +69,8 @@ class ScanReport:
     bytes_consumed: int = 0
     truncated_tail_offset: int | None = None
     truncated_tail_reason: str = ""
+    #: Exact offset of a start code that has no payload (the file ends there).
+    truncated_start_code_offset: int | None = None
     issues: list[MediaIssue] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -82,6 +84,8 @@ class ScanReport:
         if self.truncated_tail_offset is not None:
             out["truncated_tail_offset"] = self.truncated_tail_offset
             out["truncated_tail_reason"] = self.truncated_tail_reason
+        if self.truncated_start_code_offset is not None:
+            out["truncated_start_code_offset"] = self.truncated_start_code_offset
         return out
 
 
@@ -206,6 +210,10 @@ def _read_start_code(reader: _ChunkReader, report: ScanReport) -> int | None:
     while True:
         if not reader.fill(3):
             leftover = reader.available()
+            if leftover == 0 and reader.position == 0 and not report.issues:
+                report.issues.append(MediaIssue(
+                    "empty_stream", "no start code found", 0))
+                return None
             if leftover:
                 if any(b != 0 for b in reader.peek(0, leftover)):
                     if garbage_at is None:
@@ -334,6 +342,11 @@ def scan_annexb(chunks: Iterable[bytes], *, codec: str) -> Iterator[AccessUnit |
             if at_eof:
                 tail_truncated = True
                 tail_reason = "stream ends inside a start code"
+                report.truncated_start_code_offset = offset
+                if not current:
+                    # Nothing buffered for this unit: point at the last start
+                    # code, which is the exact byte where the file ends.
+                    unit_offset = offset
             continue
         if codec == "hevc" and len(body) < 2:
             report.issues.append(MediaIssue(
@@ -348,6 +361,10 @@ def scan_annexb(chunks: Iterable[bytes], *, codec: str) -> Iterator[AccessUnit |
         elif have_vcl and (nal_type == aud_type or nal_type in param_types):
             close(True)
             unit_offset = offset
+        elif nal_type in param_types and not any(t not in param_types for t in nal_types):
+            # leading parameter sets form part of the picture that follows; the
+            # unit's offset is where its very first NAL starts.
+            pass
         current.append(body)
         nal_types.append(nal_type)
         if is_vcl:
