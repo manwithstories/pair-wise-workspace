@@ -38,6 +38,10 @@ add_library(mediacore STATIC
   src/normalize.cpp
   src/metadata.cpp
   src/sha256.cpp
+  src/pipeline.cpp
+  src/report.cpp
+  src/fixture_media.cpp
+  src/fixture.cpp
 )
 target_include_directories(mediacore PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -85,3 +89,14 @@ add_executable(test_sha256 tests/test_sha256.cpp)
 target_link_libraries(test_sha256 PRIVATE
   mediacore Catch2::Catch2WithMain)
 add_test(NAME sha256 COMMAND test_sha256)
+
+add_executable(test_pipeline tests/test_pipeline.cpp)
+target_link_libraries(test_pipeline PRIVATE
+  mediacore Catch2::Catch2WithMain)
+add_test(NAME pipeline COMMAND test_pipeline)
+
+add_executable(fixture_gen app/fixture_gen.cpp)
+target_link_libraries(fixture_gen PRIVATE mediacore)
+
+add_executable(media_audit app/main.cpp)
+target_link_libraries(media_audit PRIVATE mediacore)
