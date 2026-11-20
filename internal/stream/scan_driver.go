@@ -48,7 +48,7 @@ func (s *Scanner) Scan(r io.Reader) (*ScanResult, error) {
 			Message: "流起始处缺少起始码",
 		})
 	}
-	// 起始码之间若存在不属于任何单元的孤立字节，同样按截断报告。
+	// 起始码之间若存在不属于任何单元的孤立字节，按截断报告。
 	if len(units) > 0 && units[0].start > 0 {
 		s.issues = append(s.issues, Issue{
 			TrackID: s.trackID,
@@ -101,16 +101,26 @@ func (s *Scanner) groupAUs(b []byte, units []unit) []auRange {
 	}
 	switch s.codec {
 	case H264, H265:
-		haveVCL := false
+		// 记录每个 VCL NAL 的单元下标。AU 边界 = 相邻 VCL 之间；
+		// 第一个 VCL 之前的前导参数集（SPS/PPS/VPS）并入首 AU，
+		// 两个 VCL 之间的非 VCL 并入后一个 AU。
+		var vclIdx []int
 		for i, u := range units {
 			if isVCL(s.codec, b[u.data:u.end]) {
-				if haveVCL {
-					flush(i) // 新 VCL 单元开始新的 AU
-				}
-				haveVCL = true
+				vclIdx = append(vclIdx, i)
 			}
 		}
-		flush(len(units))
+		if len(vclIdx) == 0 {
+			flush(len(units))
+		} else {
+			start := 0
+			for k := 1; k < len(vclIdx); k++ {
+				flush(vclIdx[k]) // [start, vclIdx[k]) 是上一帧 AU
+				start = vclIdx[k]
+			}
+			_ = start
+			flush(len(units))
+		}
 	case AV1:
 		seenFrame := false
 		for i, u := range units {
@@ -129,7 +139,7 @@ func (s *Scanner) groupAUs(b []byte, units []unit) []auRange {
 func (s *Scanner) processAU(b []byte, units []unit, idx int, ar auRange) {
 	start := units[ar.lo].start
 	end := units[ar.hi-1].end
-	keyframe, kind, msg := s.classify(b, units, ar)
+	keyframe, kind, msg, errOff := s.classify(b, units, ar)
 	au := AccessUnit{
 		Index:    idx,
 		Offset:   start,
@@ -145,9 +155,12 @@ func (s *Scanner) processAU(b []byte, units []unit, idx int, ar auRange) {
 	s.aus = append(s.aus, au)
 	s.blockAU++
 	if kind != "" {
+		if errOff < 0 {
+			errOff = start
+		}
 		s.issues = append(s.issues, Issue{
 			TrackID: s.trackID,
-			Offset:  start,
+			Offset:  errOff,
 			End:     end,
 			Block:   s.blockIndex,
 			Kind:    kind,

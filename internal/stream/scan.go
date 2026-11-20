@@ -118,29 +118,18 @@ func splitUnits(r io.Reader) ([]unit, []Issue, int64, error) {
 			pos, scLen = nextPos, nextLen
 			continue
 		}
-		// 之后再无起始码：净荷即最后一个单元；任何多余残余由调用方诊断。
-		units = append(units, unit{start: pos, data: payload, end: n})
+		// 之后再无起始码。竞争防止保证合法 RBSP/OBU 净荷不含裸 00 00，
+		// 因此末尾的双零残片是写入中断；其余字节归属最后一个单元。
+		end := n
+		if n-payload >= 2 && buf[n-2] == 0 && buf[n-1] == 0 {
+			end = n - 2
+			issues = append(issues, Issue{
+				Offset: end, End: n, Block: -1,
+				Kind: IssueUnterminated, Message: "流尾部存在不完整起始码",
+			})
+		}
+		units = append(units, unit{start: pos, data: payload, end: end})
 		break
-	}
-	// Annex-B RBSP 受竞争防止保护，合法单元内部不可能出现裸 00 00；
-	// 因此流尾部 1–3 个连续零字节是写入中断留下的半截起始码
-	//（4 个零必含完整起始码，findStartCode 已先行处理）。
-	if len(units) > 0 {
-		z := int64(0)
-		for z < 3 && n-z-1 >= 0 && buf[n-z-1] == 0 {
-			z++
-		}
-		if z > 0 {
-			last := &units[len(units)-1]
-			cut := n - z
-			if cut > last.data {
-				last.end = cut
-				issues = append(issues, Issue{
-					Offset: cut, End: n, Block: -1,
-					Kind: IssueUnterminated, Message: "流尾部存在不完整起始码",
-				})
-			}
-		}
 	}
 	return units, issues, n, nil
 }

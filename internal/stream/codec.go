@@ -5,56 +5,54 @@ import "bytes"
 // newByteReader 把内存字节包装为 io.Reader，splitUnits 仅依赖 Read。
 func newByteReader(b []byte) *bytes.Reader { return bytes.NewReader(b) }
 
-// classify 检查 AU 内全部语法单元，返回关键帧标记与首个发现的错误。
-// 错误不会中断扫描：后续单元继续解析，保证一次运行给出完整诊断面。
-func (s *Scanner) classify(b []byte, units []unit, ar auRange) (keyframe bool, kind IssueKind, msg string) {
+// classify 检查 AU 内全部语法单元，返回关键帧标记、首个发现的错误及其
+// 出错单元的精确字节偏移。错误不会中断扫描：后续单元继续解析，保证一次
+// 运行给出完整诊断面。
+func (s *Scanner) classify(b []byte, units []unit, ar auRange) (keyframe bool, kind IssueKind, msg string, errOff int64) {
 	keyframe = true // 无 VCL/帧单元时保持保守，由调用侧按实际帧修正
 	sawFrame := false
+	errOff = -1
 	for i := ar.lo; i < ar.hi; i++ {
 		u := units[i]
 		payload := b[u.data:u.end]
 		if len(payload) == 0 {
 			if kind == "" {
-				kind, msg = IssueEmptyUnit, "零长度语法单元"
+				kind, msg, errOff = IssueEmptyUnit, "零长度语法单元", u.start
 			}
 			continue
 		}
+		var kf bool
+		var k IssueKind
+		var m string
 		switch s.codec {
 		case H264:
-			kf, k, m := classifyH264NAL(payload)
-			if isH264VCLType(payload[0]&0x1F) {
+			kf, k, m = classifyH264NAL(payload)
+			if isH264VCLType(payload[0] & 0x1F) {
 				sawFrame = true
 				keyframe = keyframe && kf
-			}
-			if k != "" && kind == "" {
-				kind, msg = k, m
 			}
 		case H265:
-			kf, k, m := classifyH265NAL(payload)
-			t := hevcNALType(payload)
-			if t <= 31 {
+			kf, k, m = classifyH265NAL(payload)
+			if hevcNALType(payload) <= 31 {
 				sawFrame = true
 				keyframe = keyframe && kf
 			}
-			if k != "" && kind == "" {
-				kind, msg = k, m
-			}
 		case AV1:
-			kf, k, m := classifyAV1OBU(payload)
+			kf, k, m = classifyAV1OBU(payload)
 			if isAV1FrameOBU(payload) {
 				sawFrame = true
 				keyframe = kf
 			}
-			if k != "" && kind == "" {
-				kind, msg = k, m
-			}
+		}
+		if k != "" && kind == "" {
+			kind, msg, errOff = k, m, u.start
 		}
 	}
 	if !sawFrame {
 		// 仅含参数集/元数据的 AU 不构成可独立解码帧。
 		keyframe = false
 	}
-	return keyframe, kind, msg
+	return keyframe, kind, msg, errOff
 }
 
 // --- H.264 (ISO/IEC 14496-10 §7.3.1) ---
@@ -69,7 +67,8 @@ func isVCL(codec Codec, payload []byte) bool {
 	case H264:
 		return isH264VCLType(payload[0] & 0x1F)
 	case H265:
-		return hevcNALType(payload) <= 31
+		// H.265 NAL 头占 2 字节，长度不足无法判定为 VCL。
+		return len(payload) >= 2 && hevcNALType(payload) <= 31
 	default:
 		return false
 	}
@@ -157,12 +156,13 @@ func classifyAV1OBU(p []byte) (keyframe bool, kind IssueKind, msg string) {
 	if !isAV1FrameOBU(p) {
 		return false, "", ""
 	}
-	// 合成帧头（fixture 约定）：净荷首字节的 show_existing_frame/keyframe
-	// 标记位位于 OBU 长度字段之后，bit7 即 keyframe 指示。
-	payload := p[1+n:]
-	if len(payload) == 0 {
+	// 帧 OBU 必须在 leb128 头之后还有净荷（起始码成帧已保证单元完整，
+	// 这里只需确认头之后确实存在帧头字节）。
+	if len(p) <= 1+n {
 		return false, IssueTruncated, "AV1 帧 OBU 净荷为空"
 	}
+	// 合成帧头（fixture 约定）：净荷首字节 bit7 即 keyframe 指示。
+	payload := p[1+n:]
 	return payload[0]&0x80 != 0, "", ""
 }
 
