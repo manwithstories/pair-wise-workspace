@@ -269,3 +269,76 @@ def _load_index(path: Path, limits: Limits) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise IndexError_(f"index {path.name} must contain a JSON object")
     return payload
+
+
+def _require_int(payload: dict[str, Any], key: str, context: str) -> int:
+    value = payload.get(key)
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise IndexError_(f"{context}: {key} must be an integer, got {value!r}")
+    return value
+
+
+def _parse_packets(
+    raw_entries: Any,
+    *,
+    track_id: str,
+    stream_size: int,
+    limits: Limits,
+    allow_truncated: bool,
+) -> tuple[tuple[PacketRecord, ...], frozenset[int]]:
+    if not isinstance(raw_entries, list) or not raw_entries:
+        raise IndexError_(f"{track_id}: index requires a non-empty packets list")
+    if len(raw_entries) > limits.max_index_entries:
+        raise IndexError_(
+            f"{track_id}: {len(raw_entries)} index entries exceed limit "
+            f"{limits.max_index_entries}"
+        )
+    packets: list[PacketRecord] = []
+    truncated: set[int] = set()
+    previous_end = -1
+    for position, entry in enumerate(raw_entries):
+        context = f"{track_id} packet #{position}"
+        if not isinstance(entry, dict):
+            raise IndexError_(f"{context}: entry must be an object")
+        offset = _require_int(entry, "offset", context)
+        size = _require_int(entry, "size", context)
+        pts = _require_int(entry, "pts_ticks", context)
+        duration = _require_int(entry, "duration_ticks", context)
+        seq = entry.get("seq", position)
+        if not isinstance(seq, int) or isinstance(seq, bool) or seq < 0:
+            raise IndexError_(f"{context}: seq must be a non-negative integer")
+        keyframe = entry.get("keyframe", False)
+        if not isinstance(keyframe, bool):
+            raise IndexError_(f"{context}: keyframe must be a boolean")
+        if offset < 0:
+            raise IndexError_(f"{context}: negative byte offset {offset}")
+        if size <= 0:
+            raise IndexError_(f"{context}: non-positive packet size {size}")
+        if pts < 0:
+            raise IndexError_(f"{context}: negative presentation time {pts}")
+        if duration < 0:
+            raise IndexError_(f"{context}: negative duration {duration}")
+        if duration == 0:
+            raise IndexError_(f"{context}: zero duration makes cadence undecidable")
+        if offset < previous_end:
+            raise IndexError_(
+                f"{context}: offset {offset} overlaps previous packet ending at "
+                f"{previous_end}"
+            )
+        if offset + size > stream_size:
+            if allow_truncated:
+                truncated.add(position)
+                packets.append(
+                    PacketRecord(position, offset, size, keyframe, pts, duration, seq)
+                )
+                previous_end = offset + size
+                continue
+            raise IndexError_(
+                f"{context}: bytes [{offset}, {offset + size}) exceed stream size "
+                f"{stream_size}"
+            )
+        packets.append(PacketRecord(position, offset, size, keyframe, pts, duration, seq))
+        previous_end = offset + size
+    if not any(packet.keyframe for packet in packets if packet.index not in truncated):
+        raise IndexError_(f"{track_id}: index contains no usable keyframe")
+    return tuple(packets), frozenset(truncated)
