@@ -187,3 +187,116 @@ def audio_samples(spec: FixtureSpec) -> np.ndarray:
 
 
 # ==========================================================================
+# Writers
+# ==========================================================================
+
+
+_ENCODERS = {
+    Codec.H264: ("libx264", "h264"),
+    Codec.H265: ("libx265", "hevc"),
+    Codec.AV1: ("libaom-av1", "obu"),
+}
+
+
+def _encoder_options(codec: Codec, spec: FixtureSpec) -> dict[str, str]:
+    gop = str(spec.gop)
+    if codec is Codec.H264:
+        return {
+            "preset": "ultrafast",
+            "g": gop,
+            "x264-params": f"aud=1:repeat-headers=1:keyint={gop}:min-keyint={gop}:bframes=0",
+        }
+    if codec is Codec.H265:
+        return {
+            "preset": "ultrafast",
+            "x265-params": f"aud=1:repeat-headers=1:keyint={gop}:min-keyint={gop}:bframes=0:info=0",
+        }
+    return {
+        "g": gop,
+        "cpu-used": "8",
+        "lag-in-frames": "0",
+        "b": "0",
+    }
+
+
+def encode_video(path: Path, codec: Codec, spec: FixtureSpec) -> None:
+    encoder, container = _ENCODERS[codec]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    frames = video_frames(spec)
+    rate = spec.frame_rate
+    with av.open(str(path), "w", format=container) as container_ctx:
+        stream = container_ctx.add_stream(encoder, rate=rate)
+        stream.width = WIDTH
+        stream.height = HEIGHT
+        stream.pix_fmt = "yuv420p"
+        for key, value in _encoder_options(codec, spec).items():
+            stream.codec_context.options[key] = value
+        if codec is Codec.AV1:
+            stream.codec_context.max_b_frames = 0
+        for index, array in enumerate(frames):
+            frame = av.VideoFrame.from_ndarray(array, format="rgb24")
+            frame.pts = index
+            for packet in stream.encode(frame):
+                container_ctx.mux(packet)
+        for packet in stream.encode(None):
+            container_ctx.mux(packet)
+
+
+def write_audio(path: Path, spec: FixtureSpec, *, rate: int | None = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = audio_samples(spec if rate is None else FixtureSpec(**{**spec.__dict__, "audio_rate": rate}))
+    sf.write(str(path), data, rate or spec.audio_rate, subtype="FLOAT")
+
+
+def split_units(data: bytes, codec: Codec) -> list[AccessUnit]:
+    parser = AnnexBParser(codec) if codec in (Codec.H264, Codec.H265) else Av1ObuParser()
+    return parser.split(data)
+
+
+def damage_drop_access_units(source: Path, target: Path, codec: Codec, positions: list[int]) -> list[int]:
+    """Remove whole access units (a mid-stream packet loss)."""
+    data = source.read_bytes()
+    units = split_units(data, codec)
+    drop = {units[p] for p in positions if 0 <= p < len(units)}
+    kept = [u for u in units if u not in drop]
+    blob = b"".join(data[u.offset:u.end] for u in kept)
+    target.write_bytes(blob)
+    return sorted(u.index for u in drop)
+
+
+def damage_truncate(source: Path, target: Path, codec: Codec, fraction: float = 0.7) -> int:
+    """Keep a prefix of the stream, cutting inside the last kept access unit."""
+    data = source.read_bytes()
+    units = split_units(data, codec)
+    keep = max(1, int(len(units) * fraction))
+    cut = units[keep - 1].offset + max(1, units[keep - 1].size * 2 // 3)
+    target.write_bytes(data[:cut])
+    return cut
+
+
+def make_bad_index(source: Path, target: Path, codec: Codec) -> dict:
+    """Write an index containing duplicate, out-of-order and out-of-range entries."""
+    data = source.read_bytes()
+    units = split_units(data, codec)
+    keyframes = [u for u in units if u.is_keyframe]
+    if not keyframes or len(units) < 4:
+        raise ValueError("stream has too few access units for a bad index fixture")
+    second = keyframes[min(1, len(keyframes) - 1)]
+    later = units[min(len(units) - 1, 10)]
+    entries = [
+        {"offset": units[0].offset, "size": units[0].size},
+        {"offset": second.offset, "size": second.size},
+        {"offset": second.offset, "size": second.size},          # duplicate
+        {"offset": 999_999_999, "size": 16},                      # out of range
+        {"offset": later.offset, "size": later.size},             # out of order
+    ]
+    target.write_text(json.dumps({"keyframes": entries}, indent=2), encoding="utf-8")
+    return {"entries": len(entries), "valid": len(keyframes)}
+
+
+def write_good_index(source: Path, target: Path, codec: Codec) -> list[dict]:
+    data = source.read_bytes()
+    units = split_units(data, codec)
+    index = compute_index(units)
+    target.write_text(json.dumps({"keyframes": index.to_json()}, indent=2), encoding="utf-8")
+    return index.to_json()
