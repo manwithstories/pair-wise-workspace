@@ -45,6 +45,7 @@ type TrackStats struct {
 	Duplicates  uint64
 	Regressions uint64
 	ClipJumps   uint64
+	Drifts      uint64
 }
 
 // SegmentInfo 描述一个剪辑或转场片段及其修复后的时间范围。
@@ -73,6 +74,7 @@ type trackState struct {
 	wrapBase  uint64 // 回绕展开偏移
 	nextExp   uint64 // 修复后轨道时钟期望的下一个 DTS
 	lastDur   uint64
+	nominal   uint64    // 观察到的最小正向样本时长，用于识别边界大跳变
 	segments  []segment // 全部片段（按逻辑起点排序）
 	ranged    []segment // 有样本区间的片段（按样本序号排序）
 	rangeMode bool
@@ -177,17 +179,20 @@ func (c *Clock) Process(s model.Sample) (model.RepairedSample, error) {
 	seg := st.lookup(s.Seq, expanded)
 	newSeg := seg != nil && (st.curSeg == nil || st.curSeg.id != seg.id)
 
+	// 先识别 32 位回绕：跨越 2^32 的负向跳变优先于片段边界判断。
+	if st.haveLast && s.DTS < st.lastRaw && st.lastRaw-s.DTS > wrapDomain/2 {
+		flags |= model.RepairWrap
+		st.stats.Wraps++
+		if c.strat.Wrap == PolicyClamp {
+			st.wrapBase += wrapDomain
+			expanded = s.DTS + st.wrapBase
+		}
+	}
+
 	if newSeg {
-		if st.haveLast {
-			// 片段首样本：区分 32 位回绕与跨剪辑跳变。
-			if st.lastRaw > s.DTS && st.lastRaw-s.DTS > wrapDomain/2 {
-				flags |= model.RepairWrap
-				st.stats.Wraps++
-				if c.strat.Wrap == PolicyClamp {
-					st.wrapBase += wrapDomain
-					expanded = s.DTS + st.wrapBase
-				}
-			} else if expanded != st.lastRaw+st.lastDur {
+		if st.haveLast && flags&model.RepairWrap == 0 && st.nominal > 0 {
+			// 边界处原始间隔显著大于常规样本时长即为跨剪辑跳变。
+			if s.DTS > st.lastRaw && uint64(s.DTS-st.lastRaw) > st.nominal+st.nominal/2 {
 				flags |= model.RepairClipJump
 				st.stats.ClipJumps++
 			}
@@ -195,24 +200,14 @@ func (c *Clock) Process(s model.Sample) (model.RepairedSample, error) {
 		st.curSeg = seg
 		st.segBase = expanded
 		st.segSet = true
-	} else if st.haveLast {
+	} else if st.haveLast && flags&model.RepairWrap == 0 {
 		switch {
 		case s.DTS == st.lastRaw:
 			flags |= model.RepairDuplicate
 			st.stats.Duplicates++
 		case s.DTS < st.lastRaw:
-			if st.lastRaw-s.DTS > wrapDomain/2 {
-				// 32 位时间戳回绕：展开到 64 位域。
-				flags |= model.RepairWrap
-				st.stats.Wraps++
-				if c.strat.Wrap == PolicyClamp {
-					st.wrapBase += wrapDomain
-					expanded = s.DTS + st.wrapBase
-				}
-			} else {
-				flags |= model.RepairRegression
-				st.stats.Regressions++
-			}
+			flags |= model.RepairRegression
+			st.stats.Regressions++
 		}
 	}
 
@@ -223,6 +218,7 @@ func (c *Clock) Process(s model.Sample) (model.RepairedSample, error) {
 			return model.RepairedSample{}, fault.Wrap(fault.StageRepair, s.TrackID, s.SourceOffset, false, "漂移修正溢出", err)
 		}
 		flags |= model.RepairDrift
+		st.stats.Drifts++
 	}
 
 	// CTS 保留相对 DTS 的偏移，随修复后时间域一起平移。
@@ -246,6 +242,9 @@ func (c *Clock) Process(s model.Sample) (model.RepairedSample, error) {
 	st.lastRaw = s.DTS
 	st.haveLast = true
 	st.lastDur = uint64(s.Duration)
+	if !newSeg && s.Duration > 0 && (st.nominal == 0 || uint64(s.Duration) < st.nominal) {
+		st.nominal = uint64(s.Duration)
+	}
 	st.nextExp = repairedTick + uint64(s.Duration)
 
 	rs.RepairedDTS = repairedTick

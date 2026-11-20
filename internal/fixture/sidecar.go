@@ -89,22 +89,23 @@ func writeSidecar(path string, tl *model.Timeline) error {
 	return nil
 }
 
-// RTPBaseTimestamp 是夹具 RTP 流的起始时间戳，取接近 32 位域上沿的值，
-// 便于在 clean 之外的模式下于有限样本内触发回绕。
-const RTPBaseTimestamp uint32 = 0xFFFFF000
+// RTPBaseTimestamp 是夹具 RTP 流的默认起始时间戳。
+const RTPBaseTimestamp uint32 = 1_000_000
 
 // rtpTimestamps 生成 RTP 时间戳序列，按模式注入回绕、重复或倒退。
 func rtpTimestamps(spec Spec) []uint32 {
 	n := spec.VideoSamples
 	out := make([]uint32, n)
-	ts := RTPBaseTimestamp
+	var ts uint32 = RTPBaseTimestamp
+	if spec.Pattern == PatternWrap {
+		// 起点靠近 32 位上沿，使序列在 n/2 处自然回绕到 0。
+		ts = uint32(uint64(1)<<32 - uint64(n/2)*uint64(videoBaseDelta))
+	}
 	for i := range out {
 		out[i] = ts
 		ts += videoBaseDelta
 	}
 	switch spec.Pattern {
-	case PatternWrap:
-		// 默认起点已接近上沿，自然回绕；无需额外注入。
 	case PatternDuplicate:
 		if n > 4 {
 			out[n/2] = out[n/2-1]

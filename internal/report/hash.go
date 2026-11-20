@@ -133,6 +133,7 @@ type TrackReport struct {
 	Duplicates  uint64  `json:"duplicates"`
 	Regressions uint64  `json:"regressions"`
 	ClipJumps   uint64  `json:"clip_jumps"`
+	Drifts      uint64  `json:"drifts"`
 	Keyframes   int     `json:"keyframes"`
 	Seeks       uint64  `json:"seeks"`
 	Hits        uint64  `json:"hits"`
@@ -153,10 +154,24 @@ type Result struct {
 	Tracks            []TrackReport   `json:"tracks"`
 	SegmentHashes     []SegmentHash   `json:"segment_hashes"`
 	Segments          []SegmentReport `json:"segments"`
+	RTP               *RTPStat        `json:"rtp,omitempty"`
 	FailedOffset      int64           `json:"failed_offset"`
 	FailedStage       string          `json:"failed_stage"`
 	Recoverable       bool            `json:"recoverable"`
 	Error             string          `json:"error,omitempty"`
+}
+
+// RTPStat 是 RTP 时间戳映射的修复统计（可选输入）。
+type RTPStat struct {
+	File        string `json:"file"`
+	TrackID     uint32 `json:"track_id"`
+	Packets     uint64 `json:"packets"`
+	Wraps       uint64 `json:"wraps"`
+	Duplicates  uint64 `json:"duplicates"`
+	Regressions uint64 `json:"regressions"`
+	FirstTS     uint32 `json:"first_timestamp"`
+	LastTS      uint32 `json:"last_timestamp"`
+	Parsed      bool   `json:"parsed"`
 }
 
 // SegmentReport 是逐片段的修复统计。

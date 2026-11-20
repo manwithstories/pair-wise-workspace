@@ -38,6 +38,7 @@ type Outcome struct {
 	Segments []repair.SegmentInfo
 	Verified []string // 本次实际处理的片段 ID（去重、按出现顺序）
 	Stats    stream.Stats
+	RTP      RTPReport
 }
 
 // Run 执行完整流水线。返回错误可能是 *fault.Error。
@@ -141,6 +142,12 @@ func Run(opts Options) (*Outcome, error) {
 		return out, fault.Wrap(fault.StageIO, 0, -1, false, "流水线已取消", err)
 	}
 
+	rtpRep, rtpErr := processRTP(ctx, opts.Input, tl, opts.Strategy)
+	if rtpErr != nil {
+		return out, rtpErr
+	}
+	out.RTP = rtpRep
+
 	ix.Finalize()
 	out.Segments = clock.Segments()
 	for _, s := range out.Segments {
@@ -150,6 +157,7 @@ func Run(opts Options) (*Outcome, error) {
 	}
 	out.Stats = q.Stats()
 	res := buildResult(opts, tl, clock, ix, hasher.Finalize(), out, restored, roundtripHit, roundtripTotal)
+	res.RTP = &out.RTP
 	out.Result = res
 	return out, nil
 }
@@ -224,7 +232,7 @@ func buildResult(opts Options, tl *model.Timeline, clock *repair.Clock, ix *inde
 		res.Tracks = append(res.Tracks, report.TrackReport{
 			TrackID: t.ID, Timescale: t.Timescale, Kind: string(t.Kind),
 			Samples: ts.Samples, Wraps: ts.Wraps, Duplicates: ts.Duplicates,
-			Regressions: ts.Regressions, ClipJumps: ts.ClipJumps,
+			Regressions: ts.Regressions, ClipJumps: ts.ClipJumps, Drifts: ts.Drifts,
 			Keyframes: keyCount[t.ID], Seeks: seeks, Hits: hits, HitRate: ix.HitRate(),
 		})
 	}

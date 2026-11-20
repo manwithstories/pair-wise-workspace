@@ -86,12 +86,19 @@ func buildVideoDeltas(spec Spec, segs []laySegment) ([]uint32, []uint64) {
 			injected[sg.first-1] += g
 		}
 	case PatternWrap:
-		ws := n / 2
-		before := uint64(ws) * uint64(videoBaseDelta)
-		if before < uint64(1)<<32 {
-			g := uint64(1)<<32 + uint64(videoBaseDelta) - before
-			deltas[ws-1] = uint32(g)
-			injected[ws-1] = g - uint64(videoBaseDelta)
+		// 用大步长让 32 位 DTS 自然逼近上沿，并在最后一个片段起点处回绕：
+		// 回绕前样本的 DTS 仍接近 2^32，能被标准的“倒退超过 2^31”规则识别。
+		// 逻辑时间线按未回绕的 64 位累计，因此与修复后的展开域一致。
+		if len(segs) > 1 {
+			ws := segs[len(segs)-1].first
+			if ws > 0 {
+				stride := (uint64(1)<<32 + uint64(ws) - 1) / uint64(ws)
+				if stride > uint64(videoBaseDelta) && stride <= uint64(^uint32(0)) {
+					for i := range deltas {
+						deltas[i] = uint32(stride)
+					}
+				}
+			}
 		}
 	case PatternDrift:
 		for i := range deltas {
