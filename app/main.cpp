@@ -135,13 +135,14 @@ int main(int argc, char** argv) {
             std::cerr << "argument error: --input required for process\n";
             return 2;
         }
-        auto guard = safeJoin(fs::absolute(outDir),
-                              fs::path(args.input).filename());
+        // 输入必须是工作区内的相对路径：直接校验原始路径，
+        // 不做 filename 截断，否则 "../x" 会被洗白成 "x" 绕过守卫
+        auto guard = safeJoin(fs::absolute(outDir), args.input);
         if (!guard) {
             std::cerr << guard.error().message << "\n";
             return 2;
         }
-        inputs.push_back(args.input);
+        inputs.push_back(guard.value().string());
         config.mapping = defaultMapping(1);
     } else {
         std::cerr << "argument error: selftest requires --generate-fixtures\n";
@@ -174,19 +175,26 @@ int main(int argc, char** argv) {
                   << " alignment_error_samples=0\n";
     }
 
-    // 验收判定
-    bool accept = summary.files == 4 && summary.recovered == 2 &&
-                  summary.rejected == 1 &&
-                  summary.queuePeakBlocks <= config.queueBlocks &&
-                  probe != nullptr;
-    if (accept) {
-        const auto& q = probe->manifest.quality;
-        const int actualRounded = static_cast<int>(q.actualKbps + 0.5);
-        accept = std::abs(actualRounded - args.targetKbps) <= 2 &&
-                 q.bitrateErrorPct <= 1.0 &&
-                 q.peakAbs == 32767 &&
-                 probe->manifest.validRange.start == 0 &&
-                 probe->manifest.tracks.front().alignmentErrorSamples == 0;
+    // 验收判定：selftest 校验四文件批次指标；process 仅要求该文件成功
+    bool accept = false;
+    if (args.command == "selftest") {
+        accept = summary.files == 4 && summary.recovered == 2 &&
+                 summary.rejected == 1 &&
+                 summary.queuePeakBlocks <= config.queueBlocks &&
+                 probe != nullptr;
+        if (accept) {
+            const auto& q = probe->manifest.quality;
+            const int actualRounded = static_cast<int>(q.actualKbps + 0.5);
+            accept = std::abs(actualRounded - args.targetKbps) <= 2 &&
+                     q.bitrateErrorPct <= 1.0 &&
+                     q.peakAbs == 32767 &&
+                     probe->manifest.validRange.start == 0 &&
+                     probe->manifest.tracks.front().alignmentErrorSamples == 0;
+        }
+    } else {
+        // process：存在成功产出且队列有界即通过
+        accept = probe != nullptr &&
+                 summary.queuePeakBlocks <= config.queueBlocks;
     }
 
     if (summary.rejected == summary.files) {

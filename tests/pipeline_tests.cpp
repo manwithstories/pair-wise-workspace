@@ -252,6 +252,13 @@ TEST_CASE("路径穿越被拒绝，工作区内路径放行") {
 
     auto good = safeJoin(base, "sub/../in.wav");
     REQUIRE(good.ok());
+
+    // 安全策略：任何绝对路径一律拒绝（即便指向工作区内），
+    // 强制调用方使用相对路径，杜绝逃逸歧义
+    auto escapeAbsolute = safeJoin(base, "/etc/passwd");
+    REQUIRE_FALSE(escapeAbsolute.ok());
+    REQUIRE(escapeAbsolute.error().code ==
+            MediaErrorCode::PathTraversal);
 }
 
 TEST_CASE("端到端批次：恢复/拒绝计数与有界队列峰值") {
