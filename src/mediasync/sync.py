@@ -166,3 +166,165 @@ class SyncReport:
             "misaligned": sum(1 for item in self.tracks if not item.aligned),
             "max_error_ms": self.max_error_ms,
         }
+
+
+def detect_fps_changes(
+    durations: Sequence[int], nominal_ticks: int, tolerance: float
+) -> list[tuple[int, int]]:
+    """Find frames whose duration departs from nominal by more than tolerance."""
+
+    if nominal_ticks <= 0:
+        raise InputError("nominal frame duration must be positive")
+    if not 0 < tolerance < 1:
+        raise InputError("fps tolerance must be within (0, 1)")
+    low = nominal_ticks * (1.0 - tolerance)
+    high = nominal_ticks * (1.0 + tolerance)
+    return [
+        (index, duration)
+        for index, duration in enumerate(durations)
+        if not low <= duration <= high
+    ]
+
+
+def _anchors_to_pairs(
+    video: VideoTrack, audio: AudioTrack
+) -> list[AnchorPair]:
+    """Pair anchors by label, keeping only those present on both tracks."""
+
+    audio_by_label: dict[str, Anchor] = {
+        anchor.label: anchor for anchor in audio.anchors
+    }
+    pairs: list[AnchorPair] = []
+    for anchor in video.anchors:
+        match = audio_by_label.get(anchor.label)
+        if match is None:
+            continue
+        if anchor.video_index is None or match.audio_sample is None:
+            continue
+        pairs.append(AnchorPair(anchor.label, match.audio_sample, anchor.video_index))
+    return pairs
+
+
+def align_track(
+    video: VideoTrack,
+    audio: AudioTrack,
+    *,
+    segment: Segment | None = None,
+    config: SyncConfig | None = None,
+) -> TrackSync:
+    """Fit and check one audio/video pair over its recovered segment."""
+
+    config = config or SyncConfig()
+    nominal_step = ticks_from_rate(1, video.nominal_rate)
+    if segment is not None and segment.partial:
+        return TrackSync(
+            track_id=video.track_id,
+            kind="av",
+            aligned=False,
+            max_error_ticks=config.max_error_ticks + 1,
+            reason=f"unrecoverable-segment:{segment.reason}",
+            error_intervals=[
+                ErrorInterval(
+                    video.track_id,
+                    segment.start_ticks,
+                    max(segment.start_ticks + 1, segment.end_ticks),
+                    config.max_error_ticks + 1,
+                    "unrecoverable-segment",
+                )
+            ],
+        )
+
+    pairs = _anchors_to_pairs(video, audio)
+    if len(pairs) < 2:
+        return TrackSync(
+            track_id=video.track_id,
+            kind="av",
+            aligned=False,
+            reason="insufficient-anchors",
+            anchors=len(pairs),
+        )
+    audio_ticks = [pair.audio_ticks(audio.sample_rate) for pair in pairs]
+    video_ticks = [pair.video_ticks(video, nominal_step) for pair in pairs]
+    drift = fit_drift(audio_ticks, video_ticks, origin_ticks=0, min_samples=2)
+    errors = [
+        drift.error_ticks(audio_tick, video_tick)
+        for audio_tick, video_tick in zip(audio_ticks, video_ticks)
+    ]
+    abs_errors = [abs(value) for value in errors]
+    max_error = max(abs_errors)
+    mean_error = sum(abs_errors) / len(abs_errors)
+    fps_changes = detect_fps_changes(
+        [packet.duration_ticks for packet in video.packets],
+        nominal_step,
+        config.fps_change_tolerance,
+    )
+    display = build_display_track(
+        [packet.pts_ticks for packet in video.packets],
+        nominal_step_ticks=nominal_step,
+        wrap=config.wrap_ticks,
+    )
+    restarts = len(display.restarts)
+
+    intervals: list[ErrorInterval] = []
+    bad_drift = abs(drift.ppm) > config.drift_limit_ppm
+    if bad_drift:
+        intervals.append(
+            ErrorInterval(
+                video.track_id,
+                0,
+                max(1, video.duration_ticks),
+                max_error,
+                f"drift-exceeds-{config.drift_limit_ppm:g}ppm",
+            )
+        )
+    if fps_changes:
+        for index, duration in fps_changes[:8]:
+            start = video.packets[index].pts_ticks
+            intervals.append(
+                ErrorInterval(
+                    video.track_id,
+                    start,
+                    start + max(duration, 1),
+                    abs(duration - nominal_step) + max_error,
+                    "fps-change",
+                )
+            )
+    # Anchor errors above tolerance become bounded error intervals.
+    for pair, error in zip(pairs, errors):
+        if abs(error) <= config.max_error_ticks:
+            continue
+        start = max(0, pair.video_ticks(video, nominal_step) - nominal_step)
+        intervals.append(
+            ErrorInterval(
+                video.track_id,
+                start,
+                start + 2 * nominal_step,
+                abs(error),
+                "anchor-error",
+            )
+        )
+    aligned = max_error <= config.max_error_ticks and not bad_drift and not fps_changes
+    reason = ""
+    if not aligned:
+        parts = []
+        if max_error > config.max_error_ticks:
+            parts.append("error-over-tolerance")
+        if bad_drift:
+            parts.append("drift-over-limit")
+        if fps_changes:
+            parts.append("frame-rate-change")
+        reason = "+".join(parts)
+    return TrackSync(
+        track_id=video.track_id,
+        kind="av",
+        aligned=aligned,
+        max_error_ticks=max_error,
+        mean_error_ticks=mean_error,
+        drift_ppm=drift.ppm,
+        offset_ticks=drift.origin_ticks,
+        anchors=len(pairs),
+        error_intervals=intervals,
+        restarts=restarts,
+        fps_changes=len(fps_changes),
+        reason=reason,
+    )
