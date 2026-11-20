@@ -30,6 +30,7 @@ add_library(mediaqc_core STATIC
   src/checksum.cpp
   src/json.cpp
   src/timeline.cpp
+  src/track_graph.cpp
   src/types.cpp
 )
 
@@ -46,6 +47,7 @@ if(BUILD_TESTING)
   add_executable(mediaqc_tests
     tests/pipeline_tests.cpp
     tests/timeline_tests.cpp
+    tests/track_graph_tests.cpp
     tests/fixture_factory.cpp
   )
   target_link_libraries(mediaqc_tests PRIVATE mediaqc_core Catch2::Catch2WithMain)
