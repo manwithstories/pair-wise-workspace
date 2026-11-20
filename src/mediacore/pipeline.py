@@ -244,5 +244,227 @@ def run_pipeline(
     *,
     index_payload: Any | None = None,
 ) -> PipelineResult:
-    """Run all stages for one fixture (filled in by the follow-up patch)."""
-    raise NotImplementedError("pipeline stages are added by the next patch")
+    """Run all stages for one fixture, checkpointing each committed boundary."""
+    video_path, audio_path, out_dir = Path(video_path), Path(audio_path), Path(out_dir)
+    if not video_path.exists():
+        raise MediaInputError(f"video input not found: {video_path}", code="input_missing")
+    if not audio_path.exists():
+        raise MediaInputError(f"audio input not found: {audio_path}", code="input_missing")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_path = out_dir / "checkpoint.json"
+    index_path = out_dir / "index.json"
+    manifest_path = out_dir / "manifest.json"
+    derived_path = out_dir / "derived.json"
+
+    inputs = fingerprint_inputs([video_path, audio_path])
+    cfg = config.to_dict()
+    checkpoint = Checkpoint.load(checkpoint_path, inputs=inputs, config=cfg)
+    resumed = checkpoint is not None
+    if checkpoint is None:
+        checkpoint = Checkpoint.new(checkpoint_path, inputs=inputs, config=cfg)
+        for stale in (index_path, derived_path, manifest_path):
+            if stale.exists():
+                stale.unlink()
+        checkpoint.save()
+
+    timings: dict[str, float] = {}
+    budget = ByteBudget(config.memory_limit)
+    interrupted_at = config.interrupt_after
+    file_size = video_path.stat().st_size
+
+    # ---- Stage 1: scan -----------------------------------------------------
+    stage = scan_stream(video_path, config.codec)
+    timings["scan"] = stage.scan_seconds
+    units = stage.units
+    if not units:
+        raise MediaCorruptError(
+            "no access units could be recovered from the input",
+            offset=0, code="no_units")
+    tail_truncated, tail_reason, tail_unit = decode_tail_probe(units, config.codec)
+    if tail_truncated:
+        # Structural flags (cut mid-NAL, missing OBU bytes) already name an
+        # offset; a strict-decode failure is attributed to the unit's own offset.
+        if stage.report.truncated_tail_offset is None:
+            bad = units[tail_unit] if tail_unit is not None and tail_unit < len(units) else units[-1]
+            stage.report.truncated_tail_offset = bad.offset
+            stage.report.truncated_tail_reason = tail_reason
+            bad.complete = False
+            bad.truncated = True
+            from .errors import MediaIssue
+            stage.report.issues.append(MediaIssue(
+                "truncated_tail", tail_reason, bad.offset,
+                detail={"unit_index": bad.index, "size": bad.size}))
+    if stage.peak_read_buffer_bytes > budget.limit:
+        raise MediaInputError(
+            f"read buffer {stage.peak_read_buffer_bytes} exceeded memory limit",
+            code="memory_limit")
+    scan_commit = checkpoint.get("scan")
+    if scan_commit is None:
+        checkpoint.commit(
+            "scan", unit_start=0, unit_end=len(units),
+            byte_start=0, byte_end=file_size, records=len(units),
+            payload={"codec": config.codec, "units": len(units)})
+        checkpoint.last_status = "scan_committed"
+        checkpoint.save()
+        if interrupted_at and interrupted_at <= 1:
+            raise Interrupted(
+                "interrupted after scan stage; re-run to resume",
+                code="interrupted_scan")
+
+    # ---- Stage 2: timeline repair -----------------------------------------
+    timeline = repair_timeline(units, fps=config.fps)
+    tb = timeline.time_base
+    pts_ticks = [d.fixed for d in timeline.decisions]
+    pts_seconds = [tb.seconds(t) for t in pts_ticks]
+    frame_duration = 1.0 / config.fps
+    durations = [frame_duration] * len(units)
+
+    # ---- Stage 3: index ----------------------------------------------------
+    ra_index = random_access_index(
+        units, time_base=tb, supplied=index_payload, pts_of=pts_ticks,
+        durations=durations, file_size=file_size)
+    observed, observe_problems = _observe_keyframes(ra_index, units, config.codec)
+    ra_index.seeks = verify_seeks(
+        ra_index.entries, durations,
+        targets_ms=[e.pts_seconds * 1000.0 for e in ra_index.entries],
+        observed_ms=observed)
+    if observe_problems:
+        from .errors import MediaIssue
+
+        ra_index.issues.extend(
+            MediaIssue("keyframe_observation_failed", message, 0,
+                       detail={"observation": True})
+            for message in observe_problems)
+
+    # ---- Stage 4: audio ----------------------------------------------------
+    audio_started = time.perf_counter()
+    audio = analyze_wav(
+        audio_path, block_frames=config.audio_block_frames,
+        collect_block_starts=0)
+    timings["audio"] = time.perf_counter() - audio_started
+    alignment = align_audio(audio, [float(x) for x in pts_seconds], tolerance_ms=40.0)
+
+    index_payload_out = ra_index.to_dict()
+    derived_payload = {
+        "timeline": [d.to_dict(tb) for d in timeline.decisions
+                     if d.reason != "ok" or d.uncertain],
+        "segments": None,  # filled below
+        "audio": audio.to_dict(),
+        "alignment": alignment,
+    }
+    derive_commit = checkpoint.get("derive")
+    if derive_commit is None:
+        write_json_atomic(index_path, index_payload_out)
+        write_json_atomic(derived_path, derived_payload)
+        checkpoint.commit(
+            "derive", unit_start=0, unit_end=len(units),
+            byte_start=0, byte_end=file_size, records=len(units),
+            payload={
+                "index_digest": hashlib.sha256(
+                    json.dumps(index_payload_out, sort_keys=True).encode()).hexdigest(),
+                "audio_frames": audio.frames,
+                "align_ms": round(alignment["max_alignment_ms"], 3),
+            })
+        checkpoint.last_status = "derive_committed"
+        checkpoint.save()
+        if interrupted_at and interrupted_at <= 2:
+            raise Interrupted(
+                "interrupted after derive stage; re-run to resume",
+                code="interrupted_derive")
+
+    # ---- Stage 5: quality and manifest ------------------------------------
+    quality_started = time.perf_counter()
+    quality_limit = min(config.quality_limit, len(units))
+    quality = score_quality(
+        units, config.codec, _reference_lookup(config), limit=quality_limit).to_dict()
+    timings["quality"] = time.perf_counter() - quality_started
+
+    segments = build_segments(
+        units, pts_seconds, target_bps=config.target_bps,
+        frame_duration_s=frame_duration, decisions=timeline.decisions)
+    derived_payload["segments"] = [s.to_dict() for s in segments]
+    write_json_atomic(index_path, index_payload_out)
+    write_json_atomic(derived_path, derived_payload)
+
+    actual_bps = file_size * 8.0 / config.duration_s
+    deviation = (actual_bps - config.target_bps) / config.target_bps * 100.0
+    decisions = [
+        {"unit_index": i, **d.to_dict(tb)}
+        for i, d in enumerate(timeline.decisions)
+        if d.reason != "ok" or d.uncertain
+    ]
+    issues = [i.to_dict() for i in stage.report.issues]
+    issues += [i.to_dict() for i in timeline.issues]
+    issues += [i.to_dict() for i in ra_index.issues]
+
+    run_material = hashlib.sha256(
+        json.dumps([cfg, [f.digest for f in inputs], len(units)], sort_keys=True).encode()
+    ).hexdigest()
+    run_id = f"{config.codec}-{run_material[:12]}"
+    checkpoint.commit(
+        "manifest", unit_start=0, unit_end=len(units),
+        byte_start=0, byte_end=file_size, records=len(segments),
+        payload={"run_id": run_id, "segments": len(segments)})
+    checkpoint.last_status = "manifest_committed"
+    checkpoint.save()
+
+    resource = budget.stats()
+    resource.update({
+        "read_queue_max_items": QUEUE_MAX_UNITS * 4,
+        "read_queue_high_water": stage.queue_stats.get("high_water", 0),
+        "read_queue_blocked_puts": stage.queue_stats.get("blocked_puts", 0),
+        "scan_peak_read_buffer_bytes": stage.peak_read_buffer_bytes,
+        "frame_cache_bytes": FRAME_CACHE_BYTES,
+        "audio_queue_max_blocks": QUEUE_MAX_AUDIO_BLOCKS,
+        "python": platform.python_version(),
+    })
+    manifest = Manifest(
+        run_id=run_id, codec=config.codec,
+        time_base={"num": tb.num, "den": tb.den},
+        target_bps=config.target_bps, actual_bps=actual_bps,
+        deviation_pct=deviation,
+        video={
+            "path": str(video_path),
+            "bytes": file_size,
+            "units": len(units),
+            "keyframes": sum(1 for u in units if u.keyframe),
+            "fps": config.fps, "width": config.width, "height": config.height,
+            "sha256": _sha256_file(video_path),
+            "truncated_tail_offset": stage.report.truncated_tail_offset,
+            "truncated_tail_reason": stage.report.truncated_tail_reason,
+            "tail_verified": not tail_truncated,
+        },
+        audio=audio.to_dict(),
+        segments=segments, index=index_payload_out,
+        timeline=timeline.summary(),
+        quality={"video": quality, "audio": {
+            "rms": audio.rms, "peak": audio.peak,
+            "silent_fraction": audio.silent_fraction}},
+        alignment=alignment, inputs=[f.to_dict() for f in inputs],
+        checkpoint={
+            "path": str(checkpoint_path),
+            "input_digest": checkpoint.input_digest,
+            "config_digest": checkpoint.config_digest,
+            "stages": sorted(checkpoint.stages()),
+            "runs": checkpoint.runs,
+            "resumed": resumed,
+        },
+        decisions=decisions, issues=issues, resource=resource,
+        duration_s=config.duration_s)
+    manifest.save(str(manifest_path))
+
+    return PipelineResult(
+        manifest=manifest, index=ra_index, checkpoint=checkpoint,
+        resumed=resumed, run_id=run_id, scan=stage.report, audio=audio,
+        timings=timings, resource=resource)
+
+
+def _reference_lookup(config: PipelineConfig):
+    from .fixtures import FixtureSpec, make_frame
+
+    spec = FixtureSpec(
+        codec=config.codec, duration_s=config.duration_s,
+        bitrate=config.target_bps, seed=config.seed,
+        width=config.width, height=config.height,
+        fps=config.fps, gop=config.gop)
+    return lambda unit_index: make_frame(unit_index, spec)[0]
