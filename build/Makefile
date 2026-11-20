@@ -226,6 +226,30 @@ src/caption_parser.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/caption_parser.cpp.s
 .PHONY : src/caption_parser.cpp.s
 
+src/sha256.o: src/sha256.cpp.o
+.PHONY : src/sha256.o
+
+# target to build an object file
+src/sha256.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/sha256.cpp.o
+.PHONY : src/sha256.cpp.o
+
+src/sha256.i: src/sha256.cpp.i
+.PHONY : src/sha256.i
+
+# target to preprocess a source file
+src/sha256.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/sha256.cpp.i
+.PHONY : src/sha256.cpp.i
+
+src/sha256.s: src/sha256.cpp.s
+.PHONY : src/sha256.s
+
+# target to generate assembly for a file
+src/sha256.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/relay_core.dir/build.make CMakeFiles/relay_core.dir/src/sha256.cpp.s
+.PHONY : src/sha256.cpp.s
+
 src/transport_reorder.o: src/transport_reorder.cpp.o
 .PHONY : src/transport_reorder.o
 
@@ -316,6 +340,9 @@ help:
 	@echo "... src/caption_parser.o"
 	@echo "... src/caption_parser.i"
 	@echo "... src/caption_parser.s"
+	@echo "... src/sha256.o"
+	@echo "... src/sha256.i"
+	@echo "... src/sha256.s"
 	@echo "... src/transport_reorder.o"
 	@echo "... src/transport_reorder.i"
 	@echo "... src/transport_reorder.s"
