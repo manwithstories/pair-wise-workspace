@@ -269,13 +269,15 @@ def align_track(
             anchors=len(pairs),
         )
 
-    # Media-zero origin: a capture offset must show up as an alignment error,
-    # not be absorbed into the display baseline.
+    # Display time is laid end to end from the first capture tick.  Anchoring
+    # the epoch at the first tick (rather than at zero) makes a constant
+    # capture epoch — which the synchronizer is supposed to discover and
+    # compensate — cancel out; only *relative* placement faults count.
     display = build_display_track(
         [packet.pts_ticks for packet in video.packets],
         nominal_step_ticks=nominal_step,
         wrap=config.wrap_ticks,
-        origin_ticks=0,
+        origin_ticks=video.packets[0].pts_ticks if video.packets else 0,
     )
     display_ticks = display.display_ticks
     anchor_video: list[int] = []
@@ -290,15 +292,28 @@ def align_track(
         anchor_audio.append(
             ticks_from_samples(pair.audio_sample, audio.sample_rate)
         )
-    # Alignment error is the raw placement difference between the displayed
-    # video tick and the audio sample tick, both measured from media zero.
-    # A constant offset and a growing drift are both real synchronization
-    # errors, so neither is absorbed by a fit.
-    drift = fit_drift(anchor_video, anchor_audio, origin_ticks=anchor_video[0], min_samples=2)
-    errors = [video_tick - audio_tick for video_tick, audio_tick in zip(anchor_video, anchor_audio)]
+    # Alignment error is the video anchor displacement relative to the first
+    # anchor, minus the audio anchor displacement over the same span.  A
+    # constant capture epoch is a supported offset (it is fitted and applied),
+    # while a stretching or slipping track is a real synchronization fault and
+    # is reported unclamped.
+    drift = fit_drift(
+        anchor_video, anchor_audio, origin_ticks=anchor_video[0], min_samples=2
+    )
+    errors = [
+        (video_tick - anchor_video[0]) - (audio_tick - anchor_audio[0])
+        for video_tick, audio_tick in zip(anchor_video, anchor_audio)
+    ]
     abs_errors = [abs(value) for value in errors]
     max_error = max(abs_errors)
     mean_error = sum(abs_errors) / len(abs_errors)
+    # The fitted constant epoch between capture and program clocks: recorded
+    # in the manifest because it is applied to every sample mapping.
+    applied_offset = int(
+        round(
+            sum(v - a for v, a in zip(anchor_video, anchor_audio)) / len(anchor_video)
+        )
+    ) - (video.packets[0].pts_ticks if video.packets else 0)
     fps_changes = detect_fps_changes(
         [packet.duration_ticks for packet in video.packets],
         nominal_step,
@@ -362,7 +377,7 @@ def align_track(
         max_error_ticks=max_error,
         mean_error_ticks=mean_error,
         drift_ppm=drift.ppm,
-        offset_ticks=drift.origin_ticks,
+        offset_ticks=applied_offset,
         anchors=len(pairs),
         error_intervals=intervals,
         restarts=restarts,

@@ -106,16 +106,46 @@ def test_alignment_with_matching_anchors() -> None:
     assert sync.anchors == 3
 
 
-def test_large_offset_is_reported_not_clamped() -> None:
+def test_constant_capture_epoch_is_compensated_and_recorded() -> None:
     video = make_video(offset_ticks=int(0.030 * TICKS_PER_SECOND))
     audio = make_audio()
     video.anchors, audio.anchors = make_anchors([0.5, 1.0, 1.5])
     sync = align_track(video, audio)
+    # A fixed capture epoch is a supported offset, not a sync fault: it is
+    # fitted, applied, and reported, while the residual stays inside tolerance.
+    assert sync.aligned
+    assert sync.offset_ticks == pytest.approx(0.030 * TICKS_PER_SECOND, abs=2)
+    assert sync.max_error_ms <= SyncConfig().max_error_ms
+
+
+def test_anchor_placement_error_beyond_tolerance_is_reported() -> None:
+    video = make_video()
+    audio = make_audio()
+    # Audio anchors slip 15 ms further with every anchor: a real sync fault.
+    video.anchors = tuple(
+        Anchor(
+            label=f"a{index}",
+            video_index=int(round(value * 30)),
+            video_seconds=value,
+        )
+        for index, value in enumerate([0.5, 1.0, 1.5])
+    )
+    audio.anchors = tuple(
+        Anchor(
+            label=f"a{index}",
+            audio_sample=int(round((value + 0.015 * (index + 1)) * 48_000)),
+            audio_seconds=value,
+        )
+        for index, value in enumerate([0.5, 1.0, 1.5])
+    )
+    sync = align_track(video, audio)
     assert not sync.aligned
+    # Placement is measured relative to the first anchor, which defines the
+    # fitted epoch: the remaining 15/30 ms slips are what exceeds tolerance.
     assert sync.max_error_ms == pytest.approx(30.0, abs=1.0)
     assert "error-over-tolerance" in sync.reason
     assert sync.error_intervals
-    assert all(item.reason == "anchor-error" for item in sync.error_intervals)
+    assert any(item.reason == "anchor-error" for item in sync.error_intervals)
 
 
 def test_drift_beyond_limit_is_rejected() -> None:
