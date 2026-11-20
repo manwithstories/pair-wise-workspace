@@ -123,3 +123,75 @@ class PipelineResult:
         if self.verification:
             payload["verification"] = self.verification
         return payload
+
+
+# ==========================================================================
+# Manifest
+# ==========================================================================
+
+
+def _manifest_path(output_dir: Path) -> Path:
+    return output_dir / "manifest.json"
+
+
+def read_manifest(path: Path) -> dict:
+    path = Path(path)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise make_error(ErrorCategory.MANIFEST_INVALID, "manifest not found", path=str(path)) from None
+    except json.JSONDecodeError as exc:
+        raise make_error(
+            ErrorCategory.MANIFEST_INVALID,
+            f"manifest is not valid JSON: {exc.msg}",
+            path=str(path),
+            line=exc.lineno,
+        ) from exc
+    if payload.get("version") != MANIFEST_VERSION:
+        raise make_error(
+            ErrorCategory.MANIFEST_INVALID,
+            "unsupported manifest version",
+            version=payload.get("version"),
+            expected=MANIFEST_VERSION,
+        )
+    return payload
+
+
+def input_signature(timeline: Timeline, params: RunParams) -> dict:
+    sources: dict[str, dict] = {}
+    for track_id in sorted(timeline.tracks):
+        track = timeline.tracks[track_id]
+        digest, size = file_digest_slices(track.path)
+        entry = {"sha256": digest, "size": size}
+        if track.index_path is not None:
+            entry["index_sha256"] = file_digest_slices(track.index_path)[0]
+        sources[track_id] = entry
+    return {
+        "timeline_digest": timeline.digest(),
+        "params_digest": params.digest(),
+        "sources": sources,
+        "time_base": str(timeline.time_base),
+        "frame_rate": f"{timeline.frame_rate.numerator}/{timeline.frame_rate.denominator}",
+    }
+
+
+def _check_resume(manifest: dict, signature: dict) -> None:
+    recorded = manifest.get("signature", {})
+    for key in ("timeline_digest", "params_digest"):
+        if recorded.get(key) != signature[key]:
+            raise make_error(
+                ErrorCategory.CHECKSUM_MISMATCH,
+                f"{key} changed since the manifest was written",
+                recorded=recorded.get(key),
+                current=signature[key],
+            )
+    for track_id, entry in signature["sources"].items():
+        prior = recorded.get("sources", {}).get(track_id, {})
+        if prior.get("sha256") != entry["sha256"]:
+            raise make_error(
+                ErrorCategory.CHECKSUM_MISMATCH,
+                f"input digest changed for track {track_id!r}",
+                track=track_id,
+                recorded=prior.get("sha256"),
+                current=entry["sha256"],
+            )
