@@ -88,3 +88,5 @@ __pycache__/
 dist/
 build/
 .pytest_cache/
+.tmp-verify.json
+.tmp-*.json
