@@ -159,3 +159,63 @@ func TestTruncatedOutputRejectedInRecovery(t *testing.T) {
 		t.Fatalf("offset=%d want %d", pe.Offset, cut)
 	}
 }
+
+// TestRollbackToEarlierStage exercises per-stage rollback: after a full run we
+// rewind to stage 1's boundary, resume, and still get the identical output.
+func TestRollbackToEarlierStage(t *testing.T) {
+	dir, r, plan := prepare(t)
+	defer r.Close()
+	if err := copyInput(dir, r.Path); err != nil {
+		t.Fatal(err)
+	}
+	full, err := Run(context.Background(), dir, r, plan, Options{Queue: 2, InterruptAfter: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recs, err := journal.Load(filepath.Join(dir, "stages.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stage1 int64 = -1
+	for _, rec := range recs {
+		if rec.Kind == journal.KindCommit && rec.Stage == 1 {
+			stage1 = rec.OutputLen
+		}
+	}
+	if stage1 < 0 {
+		t.Fatal("no stage 1 commit")
+	}
+	// Simulate a crash that leaves junk after stage 1, then recover.
+	out, _ := Paths(dir)
+	f, err := os.OpenFile(out, os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write(make([]byte, 1000)); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	if err := os.Truncate(out, stage1+1000); err != nil {
+		t.Fatal(err)
+	}
+	// Rewrite the journal to keep only records up to stage 1.
+	var keep []journal.Record
+	for _, rec := range recs {
+		if rec.Stage <= 1 {
+			keep = append(keep, rec)
+		}
+	}
+	if _, err := journal.Rewrite(filepath.Join(dir, "stages.log"), keep, nil); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Resume(context.Background(), dir, r, plan, 1)
+	if err != nil {
+		t.Fatalf("resume after rewind: %v", err)
+	}
+	if res.RecoveredStage != 1 || res.RollbackBytes != 1000 {
+		t.Fatalf("res=%+v", res)
+	}
+	if res.OutputSHA != full.OutputSHA {
+		t.Fatalf("rewound output %s != full %s", res.OutputSHA, full.OutputSHA)
+	}
+}
