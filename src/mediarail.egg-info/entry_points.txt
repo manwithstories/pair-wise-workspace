@@ -1,0 +1,2 @@
+[console_scripts]
+mediarail = mediarail.cli:main
