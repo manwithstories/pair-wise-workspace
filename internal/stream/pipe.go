@@ -123,15 +123,11 @@ func (p *Pipe) deliver(s model.Sample, ok bool) (model.Sample, bool, error) {
 		p.mu.Unlock()
 		return model.Sample{}, false, err
 	}
+	// The boundary is owned by the consumer: it must only advance after the
+	// sample has been fully written. Recording it here would report a sample
+	// as complete before the write that could still fail.
 	p.mu.Lock()
 	p.received++
-	p.boundary = model.Boundary{
-		SampleIndex: p.received - 1,
-		TrackIndex:  s.TrackIndex,
-		TrackID:     s.TrackID,
-		TrackSample: s.Index,
-		OutputBytes: p.boundary.OutputBytes,
-	}
 	p.mu.Unlock()
 	return s, true, nil
 }
