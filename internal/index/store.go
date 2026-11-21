@@ -53,6 +53,10 @@ type Index struct {
 	Faults    []model.Fault  `json:"faults,omitempty"`
 	Scanned   int            `json:"scanned"`
 	Skipped   int            `json:"skipped"`
+	Complete  bool           `json:"complete"`
+	// Durations holds per-entry scan latency in milliseconds. It is excluded
+	// from the persisted index and from digests so reruns stay reproducible.
+	Durations []float64 `json:"-"`
 }
 
 // Paths describes the files the index subsystem owns inside a work dir.

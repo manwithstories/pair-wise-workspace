@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"mediascan/internal/manifest"
 	"mediascan/internal/model"
@@ -15,6 +16,8 @@ var (
 	ErrMissingMedia = errors.New("index: referenced media is missing")
 	ErrBadRange     = errors.New("index: byte range outside file")
 	ErrTooLarge     = errors.New("index: media file too large")
+	// ErrInterrupted signals a deliberate stop after StopAfter entries.
+	ErrInterrupted = errors.New("index: scan interrupted by request")
 )
 
 // MaxSegmentBytes caps each referenced media file at 16 MiB.
@@ -27,13 +30,26 @@ type Options struct {
 	// re-reading the media, but only when their digests still match.
 	ResumeFrom int
 	Prev       *Index
+	// StopAfter, when positive, limits how many new entries are hashed before
+	// Scan deliberately returns early. The returned index is marked Complete
+	// false, which models a process interruption.
+	StopAfter int
 }
 
 // Scan walks the timeline in manifest order, hashing each present segment in
 // a streaming pass. Missing media leaves a gap in the timeline and records the
 // first missing dependency; scanning continues so a partial index is always
 // produced.
+// On ErrInterrupted the partial index is returned alongside the error.
 func Scan(res *manifest.Resolver, tl *manifest.Timeline, opts Options) (*Index, error) {
+	if opts.Prev != nil && opts.ResumeFrom > 0 {
+		// An input change anywhere in the already-hashed prefix invalidates the
+		// whole checkpoint: resume restarts from the beginning rather than
+		// mixing digests from two different input states.
+		if !prefixIntact(res, tl, opts.Prev, opts.ResumeFrom) {
+			opts.Prev, opts.ResumeFrom = nil, 0
+		}
+	}
 	idx := &Index{
 		Version:   Version,
 		Manifest:  tl.Source,
@@ -62,10 +78,12 @@ func Scan(res *manifest.Resolver, tl *manifest.Timeline, opts Options) (*Index, 
 				return nil, err
 			}
 			resumed := false
-			if opts.Prev != nil && ordinal < opts.ResumeFrom && ordinal < len(opts.Prev.Entries) {
+			if opts.Prev != nil && ordinal < opts.ResumeFrom && ordinal < len(opts.Prev.Entries) &&
+				prevRunComplete(opts.Prev, ordinal) {
 				prev := opts.Prev.Entries[ordinal]
 				if prev.URI == seg.URI && prev.ByteStart == seg.ByteStart &&
-					prev.ByteEnd == seg.ByteEnd && prev.SHA256 != "" {
+					prev.ByteEnd == seg.ByteEnd && prev.SHA256 != "" &&
+					sizeMatches(full, prev.Size) {
 					entry = prev
 					entry.Ordinal = ordinal
 					entry.Start, entry.Duration = seg.Start, seg.Duration
@@ -75,7 +93,10 @@ func Scan(res *manifest.Resolver, tl *manifest.Timeline, opts Options) (*Index, 
 				}
 			}
 			if !resumed {
-				if err := scanOne(res, full, &entry, ordinal, &faults); err != nil {
+				started := time.Now()
+				err := scanOne(res, full, &entry, ordinal, &faults)
+				idx.Durations = append(idx.Durations, float64(time.Since(started).Microseconds())/1000)
+				if err != nil {
 					var scanErr *mediaError
 					if !errors.As(err, &scanErr) {
 						return nil, err
@@ -94,15 +115,91 @@ func Scan(res *manifest.Resolver, tl *manifest.Timeline, opts Options) (*Index, 
 			}
 			idx.Entries = append(idx.Entries, entry)
 			ordinal++
+			if opts.StopAfter > 0 && idx.Scanned+idx.Skipped >= opts.StopAfter {
+				faults.Sort()
+				idx.Faults = faults.All()
+				idx.Missing = mergeMissing(idx.Missing, tl.Missing)
+				if idx.FirstMiss == "" {
+					idx.FirstMiss = tl.FirstMiss
+				}
+				return idx, ErrInterrupted
+			}
 		}
 	}
 	faults.Sort()
 	idx.Faults = faults.All()
-	idx.Missing = append(idx.Missing, tl.Missing...)
+	idx.Complete = true
+	idx.Missing = mergeMissing(idx.Missing, tl.Missing)
 	if idx.FirstMiss == "" {
 		idx.FirstMiss = tl.FirstMiss
 	}
 	return idx, nil
+}
+
+// prefixIntact checks that every media file in the resume prefix still exists
+// with the size recorded by the previous run.
+func prefixIntact(res *manifest.Resolver, tl *manifest.Timeline, prev *Index, n int) bool {
+	ordinal := 0
+	for _, st := range tl.Streams {
+		for _, seg := range st.Segments {
+			if ordinal >= n {
+				return true
+			}
+			if ordinal >= len(prev.Entries) {
+				return false
+			}
+			entry := prev.Entries[ordinal]
+			if !entry.Present {
+				return false
+			}
+			full, err := res.Resolve(seg.URI)
+			if err != nil || !sizeMatches(full, entry.Size) {
+				return false
+			}
+			ordinal++
+		}
+	}
+	return true
+}
+
+// prevRunComplete reports whether every entry up to and including ordinal was
+// present in the previous run. If an earlier media file has since disappeared,
+// its digest can no longer be trusted and resume must restart from it.
+func prevRunComplete(prev *Index, ordinal int) bool {
+	for i := 0; i <= ordinal && i < len(prev.Entries); i++ {
+		if !prev.Entries[i].Present {
+			return false
+		}
+	}
+	return true
+}
+
+// sizeMatches cheaply validates that a media file still has the size recorded
+// when it was hashed. Resume uses this to avoid trusting digests for media
+// that was removed, truncated or replaced by a different-sized file. Any
+// same-size replacement is caught by verify, which re-hashes everything.
+func sizeMatches(path string, want int64) bool {
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	return info.Size() == want
+}
+
+// mergeMissing unions two missing lists in first-seen order.
+func mergeMissing(a, b []string) []string {
+	seen := make(map[string]bool, len(a)+len(b))
+	out := make([]string, 0, len(a)+len(b))
+	for _, list := range [][]string{a, b} {
+		for _, uri := range list {
+			if seen[uri] {
+				continue
+			}
+			seen[uri] = true
+			out = append(out, uri)
+		}
+	}
+	return out
 }
 
 // mediaError carries a classified fault for a single segment while letting
@@ -131,7 +228,7 @@ func scanOne(res *manifest.Resolver, full string, entry *Entry, ordinal int, fau
 			TimeStart: entry.Start, IndexEntry: ordinal,
 		}}
 	}
-	if entry.ByteEnd > 0 {
+	if entry.ByteEnd >= 0 {
 		if entry.ByteEnd >= size || entry.ByteStart >= size {
 			return &mediaError{fault: model.Fault{
 				Kind: model.FaultBoxBounds, Severity: model.SeverityCritical,

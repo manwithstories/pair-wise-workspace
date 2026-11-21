@@ -4,9 +4,11 @@ package analyze
 
 import (
 	"fmt"
+	"os"
 	"sort"
 
 	"mediascan/internal/index"
+	"mediascan/internal/manifest"
 	"mediascan/internal/model"
 	"mediascan/internal/stream"
 )
@@ -57,11 +59,11 @@ type KeyframeReport struct {
 }
 
 // BuildTracks reads every present indexed segment through the stream scanner
-// and collects per-track samples. Only one segment is resident at a time.
-func BuildTracks(idx *index.Index, resolver interface {
-	Resolve(string) (string, error)
-}, init *stream.Init) ([]Track, error) {
-	tracks := map[string]*Track{}
+// and collects samples by the track ID declared in each traf. Only one
+// segment is resident at a time, so memory stays bounded by the largest moof.
+// Segments that fail box validation contribute no samples.
+func BuildTracks(idx *index.Index, resolver *manifest.Resolver, init *stream.Init) ([]Track, error) {
+	tracks := map[uint32]*Track{}
 	for _, entry := range idx.Entries {
 		if !entry.Present {
 			continue
@@ -72,36 +74,35 @@ func BuildTracks(idx *index.Index, resolver interface {
 		}
 		scan, err := stream.ScanSegment(init, entry.Name, full, entry.ByteStart, entry.ByteEnd)
 		if err != nil {
+			if os.IsNotExist(err) {
+				continue // removed between scan and analysis
+			}
 			return nil, err
 		}
 		if _, bad := scan.FirstUndecodable(); bad {
-			continue // a corrupt segment contributes no trustworthy samples
-		}
-		kind := kindFor(entry.StreamID)
-		if kind == "unknown" {
 			continue
 		}
-		t := tracks[kind]
-		if t == nil {
-			t = &Track{Kind: kind, Timescale: entry.Timescale}
-			tracks[kind] = t
-		}
-		if t.Timescale == 0 {
-			t.Timescale = entry.Timescale
-		}
 		for _, traf := range scan.Trafs {
-			if traf.TrackID != 0 {
-				t.ID = traf.TrackID
+			meta := init.Get(traf.TrackID)
+			t := tracks[traf.TrackID]
+			if t == nil {
+				t = &Track{ID: traf.TrackID, Kind: meta.Kind, Timescale: meta.Timescale}
+				tracks[traf.TrackID] = t
 			}
-			for _, s := range traf.Samples {
-				pts := int64(s.Decode) + s.CTO
-				t.Samples = append(t.Samples, SyncSample{PTS: pts, Segment: entry.Name, Sync: s.Sync})
+			for _, sm := range traf.Samples {
+				t.Samples = append(t.Samples, SyncSample{
+					PTS: int64(sm.Decode) + sm.CTO, Segment: entry.Name, Sync: sm.Sync,
+				})
 			}
 		}
 	}
 	var out []Track
-	for _, k := range []string{"video", "audio"} {
-		if t := tracks[k]; t != nil {
+	for _, kind := range []string{"video", "audio"} {
+		for id, t := range tracks {
+			_ = id
+			if t.Kind != kind {
+				continue
+			}
 			sort.SliceStable(t.Samples, func(i, j int) bool {
 				if t.Samples[i].PTS != t.Samples[j].PTS {
 					return t.Samples[i].PTS < t.Samples[j].PTS
@@ -115,14 +116,6 @@ func BuildTracks(idx *index.Index, resolver interface {
 		return nil, fmt.Errorf("%w: no decodable tracks", model.ErrInvalidTimebase)
 	}
 	return out, nil
-}
-
-func kindFor(streamID string) string {
-	switch streamID {
-	case "video", "audio":
-		return streamID
-	}
-	return "unknown"
 }
 
 // lcmTimescale returns a common tick denominator and the scale factors for
@@ -153,7 +146,8 @@ func gcd(a, b int64) int64 {
 // drift.
 const (
 	classifyMS int64 = 3
-	jumpMS     int64 = 20
+	jumpMS     int64 = 15
+	wrapMS     int64 = 1000
 )
 
 // Align pairs each video sample with the nearest audio sample on the shared
@@ -193,6 +187,7 @@ func Align(video, audio Track, toleranceMS int64) (SyncResult, error) {
 		maxAbs   int64 = -1
 		sumAbs   int64
 		prevMs   int64
+		prevSeg  string
 		havePrev bool
 	)
 	for _, vs := range video.Samples {
@@ -200,8 +195,7 @@ func Align(video, audio Track, toleranceMS int64) (SyncResult, error) {
 		if !ok {
 			return res, fmt.Errorf("%w: video timestamp", model.ErrTimeOverflow)
 		}
-		ai := nearest(audioCommon, vCommon)
-		diff, ok := sub(vCommon, audioCommon[ai])
+		diff, ok := sub(vCommon, audioCommon[nearest(audioCommon, vCommon)])
 		if !ok {
 			return res, fmt.Errorf("%w: timestamp difference", model.ErrTimeOverflow)
 		}
@@ -229,27 +223,94 @@ func Align(video, audio Track, toleranceMS int64) (SyncResult, error) {
 		if abs > toleranceMS {
 			res.Deviations = append(res.Deviations, Deviation{Segment: vs.Segment, At: offset, OffsetMS: ms})
 		}
-		// Classification uses a finer threshold than reporting so a small but
-		// persistent offset is still recognized as clock drift, while an
-		// isolated change of more than one video frame is a real jump.
-		if abs > classifyMS {
-			if havePrev {
-				switch delta := ms - prevMs; {
-				case delta > jumpMS || delta < -jumpMS:
-					res.RealJumps++
-				default:
-					res.ClockSkews++
-				}
+		// A single-sample step beyond jumpMS inside one segment is a real
+		// discontinuity, not a clock offset.
+		if havePrev && prevSeg == vs.Segment {
+			if delta := ms - prevMs; delta > jumpMS || delta < -jumpMS {
+				res.RealJumps++
 			}
-			prevMs, havePrev = ms, true
 		}
+		prevMs, prevSeg, havePrev = ms, vs.Segment, true
 	}
 	if res.Pairs > 0 {
 		res.MeanErrorMS = float64(sumAbs) / float64(res.Pairs)
 	}
+	// Container-level clocks are compared at each segment boundary. Sample
+	// nearest-neighbour alignment quantizes sub-frame bias, so a true clock
+	// offset is visible in the declared base times rather than in the matched
+	// sample pairs.
+	classifyBases(&res, video, audio, toleranceMS)
 	res.WrapSpans = countWraps(video.Samples) + countWraps(audio.Samples)
 	res.Faults = syncFaults(res, toleranceMS)
 	return res, nil
+}
+
+// segmentBase returns the earliest PTS per segment name in track order.
+func segmentBase(t Track) ([]string, map[string]int64) {
+	var order []string
+	bases := map[string]int64{}
+	for _, sm := range t.Samples {
+		if _, ok := bases[sm.Segment]; !ok {
+			order = append(order, sm.Segment)
+			bases[sm.Segment] = sm.PTS
+			continue
+		}
+		if sm.PTS < bases[sm.Segment] {
+			bases[sm.Segment] = sm.PTS
+		}
+	}
+	return order, bases
+}
+
+// classifyBases compares the declared per-segment base times of the two
+// tracks on the shared rational clock. A constant non-zero difference is a
+// clock offset; a step larger than jumpMS is a real discontinuity; a base that
+// jumps backwards is a wrap.
+func classifyBases(res *SyncResult, video, audio Track, toleranceMS int64) {
+	vOrder, vBase := segmentBase(video)
+	aOrder, aBase := segmentBase(audio)
+	seen := map[string]bool{}
+	var order []string
+	for _, name := range append(append([]string{}, vOrder...), aOrder...) {
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		order = append(order, name)
+	}
+	var prevMS int64
+	havePrev := false
+	for _, name := range order {
+		vTicks, okV := vBase[name]
+		aTicks, okA := aBase[name]
+		if !okV || !okA {
+			continue
+		}
+		diff := aTicks*int64(video.Timescale) - vTicks*int64(audio.Timescale)
+		offset, err := model.NewRational(diff, int64(video.Timescale)*int64(audio.Timescale))
+		if err != nil {
+			continue
+		}
+		ms, err := offset.MillisRounded()
+		if err != nil {
+			continue
+		}
+		switch {
+		case havePrev && ms-prevMS < -wrapMS:
+			res.WrapSpans++
+		case abs64(ms) > classifyMS:
+			res.ClockSkews++
+		}
+		prevMS, havePrev = ms, true
+	}
+	_ = toleranceMS
+}
+
+func abs64(v int64) int64 {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 func countWraps(samples []SyncSample) int {
@@ -288,7 +349,8 @@ func syncFaults(res SyncResult, toleranceMS int64) []model.Fault {
 }
 
 // Keyframes measures the interval between successive sync samples and flags
-// GOPs longer than maxGOPMS.
+// GOPs longer than maxGOPMS. A keyframe-less segment produces no sync sample,
+// so the interval spanning it is the one that trips the threshold.
 func Keyframes(video Track, maxGOPMS int64) KeyframeReport {
 	var rep KeyframeReport
 	var lastSync int64 = -1

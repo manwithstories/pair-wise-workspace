@@ -51,7 +51,9 @@ func (p Params) Normalize() (Params, error) {
 	return p, nil
 }
 
-// Checkpoint is the durable resume record.
+// Checkpoint is the durable resume record. ResultSHA is the digest of the
+// conclusions produced by the run that wrote it; a repeated run over unchanged
+// inputs must reproduce it exactly.
 type Checkpoint struct {
 	Version      int             `json:"version"`
 	ManifestSHA  string          `json:"manifest_sha256"` // digest of normalized timeline
@@ -63,6 +65,7 @@ type Checkpoint struct {
 	Status       string          `json:"status"` // "running" | "interrupted" | "complete"
 	UpdatedAt    string          `json:"updated_at"`
 	Results      json.RawMessage `json:"results,omitempty"`
+	ResultSHA    string          `json:"result_sha256,omitempty"`
 }
 
 // Store reads and writes checkpoints under a work directory.

@@ -3,7 +3,6 @@ package stream
 import (
 	"errors"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/pion/rtp"
@@ -47,7 +46,7 @@ func TestScanSegmentClean(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(l.Work, "media/video/seg-01.m4s")
+	path := fixture.SegmentPath(l.Work, 1)
 	scan, err := ScanSegment(init, "seg-01.m4s", path, 0, -1)
 	if err != nil {
 		t.Fatal(err)
@@ -55,8 +54,12 @@ func TestScanSegmentClean(t *testing.T) {
 	if len(scan.Faults) != 0 {
 		t.Fatalf("clean segment faults: %+v", scan.Faults)
 	}
-	if len(scan.Trafs) != 1 || len(scan.Trafs[0].Samples) != fixture.SegmentSeconds*fixture.VideoRate {
-		t.Fatalf("traf/samples: %+v", scan.Trafs)
+	if len(scan.Trafs) != 2 {
+		t.Fatalf("traf count: %d", len(scan.Trafs))
+	}
+	if len(scan.Trafs[0].Samples) != fixture.SamplesPerVideoSegment ||
+		len(scan.Trafs[1].Samples) != fixture.SamplesPerAudioSegment {
+		t.Fatalf("sample counts: %d/%d", len(scan.Trafs[0].Samples), len(scan.Trafs[1].Samples))
 	}
 	if !scan.Trafs[0].Samples[0].Sync {
 		t.Fatal("first sample of seg 1 should be a keyframe")
@@ -72,7 +75,7 @@ func TestScanSegmentTruncatedBox(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(l.Work, "media/video/seg-03.m4s")
+	path := fixture.SegmentPath(l.Work, 3)
 	scan, err := ScanSegment(init, "seg-03.m4s", path, 0, -1)
 	if err != nil {
 		t.Fatal(err)
@@ -96,7 +99,7 @@ func TestScanSegmentImpossibleBoxSize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(l.Work, "media/video/seg-02.m4s")
+	path := fixture.SegmentPath(l.Work, 2)
 	scan, err := ScanSegment(init, "seg-02.m4s", path, 0, -1)
 	if err != nil {
 		t.Fatal(err)
@@ -113,7 +116,7 @@ func TestScanSegmentByteRange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(l.Work, "media/video/seg-01.m4s")
+	path := fixture.SegmentPath(l.Work, 1)
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
