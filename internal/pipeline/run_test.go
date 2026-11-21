@@ -272,3 +272,24 @@ func TestRunHandOffFailureCarriesSourceOffset(t *testing.T) {
 		t.Fatalf("stage=%q", fault.StageOf(err))
 	}
 }
+
+func TestRunRefusesToOverwriteInput(t *testing.T) {
+	root, in, _ := setup(t, fixture.DamageClean)
+	before, err := os.ReadFile(filepath.Join(root.Dir, in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Run(context.Background(), Options{
+		InputPath: in, OutputPath: in, QueueCapacity: 2, Root: root,
+	})
+	if !errors.Is(err, fsguard.ErrOutputInsideInput) {
+		t.Fatalf("got %v", err)
+	}
+	after, err := os.ReadFile(filepath.Join(root.Dir, in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatal("refused run modified the source file")
+	}
+}

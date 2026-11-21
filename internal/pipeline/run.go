@@ -164,7 +164,7 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 		return nil, fault.New(fault.StageOpen, err)
 	}
 	defer input.Close()
-	outPath, err := opts.Root.Resolve(opts.OutputPath)
+	outPath, err := opts.Root.GuardOutput(opts.InputPath, opts.OutputPath)
 	if err != nil {
 		return nil, fault.New(fault.StageOpen, err)
 	}

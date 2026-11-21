@@ -114,3 +114,37 @@ func TestAtomicFileCommit(t *testing.T) {
 		t.Fatalf("abort after commit must be a no-op: %v", err)
 	}
 }
+
+func TestGuardOutputRejectsInputOverwrite(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "master.mkv"), []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := OpenRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.GuardOutput("master.mkv", "master.mkv"); !errors.Is(err, ErrOutputInsideInput) {
+		t.Fatalf("got %v", err)
+	}
+	if _, err := r.GuardOutput("master.mkv", "./master.mkv"); !errors.Is(err, ErrOutputInsideInput) {
+		t.Fatalf("got %v for equivalent path", err)
+	}
+	out, err := r.GuardOutput("master.mkv", "out/master.mp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !filepath.IsAbs(out) {
+		t.Fatalf("output not absolute: %s", out)
+	}
+}
+
+func TestGuardOutputRejectsEscape(t *testing.T) {
+	r, err := OpenRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.GuardOutput("in.mkv", "../out.mp4"); !errors.Is(err, ErrEscape) {
+		t.Fatalf("got %v", err)
+	}
+}

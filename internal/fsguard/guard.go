@@ -14,6 +14,9 @@ import (
 // ErrEscape is returned when a path resolves outside the input root.
 var ErrEscape = errors.New("path escapes input root")
 
+// ErrOutputInsideInput is returned when an output would overwrite the source.
+var ErrOutputInsideInput = errors.New("output path is the input file")
+
 // Root is a confined input directory.
 type Root struct {
 	// Dir is the canonical absolute root directory.
@@ -143,6 +146,24 @@ type AtomicFile struct {
 	Target string
 	tmp    *os.File
 	done   bool
+}
+
+// GuardOutput refuses an output that resolves to the input file, so a failed
+// export can never destroy the master. It also confirms the output's parent
+// directory exists or can be created under the root.
+func (r *Root) GuardOutput(input, output string) (string, error) {
+	inResolved, err := r.Resolve(input)
+	if err != nil {
+		return "", err
+	}
+	outResolved, err := r.Resolve(output)
+	if err != nil {
+		return "", err
+	}
+	if inResolved == outResolved {
+		return "", fmt.Errorf("%w: %s", ErrOutputInsideInput, output)
+	}
+	return outResolved, nil
 }
 
 // CreateOutput creates the temporary file in the target's directory.
