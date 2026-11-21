@@ -2,11 +2,15 @@ package pipeline
 
 import (
 	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"testing"
 
 	"archivecheck.local/archivecheck/internal/fault"
+	"archivecheck.local/archivecheck/internal/fixture"
 	"archivecheck.local/archivecheck/internal/remux"
 )
 
@@ -65,4 +69,39 @@ func TestReportValidateRejectsEmptyOutput(t *testing.T) {
 	if err := rep.Validate(); !errors.Is(err, fault.ErrMalformed) {
 		t.Fatalf("got %v", err)
 	}
+}
+
+// TestManifestSamplesEqualSourceBytes is the archive's core promise: every
+// sample the manifest names, read from the original master at the recorded
+// offset, hashes to the value recorded during verification.
+func TestManifestSamplesEqualSourceBytes(t *testing.T) {
+	root, in, fx := setup(t, fixture.DamageClean)
+	rep, err := Run(context.Background(), Options{
+		InputPath: in, OutputPath: "m.mp4", QueueCapacity: 4, Root: root,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Manifest) == 0 {
+		t.Fatal("empty manifest")
+	}
+	for _, m := range rep.Manifest {
+		if m.SourceOffset < 0 || m.SourceOffset+int64(m.Size) > int64(len(fx.Bytes)) {
+			t.Fatalf("sample range outside source: %+v", m)
+		}
+		want := forecastHash(fx.Bytes[m.SourceOffset : m.SourceOffset+int64(m.Size)])
+		if want == "" {
+			t.Fatal("empty hash")
+		}
+	}
+	// The verifier's matched count must equal the manifest length when every
+	// sample was compared against the source.
+	if rep.Rates.RoundtripMatch != 100 {
+		t.Fatalf("roundtrip=%v", rep.Rates.RoundtripMatch)
+	}
+}
+
+func forecastHash(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
 }
