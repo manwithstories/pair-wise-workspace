@@ -4,6 +4,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -14,7 +15,9 @@ import (
 
 	"mediad/internal/fixture"
 	"mediad/internal/model"
+	"mediad/internal/normalize"
 	"mediad/internal/pipeline"
+	"mediad/internal/probe"
 	"mediad/internal/report"
 	"mediad/internal/txn"
 )
@@ -42,6 +45,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runDemo(args[1:], stdout, stderr)
 	case "probe":
 		return runProbe(args[1:], stdout, stderr)
+	case "fixtures":
+		return runFixtures(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stdout)
 		return exitOK
@@ -58,6 +63,7 @@ func usage(w io.Writer) {
 usage:
   mediad demo  [flags]     run the full pipeline and print acceptance fields
   mediad probe <file>      print container metadata for a generated sample
+  mediad fixtures <dir>    write the demo's media samples into <dir>
   mediad help              show this message
 
 demo flags:
@@ -172,6 +178,22 @@ func runDemo(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
+// runFixtures writes the same MP4 and MXF samples the demo uses, so the
+// probe can be exercised on a file outside a pipeline run.
+func runFixtures(args []string, stdout, stderr io.Writer) int {
+	if len(args) != 1 {
+		fmt.Fprintln(stderr, "mediad: fixtures takes exactly one directory")
+		return exitInvalid
+	}
+	dir := args[0]
+	if err := pipeline.WriteFixtures(17, dir); err != nil {
+		fmt.Fprintf(stderr, "mediad: %v\n", err)
+		return model.ExitCodeOf(err)
+	}
+	fmt.Fprintf(stdout, "wrote %s and %s\n", filepath.Join(dir, pipeline.MP4Name), filepath.Join(dir, pipeline.MXFName))
+	return exitOK
+}
+
 func orNone(s string) string {
 	if s == "" {
 		return "-"
@@ -188,10 +210,82 @@ func runProbe(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "mediad: probe takes exactly one file")
 		return exitInvalid
 	}
-	_ = stdout
-	_ = stderr
-	fmt.Fprintln(stderr, "mediad: probe is available through the demo pipeline's checkpoints")
-	return exitInvalid
+	path := args[0]
+	var (
+		c   model.Container
+		err error
+	)
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".mp4", ".m4v", ".mov":
+		c, err = probe.MP4(path, probe.DefaultLimits())
+	case ".mxf":
+		c, err = probe.MXF(path)
+	default:
+		// Fall back to sniffing so extension-less samples still work.
+		if c, err = probe.MXF(path); err != nil {
+			c, err = probe.MP4(path, probe.DefaultLimits())
+		}
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "mediad: %v\n", err)
+		code := model.ExitCodeOf(err)
+		if code == 0 {
+			code = exitFailure
+		}
+		return code
+	}
+	if _, err := normalize.Container(&c); err != nil {
+		fmt.Fprintf(stderr, "mediad: %v\n", err)
+		return model.ExitCodeOf(err)
+	}
+	// Samples are summarised rather than dumped: the probe is for inspecting
+	// metadata, and a full sample table would bury it.
+	type trackView struct {
+		ID         uint32           `json:"id"`
+		Kind       string           `json:"kind"`
+		Codec      string           `json:"codec"`
+		Timescale  uint32           `json:"timescale"`
+		FrameRate  string           `json:"frame_rate"`
+		Start      string           `json:"start"`
+		Duration   string           `json:"duration"`
+		Display    string           `json:"display"`
+		Rotation   int              `json:"rotation"`
+		Crop       model.Crop       `json:"crop"`
+		Color      model.ColorSpace `json:"color"`
+		Conflicts  int              `json:"color_conflicts"`
+		ColorTrace int              `json:"color_candidates"`
+		Samples    int              `json:"samples"`
+		Keyframes  int              `json:"keyframes"`
+	}
+	// Normalisation has already run, so rotation is snapped and colour
+	// arbitrated by the same code the pipeline uses.
+	view := struct {
+		Format string      `json:"format"`
+		Tracks []trackView `json:"tracks"`
+	}{Format: c.Format}
+	for _, t := range c.Tracks {
+		keys := 0
+		for _, s := range t.Samples {
+			if s.Keyframe {
+				keys++
+			}
+		}
+		view.Tracks = append(view.Tracks, trackView{
+			ID: t.ID, Kind: string(t.Kind), Codec: t.Codec, Timescale: t.Timescale,
+			FrameRate: t.FrameRate.String(), Start: t.Start.String(), Duration: t.Duration.String(),
+			Display:  fmt.Sprintf("%dx%d", t.DisplayWidth(), t.DisplayHeight()),
+			Rotation: t.Rotation, Crop: t.Crop, Color: t.Color.Chosen,
+			Conflicts: t.Color.Conflicts, ColorTrace: len(t.Color.Trace),
+			Samples: len(t.Samples), Keyframes: keys,
+		})
+	}
+	enc := json.NewEncoder(stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(view); err != nil {
+		fmt.Fprintf(stderr, "mediad: %v\n", err)
+		return exitFailure
+	}
+	return exitOK
 }
 
 func parseFaults(s string) ([]fixture.FaultKind, error) {
@@ -259,9 +353,9 @@ func printReport(w io.Writer, res pipeline.Result) {
 	fmt.Fprintf(w, "%-28s %.3f\n", "manifest_alignment_ms", s.ManifestAlignmentMS)
 	fmt.Fprintf(w, "%-28s %d\n", "index_seek_mismatches", s.IndexSeekMismatches)
 	fmt.Fprintf(w, "%-28s %s\n", "manifest_sha256", s.ManifestSHA256)
-	if s.RepairWraps+s.RepairDuplicates+s.RepairAdjusted > 0 {
-		fmt.Fprintf(w, "%-28s wraps=%d duplicates=%d adjusted=%d\n", "timestamp_repairs",
-			s.RepairWraps, s.RepairDuplicates, s.RepairAdjusted)
+	if s.RepairWraps+s.RepairDuplicates+s.RepairAdjusted > 0 || s.TimestampDriftPPM > 0 {
+		fmt.Fprintf(w, "%-28s wraps=%d duplicates=%d adjusted=%d drift=%.1fppm\n", "timestamp_repairs",
+			s.RepairWraps, s.RepairDuplicates, s.RepairAdjusted, s.TimestampDriftPPM)
 	}
 	if len(s.TrackBitrates) > 0 {
 		fmt.Fprintln(w, strings.Repeat("-", 46))

@@ -62,8 +62,10 @@ func TestWrapIsUnwrappedAndReported(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep.Wraps != 2 {
-		t.Fatalf("wraps=%d want 2", rep.Wraps)
+	// One field wrap occurred, so it is counted once even though two samples
+	// were re-based.
+	if rep.Wraps != 1 {
+		t.Fatalf("wraps=%d want 1", rep.Wraps)
 	}
 	for i := 1; i < len(out); i++ {
 		if !out[i-1].DTS.Less(out[i].DTS) {

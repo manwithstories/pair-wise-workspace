@@ -314,10 +314,14 @@ func assembleTrack(t *LocalSet, descs, clips, timecodes map[[32]byte]*LocalSet) 
 	if tr.FrameRate, err = clock.New(int64(rn), int64(rd)); err != nil {
 		return tr, model.Wrap(model.KindInvalidMedia, "probe.mxf", "EditRate", err).WithTrack(id)
 	}
-	tr.Timescale = uint32(rn / rd)
-	if tr.Timescale == 0 {
-		tr.Timescale = uint32(rn)
+	// MXF edit units are the media clock; round the edit rate so a
+	// 30000/1001 track reports 30 ticks per second while FrameRate keeps the
+	// exact fraction.
+	rounded := (int64(rn) + int64(rd)/2) / int64(rd)
+	if rounded <= 0 {
+		rounded = int64(rn)
 	}
+	tr.Timescale = uint32(rounded)
 
 	units, ok := t.Uint64("Duration")
 	if !ok {

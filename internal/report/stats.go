@@ -62,6 +62,9 @@ type Summary struct {
 	RepairWraps      int `json:"repair_wraps"`
 	RepairDuplicates int `json:"repair_duplicates"`
 	RepairAdjusted   int `json:"repair_adjusted"`
+	// TimestampDriftPPM is the worst absolute drift measured on any track
+	// before repair.
+	TimestampDriftPPM float64 `json:"timestamp_drift_ppm"`
 
 	// TrackBitrates lists per-track actual bitrate for diagnostics.
 	TrackBitrates []TrackBitrate `json:"track_bitrates,omitempty"`
@@ -99,9 +102,10 @@ type LossCounts struct {
 
 // RepairCounts mirrors the repair stage's counters.
 type RepairCounts struct {
-	Wraps      int
-	Duplicates int
-	Adjusted   int
+	Wraps         int
+	Duplicates    int
+	Adjusted      int
+	WorstDriftPPM float64
 }
 
 // Build produces the summary. The actual bitrate is recomputed from the
@@ -124,6 +128,7 @@ func (b Builder) Build() Summary {
 		RepairWraps:          b.Repair.Wraps,
 		RepairDuplicates:     b.Repair.Duplicates,
 		RepairAdjusted:       b.Repair.Adjusted,
+		TimestampDriftPPM:    b.Repair.WorstDriftPPM,
 	}
 	if digest, err := b.Manifest.Digest(); err == nil {
 		s.ManifestSHA256 = digest

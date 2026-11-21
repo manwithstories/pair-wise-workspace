@@ -31,6 +31,9 @@ const (
 // The demo's media is fixed and deliberately small: this is a demonstration
 // of the library, not a transcoder. Sizes are chosen so a healthy delivery
 // lands 2% under its target, matching the delivery spec's safety margin.
+// rtpTicksPerFrame is the demo RTP clock's ticks between packets.
+const rtpTicksPerFrame = 90000 / 30
+
 const (
 	videoFrames      = 120
 	videoDelta       = 1001
@@ -214,6 +217,7 @@ type runner struct {
 	container  model.Container
 	lossReport rtp.LossReport
 	rtpStats   rtp.Stats
+	rtpTrack   *model.Track
 	repairs    []repair.Report
 	mismatches int
 	done       map[txn.Stage]bool
@@ -249,33 +253,33 @@ func (r *runner) execute(s txn.Stage) error {
 			}
 		}
 	case txn.StageRTP:
-		if len(r.opt.Faults) > 0 && !reuse {
-			rep, stats, faults, err := runRTP(r.opt, r.res)
-			if err != nil {
-				return err
-			}
-			r.lossReport, r.rtpStats = rep, stats
-			r.res.InjectedFaults += faults
-			if _, err := r.txm.Commit(s, mustJSON(map[string]any{"stats": stats, "loss": rep})); err != nil {
-				return err
-			}
-		} else if reuse {
+		if reuse {
 			data, err := os.ReadFile(r.txm.ArtifactPath(s))
 			if err == nil {
 				var payload struct {
 					Stats rtp.Stats      `json:"stats"`
 					Loss  rtp.LossReport `json:"loss"`
+					Track model.Track    `json:"track"`
 				}
 				if json.Unmarshal(data, &payload) == nil {
 					r.rtpStats, r.lossReport = payload.Stats, payload.Loss
+					track := payload.Track
+					r.rtpTrack = &track
 				}
 			}
-		} else {
-			// No faults: the stage still commits so the WAL records that it
-			// ran and produced no loss.
-			if _, err := r.txm.Commit(s, mustJSON(map[string]any{"stats": r.rtpStats, "loss": r.lossReport})); err != nil {
-				return err
-			}
+			break
+		}
+		rep, stats, faults, track, err := runRTP(r.opt, r.res)
+		if err != nil {
+			return err
+		}
+		r.lossReport, r.rtpStats = rep, stats
+		r.rtpTrack = track
+		r.res.InjectedFaults += faults
+		if _, err := r.txm.Commit(s, mustJSON(map[string]any{
+			"stats": stats, "loss": rep, "track": track,
+		})); err != nil {
+			return err
 		}
 	case txn.StageRepair:
 		if reuse {
@@ -295,6 +299,23 @@ func (r *runner) execute(s txn.Stage) error {
 		for i := range r.container.Tracks {
 			t := &r.container.Tracks[i]
 			rep, err := repair.Track(t, repair.Options{NominalFrameRate: t.FrameRate})
+			if err != nil {
+				return err
+			}
+			r.repairs = append(r.repairs, rep)
+		}
+		// The reconstructed RTP stream is handed to the same repair stage.
+		// Its 32-bit media clock wraps, so wrap handling is enabled and the
+		// wrap count becomes part of the acceptance report.
+		if r.rtpTrack != nil {
+			// Drift is not measurable on a lossy stream: the samples span
+			// more wall time than their count implies, which would look like
+			// a clock error. Wrap handling still applies, so the 32-bit
+			// field is repaired and counted.
+			rep, err := repair.Track(r.rtpTrack, repair.Options{
+				WrapTicks: 1 << 32,
+				ClockRate: r.rtpTrack.Timescale,
+			})
 			if err != nil {
 				return err
 			}
@@ -347,7 +368,30 @@ func (r *runner) finish() error {
 	return nil
 }
 
+// hydrate fills stage outputs that this process did not compute itself, so a
+// run that resumes at the manifest stage still reports the counters recorded
+// by the stages it reused.
+func (r *runner) hydrate() {
+	if len(r.repairs) == 0 {
+		if data, err := os.ReadFile(r.txm.ArtifactPath(txn.StageRepair)); err == nil {
+			json.Unmarshal(data, &r.repairs)
+		}
+	}
+	if r.rtpStats.Received == 0 && r.lossReport.TotalLost == 0 && r.lossReport.RecoveredSamples == 0 {
+		if data, err := os.ReadFile(r.txm.ArtifactPath(txn.StageRTP)); err == nil {
+			var payload struct {
+				Stats rtp.Stats      `json:"stats"`
+				Loss  rtp.LossReport `json:"loss"`
+			}
+			if json.Unmarshal(data, &payload) == nil {
+				r.rtpStats, r.lossReport = payload.Stats, payload.Loss
+			}
+		}
+	}
+}
+
 func (r *runner) commitManifest() error {
+	r.hydrate()
 	targets := targetSpecs()
 	man, err := manifest.Build(r.opt.Seed, r.container.Format, targets, r.container.Tracks)
 	if err != nil {
@@ -366,6 +410,13 @@ func (r *runner) commitManifest() error {
 		repairCounts.Wraps += rep.Wraps
 		repairCounts.Duplicates += rep.Duplicates
 		repairCounts.Adjusted += rep.Adjusted
+		if d := rep.DriftPPM; d < 0 {
+			if -d > repairCounts.WorstDriftPPM {
+				repairCounts.WorstDriftPPM = -d
+			}
+		} else if d > repairCounts.WorstDriftPPM {
+			repairCounts.WorstDriftPPM = d
+		}
 	}
 	r.res.Manifest = man
 	r.res.Summary = report.Builder{
@@ -498,11 +549,14 @@ func probeAll(mp4Path, mxfPath string, out *model.Container, res *Result) error 
 	return nil
 }
 
-func runRTP(opt DemoOptions, res *Result) (rtp.LossReport, rtp.Stats, int, error) {
+func runRTP(opt DemoOptions, res *Result) (rtp.LossReport, rtp.Stats, int, *model.Track, error) {
 	const clockRate = 90000
 	const samples = 120
 	const payloadBytes = 800
-	pkts := fixture.Packetise(opt.Seed, 1, samples, payloadBytes, clockRate, clockRate/30, 65530, 0)
+	// Start the 32-bit media clock just before its modulus so the stream
+	// genuinely wraps once during the run.
+	const startTS = uint32(0xFFFFFFFF - 60*3000)
+	pkts := fixture.Packetise(opt.Seed, 1, samples, payloadBytes, clockRate, rtpTicksPerFrame, 65530, startTS)
 	params := fixture.FaultParams{
 		DuplicateAt: []int{7, 23, 41},
 		ReorderAt:   []int{12, 55, 77},
@@ -519,7 +573,7 @@ func runRTP(opt DemoOptions, res *Result) (rtp.LossReport, rtp.Stats, int, error
 	cfg.MaxWindow = 256
 	recv, err := rtp.NewReceiver(cfg)
 	if err != nil {
-		return rtp.LossReport{}, rtp.Stats{}, 0, err
+		return rtp.LossReport{}, rtp.Stats{}, 0, nil, err
 	}
 	var delivered []rtp.Packet
 	for i, p := range arrivals {
@@ -528,7 +582,7 @@ func runRTP(opt DemoOptions, res *Result) (rtp.LossReport, rtp.Stats, int, error
 		}
 		got, err := recv.Push(p)
 		if err != nil {
-			return rtp.LossReport{}, rtp.Stats{}, 0, err
+			return rtp.LossReport{}, rtp.Stats{}, 0, nil, err
 		}
 		delivered = append(delivered, got...)
 	}
@@ -537,10 +591,11 @@ func runRTP(opt DemoOptions, res *Result) (rtp.LossReport, rtp.Stats, int, error
 	rep := rtp.ClassifyLoss(stats, delivered, opt.MaxBurst)
 	tr, err := recv.Track(1, delivered)
 	if err != nil {
-		return rtp.LossReport{}, rtp.Stats{}, 0, err
+		return rtp.LossReport{}, rtp.Stats{}, 0, nil, err
 	}
+	tr.Source = "rtp"
 	if err := rtp.DamagedRanges(&tr, rep); err != nil {
-		return rtp.LossReport{}, rtp.Stats{}, 0, err
+		return rtp.LossReport{}, rtp.Stats{}, 0, nil, err
 	}
 	if len(rep.Gaps) > 0 {
 		res.Notes = append(res.Notes, fmt.Sprintf(
@@ -550,7 +605,7 @@ func runRTP(opt DemoOptions, res *Result) (rtp.LossReport, rtp.Stats, int, error
 	if n := len(stats.WindowShifts); n > 0 {
 		res.Notes = append(res.Notes, fmt.Sprintf("rtp: reorder window adapted %d time(s) to bandwidth", n))
 	}
-	return rep, stats, faults, nil
+	return rep, stats, faults, &tr, nil
 }
 
 // targetSpecs is the delivery manifest, authored from the spec rather than
@@ -571,6 +626,16 @@ func targetSpecs() []manifest.TrackTarget {
 		spec(2, audioFrames, audioDelta, audioTimescale, audioBytes),
 		spec(3, videoFrames, videoDelta, videoTimescale, mxfEssenceBytes),
 	}
+}
+
+// WriteFixtures writes the demo's media samples into dir using the demo
+// seed and track layout. It exists so the probe can be demonstrated on real
+// files without running the whole pipeline.
+func WriteFixtures(seed int64, dir string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return model.Wrap(model.KindInternal, "pipeline", "create fixture directory", err)
+	}
+	return writeFixtures(seed, filepath.Join(dir, MP4Name), filepath.Join(dir, MXFName))
 }
 
 func writeFixtures(seed int64, mp4Path, mxfPath string) error {

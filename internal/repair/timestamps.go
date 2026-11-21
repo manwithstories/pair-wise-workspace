@@ -65,29 +65,41 @@ func Timestamps(trackID uint32, samples []model.Sample, opts Options) ([]model.S
 	}
 
 	// 1. Unwrap: a backward jump by roughly the timestamp modulus is a field
-	// wrap, not a rewind. The wrap is accepted only when adding the period
-	// lands the sample strictly after its predecessor.
+	// wrap, not a rewind. The shift is cumulative, so every sample after the
+	// wrap stays on the same extended timeline; the wrap is counted once per
+	// period crossed, not once per sample.
 	if opts.WrapTicks > 0 && opts.ClockRate > 0 {
-		period, err := clock.New(int64(opts.WrapTicks), int64(opts.ClockRate))
-		if err != nil {
-			return nil, rep, model.Wrap(model.KindInvalidInput, "repair.timestamps", "wrap period", err).WithTrack(trackID)
-		}
+		mod := clock.Rational{Num: int64(opts.WrapTicks), Den: int64(opts.ClockRate)}
+		shift := clock.Zero()
 		for i := 1; i < len(dts); i++ {
-			if dts[i-1].Less(dts[i]) {
-				continue
-			}
-			cand, err := dts[i].Add(period)
+			cand, err := dts[i].Add(shift)
 			if err != nil {
-				continue
+				return nil, rep, model.Wrap(model.KindInvalidMedia, "repair.timestamps",
+					fmt.Sprintf("sample %d timestamp overflow", i), err).WithTrack(trackID)
 			}
 			if dts[i-1].Less(cand) {
 				dts[i] = cand
-				rep.Wraps++
+				continue
 			}
+			// Only treat a backward jump as a wrap when one period actually
+			// repairs the ordering; otherwise it is a genuine rewind and is
+			// left for the monotonicity pass.
+			next, err := shift.Add(mod)
+			if err != nil {
+				continue
+			}
+			cand, err = dts[i].Add(next)
+			if err != nil || !dts[i-1].Less(cand) {
+				dts[i] = cand
+				continue
+			}
+			shift = next
+			dts[i] = cand
+			rep.Wraps++
 		}
 		if rep.Wraps > 0 {
 			rep.Notes = append(rep.Notes, fmt.Sprintf(
-				"unwrapped %d timestamp field wrap(s) of %s seconds", rep.Wraps, period.String()))
+				"unwrapped %d timestamp field wrap(s) of %s seconds at %d ticks", rep.Wraps, mod.String(), opts.WrapTicks))
 		}
 	}
 

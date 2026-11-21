@@ -101,9 +101,9 @@ func (l ColorLayer) Rank() int {
 
 // ColorCandidate is one observed colour description and where it came from.
 type ColorCandidate struct {
-	Layer  ColorLayer
-	Color  ColorSpace
-	Origin string
+	Layer  ColorLayer `json:"layer"`
+	Color  ColorSpace `json:"color"`
+	Origin string     `json:"origin"`
 }
 
 // ColorDecision is the arbitration result for a track.
