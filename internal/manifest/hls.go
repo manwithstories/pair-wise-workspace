@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"fmt"
 	"io/fs"
+	"path"
 	"strconv"
 	"strings"
 
@@ -25,6 +26,8 @@ func ParseHLS(fsys fs.FS, playlist string, role model.TrackRole) (*model.Timelin
 	tl := model.NewTimeline()
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	// Fragment URIs are relative to the playlist's own directory.
+	dir := path.Dir(playlist)
 
 	var (
 		header    bool
@@ -48,7 +51,7 @@ func ParseHLS(fsys fs.FS, playlist string, role model.TrackRole) (*model.Timelin
 			if pending == nil {
 				return nil, fmt.Errorf("hls: URI %s without preceding EXTINF", line)
 			}
-			pending.uri = line
+			pending.uri = path.Join(dir, line)
 			ok, perr := commitHLSEntry(fsys, tl, role, idx, seq+int64(idx), cursor, pending)
 			if perr != nil {
 				return nil, perr

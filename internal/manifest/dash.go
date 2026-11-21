@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io/fs"
+	"path"
 	"strings"
 
 	"mediad/internal/model"
@@ -63,7 +64,7 @@ func ParseDASH(fsys fs.FS, mpdPath string) (*model.Timeline, error) {
 			if role != model.TrackStudio && role != model.TrackField && role != model.TrackVoice {
 				return nil, fmt.Errorf("dash: AdaptationSet id %q is not a known track role", set.ID)
 			}
-			if err := expandSet(fsys, tl, role, set.Template); err != nil {
+			if err := expandSet(fsys, path.Dir(mpdPath), tl, role, set.Template); err != nil {
 				return nil, err
 			}
 		}
@@ -71,7 +72,7 @@ func ParseDASH(fsys fs.FS, mpdPath string) (*model.Timeline, error) {
 	return tl, nil
 }
 
-func expandSet(fsys fs.FS, tl *model.Timeline, role model.TrackRole, tmpl mpdSegmentTmpl) error {
+func expandSet(fsys fs.FS, dir string, tl *model.Timeline, role model.TrackRole, tmpl mpdSegmentTmpl) error {
 	if len(tmpl.Timeline.Entries) == 0 {
 		return fmt.Errorf("dash: track %s has no SegmentTimeline", role)
 	}
@@ -116,7 +117,7 @@ func expandSet(fsys fs.FS, tl *model.Timeline, role model.TrackRole, tmpl mpdSeg
 			return err
 		}
 		for k := int64(0); k <= repeats; k++ {
-			uri := expandTemplate(tmpl.Media, number, unitCursor)
+			uri := path.Join(dir, expandTemplate(tmpl.Media, number, unitCursor))
 			ok, err := commitDASHEntry(fsys, tl, role, idx, uri, cursor, dur, ts)
 			if err != nil {
 				return err
