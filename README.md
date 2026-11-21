@@ -19,7 +19,12 @@ go run ./cmd/archivecheck demo --seed 17 --queue 4 --slow-consumer-ms 2
 go run ./cmd/archivecheck verify  --fixture truncated --recover=false
 go run ./cmd/archivecheck recover --fixture truncated --recover=true
 go run ./cmd/archivecheck inspect --input path/to/master.mkv
+go run ./cmd/archivecheck demo --seed 17 --queue 4 --slow-consumer-ms 2 --rtp
 ```
+
+`--rtp` additionally frames every spooled sample as RTP packets with
+`pion/rtp` and checks the payload round trip. `--keep DIR` retains the
+generated fixtures and outputs for manual review.
 
 `demo` prints, among other things:
 
@@ -75,6 +80,12 @@ independent parser and checked with hashes and the rebuilt index.
 
 Memory is bounded by `queue capacity × max block size`, never by file length:
 frame payloads are spooled to a temporary file and only metadata is retained.
+
+Each successful run also writes `<output>.manifest.json` next to the copy. The
+manifest names every sample's source offset and size, the output file's
+SHA-256, the mapping digest, the queue high-water mark, the proof-skipped
+ranges and the rebuilt keyframe entries. It is the artifact a reviewer checks;
+nothing in it is inferred from a summary line.
 
 ## Fixtures
 
