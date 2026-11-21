@@ -211,7 +211,7 @@ func printResult(r *pipeline.Result) {
 		return
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "segments=%d\n", r.Segments)
+	fmt.Fprintf(&b, "segments=%d scanned=%d\n", r.Segments, r.Scanned)
 	fmt.Fprintf(&b, "missing=%d first_missing=%s\n", len(r.Missing), orNone(r.FirstMiss))
 	fmt.Fprintf(&b, "corrupt_ranges=%d first_undecodable=%s\n", len(r.CorruptRange), orNone(firstCorrupt(r)))
 	fmt.Fprintf(&b, "av_sync_max_ms=%d at=%s segment=%s\n",

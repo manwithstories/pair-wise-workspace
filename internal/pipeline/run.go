@@ -35,12 +35,12 @@ func Run(o Options, interruptAfter int) (*Result, error) {
 	paths := index.NewPaths(o.Work)
 	prev, err := index.ReadIndex(paths.Index)
 	if err != nil {
-		prev = nil // no prior index is fine; other errors surface on write
+		prev = nil // a missing or unreadable prior index simply means no resume
 	}
 	store := recover.NewStore(o.Work)
 	prevCP, err := store.Load()
 	if err != nil {
-		return nil, err
+		prevCP = nil // a corrupt checkpoint is treated as absent, never trusted
 	}
 	resumeFrom := 0
 	if prevCP != nil && prevCP.Validate(recover.BindingOf(prev, params)) == nil {
@@ -72,6 +72,7 @@ func Run(o Options, interruptAfter int) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	result.Scanned = idx.Scanned + idx.Skipped
 	result.Checkpoint = cp.NextSeg
 	result.ResumeReused = idx.Skipped
 	result.Interrupted = scanErr == index.ErrInterrupted
@@ -137,6 +138,17 @@ func (v resultDigestView) MarshalJSON() ([]byte, error) {
 	})
 }
 
+// timelineSegments counts every segment the primary manifest references,
+// including slots whose media is missing. This keeps the reported total stable
+// even when a run is interrupted early and the index is only partial.
+func timelineSegments(tl *manifest.Timeline) int {
+	n := 0
+	for _, st := range tl.Streams {
+		n += len(st.Segments)
+	}
+	return n
+}
+
 // dedupedFaults merges index and manifest faults. HLS and DASH commonly name
 // the same missing media, so a fault is reported once per (kind, stream,
 // segment) triple; byte ranges still distinguish distinct corruptions.
@@ -174,7 +186,7 @@ func BuildResult(res *manifest.Resolver, primary, secondary *manifest.Timeline,
 		InputSHA:     idx.InputSHA,
 		Manifest:     primary.Source,
 		Format:       primary.Format,
-		Segments:     len(idx.Entries),
+		Segments:     timelineSegments(primary),
 		Missing:      idx.Missing,
 		FirstMiss:    idx.FirstMiss,
 		IndexVersion: idx.Version,

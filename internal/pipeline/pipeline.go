@@ -70,6 +70,7 @@ type Result struct {
 	Manifest     string                 `json:"manifest"`
 	Format       string                 `json:"format"`
 	Segments     int                    `json:"segments"`
+	Scanned      int                    `json:"scanned_segments"`
 	Missing      []string               `json:"missing,omitempty"`
 	FirstMiss    string                 `json:"first_missing,omitempty"`
 	CorruptRange []model.Fault          `json:"corrupt_ranges,omitempty"`
