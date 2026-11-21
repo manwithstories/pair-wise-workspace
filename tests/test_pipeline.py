@@ -199,6 +199,40 @@ class PipelineTests(TempDirMixin, unittest.TestCase):
                     digest = hashlib.sha256(handle.read()).hexdigest()
                 self.assertEqual(digest, entry["sha256"])
 
+    def test_track_dependency_cycle_reported(self) -> None:
+        from avtimeline.graph import detect_cycle, from_timeline
+        from avtimeline.timeline import parse_timeline
+
+        timeline = parse_timeline(
+            {
+                "window": {"start": 0, "end": 1},
+                "tracks": [
+                    {"id": "a", "clips": [{"id": "x", "start": 0, "end": 1}], "after": ["b"]},
+                    {"id": "b", "clips": [{"id": "y", "start": 0, "end": 1}], "after": ["a"]},
+                ],
+            }
+        )
+        cycle = detect_cycle(from_timeline(timeline))
+        self.assertIsNotNone(cycle)
+        assert cycle is not None
+        self.assertIn("normalize:a", cycle)
+        self.assertIn("normalize:b", cycle)
+
+    def test_unknown_track_dependency_rejected(self) -> None:
+        from avtimeline.graph import GraphError, from_timeline
+        from avtimeline.timeline import parse_timeline
+
+        timeline = parse_timeline(
+            {
+                "window": {"start": 0, "end": 1},
+                "tracks": [
+                    {"id": "a", "clips": [{"id": "x", "start": 0, "end": 1}], "after": ["ghost"]}
+                ],
+            }
+        )
+        with self.assertRaises(GraphError):
+            from_timeline(timeline)
+
     def test_renditions_share_exact_boundaries(self) -> None:
         result = run_pipeline(self.path("run"), force_samples=True)
         assert result.manifest is not None

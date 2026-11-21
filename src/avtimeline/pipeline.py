@@ -30,7 +30,7 @@ from .compose import PROGRAM_AUDIO_RATE, compose_program
 from .config import ProjectConfig, ensure_layout
 from .encode import EncodedSegment, encode_all
 from .errors import ErrorCollector, Issue, MediaError, Severity, Stage
-from .graph import DependencyGraph, detect_cycle
+from .graph import GraphError, detect_cycle
 from .manifest import Manifest, build_manifest, check_alignment, write_manifest
 from .model import Span, format_rational
 from .normalize import (
@@ -371,7 +371,20 @@ class Pipeline:
         return self.result
 
     def _graph_ok(self, timeline: Timeline) -> bool:
-        graph = DependencyGraph.default(sorted(timeline.track_ids))
+        from .graph import from_timeline
+
+        try:
+            graph = from_timeline(timeline)
+        except (GraphError, ValueError) as exc:
+            self._collector.add(
+                MediaError(
+                    code="dependency_error",
+                    stage=Stage.TIMELINE,
+                    message=str(exc),
+                    severity=Severity.FATAL,
+                )
+            )
+            return False
         cycle = detect_cycle(graph)
         if cycle is None:
             return True

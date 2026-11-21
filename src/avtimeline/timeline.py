@@ -77,6 +77,7 @@ class Track:
     clips: list[Clip] = field(default_factory=list)
     transitions: list[Transition] = field(default_factory=list)
     coverage_mode: str = "window"
+    after: list[str] = field(default_factory=list)
 
     @property
     def span(self) -> Span | None:
@@ -180,7 +181,8 @@ def parse_timeline(document: Mapping[str, Any]) -> Timeline:
             raise TimelineParseError(
                 f"track {track_id}: coverage must be 'window' or 'clips'"
             )
-        track = Track(id=track_id, kind=kind, coverage_mode=coverage_mode)
+        after = [str(name) for name in (raw_track.get("after") or [])]
+        track = Track(id=track_id, kind=kind, coverage_mode=coverage_mode, after=after)
         for raw_clip in raw_track.get("clips", []) or []:
             if not isinstance(raw_clip, Mapping):
                 raise TimelineParseError(f"track {track_id}: clip must be an object")
@@ -478,6 +480,7 @@ def timeline_to_json(timeline: Timeline) -> dict[str, Any]:
                 "id": track.id,
                 "kind": track.kind,
                 "coverage": track.coverage_mode,
+                "after": list(track.after),
                 "clips": [
                     {
                         "id": c.id,

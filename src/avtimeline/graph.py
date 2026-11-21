@@ -9,7 +9,7 @@ find the offending configuration.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterable
+from typing import Any, Iterable
 
 from .errors import Stage
 
@@ -154,3 +154,48 @@ def detect_cycle(graph: DependencyGraph) -> str | None:
     if stages:
         detail += f" (stages: {' -> '.join(stages)})"
     return detail
+
+
+def from_timeline(timeline: Any) -> DependencyGraph:
+    """Build the stage graph from a timeline's tracks and their ordering.
+
+    Each track declares optional ``after`` dependencies on other track ids,
+    which order normalization.  A cyclic declaration therefore shows up as a
+    cycle through ``normalize:<track>`` nodes and is reported with those track
+    ids.
+    """
+    from .timeline import Timeline
+
+    if not isinstance(timeline, Timeline):  # pragma: no cover - defensive
+        raise GraphError("from_timeline expects a Timeline")
+    graph = DependencyGraph()
+    graph.add_node(Node(Stage.TIMELINE))
+    previous = Node(Stage.TIMELINE).name
+    for track in timeline.tracks.values():
+        probe = Node(Stage.PROBE, track.id)
+        normalize = Node(Stage.NORMALIZE, track.id)
+        graph.add_node(probe)
+        graph.add_node(normalize)
+        graph.add_edge(previous, probe.name)
+        graph.add_edge(probe.name, normalize.name)
+    for track in timeline.tracks.values():
+        normalize_name = Node(Stage.NORMALIZE, track.id).name
+        for dependency in track.after:
+            if dependency not in timeline.tracks:
+                raise GraphError(
+                    f"track {track.id!r} depends on unknown track {dependency!r}"
+                )
+            graph.add_edge(Node(Stage.NORMALIZE, dependency).name, normalize_name)
+    tail_nodes: list[str] = [Node(Stage.NORMALIZE, t.id).name for t in timeline.tracks.values()]
+    for stage in (
+        Stage.TRANSITION,
+        Stage.SEGMENT,
+        Stage.ENCODE,
+        Stage.MANIFEST,
+    ):
+        node = Node(stage)
+        graph.add_node(node)
+        for source in tail_nodes:
+            graph.add_edge(source, node.name)
+        tail_nodes = [node.name]
+    return graph
