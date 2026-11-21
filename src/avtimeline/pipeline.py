@@ -438,13 +438,16 @@ class Pipeline:
                     probes[payload["track"]] = probe_from_json(payload)
                     for raw in payload.get("errors", []):
                         error = MediaError.from_dict(raw)
+                        if error.severity < Severity.ERROR:
+                            self._collector.add(error)
+                            continue
                         self._skipped_errors.append(error)
                         self.skipped_tracks.append(
                             {
                                 "track": payload["track"],
                                 "reason": "probe_failed",
-                                "first_code": raw.get("code"),
-                                "first_pts": raw.get("pts"),
+                                "code": raw.get("code"),
+                                "pts": raw.get("pts"),
                             }
                         )
                 if not probes:
@@ -548,32 +551,33 @@ class Pipeline:
             probe = probe_media(self._source_path(timeline, track.id), track_id=source)
             probes[source] = probe
             ignored: list[dict[str, Any]] = []
-            if any(e.severity >= Severity.ERROR for e in probe.errors):
+            damaged = [error for error in probe.errors if error.severity >= Severity.ERROR]
+            if damaged:
                 self._excluded.add(source)
-                self.skipped_tracks.append(
-                    {
-                        "track": source,
-                        "reason": "probe_failed",
-                        "first_code": probe.errors[0].code,
-                        "first_pts": str(probe.errors[0].location.pts)
-                        if probe.errors[0].location.pts is not None
-                        else None,
-                    }
-                )
                 self.result.skipped_tracks = list(self.skipped_tracks)
+                for error in damaged:
+                    self.skipped_tracks.append(
+                        {
+                            "track": source,
+                            "reason": "probe_failed",
+                            "code": error.code,
+                            "pts": str(error.location.pts)
+                            if error.location.pts is not None
+                            else None,
+                        }
+                    )
                 if self.config.policy == "skip":
                     # Under the skip policy the damaged source is excluded and
                     # its errors stay in the summary without failing the run;
                     # they are persisted so a resumed run can still report
                     # them.
-                    ignored = [e.to_dict() for e in probe.errors]
-                    self._skipped_errors.extend(probe.errors)
+                    ignored = [error.to_dict() for error in probe.errors]
+                    self._skipped_errors.extend(damaged)
                 else:
-                    for error in probe.errors:
-                        self._collector.add(error)
-            else:
-                for error in probe.errors:
-                    self._collector.add(error)
+                    self._collector.extend(damaged)
+            self._collector.extend(
+                error for error in probe.errors if error.severity < Severity.ERROR
+            )
             path = os.path.join(self.paths["probe"], f"{source}.json")
             write_json(path, probe_to_json(probe, source, ignored))
             self._record_bytes(Stage.PROBE, path)
