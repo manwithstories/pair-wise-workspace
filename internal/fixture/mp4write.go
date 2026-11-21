@@ -26,11 +26,6 @@ func buildMP4(tracks []TrackSpec) []byte {
 			trackOffsets[ti][si] = int64(len(mdatPayload))
 			mdatPayload = append(mdatPayload, s.Data...)
 		}
-		if t.IncompleteTail {
-			// Declare one more chunk whose offset lies past the end of the
-			// media data, modelling a truncated final write.
-			trackOffsets[ti] = append(trackOffsets[ti], int64(len(mdatPayload))+1<<20)
-		}
 	}
 
 	// Build moov with placeholder offsets to learn its size, then rebuild.
@@ -144,8 +139,9 @@ func tableSamples(t TrackSpec) []SampleSpec { return t.Samples }
 
 func sampleTables(t TrackSpec, offsets []int64) []byte {
 	stsd := stsdBox(t)
-	// stts: coalesce consecutive equal deltas.
-	samples := samplesFor(t)
+	// The tables describe every declared sample, including one whose bytes
+	// were never written; that mismatch is what the demuxer must catch.
+	samples := tableSamples(t)
 	var sttsEntries [][]byte
 	count := 0
 	for i := 0; i < len(samples); {

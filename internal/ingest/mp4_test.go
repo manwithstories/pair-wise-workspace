@@ -138,3 +138,38 @@ func TestScanRejectsTruncatedHeader(t *testing.T) {
 		t.Fatalf("code=%v want %v", code, model.CodeMP4BoxLength)
 	}
 }
+
+func TestDemuxMP4TruncatedTailIsNotSilent(t *testing.T) {
+	tracks := fixture.StudioTracks(17)
+	// Declare the last video sample but never store its bytes; the demuxer
+	// must report a length error with an offset instead of dropping it.
+	tracks[0].IncompleteTail = true
+	raw := fixture.BuildMP4(tracks)
+	_, err := DemuxMP4(bytes.NewReader(raw), "truncated.mp4")
+	if err == nil {
+		t.Fatal("truncated tail was silently accepted")
+	}
+	if code, _ := model.CodeOf(err); code != model.CodeMP4BoxLength {
+		t.Fatalf("code=%v err=%v", code, err)
+	}
+	e, ok := err.(*model.Error)
+	if !ok || !e.HasOffset {
+		t.Fatalf("error lacks a byte offset: %v", err)
+	}
+	if model.ExitCode(err) != 2 {
+		t.Fatalf("exit=%d want 2", model.ExitCode(err))
+	}
+}
+
+func TestDemuxMP4ExtendedSizeBox(t *testing.T) {
+	// A box using the 64-bit largesize header is legal and must parse.
+	tracks := fixture.StudioTracks(17)
+	raw := fixture.BuildMP4(tracks)
+	got, err := DemuxMP4(bytes.NewReader(raw), "ok.mp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("tracks=%d", len(got))
+	}
+}

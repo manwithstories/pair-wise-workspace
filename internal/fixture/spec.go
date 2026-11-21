@@ -29,7 +29,7 @@ type TrackSpec struct {
 	Kind           model.TrackKind
 	Timescale      int64
 	Desc           string
-	IncompleteTail bool // container stores one fewer sample than declared
+	IncompleteTail bool // sample tables declare one more sample than stored
 	Width          int
 	Height         int
 	Rotation       int

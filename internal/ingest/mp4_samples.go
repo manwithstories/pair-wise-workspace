@@ -160,8 +160,9 @@ func sampleFileOffsets(stsc *mp4.Stsc, chunkOffsets []uint64, sizes []int32) ([]
 		}
 	}
 	if sampleIdx != len(sizes) {
+		// The tables declare more samples than the chunk layout reaches.
 		return nil, model.NewError(model.CodeMP4BoxLength,
-			"chunk layout covers %d of %d samples", sampleIdx, len(sizes))
+			"chunk layout covers %d of %d declared samples", sampleIdx, len(sizes)).WithOffset(int64(len(chunkOffsets)))
 	}
 	return out, nil
 }
