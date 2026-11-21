@@ -255,12 +255,11 @@ def plan_segments(
             target += target_duration
     cuts = sorted(set(cuts))
     frame_cuts = [start_frame] + cuts + [end_frame]
-    for cut_index, frame in enumerate(frame_cuts):
+    for frame in frame_cuts:
         cut_time = window.start + Fraction(frame - start_frame) * step
         conflict = _keyframe_conflict(cut_time, step, keyframe_grid, tolerance)
         if conflict is not None:
             conflicts.append(conflict)
-        _ = cut_index
     segments: list[Segment] = []
     for index in range(len(frame_cuts) - 1):
         start = window.start + Fraction(frame_cuts[index] - start_frame) * step
@@ -317,23 +316,6 @@ def plan_segments(
                 audio_samples=segment.audio_samples,
                 is_short=True,
                 kind="short_tail" if segment.video_frames == 0 else "short_block",
-            )
-    # A final segment whose audio is shorter than one block is also a short tail.
-    for position, segment in enumerate(segments):
-        if (
-            segment.audio_samples > 0
-            and segment.audio_samples < AUDIO_BLOCK
-            and not segment.is_short
-        ):
-            segments[position] = Segment(
-                index=segment.index,
-                span=segment.span,
-                video_start_frame=segment.video_start_frame,
-                audio_start_sample=segment.audio_start_sample,
-                video_frames=segment.video_frames,
-                audio_samples=segment.audio_samples,
-                is_short=True,
-                kind="short_block",
             )
     return SegmentPlan(segments, conflicts, guards, video_rate, audio_rate)
 
