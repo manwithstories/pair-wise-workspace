@@ -485,9 +485,12 @@ class Pipeline:
                 self.result.plan = plan
                 return True
             if stage is Stage.TRANSITION:
-                # The composed program is in-memory (frames plus PCM) and is
-                # not persisted, so it must be recomposed when a later stage
-                # needs it. Probe and normalize artifacts are still reused.
+                # The composed program is in-memory (frames plus PCM). When the
+                # encoded segments themselves validated, nothing downstream
+                # needs the program, so the stage is reusable without
+                # recomposing it; otherwise it must run again.
+                if Stage.ENCODE in self._reused:
+                    return True
                 return False
             if stage is Stage.ENCODE:
                 return self._rehydrate_encoded()
@@ -719,7 +722,17 @@ class Pipeline:
 
     def _stage_encode(self, timeline: Timeline) -> bool:
         plan: SegmentPlan = self._media["plan"]
-        program = self._media["program"]
+        program = self._media.get("program")
+        if program is None:
+            self._collector.add(
+                MediaError(
+                    code="program_missing",
+                    stage=Stage.ENCODE,
+                    message="composed program is not available for encoding",
+                    severity=Severity.FATAL,
+                )
+            )
+            return False
         encoded, errors = encode_all(
             program,
             plan.segments,
