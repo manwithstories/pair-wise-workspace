@@ -137,6 +137,9 @@ func trackEnd(tr *probe.Track) int64 {
 	return tr.Samples[len(tr.Samples)-1].EndTicks
 }
 
+// MaxDrift exposes the bounded fallback allowance for downstream stages.
+func (p *Planner) MaxDrift() int64 { return p.cfg.MaxDriftTicks }
+
 // DefaultConfig returns the demo configuration: 6 s segments, a 3 s
 // keyframe window and a 40 ms alignment allowance.
 func DefaultConfig() PlanConfig {
