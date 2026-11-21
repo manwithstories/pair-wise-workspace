@@ -106,23 +106,46 @@ func New(path string, plan *mapping.Plan) (*Writer, *Layout, error) {
 	return w, ls.layout, nil
 }
 
-// OpenForResume opens an existing partial output and positions it at the first
-// byte of track trackIdx, truncating everything after that committed boundary.
-// It returns the number of bytes rolled back.
-func OpenForResume(path string, plan *mapping.Plan, trackIdx int) (*Writer, *Layout, int64, error) {
+// OpenAt opens an existing output and positions it at an arbitrary committed
+// byte boundary, truncating any uncommitted tail. It returns the bytes rolled
+// back. The boundary must fall exactly on a sample boundary or on the header.
+func OpenAt(path string, plan *mapping.Plan, committed int64) (*Writer, *Layout, int64, error) {
 	ls := computeLayout(plan)
-	if trackIdx < 0 {
-		trackIdx = 0
+	lay := ls.layout
+	if committed < lay.HeaderLen+16 || committed > lay.MovieEnd {
+		return nil, nil, 0, model.NewError(model.StageMux, model.CodeIntegrity, committed, 0, false,
+			"committed boundary %d outside writable payload [%d,%d]",
+			committed, lay.HeaderLen+16, lay.MovieEnd)
 	}
-	if trackIdx > len(plan.Tracks) {
-		trackIdx = len(plan.Tracks)
+	trackIdx := len(plan.Tracks)
+	for i := range plan.Tracks {
+		start := lay.Tracks[i].Start
+		end := start + lay.Tracks[i].Bytes
+		if committed < end {
+			trackIdx = i
+			break
+		}
 	}
-	committed := int64(ls.layout.HeaderLen + 16)
-	for i := 0; i < trackIdx; i++ {
-		t := plan.Tracks[i]
-		if len(t.Samples) > 0 {
-			last := len(t.Samples) - 1
-			committed = ls.positions[i][last] + int64(t.Samples[last].Size)
+	sampleIdx := 0
+	if trackIdx < len(plan.Tracks) {
+		for si, p := range ls.positions[trackIdx] {
+			if p >= committed {
+				break
+			}
+			sampleIdx = si + 1
+		}
+		if sampleIdx < len(ls.positions[trackIdx]) && ls.positions[trackIdx][sampleIdx] != committed {
+			return nil, nil, 0, model.NewError(model.StageMux, model.CodeIntegrity, committed,
+				plan.Tracks[trackIdx].TargetID, false, "boundary %d splits sample %d of track %d",
+				committed, sampleIdx, plan.Tracks[trackIdx].TargetID)
+		}
+		if sampleIdx == len(ls.positions[trackIdx]) {
+			if lay.Tracks[trackIdx].Start+lay.Tracks[trackIdx].Bytes != committed {
+				return nil, nil, 0, model.NewError(model.StageMux, model.CodeIntegrity, committed,
+					plan.Tracks[trackIdx].TargetID, false, "boundary %d is not a track edge", committed)
+			}
+			trackIdx++
+			sampleIdx = 0
 		}
 	}
 	f, err := os.OpenFile(path, os.O_RDWR, 0o644)
@@ -147,6 +170,11 @@ func OpenForResume(path string, plan *mapping.Plan, trackIdx int) (*Writer, *Lay
 			return nil, nil, 0, model.WrapError(model.StageMux, model.CodeWrite, committed, 0, false, err,
 				"truncate uncommitted tail")
 		}
+		if err := f.Sync(); err != nil {
+			f.Close()
+			return nil, nil, 0, model.WrapError(model.StageMux, model.CodeWrite, committed, 0, false, err,
+				"sync rollback")
+		}
 	}
 	if _, err := f.Seek(committed, io.SeekStart); err != nil {
 		f.Close()
@@ -155,13 +183,16 @@ func OpenForResume(path string, plan *mapping.Plan, trackIdx int) (*Writer, *Lay
 	}
 	w := &Writer{
 		path: path, file: f, plan: plan, positions: ls.positions,
-		written: committed, mdatEnd: ls.layout.MovieEnd,
+		written: committed, mdatEnd: lay.MovieEnd,
 		nextSample: make([]int, len(plan.Tracks)),
 	}
-	for i := 0; i < trackIdx; i++ {
+	for i := 0; i < trackIdx && i < len(plan.Tracks); i++ {
 		w.nextSample[i] = len(plan.Tracks[i].Samples)
 	}
-	return w, ls.layout, rolledBack, nil
+	if trackIdx < len(plan.Tracks) {
+		w.nextSample[trackIdx] = sampleIdx
+	}
+	return w, lay, rolledBack, nil
 }
 
 // WriteSample appends one sample at its predetermined position.
@@ -245,3 +276,11 @@ func (w *Writer) Close() error {
 
 // Size returns bytes written so far.
 func (w *Writer) Size() int64 { return w.written }
+
+// NextSample returns the next sample index that will be written for a track.
+func (w *Writer) NextSample(trackIdx int) int {
+	if trackIdx < 0 || trackIdx >= len(w.nextSample) {
+		return 0
+	}
+	return w.nextSample[trackIdx]
+}
