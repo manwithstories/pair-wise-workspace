@@ -5,7 +5,6 @@ import (
 )
 
 // byteReader adapts a byte slice to the io.ReadSeeker that go-mp4 wants.
-// Keeping it allocation-free matters because the walker decodes many boxes.
 type byteReader struct {
 	data []byte
 	pos  int64

@@ -86,6 +86,9 @@ func Parse(data []byte, limits Limits) (*File, error) {
 	return f, nil
 }
 
+// walk validates each box header against its parent before decoding.  It
+// returns the first structural fault, never a partial tree: downstream
+// stages must not see a half-validated file.
 func walk(data []byte, off, end uint64, depth int, limits Limits, f *File) ([]*Node, error) {
 	if depth > limits.MaxBoxDeep {
 		return nil, fault.New(fault.ClassLimit, "mp4", "*", "too-deep",
