@@ -71,3 +71,6 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- mediamerge 运行时目录 ----
+.mediamerge/
