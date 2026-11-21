@@ -241,7 +241,7 @@ type Document struct {
 	SegmentSizeOffset int
 	SegmentSizeWidth  int
 	// SegmentDataOffset is the absolute offset of the Segment payload.
-	SegmentDataOffset int
+	SegmentDataOffset int64
 	// ClusterSizeOffsets lists the size-vint offset and width of each
 	// known-size Cluster; entries are {-1,0} for unknown-size Clusters.
 	ClusterSizeOffsets [][2]int

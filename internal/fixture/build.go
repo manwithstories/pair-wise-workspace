@@ -123,7 +123,7 @@ func Build(tracks []TrackSpec, blocks []BlockSpec, layout Layout) Document {
 		seg.Header(0x18538067, totalSize)
 	}
 	segmentDataStart := seg.Len()
-	doc.SegmentDataOffset = segmentDataStart
+	doc.SegmentDataOffset = int64(segmentDataStart)
 	seg.Raw(body.Bytes())
 
 	doc.Bytes = seg.Bytes()
@@ -152,9 +152,10 @@ func Build(tracks []TrackSpec, blocks []BlockSpec, layout Layout) Document {
 	}
 	doc.CuesOffset = -1
 	if !layout.NoCues {
-		doc.CuesOffset = clusterBase + int64(prefixLen)
 		if layout.CuesFirst {
 			doc.CuesOffset = clusterBase + int64(prefixLen)
+		} else {
+			doc.CuesOffset = clusterBase + int64(prefixLen) + int64(len(clusterPlan.bytes))
 		}
 	}
 	return doc

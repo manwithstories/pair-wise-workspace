@@ -2,6 +2,7 @@ package fixture
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 
 	"archivecheck.local/archivecheck/internal/demux"
@@ -118,4 +119,185 @@ func TestLacedAudioSplitsIntoSamples(t *testing.T) {
 	if samples[2].FrameIndex != 1 || !samples[2].Laced {
 		t.Fatalf("lacing not reported: %+v", samples[2])
 	}
+}
+
+func TestClusterAndSizeFieldOffsets(t *testing.T) {
+	doc := Build(DefaultTracks(), DefaultBlocks(), Layout{SortByTime: true, ClusterSpan: 6})
+	if len(doc.ClusterOffsets) == 0 || len(doc.ClusterSizeOffsets) != len(doc.ClusterOffsets) {
+		t.Fatalf("clusters=%d sizeFields=%d", len(doc.ClusterOffsets), len(doc.ClusterSizeOffsets))
+	}
+	for i, off := range doc.ClusterOffsets {
+		if off <= 0 || int(off) >= len(doc.Bytes) {
+			t.Fatalf("cluster %d offset %d outside file", i, off)
+		}
+		if !bytes.HasPrefix(doc.Bytes[off:], EncID(0x1F43B675)) {
+			t.Fatalf("cluster %d does not start with the Cluster ID", i)
+		}
+		cso := doc.ClusterSizeOffsets[i]
+		if cso[0] < 0 {
+			t.Fatalf("cluster %d should have a known size", i)
+		}
+		// The size vint must live immediately after the 4-byte Cluster ID.
+		if cso[0] != int(off)+len(EncID(0x1F43B675)) {
+			t.Fatalf("cluster %d size field at %d, ID at %d", i, cso[0], off)
+		}
+	}
+	if doc.CuesOffset <= 0 || !bytes.HasPrefix(doc.Bytes[doc.CuesOffset:], EncID(0x1C53BB6B)) {
+		t.Fatalf("cues offset %d is not a Cues element", doc.CuesOffset)
+	}
+}
+
+func TestKnownCueOffsetsPointAtClusters(t *testing.T) {
+	doc := Build(DefaultTracks(), DefaultBlocks(), Layout{SortByTime: true, ClusterSpan: 6})
+	payload := cuePayload(t, doc)
+	points, err := parseCuePoints(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(points) == 0 {
+		t.Fatal("no cue points")
+	}
+	inCluster := map[int64]bool{}
+	for _, off := range doc.ClusterOffsets {
+		inCluster[off-int64(doc.SegmentDataOffset)] = true
+	}
+	for _, p := range points {
+		if !inCluster[p] {
+			t.Fatalf("cue position %d does not name a Cluster", p)
+		}
+	}
+}
+
+// cuePayload extracts the Cues payload from a built document.
+func cuePayload(t *testing.T, doc Document) []byte {
+	t.Helper()
+	if doc.CuesOffset < 0 {
+		t.Fatal("document has no Cues")
+	}
+	start := int(doc.CuesOffset) + len(EncID(0x1C53BB6B))
+	w := 1
+	for b := doc.Bytes[start]; b&0x80 == 0; b <<= 1 {
+		w++
+	}
+	var v uint64
+	for i := 0; i < w; i++ {
+		v = v<<8 | uint64(doc.Bytes[start+i])
+	}
+	v &^= uint64(1) << (7 * uint(w))
+	return doc.Bytes[start+w : start+w+int(v)]
+}
+
+// parseCuePoints returns the ClusterPosition of every CuePoint.
+func parseCuePoints(payload []byte) ([]int64, error) {
+	var out []int64
+	i := 0
+	for i < len(payload) {
+		id, n := readID(payload[i:])
+		if n == 0 {
+			return nil, fmt.Errorf("bad cue ID at %d", i)
+		}
+		i += n
+		size, n := readSize(payload[i:])
+		if n == 0 {
+			return nil, fmt.Errorf("bad cue size at %d", i)
+		}
+		i += n
+		if id == 0xBB {
+			pos, err := findClusterPosition(payload[i : i+int(size)])
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, pos)
+		}
+		i += int(size)
+	}
+	return out, nil
+}
+
+func findClusterPosition(cuePoint []byte) (int64, error) {
+	i := 0
+	for i < len(cuePoint) {
+		id, n := readID(cuePoint[i:])
+		if n == 0 {
+			return 0, fmt.Errorf("bad ID")
+		}
+		i += n
+		size, n := readSize(cuePoint[i:])
+		if n == 0 {
+			return 0, fmt.Errorf("bad size")
+		}
+		i += n
+		if id == 0xB7 {
+			inner := cuePoint[i : i+int(size)]
+			j := 0
+			for j < len(inner) {
+				cid, cn := readID(inner[j:])
+				if cn == 0 {
+					return 0, fmt.Errorf("bad child ID")
+				}
+				j += cn
+				csz, sn := readSize(inner[j:])
+				if sn == 0 {
+					return 0, fmt.Errorf("bad child size")
+				}
+				j += sn
+				if cid == 0xF1 {
+					var v uint64
+					for _, b := range inner[j : j+int(csz)] {
+						v = v<<8 | uint64(b)
+					}
+					return int64(v), nil
+				}
+				j += int(csz)
+			}
+		}
+		i += int(size)
+	}
+	return 0, fmt.Errorf("no ClusterPosition")
+}
+
+func readID(b []byte) (uint32, int) {
+	if len(b) == 0 {
+		return 0, 0
+	}
+	var n int
+	switch {
+	case b[0]&0x80 != 0:
+		n = 1
+	case b[0]&0x40 != 0:
+		n = 2
+	case b[0]&0x20 != 0:
+		n = 3
+	case b[0]&0x10 != 0:
+		n = 4
+	default:
+		return 0, 0
+	}
+	if len(b) < n {
+		return 0, 0
+	}
+	var id uint32
+	for i := 0; i < n; i++ {
+		id = id<<8 | uint32(b[i])
+	}
+	return id, n
+}
+
+func readSize(b []byte) (uint64, int) {
+	if len(b) == 0 {
+		return 0, 0
+	}
+	n := 1
+	for v := b[0]; v&0x80 == 0; v <<= 1 {
+		n++
+	}
+	if len(b) < n {
+		return 0, 0
+	}
+	var size uint64
+	for i := 0; i < n; i++ {
+		size = size<<8 | uint64(b[i])
+	}
+	size &^= uint64(1) << (7 * uint(n))
+	return size, n
 }

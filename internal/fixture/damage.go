@@ -71,7 +71,7 @@ func New(kind string, seed int64) (Damaged, error) {
 		// Shrink the Segment's declared size so a later Cluster starts past
 		// the declared parent end while the file still holds those bytes.
 		// The boundary is ambiguous by construction, so recovery must refuse.
-		payload := uint64(len(doc.Bytes) - doc.SegmentDataOffset)
+		payload := uint64(int64(len(doc.Bytes)) - doc.SegmentDataOffset)
 		shorter := payload / 2
 		enc := encodeSizeWidth(shorter, doc.SegmentSizeWidth)
 		if enc == nil {
