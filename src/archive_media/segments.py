@@ -115,38 +115,41 @@ class Segmenter:
             marks = self._marks[track]
             if not marks:
                 continue
-            # Every segment references the shared grid directly: both edges
-            # snap to boundary times, so per-track frame quantization never
-            # accumulates across segments.
-            grid = [0.0] + boundaries + [timeline_end]
-            for seg_id in range(len(grid) - 1):
-                left_s, right_s = grid[seg_id], grid[seg_id + 1]
-                start_idx = self._index_at_or_after(marks, left_s)
+            # Walk a running frame cursor against the shared grid.  Each
+            # segment ends on the frame nearest its right boundary; the next
+            # segment starts at the following frame, so frames are never
+            # duplicated across segments.
+            start_idx = 0
+            seg_id = 0
+            for boundary_s in boundaries:
                 if start_idx >= len(marks):
                     break
-                if seg_id == len(grid) - 2:
-                    end_idx = len(marks) - 1
-                    note = "tail-segment"
-                else:
-                    end_idx, note = self._nearest_index(marks, right_s)
-                    if end_idx < start_idx:
-                        end_idx = start_idx
-                start_mark = marks[start_idx]
-                end_mark = marks[end_idx]
-                notes = [note] if note else []
+                end_idx, note = self._nearest_index(marks, boundary_s)
+                if end_idx < start_idx:
+                    end_idx = start_idx
+                segments.append(self._make_segment(seg_id, track, marks, start_idx, end_idx, note))
+                start_idx = end_idx + 1
+                seg_id += 1
+            if start_idx < len(marks):
                 segments.append(
-                    Segment(
-                        segment_id=seg_id,
-                        track=track,
-                        start_s=start_mark.corrected_s,
-                        end_s=end_mark.corrected_s,
-                        start_index=start_idx,
-                        end_index=end_idx,
-                        frame_count=end_idx - start_idx + 1,
-                        boundary_notes=notes,
+                    self._make_segment(
+                        seg_id, track, marks, start_idx, len(marks) - 1, "tail-segment"
                     )
                 )
         return segments
+
+    @staticmethod
+    def _make_segment(seg_id, track, marks, start_idx, end_idx, note):
+        return Segment(
+            segment_id=seg_id,
+            track=track,
+            start_s=marks[start_idx].corrected_s,
+            end_s=marks[end_idx].corrected_s,
+            start_index=start_idx,
+            end_index=end_idx,
+            frame_count=end_idx - start_idx + 1,
+            boundary_notes=[note] if note else [],
+        )
 
     @staticmethod
     def _index_at_or_after(marks: list[FrameMark], target_s: float) -> int:
