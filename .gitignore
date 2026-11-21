@@ -75,6 +75,7 @@ AGENTS.md.local
 # ---- 构建与临时工作目录 ----
 build/
 tmp/
+tmp_run*/
 out/
 *.o
 *.a
