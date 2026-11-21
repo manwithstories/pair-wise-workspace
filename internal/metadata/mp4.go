@@ -95,7 +95,10 @@ func ParseMP4Bytes(path string, data []byte) (*Asset, error) {
 		}
 		asset.Tracks = append(asset.Tracks, track)
 	}
-	if len(asset.Tracks) == 0 && len(asset.Failures) > 0 {
+	// Report the first categorized failure while still returning the tracks
+	// that survived, so the CLI can exit non-zero and callers can keep the
+	// healthy branches running.
+	if len(asset.Failures) > 0 {
 		return asset, asset.Failures[0].Err
 	}
 	return asset, nil
