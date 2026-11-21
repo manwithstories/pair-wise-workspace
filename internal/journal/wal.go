@@ -138,6 +138,17 @@ func (w *WAL) StageDone(stage, input string) bool {
 	return false
 }
 
+// StageOutput returns the recorded output digest of a stage, so replay
+// can verify determinism instead of blindly re-appending.
+func (w *WAL) StageOutput(stage string) (string, bool) {
+	for _, r := range w.Records() {
+		if r.Type == TypeStage && r.Stage == stage {
+			return r.Output, true
+		}
+	}
+	return "", false
+}
+
 // Close flushes and closes the WAL file.
 func (w *WAL) Close() error {
 	w.mu.Lock()

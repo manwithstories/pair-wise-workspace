@@ -63,9 +63,9 @@ func Generate(opt Options) *Stream {
 	if opt.Case == "corrupt" {
 		corrupt := corruptFragments(opt)
 		st.CorruptFrags = len(corrupt)
-		// Corrupt fragments arrive after the valid stream on a
-		// disjoint RTP sequence range, without loss: every damaged
-		// case must deterministically reach the parser.
+		// Corrupt fragments arrive after the valid stream, continuing
+		// the same RTP sequence space (one session), without loss:
+		// every damaged case must deterministically reach the parser.
 		var last float64
 		for _, a := range st.Arrivals {
 			if a.ArrivalMs > last {
@@ -77,7 +77,7 @@ func Generate(opt Options) *Stream {
 				Packet: &rtp.Packet{
 					Header: rtp.Header{
 						Version:        2,
-						SequenceNumber: uint16(6000 + i),
+						SequenceNumber: uint16(1000 + len(frags) + i),
 						Timestamp:      uint32(900000 + i*4000),
 						SSRC:           0xC0FFEE,
 					},
@@ -96,17 +96,18 @@ func Generate(opt Options) *Stream {
 func buildFragments(opt Options) []frag {
 	var frags []frag
 	phase := 0.0
-	dupVideoIdx := -1
 	for i := 0; i < opt.Fragments; i++ {
-		// Video: seq 1..N, one fragment duplicates an earlier payload.
+		// Video: seq 1..N. Fragments 2,3 duplicate the payloads of
+		// fragments 0,1 so the cutter produces one duplicate segment.
 		vseq := uint32(i + 1)
-		if i == 4 {
-			dupVideoIdx = 1 // fragment 5 duplicates fragment 2's payload
+		dupOf := -1
+		switch i {
+		case 2:
+			dupOf = 0
+		case 3:
+			dupOf = 1
 		}
-		vp := videoPayload(i, videoPayloadSize, dupVideoIdx)
-		if i == 4 {
-			dupVideoIdx = -1
-		}
+		vp := videoPayload(i, videoPayloadSize, dupOf)
 		frags = append(frags, frag{
 			track: "video", trackID: VideoTrackID, seq: vseq,
 			data: buildFragment(fragParams{
@@ -184,8 +185,8 @@ func packetize(frags []frag, opt Options, seqBase uint16, timeBase float64) ([]m
 	// Loss model: one burst plus isolated losses.
 	n := len(pkts)
 	burst := opt.LossBurst
-	if burst > n/3 {
-		burst = n / 3
+	if burst > n/2 {
+		burst = n / 2
 	}
 	start := 0
 	if n > burst+1 {
@@ -234,20 +235,21 @@ func packetize(frags []frag, opt Options, seqBase uint16, timeBase float64) ([]m
 	totalMs := float64(totalBits) / (avgBw * 1000) // bits / (mbit/s) = ms
 
 	lostIdx := 0
-	for _, p := range pkts {
+	for i, p := range pkts {
 		curBw := bwAt(now, totalMs)
 		now += float64(p.size*8) / (curBw * 1000)
 		now += rng.Float64() * 3 // jitter 0..3 ms
 		if p.lost {
 			// Bounded recovery: every 10th lost packet is
-			// unrecoverable; the rest are retransmitted, one of them
-			// deliberately too late (isolated by the reorder window).
+			// unrecoverable; the rest are retransmitted. With large
+			// bursts one retransmission is deliberately too late and
+			// gets isolated by the reorder window.
 			lostIdx++
 			if lostIdx%10 == 0 {
 				continue // never retransmitted
 			}
 			delay := 30 + rng.Float64()*90 // 30..120 ms
-			if lostIdx == 3 {
+			if lostIdx == 3 && opt.LossBurst >= 10 {
 				delay = 400 // late beyond any wait limit
 			}
 			arrivals = append(arrivals, mrtp.Arrival{
@@ -258,8 +260,9 @@ func packetize(frags []frag, opt Options, seqBase uint16, timeBase float64) ([]m
 		arrivals = append(arrivals, mrtp.Arrival{
 			Packet: p.wire, ArrivalMs: now, BandwidthMbps: curBw,
 		})
-		// Duplicates: counted by the reorderer, never re-emitted.
-		if rng.Float64() < 0.04 {
+		// Duplicates (deterministic): counted by the reorderer,
+		// never re-emitted.
+		if i%4 == 1 {
 			arrivals = append(arrivals, mrtp.Arrival{
 				Packet: p.wire, ArrivalMs: now + 5, BandwidthMbps: curBw,
 			})

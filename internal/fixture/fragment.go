@@ -31,13 +31,18 @@ type fragParams struct {
 	payload     []byte
 }
 
-// marshalLeaf serializes one leaf box via go-mp4.
+// marshalLeaf serializes one leaf box via go-mp4. bmp4.Marshal emits
+// only the payload, so the 8-byte box header is prepended here.
 func marshalLeaf(box bmp4.IImmutableBox) []byte {
-	var buf bytes.Buffer
-	if _, err := bmp4.Marshal(&buf, box, bmp4.Context{}); err != nil {
+	var payload bytes.Buffer
+	if _, err := bmp4.Marshal(&payload, box, bmp4.Context{}); err != nil {
 		panic(fmt.Sprintf("fixture: marshal %v: %v", box.GetType(), err))
 	}
-	return buf.Bytes()
+	typ := box.GetType()
+	out := make([]byte, 8, 8+payload.Len())
+	binary.BigEndian.PutUint32(out, uint32(8+payload.Len()))
+	copy(out[4:], typ[:])
+	return append(out, payload.Bytes()...)
 }
 
 // container assembles a container box from already-marshalled children.

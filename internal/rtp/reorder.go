@@ -47,7 +47,7 @@ type Arrival struct {
 type Gap struct {
 	Seq        uint16
 	DetectedMs float64
-	Recovered  bool // retransmitted within the bounded wait
+	Recovered  bool // filled within the bounded wait
 	Late       bool // arrived after the wait expired: isolated
 }
 
@@ -63,7 +63,8 @@ type Stats struct {
 	Gaps       []Gap
 }
 
-// LossRecoveryRate is recovered / (recovered + lost).
+// LossRecoveryRate is recovered / (recovered + lost). Late packets
+// were isolated, not lost: they are excluded from both terms.
 func (s Stats) LossRecoveryRate() float64 {
 	den := s.Recovered + s.Lost
 	if den == 0 {
@@ -96,10 +97,16 @@ func NewReorderer(cfg Config) *Reorderer { return &Reorderer{cfg: cfg} }
 func seqDiff(a, b uint16) int { return int(int16(a - b)) }
 
 // Process consumes arrivals in order and returns the de-duplicated,
-// reordered packet stream plus recovery statistics. Duplicates are
-// counted but never re-emitted; packets arriving after their bounded
-// recovery wait are isolated (counted late, not emitted); gaps whose
-// recovery budget is exhausted are marked lost.
+// reordered packet stream plus recovery statistics.
+//
+//   - duplicates are counted but never re-emitted;
+//   - an open gap filled within its bounded wait is recovered;
+//   - a gap whose wait expires is declared lost at its exact deadline,
+//     so head-of-line latency can never exceed the wait limit (which
+//     is itself capped by the P95 latency budget);
+//   - a packet arriving after its gap was closed is isolated (counted
+//     late, not emitted); if it had been declared lost, the loss is
+//     reclassified as late.
 func (r *Reorderer) Process(arrivals []Arrival) ([]*rtp.Packet, Stats) {
 	var st Stats
 	type buffered struct {
@@ -107,12 +114,13 @@ func (r *Reorderer) Process(arrivals []Arrival) ([]*rtp.Packet, Stats) {
 		at  float64
 	}
 	seen := make(map[uint16]bool, len(arrivals))
+	lostSeqs := map[uint16]bool{}
 	buf := map[uint16]buffered{}
 	gapSince := map[uint16]float64{}
 	var out []*rtp.Packet
 	var expect uint16
 	started := false
-	var lastArrival float64
+	var lastArrival, lastLimit float64
 
 	emit := func(p buffered, now float64) {
 		lat := now - p.at
@@ -123,7 +131,6 @@ func (r *Reorderer) Process(arrivals []Arrival) ([]*rtp.Packet, Stats) {
 		out = append(out, p.pkt)
 		st.Emitted++
 	}
-	// drain emits every buffered packet in order from expect upward.
 	drain := func(now float64) {
 		for {
 			p, ok := buf[expect]
@@ -135,8 +142,15 @@ func (r *Reorderer) Process(arrivals []Arrival) ([]*rtp.Packet, Stats) {
 			expect++
 		}
 	}
-	// expireHead declares the head gap lost once its bounded recovery
-	// wait has expired or the reorder window is full.
+	declareLost := func(seq uint16, detectedMs float64) {
+		st.Lost++
+		lostSeqs[seq] = true
+		st.Gaps = append(st.Gaps, Gap{Seq: seq, DetectedMs: detectedMs})
+		delete(gapSince, seq)
+	}
+	// expireHead declares the head gap lost once its deadline passes.
+	// Blocked packets are emitted at the exact deadline so their
+	// latency stays within the wait limit.
 	expireHead := func(now, limit float64, windowFull bool) {
 		for {
 			if _, ok := buf[expect]; ok {
@@ -146,14 +160,17 @@ func (r *Reorderer) Process(arrivals []Arrival) ([]*rtp.Packet, Stats) {
 			if !isGap {
 				return
 			}
-			if now-t <= limit && !windowFull {
+			deadline := t + limit
+			if deadline > now && !windowFull {
 				return
 			}
-			st.Lost++
-			st.Gaps = append(st.Gaps, Gap{Seq: expect, DetectedMs: t})
-			delete(gapSince, expect)
+			emitAt := deadline
+			if windowFull && deadline > now {
+				emitAt = now
+			}
+			declareLost(expect, t)
 			expect++
-			drain(now)
+			drain(emitAt)
 		}
 	}
 
@@ -174,8 +191,12 @@ func (r *Reorderer) Process(arrivals []Arrival) ([]*rtp.Packet, Stats) {
 			expect = seq
 		}
 		limit := r.cfg.waitLimit(a.BandwidthMbps)
+		lastLimit = limit
+		// Expire the head gap at its deadline before this arrival.
+		expireHead(a.ArrivalMs, limit, false)
+
 		if seqDiff(seq, expect) < 0 {
-			// Behind the head: retransmission of an open gap, or late.
+			// Behind the head: fills an open gap, or is too late.
 			if t, ok := gapSince[seq]; ok {
 				delete(gapSince, seq)
 				if a.ArrivalMs-t <= limit {
@@ -189,6 +210,11 @@ func (r *Reorderer) Process(arrivals []Arrival) ([]*rtp.Packet, Stats) {
 				}
 			} else {
 				st.Late++ // isolated: gap already closed
+				if lostSeqs[seq] {
+					// It did arrive, only too late: reclassify.
+					st.Lost--
+					delete(lostSeqs, seq)
+				}
 			}
 			continue
 		}
@@ -198,23 +224,49 @@ func (r *Reorderer) Process(arrivals []Arrival) ([]*rtp.Packet, Stats) {
 				gapSince[s] = a.ArrivalMs
 			}
 		}
+		// A packet filling its own freshly opened or existing gap is a
+		// recovery when it arrives inside the bounded wait.
+		if t, isGap := gapSince[seq]; isGap {
+			delete(gapSince, seq)
+			if a.ArrivalMs-t <= limit {
+				st.Recovered++
+				st.Gaps = append(st.Gaps, Gap{Seq: seq, DetectedMs: t, Recovered: true})
+			} else {
+				st.Late++
+				st.Gaps = append(st.Gaps, Gap{Seq: seq, DetectedMs: t, Late: true})
+				continue // isolated: not emitted
+			}
+		}
 		buf[seq] = buffered{a.Packet, a.ArrivalMs}
 		drain(a.ArrivalMs)
 		expireHead(a.ArrivalMs, limit, len(buf) > r.cfg.WindowSize)
 	}
 
-	// Flush: emit what is left in order, declare remaining gaps lost.
-	rest := make([]uint16, 0, len(buf))
-	for s := range buf {
-		rest = append(rest, s)
-	}
-	sort.Slice(rest, func(i, j int) bool { return seqDiff(rest[i], rest[j]) < 0 })
-	for _, s := range rest {
-		emit(buf[s], lastArrival)
+	// Flush: declare every remaining gap lost (head gaps emit their
+	// blocked packets at the earlier of deadline and stream end),
+	// then drain whatever is left in order.
+	for {
+		if p, ok := buf[expect]; ok {
+			emit(p, lastArrival)
+			delete(buf, expect)
+			expect++
+			continue
+		}
+		t, isGap := gapSince[expect]
+		if !isGap {
+			break
+		}
+		deadline := t + lastLimit
+		declareLost(expect, t)
+		expect++
+		if deadline < lastArrival {
+			drain(deadline)
+		} else {
+			drain(lastArrival)
+		}
 	}
 	for s, t := range gapSince {
-		st.Lost++
-		st.Gaps = append(st.Gaps, Gap{Seq: s, DetectedMs: t})
+		declareLost(s, t)
 	}
 	return out, st
 }
