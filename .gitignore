@@ -74,6 +74,7 @@ AGENTS.md.local
 
 # ---- Python 构建产物与本地环境（不提交）----
 .venv/
+.venv-*/
 __pycache__/
 *.py[cod]
 *.egg-info/
