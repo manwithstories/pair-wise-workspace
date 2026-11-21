@@ -71,3 +71,6 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# 本地演示与验收产物，不入库
+tmp/

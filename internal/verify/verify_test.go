@@ -83,7 +83,7 @@ func TestVerifyRejectsChangedParams(t *testing.T) {
 
 func TestVerifyMissingState(t *testing.T) {
 	_, err := Run(filepath.Join(t.TempDir(), "empty"), params(), Inputs{BlockSize: 64})
-	if !errors.Is(err, checkpoint.ErrCheckpointCorrupt) {
-		t.Fatalf("want ErrCheckpointCorrupt, got %v", err)
+	if !errors.Is(err, ErrUnreadable) {
+		t.Fatalf("want ErrUnreadable, got %v", err)
 	}
 }

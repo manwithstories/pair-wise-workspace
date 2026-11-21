@@ -17,6 +17,10 @@ import (
 	"github.com/archive/rtprestore/internal/checkpoint"
 )
 
+// ErrUnreadable means the requested directory or state document cannot be
+// read at all (missing path, permission denied): an input/argument fault.
+var ErrUnreadable = errors.New("verify: output directory or state unreadable")
+
 // Exit codes follow the archive contract.
 const (
 	ExitOK               = 0
@@ -64,6 +68,9 @@ type Inputs struct {
 func Run(dir string, params checkpoint.Params, in Inputs) (Report, error) {
 	raw, err := os.ReadFile(filepath.Join(dir, "checkpoint.json"))
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, os.ErrPermission) {
+			return Report{}, fmt.Errorf("%w: %v", ErrUnreadable, err)
+		}
 		return Report{}, fmt.Errorf("%w: %v", checkpoint.ErrCheckpointCorrupt, err)
 	}
 	var state checkpoint.State

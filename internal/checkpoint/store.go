@@ -83,6 +83,9 @@ func Open(dir string, every int, params Params) (*Store, error) {
 		return nil, fmt.Errorf("checkpoint: %s already exists; refuse to overwrite", stateName)
 	}
 	s := &Store{dir: dir, every: every, state: State{ParamDigest: params.Digest()}}
+	if err := SaveParams(dir, params); err != nil {
+		return nil, err
+	}
 	return s, s.persist(&s.state)
 }
 
