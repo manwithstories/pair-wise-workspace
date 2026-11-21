@@ -143,17 +143,36 @@ func frag(off int64, data []byte) OutputFragment {
 	return OutputFragment{Offset: off, Length: int64(len(data)), Digest: sha256.Sum256(data)}
 }
 
+// stagedWrite is one payload a stage writes at an absolute offset.
+type stagedWrite struct {
+	off  int64
+	data []byte
+}
+
+// beginStage opens a stage's staging file and writes its fragments into it,
+// which is what a pipeline stage does before committing.
+func beginStage(t *testing.T, cm *CommitManager, s StageID, frags ...stagedWrite) (*os.File, error) {
+	t.Helper()
+	f, err := cm.OpenStage(s, hash("in"), 0)
+	if err != nil {
+		return nil, err
+	}
+	for _, fr := range frags {
+		if _, err := f.WriteAt(fr.data, fr.off); err != nil {
+			return nil, err
+		}
+		if err := cm.AppendOutput(s, frag(fr.off, fr.data)); err != nil {
+			return nil, err
+		}
+	}
+	return f, nil
+}
+
 func TestCommitManagerHappyPath(t *testing.T) {
 	wal, out := tempWAL(t)
-	writeOutput(t, out, []byte("abcdefghij"))
+	writeOutput(t, out, nil)
 	cm := NewCommitManager(wal, out)
-	if err := cm.Begin(StageParse, hash("input"), 10); err != nil {
-		t.Fatal(err)
-	}
-	if err := cm.AppendOutput(StageParse, frag(0, []byte("abcde"))); err != nil {
-		t.Fatal(err)
-	}
-	if err := cm.AppendOutput(StageParse, frag(5, []byte("fghij"))); err != nil {
+	if _, err := beginStage(t, cm, StageParse, stagedWrite{0, []byte("abcde")}, stagedWrite{5, []byte("fghij")}); err != nil {
 		t.Fatal(err)
 	}
 	if err := cm.Commit(StageParse, ""); err != nil {
@@ -181,12 +200,17 @@ func TestCommitRejectsChecksumMismatch(t *testing.T) {
 	wal, out := tempWAL(t)
 	writeOutput(t, out, []byte("abcdefghij"))
 	cm := NewCommitManager(wal, out)
-	cm.Begin(StageParse, hash("in"), 10)
-	good := frag(0, []byte("abcde"))
-	bad := good
+	f, err := cm.OpenStage(StageParse, hash("in"), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteAt([]byte("abcde"), 0); err != nil {
+		t.Fatal(err)
+	}
+	bad := frag(0, []byte("abcde"))
 	bad.Digest = hash("something else")
 	cm.AppendOutput(StageParse, bad)
-	err := cm.Commit(StageParse, "")
+	err = cm.Commit(StageParse, "")
 	var fe *fault.Error
 	if !errors.As(err, &fe) || fe.Code != fault.CodeChecksumMismatch {
 		t.Fatalf("bad error %v", err)
@@ -202,9 +226,12 @@ func TestCommitRejectsChecksumMismatch(t *testing.T) {
 
 func TestCommitRejectsShortOutput(t *testing.T) {
 	wal, out := tempWAL(t)
-	writeOutput(t, out, []byte("abc"))
+	writeOutput(t, out, nil)
 	cm := NewCommitManager(wal, out)
-	cm.Begin(StageParse, hash("in"), 3)
+	if _, err := cm.OpenStage(StageParse, hash("in"), 3); err != nil {
+		t.Fatal(err)
+	}
+	// Record a fragment without writing it: the staging file is short.
 	cm.AppendOutput(StageParse, frag(0, []byte("abcdef")))
 	if err := cm.Commit(StageParse, ""); err == nil {
 		t.Fatal("expected short-output rejection")
@@ -213,22 +240,18 @@ func TestCommitRejectsShortOutput(t *testing.T) {
 
 func TestRollbackTruncatesUncommittedTail(t *testing.T) {
 	wal, out := tempWAL(t)
-	writeOutput(t, out, []byte("0123"))
+	writeOutput(t, out, nil)
 	cm := NewCommitManager(wal, out)
-	cm.Begin(StageParse, hash("in1"), 4)
-	cm.AppendOutput(StageParse, frag(0, []byte("0123")))
+	if _, err := beginStage(t, cm, StageParse, stagedWrite{0, []byte("0123")}); err != nil {
+		t.Fatal(err)
+	}
 	if err := cm.Commit(StageParse, ""); err != nil {
 		t.Fatal(err)
 	}
 	// Second stage writes six more bytes but never commits.
-	f, err := os.OpenFile(out, os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
+	if _, err := beginStage(t, cm, StageAudio, stagedWrite{4, []byte("456789")}); err != nil {
 		t.Fatal(err)
 	}
-	f.Write([]byte("456789"))
-	f.Close()
-	cm.Begin(StageAudio, hash("in2"), 6)
-	cm.AppendOutput(StageAudio, frag(4, []byte("456789")))
 
 	discarded, err := cm.Rollback()
 	if err != nil {
@@ -248,15 +271,17 @@ func TestRollbackTruncatesUncommittedTail(t *testing.T) {
 
 func TestRecoverRollsBackAndReports(t *testing.T) {
 	wal, out := tempWAL(t)
-	writeOutput(t, out, []byte("0123456789"))
+	writeOutput(t, out, nil)
 	cm := NewCommitManager(wal, out)
-	cm.Begin(StageParse, hash("in1"), 4)
-	cm.AppendOutput(StageParse, frag(0, []byte("0123")))
+	if _, err := beginStage(t, cm, StageParse, stagedWrite{0, []byte("0123")}); err != nil {
+		t.Fatal(err)
+	}
 	if err := cm.Commit(StageParse, "parse ok"); err != nil {
 		t.Fatal(err)
 	}
-	cm.Begin(StageAudio, hash("in2"), 6)
-	cm.AppendOutput(StageAudio, frag(4, []byte("456789")))
+	if _, err := beginStage(t, cm, StageAudio, stagedWrite{4, []byte("456789")}); err != nil {
+		t.Fatal(err)
+	}
 	wal.Close()
 
 	rec, err := Recover(wal.Path(), out)
@@ -312,10 +337,11 @@ func TestRecoverDetectsSequenceGap(t *testing.T) {
 
 func TestRecoverDetectsOutputShortfall(t *testing.T) {
 	wal, out := tempWAL(t)
-	writeOutput(t, out, []byte("0123456789"))
+	writeOutput(t, out, nil)
 	cm := NewCommitManager(wal, out)
-	cm.Begin(StageParse, hash("in"), 10)
-	cm.AppendOutput(StageParse, frag(0, []byte("0123456789")))
+	if _, err := beginStage(t, cm, StageParse, stagedWrite{0, []byte("0123456789")}); err != nil {
+		t.Fatal(err)
+	}
 	if err := cm.Commit(StageParse, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -385,10 +411,11 @@ func (s *sliceReader) Read(p []byte) (int, error) {
 
 func TestRecoverRejectsTamperedCommittedFragment(t *testing.T) {
 	wal, out := tempWAL(t)
-	writeOutput(t, out, []byte("0123456789"))
+	writeOutput(t, out, nil)
 	cm := NewCommitManager(wal, out)
-	cm.Begin(StageParse, hash("in"), 10)
-	cm.AppendOutput(StageParse, frag(0, []byte("0123456789")))
+	if _, err := beginStage(t, cm, StageParse, stagedWrite{0, []byte("0123456789")}); err != nil {
+		t.Fatal(err)
+	}
 	if err := cm.Commit(StageParse, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -409,19 +436,23 @@ func TestRecoverRejectsTamperedCommittedFragment(t *testing.T) {
 
 func TestRecoverIgnoresUncommittedFragments(t *testing.T) {
 	wal, out := tempWAL(t)
-	writeOutput(t, out, []byte("0123"))
+	writeOutput(t, out, nil)
 	cm := NewCommitManager(wal, out)
-	cm.Begin(StageParse, hash("in1"), 4)
-	cm.AppendOutput(StageParse, frag(0, []byte("0123")))
+	if _, err := beginStage(t, cm, StageParse, stagedWrite{0, []byte("0123")}); err != nil {
+		t.Fatal(err)
+	}
 	if err := cm.Commit(StageParse, ""); err != nil {
 		t.Fatal(err)
 	}
 	// An uncommitted stage records a fragment that does not match the
-	// bytes on disk; recovery must still succeed and roll it back.
-	cm.Begin(StageAudio, hash("in2"), 6)
-	cm.AppendOutput(StageAudio, frag(0, []byte("xxxxxx")))
+	// bytes it wrote; recovery must ignore it and roll it back.
+	f, err := cm.OpenStage(StageAudio, hash("in2"), 6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteAt([]byte("zzzzzz"), 4)
+	cm.AppendOutput(StageAudio, frag(4, []byte("xxxxxx")))
 	wal.Close()
-	os.Truncate(out, 4)
 	rec, err := Recover(wal.Path(), out)
 	if err != nil {
 		t.Fatalf("uncommitted fragment must not fail recovery: %v", err)

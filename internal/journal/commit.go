@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"mediamerge/internal/fault"
 )
@@ -68,7 +69,10 @@ type Recovery struct {
 	Digests [][32]byte
 }
 
-// CommitManager appends stage records and drives atomic commits.
+// CommitManager appends stage records and drives atomic commits. Each stage
+// writes into a same-volume staging file that already contains the committed
+// prefix; Commit publishes it with an atomic rename, so the delivery file is
+// never observed half-written.
 type CommitManager struct {
 	wal    *WAL
 	output string
@@ -77,6 +81,8 @@ type CommitManager struct {
 	pending []OutputFragment
 	open    StageID
 	openSeq uint64
+	// staged is the staging file for the open stage.
+	staged *os.File
 	// committedDigests preserves fragment hashes across commits.
 	committedDigests [][32]byte
 }
@@ -104,15 +110,32 @@ func (c *CommitManager) state(s StageID) StageState {
 	return StatePending
 }
 
-// Begin records the stage input digest and the input byte range. The output
-// fragment list for the stage is reset.
+// Begin records the stage input digest and the input byte range. It also
+// creates the stage's staging file, pre-seeded with the committed prefix, and
+// returns it for the stage to write at absolute offsets. The caller must not
+// close it; Commit or Rollback does.
 func (c *CommitManager) Begin(s StageID, inDigest [32]byte, inBytes int64) error {
+	_, err := c.begin(s, inDigest, inBytes)
+	return err
+}
+
+// OpenStage is Begin plus the staging handle. The stage must write its bytes
+// into the returned file at offsets at or beyond the committed prefix; the
+// handle's current size is that boundary.
+func (c *CommitManager) OpenStage(s StageID, inDigest [32]byte, inBytes int64) (*os.File, error) {
+	return c.begin(s, inDigest, inBytes)
+}
+
+// CommittedBoundary returns the output offset of the last commit record.
+func (c *CommitManager) CommittedBoundary() int64 { return c.committedBoundary() }
+
+func (c *CommitManager) begin(s StageID, inDigest [32]byte, inBytes int64) (*os.File, error) {
 	if c.state(s) == StateCommitted {
-		return fault.New(fault.StageJournal, fault.CodeWALGap,
+		return nil, fault.New(fault.StageJournal, fault.CodeWALGap,
 			fmt.Sprintf("stage %s is already committed", s))
 	}
 	if c.open != 0 && c.open != s {
-		return fault.New(fault.StageJournal, fault.CodeWALGap,
+		return nil, fault.New(fault.StageJournal, fault.CodeWALGap,
 			fmt.Sprintf("stage %s is still open while beginning %s", c.open, s))
 	}
 	r, err := c.wal.Append(Record{
@@ -120,13 +143,46 @@ func (c *CommitManager) Begin(s StageID, inDigest [32]byte, inBytes int64) error
 		Summary: fmt.Sprintf("in_bytes=%d", inBytes),
 	})
 	if err != nil {
-		return fault.Wrap(fault.StageJournal, fault.CodeWriteFailed, err, "append begin record")
+		return nil, fault.Wrap(fault.StageJournal, fault.CodeWriteFailed, err, "append begin record")
+	}
+	staged, err := c.openStaging()
+	if err != nil {
+		return nil, err
 	}
 	c.open = s
 	c.openSeq = r.Seq
 	c.pending = nil
+	c.staged = staged
 	c.states[s] = StateOpen
-	return nil
+	return staged, nil
+}
+
+// openStaging creates the staging file and copies the committed prefix into
+// it. The returned handle is positioned at the prefix end.
+func (c *CommitManager) openStaging() (*os.File, error) {
+	boundary := c.committedBoundary()
+	tmp := TempPath(c.output)
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, fault.Wrap(fault.StageCommit, fault.CodeWriteFailed, err, "create staging file")
+	}
+	if boundary > 0 {
+		src, err := os.Open(c.output)
+		if err != nil {
+			f.Close()
+			os.Remove(tmp)
+			return nil, fault.Wrap(fault.StageCommit, fault.CodeWriteFailed, err, "open committed output")
+		}
+		n, err := io.CopyN(f, src, boundary)
+		src.Close()
+		if err != nil || n != boundary {
+			f.Close()
+			os.Remove(tmp)
+			return nil, fault.Wrap(fault.StageCommit, fault.CodeWriteFailed, err,
+				fmt.Sprintf("seed staging file with %d committed bytes", boundary))
+		}
+	}
+	return f, nil
 }
 
 // AppendOutput records one output fragment. It must be called after Begin.
@@ -137,7 +193,7 @@ func (c *CommitManager) AppendOutput(s StageID, frag OutputFragment) error {
 // AppendOutputTrack records one output fragment together with the track that
 // produced it. The track lets recovery rebuild per-track segment metrics.
 func (c *CommitManager) AppendOutputTrack(s StageID, trackID int, frag OutputFragment) error {
-	if c.state(s) != StateOpen {
+	if c.state(s) != StateOpen || c.staged == nil {
 		return fault.New(fault.StageJournal, fault.CodeWALGap,
 			fmt.Sprintf("output for stage %s before begin", s))
 	}
@@ -173,30 +229,19 @@ func (c *CommitManager) Commit(s StageID, summary string) error {
 			end = f.Offset + f.Length
 		}
 	}
-	st, err := os.Stat(c.output)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fault.Wrap(fault.StageCommit, fault.CodeWriteFailed, err, "stat output")
+	st, err := c.staged.Stat()
+	if err != nil {
+		return fault.Wrap(fault.StageCommit, fault.CodeWriteFailed, err, "stat staging file")
 	}
-	var size int64
-	if st != nil {
-		size = st.Size()
-	}
-	if end > size {
+	if end > st.Size() {
 		return fault.New(fault.StageCommit, fault.CodeChecksumMismatch,
-			fmt.Sprintf("stage %s declares output through byte %d but file has %d", s, end, size))
+			fmt.Sprintf("stage %s declares output through byte %d but staging file has %d", s, end, st.Size()))
 	}
-	if f, err := os.OpenFile(c.output, os.O_RDWR, 0o644); err == nil {
-		if err := f.Sync(); err != nil {
-			f.Close()
-			return fault.Wrap(fault.StageCommit, fault.CodeWriteFailed, err, "fsync output")
-		}
-		f.Close()
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fault.Wrap(fault.StageCommit, fault.CodeWriteFailed, err, "open output for sync")
+	if err := c.staged.Sync(); err != nil {
+		return fault.Wrap(fault.StageCommit, fault.CodeWriteFailed, err, "fsync staging file")
 	}
-
 	for _, frag := range c.pending {
-		ok, err := verifyFragment(c.output, frag)
+		ok, err := verifyFragment(c.staged.Name(), frag)
 		if err != nil {
 			return err
 		}
@@ -205,6 +250,15 @@ func (c *CommitManager) Commit(s StageID, summary string) error {
 				fmt.Sprintf("stage %s fragment at %d+%d does not match its recorded hash", s, frag.Offset, frag.Length))
 		}
 	}
+	if err := c.staged.Close(); err != nil {
+		return fault.Wrap(fault.StageCommit, fault.CodeWriteFailed, err, "close staging file")
+	}
+	if err := os.Rename(c.staged.Name(), c.output); err != nil {
+		os.Remove(c.staged.Name())
+		return fault.Wrap(fault.StageCommit, fault.CodeWriteFailed, err, "atomic rename of staging file")
+	}
+	syncDir(c.output)
+	c.staged = nil
 
 	sum := summary
 	if sum == "" {
@@ -225,6 +279,25 @@ func (c *CommitManager) Commit(s StageID, summary string) error {
 	c.states[s] = StateCommitted
 	c.pending = nil
 	c.open = 0
+	return nil
+}
+
+// syncDir fsyncs the directory holding path so the rename itself is durable.
+func syncDir(path string) {
+	d, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return
+	}
+	_ = d.Sync()
+	d.Close()
+}
+
+// DiscardStaging removes a staging file left behind by a crashed commit.
+func DiscardStaging(output string) error {
+	err := os.Remove(TempPath(output))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	return nil
 }
 
@@ -251,20 +324,23 @@ func verifyFragment(path string, frag OutputFragment) (bool, error) {
 // discarded is returned.
 func (c *CommitManager) Rollback() (int64, error) {
 	boundary := c.committedBoundary()
-	st, err := os.Stat(c.output)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return 0, err
-	}
-	var size int64
-	if st != nil {
-		size = st.Size()
-	}
 	var discarded int64
-	if size > boundary {
-		discarded = size - boundary
+	if c.staged != nil {
+		if st, err := c.staged.Stat(); err == nil && st.Size() > boundary {
+			discarded = st.Size() - boundary
+		}
+		name := c.staged.Name()
+		c.staged.Close()
+		if err := os.Remove(name); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return discarded, fault.Wrap(fault.StageCommit, fault.CodeWriteFailed, err, "discard staging file")
+		}
+		c.staged = nil
+	}
+	if st, err := os.Stat(c.output); err == nil && st.Size() > boundary {
 		if err := os.Truncate(c.output, boundary); err != nil {
 			return 0, fault.Wrap(fault.StageCommit, fault.CodeWriteFailed, err, "truncate uncommitted tail")
 		}
+		discarded = st.Size() - boundary
 	}
 	if c.open != 0 {
 		if _, err := c.wal.Append(Record{
@@ -454,6 +530,18 @@ func Recover(walPath, outputPath string) (*Recovery, error) {
 	st, err := os.Stat(outputPath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
+	}
+	if tmpStat, terr := os.Stat(TempPath(outputPath)); terr == nil {
+		// A crash during a stage leaves a staging file that was never
+		// renamed. Everything past the last commit boundary is discarded;
+		// the prefix it shares with the output is not counted twice.
+		extra := tmpStat.Size() - boundary
+		if extra > 0 {
+			rec.RolledBackBytes += extra
+		}
+		if err := DiscardStaging(outputPath); err != nil {
+			return nil, fault.Wrap(fault.StageCommit, fault.CodeWriteFailed, err, "discard staging file")
+		}
 	}
 	if st != nil {
 		rec.OutputBytes = st.Size()

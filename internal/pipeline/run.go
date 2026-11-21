@@ -11,7 +11,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -240,7 +239,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		if opts.FailAfterStage > 0 && committedCount >= opts.FailAfterStage {
 			// Simulate a process death part-way through the next stage:
 			// records and output bytes exist, but no commit boundary does.
-			if err := writePartialStage(opts, st, specs, parsed, cm, f); err != nil {
+			if err := writePartialStage(opts, st, specs, parsed, cm); err != nil {
 				return res, err
 			}
 			res.FailStage = stageName(st)
@@ -263,7 +262,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 
 	// Final validation: re-read the output and confirm every block digest
 	// recorded in the last stage matches disk.
-	if err := validateOutput(f, res); err != nil {
+	if err := validateOutput(outputPath, res); err != nil {
 		return res, err
 	}
 	return res, nil
@@ -300,23 +299,23 @@ func runStage(ctx context.Context, opts Options, st journal.StageID, specs []spe
 	if err != nil {
 		return "", err
 	}
-	if err := cm.Begin(st, inDigest, inBytes); err != nil {
+	staged, err := cm.OpenStage(st, inDigest, inBytes)
+	if err != nil {
 		return "", err
 	}
-	stageStart, err := out.Seek(0, io.SeekEnd)
-	if err != nil {
-		return "", fault.Wrap(fault.StageCommit, fault.CodeWriteFailed, err, "seek output")
-	}
+	// The staging file is pre-seeded with the committed prefix, so its
+	// current size is the absolute offset where this stage's bytes begin.
+	stageStart := cm.CommittedBoundary()
 
 	switch st {
 	case journal.StageParse:
-		return commitParse(cm, st, specs, out, stageStart, inDigest)
+		return commitParse(cm, st, specs, staged, stageStart, inDigest)
 	case journal.StageAudio:
-		return commitAudio(ctx, opts, st, parsed, cm, out, stageStart, res)
+		return commitAudio(ctx, opts, st, parsed, cm, staged, stageStart, res)
 	case journal.StageMux:
-		return commitMux(ctx, opts, st, parsed, cm, out, stageStart, res)
+		return commitMux(ctx, opts, st, parsed, cm, staged, stageStart, res)
 	default:
-		return commitFinal(cm, st, specs, parsed, out, stageStart, res)
+		return commitFinal(cm, st, specs, parsed, staged, stageStart, res)
 	}
 }
 
@@ -368,7 +367,7 @@ func writeTrackRecord(cm *journal.CommitManager, st journal.StageID, trackID int
 }
 
 func commitParse(cm *journal.CommitManager, st journal.StageID, specs []spec,
-	out *os.File, start int64, inDigest [32]byte) (string, error) {
+	staged *os.File, start int64, inDigest [32]byte) (string, error) {
 
 	h := sha256.New()
 	h.Write(inDigest[:])
@@ -379,7 +378,7 @@ func commitParse(cm *journal.CommitManager, st journal.StageID, specs []spec,
 	var off int64
 	for i, sp := range specs {
 		name := fmt.Sprintf("fixture|%s|%s\n", sp.Name, sp.Container)
-		frag, err := writeAndRecord(cm, st, out, start, off, []byte(name))
+		frag, err := writeAndRecord(cm, st, staged, start, off, []byte(name))
 		if err != nil {
 			return "", err
 		}
@@ -395,7 +394,7 @@ func commitParse(cm *journal.CommitManager, st journal.StageID, specs []spec,
 }
 
 func commitAudio(ctx context.Context, opts Options, st journal.StageID,
-	parsed map[string]*metadata.File, cm *journal.CommitManager, out *os.File,
+	parsed map[string]*metadata.File, cm *journal.CommitManager, staged *os.File,
 	start int64, res *Result) (string, error) {
 
 	type job struct {
@@ -498,7 +497,7 @@ func commitAudio(ctx context.Context, opts Options, st journal.StageID,
 		_, _, derr := stream.Drain(cctx, q, stream.ConsumerOptions{
 			Delay: time.Duration(opts.ConsumerDelayMs) * time.Millisecond,
 		}, func(b *stream.Block) error {
-			frag, werr := writeTrackRecord(cm, st, b.TrackID, out, start, off, b.Packet.Payload)
+			frag, werr := writeTrackRecord(cm, st, b.TrackID, staged, start, off, b.Packet.Payload)
 			if werr != nil {
 				return werr
 			}
@@ -670,7 +669,7 @@ func digestBytes(b BlockMetric) []byte {
 }
 
 func commitMux(ctx context.Context, opts Options, st journal.StageID,
-	parsed map[string]*metadata.File, cm *journal.CommitManager, out *os.File,
+	parsed map[string]*metadata.File, cm *journal.CommitManager, staged *os.File,
 	start int64, res *Result) (string, error) {
 
 	names := make([]string, 0, len(parsed))
@@ -683,7 +682,7 @@ func commitMux(ctx context.Context, opts Options, st journal.StageID,
 	for _, name := range names {
 		for _, tr := range parsed[name].Tracks {
 			data := stagePayload(opts.Seed, "mux", tr.ID, int(tr.DurationTicks), 64)
-			frag, err := writeAndRecord(cm, st, out, start, off, data)
+			frag, err := writeAndRecord(cm, st, staged, start, off, data)
 			if err != nil {
 				return "", err
 			}
@@ -700,7 +699,7 @@ func commitMux(ctx context.Context, opts Options, st journal.StageID,
 }
 
 func commitFinal(cm *journal.CommitManager, st journal.StageID, specs []spec,
-	parsed map[string]*metadata.File, out *os.File, start int64, res *Result) (string, error) {
+	parsed map[string]*metadata.File, staged *os.File, start int64, res *Result) (string, error) {
 
 	// Validate that every committed stage digest is reproducible: rebuild
 	// the expected canonical text and compare stage fingerprints.
@@ -714,7 +713,7 @@ func commitFinal(cm *journal.CommitManager, st journal.StageID, specs []spec,
 	for _, name := range names {
 		for _, tr := range parsed[name].Tracks {
 			line := tr.Canonical() + "\n"
-			frag, err := writeAndRecord(cm, st, out, start, off, []byte(line))
+			frag, err := writeAndRecord(cm, st, staged, start, off, []byte(line))
 			if err != nil {
 				return "", err
 			}
@@ -730,9 +729,10 @@ func commitFinal(cm *journal.CommitManager, st journal.StageID, specs []spec,
 }
 
 // validateOutput re-reads the output file and confirms its size covers every
-// committed fragment.
-func validateOutput(f *os.File, res *Result) error {
-	st, err := f.Stat()
+// committed fragment. It stats by path because each commit replaces the file
+// through an atomic rename, so a long-lived handle would see the old inode.
+func validateOutput(path string, res *Result) error {
+	st, err := os.Stat(path)
 	if err != nil {
 		return fault.Wrap(fault.StageValidate, fault.CodeWriteFailed, err, "stat output")
 	}
@@ -919,19 +919,17 @@ func IsInterrupted(err error) bool {
 // writePartialStage writes a stage's output fragments and WAL output records
 // without a commit record, leaving an uncommitted tail for recovery.
 func writePartialStage(opts Options, st journal.StageID, specs []spec,
-	parsed map[string]*metadata.File, cm *journal.CommitManager, out *os.File) error {
+	parsed map[string]*metadata.File, cm *journal.CommitManager) error {
 
 	inDigest, inBytes, err := inputDigest(specs, parsed, st)
 	if err != nil {
 		return err
 	}
-	if err := cm.Begin(st, inDigest, inBytes); err != nil {
+	staged, err := cm.OpenStage(st, inDigest, inBytes)
+	if err != nil {
 		return err
 	}
-	start, err := out.Seek(0, io.SeekEnd)
-	if err != nil {
-		return fault.Wrap(fault.StageCommit, fault.CodeWriteFailed, err, "seek output")
-	}
+	start := cm.CommittedBoundary()
 	var off int64
 	names := make([]string, 0, len(parsed))
 	for name := range parsed {
@@ -945,7 +943,7 @@ func writePartialStage(opts Options, st journal.StageID, specs []spec,
 		}
 		for _, tr := range parsed[name].Tracks {
 			data := stagePayload(opts.Seed, st.String(), tr.ID, int(tr.DurationTicks), 4096)
-			frag, err := writeAndRecord(cm, st, out, start, off, data)
+			frag, err := writeAndRecord(cm, st, staged, start, off, data)
 			if err != nil {
 				return err
 			}
