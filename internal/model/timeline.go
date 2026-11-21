@@ -16,27 +16,27 @@ type TrackRole string
 
 // Supported track roles.
 const (
-	TrackStudio TrackRole = "studio"   // 棚内
-	TrackField  TrackRole = "field"    // 外景
+	TrackStudio TrackRole = "studio"    // 棚内
+	TrackField  TrackRole = "field"     // 外景
 	TrackVoice  TrackRole = "voiceover" // 远端解说
 )
 
 // SegmentRef is one confirmed fragment on the unified timeline.
 type SegmentRef struct {
-	Track      TrackRole    `json:"track"`
-	Kind       ManifestKind `json:"kind"`
-	Index      int          `json:"index"`
-	URI        string       `json:"uri"`
-	Start      Rat          `json:"-"`
-	Duration   Rat          `json:"-"`
+	Track    TrackRole    `json:"track"`
+	Kind     ManifestKind `json:"kind"`
+	Index    int          `json:"index"`
+	URI      string       `json:"uri"`
+	Start    Rat          `json:"-"`
+	Duration Rat          `json:"-"`
 	// StartMS / DurationMS are the JSON-stable projection of the rational span.
-	StartMS    int64        `json:"start_ms"`
-	DurationMS int64        `json:"duration_ms"`
+	StartMS    int64 `json:"start_ms"`
+	DurationMS int64 `json:"duration_ms"`
 	// ByteStart/ByteSize locate the fragment inside its file (0/0 = whole file).
-	ByteStart  int64        `json:"byte_start"`
-	ByteSize   int64        `json:"byte_size"`
-	Timescale  int64        `json:"timescale"`
-	Sync       bool         `json:"sync"`
+	ByteStart int64 `json:"byte_start"`
+	ByteSize  int64 `json:"byte_size"`
+	Timescale int64 `json:"timescale"`
+	Sync      bool  `json:"sync"`
 }
 
 // End returns the exclusive timeline end of the segment.
@@ -44,9 +44,9 @@ func (s SegmentRef) End() (Rat, error) { return s.Start.Add(s.Duration) }
 
 // Timeline is the normalized, per-track ordered view of confirmed segments.
 type Timeline struct {
-	Tracks   map[TrackRole][]SegmentRef `json:"tracks"`
-	Missing  []MissingDependency        `json:"missing,omitempty"`
-	Partial  bool                       `json:"partial"`
+	Tracks  map[TrackRole][]SegmentRef `json:"tracks"`
+	Missing []MissingDependency        `json:"missing,omitempty"`
+	Partial bool                       `json:"partial"`
 }
 
 // NewTimeline creates an empty timeline.
@@ -83,21 +83,21 @@ func (t *Timeline) MarkPartial(m MissingDependency) {
 
 // MissingDependency names the first index entry whose payload is unavailable.
 type MissingDependency struct {
-	Track  TrackRole `json:"track"`
+	Track  TrackRole    `json:"track"`
 	Kind   ManifestKind `json:"kind"`
-	Index  int       `json:"index"`
-	URI    string    `json:"uri"`
-	Reason string    `json:"reason"`
+	Index  int          `json:"index"`
+	URI    string       `json:"uri"`
+	Reason string       `json:"reason"`
 }
 
 // MediaError carries the full provenance of a fragment-level failure.
 type MediaError struct {
-	Track      TrackRole
-	SegmentIdx int
-	Offset     int64 // byte offset of the first bad byte / box header
+	Track       TrackRole
+	SegmentIdx  int
+	Offset      int64 // byte offset of the first bad byte / box header
 	Recoverable bool
-	Op         string
-	Err        error
+	Op          string
+	Err         error
 }
 
 func (e *MediaError) Error() string {
