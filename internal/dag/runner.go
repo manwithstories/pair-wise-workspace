@@ -150,13 +150,16 @@ func (r *Runner) Run(opts Options) ([]Result, error) {
 		status[id] = StatusRunning
 		results[id].Status = StatusRunning
 		wg.Add(1)
+		mu.Unlock()
+		// Acquire the concurrency token outside the mutex: holding the lock
+		// here would deadlock against workers that need the same lock to
+		// report completion and release a token.
 		sem <- struct{}{}
 		go func(nodeID string) {
 			defer wg.Done()
 			defer func() { <-sem }()
 			r.execute(nodeID, keys[nodeID].Value, opts, results, status, &mu, cond, &completed)
 		}(id)
-		mu.Unlock()
 	}
 	wg.Wait()
 	out := make([]Result, 0, len(r.graph.order))
