@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	github.com/abema/go-mp4 v1.7.4
-	github.com/pion/rtp v1.10.6
+	github.com/pion/rtp v1.8.9
 )
 
 require (
