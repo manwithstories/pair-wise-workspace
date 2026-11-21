@@ -155,7 +155,7 @@ func cameraTracks(seed int64, rates []int64) []TrackSpec {
 		}
 		return t
 	}
-	return []TrackSpec{v, mkAudio(4, 'B', 24), mkAudio(5, 'D', 12)}
+	return []TrackSpec{v, mkAudio(4, 'B', 24), mkAudio(5, 'D', 24)}
 }
 
 // rtpSchedule describes the transport timestamps for the VFR camera track.

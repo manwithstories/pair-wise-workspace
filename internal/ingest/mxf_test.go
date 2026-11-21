@@ -22,7 +22,7 @@ func TestDemuxMXFCamera(t *testing.T) {
 		t.Fatalf("tracks=%d want 3", len(res.Tracks))
 	}
 	video := res.Tracks[0]
-	if video.Kind != model.KindVideo || len(video.Samples) != 48 {
+	if video.Kind != model.KindVideo || len(video.Samples) != 72 {
 		t.Fatalf("video track kind=%v samples=%d", video.Kind, len(video.Samples))
 	}
 	// VFR: consecutive frame durations must not all be equal.

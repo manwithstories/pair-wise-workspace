@@ -27,13 +27,13 @@ func generateRTP(t *testing.T) []byte {
 
 func TestDemuxRTPCountsAndDuplicates(t *testing.T) {
 	raw := generateRTP(t)
-	plan := fixture.PlanDelivery(48, 12)
+	plan := fixture.PlanDelivery(72, 12)
 	res, err := DemuxRTP(bytes.NewReader(raw), "cam-video")
 	if err != nil {
 		t.Fatalf("demux: %v", err)
 	}
-	// 48 source frames, one duplicate -> 49 packets.
-	want := 48
+	// 72 source frames, one duplicate -> 73 packets.
+	want := 72
 	if plan.Duplicate >= 0 {
 		want++
 	}
