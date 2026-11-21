@@ -245,8 +245,13 @@ func TestResumeSkipsCompletedNodes(t *testing.T) {
 		"metadata": {Name: "metadata", Status: StatusDone, Result: Result{Hash: "hash:metadata"}, Attempts: 1},
 	}
 	r := s.Resume(prior)
-	if runs["metadata"] != 0 {
-		t.Fatalf("completed node re-ran %d times", runs["metadata"])
+	// A completed node is replayed once to rebuild in-memory state; it is not
+	// counted as a new attempt and must reproduce its recorded hash.
+	if runs["metadata"] != 1 {
+		t.Fatalf("completed node replayed %d times", runs["metadata"])
+	}
+	if r.States["metadata"].Attempts != 1 {
+		t.Fatalf("resumed attempts = %d, want 1", r.States["metadata"].Attempts)
 	}
 	if runs["transport"] != 1 || runs["compose"] != 1 {
 		t.Fatalf("pending nodes not run: %+v", runs)

@@ -27,6 +27,9 @@ type Config struct {
 	// HoleBlockThresholdMs blocks a frame when a coverage hole spans at least
 	// this many milliseconds. Zero disables hole blocking.
 	HoleBlockThresholdMs int64
+	// Scale divides the canvas and layer rectangles for verification renders.
+	// Geometry rules are unchanged; only the raster size is reduced.
+	Scale int
 }
 
 // DefaultConfig is a 90 kHz timeline at 30 fps.
@@ -36,6 +39,7 @@ func DefaultConfig() Config {
 		FPSNum:               30,
 		FPSDen:               1,
 		HoleBlockThresholdMs: 50,
+		Scale:                1,
 	}
 }
 
@@ -89,10 +93,12 @@ type Timeline struct {
 	Width    int
 	Height   int
 	Color    metadata.Color
-	Frames   []Frame
+	// Tracks are the normalized video tracks that contributed layers.
+	Tracks []metadata.Track
+	Frames []Frame
 	// FailedTracks are metadata tracks with no usable geometry; their interval
-	// blocks dependent frames.
-	FailedTracks []model.Interval
+	// blocks dependent frames. Dep names the first blocked dependency.
+	FailedTracks []FailedTrack
 	// BlockedDeps map frame index to the dependency that blocked it.
 	Stats Stats
 }
@@ -105,6 +111,12 @@ type Stats struct {
 	OverlapFrames  int
 	BlockedFrames  int
 	FirstBlocked   string
+}
+
+// FailedTrack is a failed track's interval and its blocking dependency.
+type FailedTrack struct {
+	Interval model.Interval
+	Dep      string
 }
 
 // sourceFrame is a derived sample interval for one track.
@@ -164,6 +176,11 @@ func Compose(asset *metadata.Asset, gaps []Gap, cfg Config) (*Timeline, error) {
 		Color:    metadata.ResolveColor(videos),
 	}
 	tl.Width, tl.Height = canvasSize(videos)
+	if cfg.Scale > 1 {
+		tl.Width = maxInt(tl.Width/cfg.Scale, 1)
+		tl.Height = maxInt(tl.Height/cfg.Scale, 1)
+	}
+	tl.Tracks = append([]metadata.Track(nil), videos...)
 
 	// Convert each track's interval and cadence into timeline ticks.
 	var tfs []trackFrames
@@ -210,8 +227,10 @@ func Compose(asset *metadata.Asset, gaps []Gap, cfg Config) (*Timeline, error) {
 			iv := t.Interval()
 			start, _ := iv.Timebase.Convert(iv.Start, cfg.Timebase)
 			stop, _ := iv.Timebase.Convert(iv.End, cfg.Timebase)
-			tl.FailedTracks = append(tl.FailedTracks, model.Interval{Start: start, End: stop, Timebase: cfg.Timebase})
-			_ = f
+			tl.FailedTracks = append(tl.FailedTracks, FailedTrack{
+				Interval: model.Interval{Start: start, End: stop, Timebase: cfg.Timebase},
+				Dep:      "metadata:" + f.Key,
+			})
 		}
 	}
 
@@ -249,6 +268,10 @@ func Compose(asset *metadata.Asset, gaps []Gap, cfg Config) (*Timeline, error) {
 			if tf.track.Crop != nil {
 				c := *tf.track.Crop
 				layer.Crop = &c
+			}
+			if cfg.Scale > 1 {
+				layer.W = maxInt(layer.W/cfg.Scale, 1)
+				layer.H = maxInt(layer.H/cfg.Scale, 1)
 			}
 			layer.X = (tl.Width - layer.W) / 2
 			layer.Y = (tl.Height - layer.H) / 2
@@ -295,10 +318,10 @@ func Compose(asset *metadata.Asset, gaps []Gap, cfg Config) (*Timeline, error) {
 				}
 			}
 		}
-		for _, iv := range tl.FailedTracks {
-			if iv.Start < stop && iv.End > start && frame.BlockingDep == "" {
+		for _, ft := range tl.FailedTracks {
+			if ft.Interval.Start < stop && ft.Interval.End > start && frame.BlockingDep == "" {
 				frame.Blocked = true
-				frame.BlockingDep = "metadata:track"
+				frame.BlockingDep = ft.Dep
 			}
 		}
 		frame.PlanHash = hashFramePlan(frame)
@@ -355,6 +378,13 @@ func nextCovered(tfs []trackFrames, t int64) (int64, bool) {
 		}
 	}
 	return best, best >= 0
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func canvasSize(tracks []metadata.Track) (int, int) {

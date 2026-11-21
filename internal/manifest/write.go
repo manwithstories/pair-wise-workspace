@@ -266,7 +266,10 @@ func Compare(first, second *Manifest, maxDriftMs int64) StabilityRecord {
 		rec.ManifestStable = false
 		rec.Reasons = append(rec.Reasons, "color resolution changed")
 	}
-	if len(first.Tracks) != len(second.Tracks) {
+	// Compare the track keys that contributed to the product. Failure records
+	// are deliberately excluded: a corrupt-input run and its verification
+	// share the same contributing set even though one has extra diagnostics.
+	if !sameTrackKeys(contributing(first.Tracks), contributing(second.Tracks)) {
 		rec.ManifestStable = false
 		rec.Reasons = append(rec.Reasons, "track set changed")
 	}
@@ -274,6 +277,31 @@ func Compare(first, second *Manifest, maxDriftMs int64) StabilityRecord {
 }
 
 // ColorKey renders the color decision for comparison.
+// contributing filters out tracks that cannot paint. A corrupt-input run still
+// parses the healthy audio track, but audio never contributes layers, so the
+// product track set must be compared on video tracks only.
+func contributing(tracks []TrackRecord) []TrackRecord {
+	out := make([]TrackRecord, 0, len(tracks))
+	for _, t := range tracks {
+		if t.Kind == "video" {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+func sameTrackKeys(a, b []TrackRecord) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Key != b[i].Key {
+			return false
+		}
+	}
+	return true
+}
+
 func (c ColorRecord) Key() string {
 	return fmt.Sprintf("p%d/t%d/m%d/full=%t/src=%s", c.Primaries, c.Transfer, c.Matrix, c.FullRange, c.Source)
 }

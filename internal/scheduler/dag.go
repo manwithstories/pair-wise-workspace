@@ -201,10 +201,39 @@ func (s *Scheduler) Resume(prior map[string]NodeState) *Report {
 		report.States[name] = st
 
 		if prev, ok := prior[name]; ok && prev.Status == StatusDone {
-			// Idempotent resume: trust the completed product rather than
-			// recomputing it, but verify its hash is present.
+			// Idempotent resume: replay the pure node to rebuild in-memory
+			// state, then require the product hash to match the interrupted
+			// run. Attempts are not incremented; a mismatch is a failure.
 			if prev.Result.Hash == "" {
-				return report
+				st.Status = StatusFailed
+				st.Err = model.New(model.CategoryScheduler, "resume",
+					"completed node "+name+" has no product hash").WithBlockingDep(name)
+				report.Failed++
+				if report.FirstBlock == "" {
+					report.FirstBlock = name
+				}
+				continue
+			}
+			res, err := n.Run()
+			if err != nil {
+				st.Status = StatusFailed
+				st.Err = wrapNodeErr(name, err)
+				report.Failed++
+				if report.FirstBlock == "" {
+					report.FirstBlock = name
+				}
+				continue
+			}
+			if res.Hash != prev.Result.Hash {
+				st.Status = StatusFailed
+				st.Err = model.New(model.CategoryScheduler, "resume",
+					fmt.Sprintf("node %s product changed on replay: %s != %s", name, res.Hash, prev.Result.Hash)).
+					WithBlockingDep(name)
+				report.Failed++
+				if report.FirstBlock == "" {
+					report.FirstBlock = name
+				}
+				continue
 			}
 			st.Status, st.Result, st.Attempts = StatusDone, prev.Result, prev.Attempts
 			report.Succeeded++

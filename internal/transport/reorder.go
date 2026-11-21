@@ -344,7 +344,7 @@ type BandwidthConfig struct {
 func DefaultBandwidthConfig() BandwidthConfig {
 	return BandwidthConfig{
 		WindowSamples: 5, MinSamples: 3, DefaultTargetKbps: 1500,
-		MaxStepPct: 25, HeadroomPct: 10, HysteresisPct: 2,
+		MaxStepPct: 25, HeadroomPct: 2, HysteresisPct: 2,
 	}
 }
 
