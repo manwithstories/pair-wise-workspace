@@ -20,12 +20,21 @@ type SyncSample struct {
 	Sync    bool
 }
 
+// SegmentClock is the declared base decode time of one segment in manifest
+// order. It is recorded before sample sorting, so a clock wrap stays visible.
+type SegmentClock struct {
+	Segment string
+	Base    int64
+}
+
 // Track is a decoded timeline track ready for analysis.
 type Track struct {
 	ID        uint32
 	Kind      string
 	Timescale uint32
 	Samples   []SyncSample
+	// Bases holds segment base times in manifest order.
+	Bases []SegmentClock
 }
 
 // Deviation is one aligned pair whose offset exceeds tolerance.
@@ -89,6 +98,7 @@ func BuildTracks(idx *index.Index, resolver *manifest.Resolver, init *stream.Ini
 				t = &Track{ID: traf.TrackID, Kind: meta.Kind, Timescale: meta.Timescale}
 				tracks[traf.TrackID] = t
 			}
+			t.Bases = append(t.Bases, SegmentClock{Segment: entry.Name, Base: int64(traf.BaseTime)})
 			for _, sm := range traf.Samples {
 				t.Samples = append(t.Samples, SyncSample{
 					PTS: int64(sm.Decode) + sm.CTO, Segment: entry.Name, Sync: sm.Sync,
@@ -241,14 +251,31 @@ func Align(video, audio Track, toleranceMS int64) (SyncResult, error) {
 	// sample pairs.
 	classifyBases(&res, video, audio, toleranceMS)
 	res.WrapSpans = countWraps(video.Samples) + countWraps(audio.Samples)
+	if basesWrap(video) || basesWrap(audio) {
+		// A declared base time that restarts after a large value is a wrap even
+		// though sample sorting hides it from the paired comparison.
+		res.WrapSpans++
+	}
 	res.Faults = syncFaults(res, toleranceMS)
 	return res, nil
 }
 
-// segmentBase returns the earliest PTS per segment name in track order.
+// segmentBase returns the declared per-segment base times in manifest order.
+// Tracks assembled without declared clocks fall back to the earliest sample
+// PTS per segment so the classifier still has a stable anchor.
 func segmentBase(t Track) ([]string, map[string]int64) {
-	var order []string
-	bases := map[string]int64{}
+	order := make([]string, 0, len(t.Bases))
+	bases := make(map[string]int64, len(t.Bases))
+	for _, b := range t.Bases {
+		if _, ok := bases[b.Segment]; ok {
+			continue
+		}
+		order = append(order, b.Segment)
+		bases[b.Segment] = b.Base
+	}
+	if len(order) > 0 {
+		return order, bases
+	}
 	for _, sm := range t.Samples {
 		if _, ok := bases[sm.Segment]; !ok {
 			order = append(order, sm.Segment)
@@ -311,6 +338,25 @@ func abs64(v int64) int64 {
 		return -v
 	}
 	return v
+}
+
+// basesWrap reports whether the per-segment base decode times (which are
+// unaffected by the sample sort) move backwards after a large forward value.
+// This catches a 32-bit timestamp wrap even when sorting hides it.
+func basesWrap(t Track) bool {
+	if len(t.Bases) < 2 {
+		return false
+	}
+	maxSeen := t.Bases[0].Base
+	for _, b := range t.Bases[1:] {
+		if b.Base < maxSeen && maxSeen-b.Base > int64(t.Timescale)*wrapMS/1000 {
+			return true
+		}
+		if b.Base > maxSeen {
+			maxSeen = b.Base
+		}
+	}
+	return false
 }
 
 func countWraps(samples []SyncSample) int {

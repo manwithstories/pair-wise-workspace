@@ -21,6 +21,8 @@ type Layout struct {
 	OffsetIdx      int // audio clock offset starts here
 	JumpIdx        int // extra audio jump on this segment only
 	KeyframeGapIdx int // video has no keyframe at this segment
+	WrapIdx        int // video clock resets backwards at this segment (-1 = off)
+	OutOfRangeIdx  int // trun declares more samples than its payload holds (-1 = off)
 }
 
 // Track and timing constants for the generated fixtures.
@@ -66,13 +68,35 @@ func NewLayout(work string) Layout {
 		OffsetIdx:      4,
 		JumpIdx:        7,
 		KeyframeGapIdx: 8,
+		WrapIdx:        -1,
+		OutOfRangeIdx:  -1,
 	}
+}
+
+// GenerateWrap writes the demo inputs plus a synthetic 32-bit clock wrap: the
+// video base time at WrapIdx restarts near zero after a much larger value.
+func GenerateWrap(work string) (Layout, error) {
+	l := NewLayout(work)
+	l.WrapIdx = 5
+	return generate(l)
+}
+
+// GenerateOutOfRange writes the demo inputs plus a trun that declares far more
+// samples than its payload can hold, modelling an out-of-bounds length field.
+func GenerateOutOfRange(work string) (Layout, error) {
+	l := NewLayout(work)
+	l.OutOfRangeIdx = 4
+	return generate(l)
 }
 
 // Generate writes all demo inputs and returns the layout. Output is
 // deterministic: running it twice produces byte-identical media.
 func Generate(work string) (Layout, error) {
-	l := NewLayout(work)
+	return generate(NewLayout(work))
+}
+
+func generate(l Layout) (Layout, error) {
+	work := l.Work
 	for _, dir := range []string{l.MediaDir, filepath.Dir(l.HLS), filepath.Dir(l.DASH), filepath.Dir(l.RTPFile)} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return l, err
@@ -89,10 +113,19 @@ func Generate(work string) (Layout, error) {
 		if i == l.MissingIdx {
 			continue // referenced by both manifests, deliberately absent
 		}
+		videoBase := uint64(i * SegmentSeconds * VideoTimescale)
+		if i == l.WrapIdx {
+			// A 32-bit timestamp wrap restarts the clock just after zero,
+			// which is far below every preceding base time.
+			videoBase = VideoTimescale / 10
+		}
 		video := SegmentSpec{
-			TrackID: 1, BaseTime: uint64(i * SegmentSeconds * VideoTimescale),
+			TrackID: 1, BaseTime: videoBase,
 			SampleDur: VideoTimescale / VideoRate, SampleCount: SamplesPerVideoSegment,
 			SampleSize: 700, Keyframes: i != l.KeyframeGapIdx,
+		}
+		if i == l.OutOfRangeIdx {
+			video.OutOfRange = true
 		}
 		audioOffset := uint64(0)
 		if i >= l.OffsetIdx {

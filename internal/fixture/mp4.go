@@ -120,6 +120,7 @@ type SegmentSpec struct {
 	Keyframes   bool // first sample is a sync sample
 	AllSync     bool // every sample is a sync sample
 	CorruptBox  bool // write a trun with an impossible declared size
+	OutOfRange  bool // declare many more samples than the payload can hold
 	Truncate    int  // remove this many trailing bytes from the finished file
 }
 
@@ -139,6 +140,11 @@ func trunFor(spec SegmentSpec) []byte {
 	}
 	const trunFlags = 0x000001 | 0x000100 | 0x000200 | 0x000400
 	trun := fullBox("trun", 0, trunFlags, u32(uint32(spec.SampleCount)), u32(0), entries)
+	if spec.OutOfRange {
+		// A huge sample_count with a short entry table: the bounds walker must
+		// reject the length without allocating per declared sample.
+		binary.BigEndian.PutUint32(trun[12:], 1_000_000)
+	}
 	if spec.CorruptBox {
 		// Declared size 3 is below the 8-byte box header: the walker must
 		// reject it without reading past the payload.
