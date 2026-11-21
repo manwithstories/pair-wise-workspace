@@ -1,5 +1,12 @@
 package fixture
 
+// BuildMP4 serializes tracks into a structurally valid, non-fragmented MP4.
+// It is exported so demux tests can inject targeted mutations.
+func BuildMP4(tracks []TrackSpec) []byte { return buildMP4(tracks) }
+
+// StudioTracks and CameraTracks expose the canonical fixture track layout.
+func StudioTracks(seed int64) []TrackSpec { return studioTracks(seed) }
+
 // buildMP4 serializes tracks into a structurally valid, non-fragmented MP4.
 // Samples are stored verbatim as one chunk each so that byte hashes survive
 // the round trip exactly.
@@ -127,24 +134,25 @@ func sampleTables(t TrackSpec, offsets []int64) []byte {
 	// stts: coalesce consecutive equal deltas.
 	samples := samplesFor(t)
 	var sttsEntries [][]byte
+	count := 0
 	for i := 0; i < len(samples); {
 		j := i + 1
 		for j < len(samples) && samples[j].Dur == samples[i].Dur {
 			j++
 		}
 		sttsEntries = append(sttsEntries, be32(uint32(j-i)), be32(uint32(samples[i].Dur)))
+		count++
 		i = j
 	}
-	stts := fullbox("stts", 0, 0, be32(uint32(len(sttsEntries))), join(sttsEntries...))
+	stts := fullbox("stts", 0, 0, be32(uint32(count)), join(sttsEntries...))
 
 	// stsc: one sample per chunk.
 	stsc := fullbox("stsc", 0, 0, be32(1), be32(1), be32(1), be32(1))
-	stsz := fullbox("stsz", 0, 0, be32(0), be32(uint32(len(t.Samples))))
 	var sizes [][]byte
 	for _, s := range samplesFor(t) {
 		sizes = append(sizes, be32(uint32(len(s.Data))))
 	}
-	stsz = concat(stsz, join(sizes...))
+	stsz := fullbox("stsz", 0, 0, be32(0), be32(uint32(len(samplesFor(t)))), join(sizes...))
 	var chunkOff [][]byte
 	for _, o := range offsets {
 		chunkOff = append(chunkOff, be32(uint32(o)))
@@ -153,10 +161,11 @@ func sampleTables(t TrackSpec, offsets []int64) []byte {
 
 	parts := [][]byte{stsd, stts, stsc, stsz, stco}
 	if hasCTTS(t) {
-		ctts := fullbox("ctts", 0, 0, be32(uint32(len(samplesFor(t)))))
+		var entries [][]byte
 		for _, s := range samplesFor(t) {
-			ctts = concat(ctts, be32(1), be32s(int32(s.PTS-s.DTS)))
+			entries = append(entries, be32(1), be32s(int32(s.PTS-s.DTS)))
 		}
+		ctts := fullbox("ctts", 0, 0, be32(uint32(len(samplesFor(t)))), join(entries...))
 		parts = append(parts, ctts)
 	}
 	return box("stbl", parts...)
@@ -188,7 +197,7 @@ func stsdBox(t TrackSpec) []byte {
 			children = append(children, box("colr", []byte("zzzz"), []byte{0xde, 0xad, 0xbe, 0xef}))
 		}
 		if t.Crop != nil {
-			children = append(children, clapBox(*t.Crop))
+			children = append(children, clapBox(*t.Crop, t.Width, t.Height))
 		}
 		entry = box("avc1", concat(
 			zeros(6), be16(1), zeros(16),
@@ -206,11 +215,10 @@ func boolByte(b bool) byte {
 	return 0
 }
 
-func clapBox(c CropSpec) []byte {
-	// cleanApertureWidthN/D, HeightN/D, horizOffN/D, vertOffN/D. We express a
-	// top-left crop as a centered aperture shifted by the crop centre.
+func clapBox(c CropSpec, frameW, frameH int) []byte {
+	// cleanApertureWidthN/D, HeightN/D, horizOffN/D, vertOffN/D. A top-left
+	// crop is a centered aperture shifted by the crop centre.
 	cw, ch := c.W, c.H
-	frameW, frameH := cw+2*c.X, ch+2*c.Y
 	horizOff := c.X + cw/2 - frameW/2
 	vertOff := c.Y + ch/2 - frameH/2
 	return box("clap",

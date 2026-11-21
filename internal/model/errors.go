@@ -123,3 +123,31 @@ func ExitCode(err error) int {
 	}
 	return 1
 }
+
+// Tag attaches track context when err is classified, returning it unchanged
+// otherwise so plain errors still flow through.
+func Tag(err error, trackID string) error {
+	var e *Error
+	if errors.As(err, &e) {
+		return e.WithTrack(trackID)
+	}
+	return err
+}
+
+// TagOffset attaches a byte offset when err is classified.
+func TagOffset(err error, off int64) error {
+	var e *Error
+	if errors.As(err, &e) {
+		return e.WithOffset(off)
+	}
+	return err
+}
+
+// CodeOf returns the stable code carried by err, if any.
+func CodeOf(err error) (Code, bool) {
+	var e *Error
+	if errors.As(err, &e) {
+		return e.Code, true
+	}
+	return "", false
+}
