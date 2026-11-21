@@ -11,7 +11,10 @@ from fractions import Fraction
 from avtimeline.errors import Stage
 from avtimeline.samples import generate_samples, sample_digests
 
-from .support import TempDirMixin, make_config, reused_stages, run_pipeline
+try:  # both `unittest discover -s tests` and package imports
+    from .support import TempDirMixin, make_config, reused_stages, run_pipeline
+except ImportError:  # pragma: no cover - discovery from the tests directory
+    from support import TempDirMixin, make_config, reused_stages, run_pipeline
 
 
 class SampleTests(TempDirMixin, unittest.TestCase):

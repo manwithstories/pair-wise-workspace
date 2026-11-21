@@ -17,9 +17,11 @@ from avtimeline.checkpoint import (
 )
 from avtimeline.errors import Stage
 from avtimeline.graph import DependencyGraph, GraphError, detect_cycle
-from avtimeline.records import write_json
 
-from .support import TempDirMixin
+try:  # both `unittest discover -s tests` and package imports
+    from .support import TempDirMixin
+except ImportError:  # pragma: no cover - discovery from the tests directory
+    from support import TempDirMixin
 
 
 class GraphTests(unittest.TestCase):

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import unittest
 from fractions import Fraction
 
@@ -10,7 +9,6 @@ import soundfile as sf
 
 from avtimeline.model import Rate
 from avtimeline.normalize import (
-    AudioSpec,
     ColorMetadata,
     ColorPolicy,
     VideoSpec,
@@ -23,7 +21,10 @@ from avtimeline.normalize import (
 from avtimeline.probe import probe_media
 from avtimeline.samples import generate_samples
 
-from .support import TempDirMixin
+try:  # both `unittest discover -s tests` and package imports
+    from .support import TempDirMixin
+except ImportError:  # pragma: no cover - discovery from the tests directory
+    from support import TempDirMixin
 
 
 class ProbeTests(TempDirMixin, unittest.TestCase):
