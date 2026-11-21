@@ -132,3 +132,55 @@ func TestDeterministicAcrossRuns(t *testing.T) {
 		}
 	}
 }
+
+func TestExitCodeThresholdWhenGateFails(t *testing.T) {
+	// Tightening a gate past the observed values must exit 4, not 0.
+	if code, _, _ := runCLI("demo", "--max-bitrate-delta-pct", "0.1", "--dir", t.TempDir()); code != exitThreshold {
+		t.Fatalf("bitrate gate exit=%d want 4", code)
+	}
+	if code, _, _ := runCLI("demo", "--min-psnr", "100", "--dir", t.TempDir()); code != exitThreshold {
+		t.Fatalf("quality gate exit=%d want 4", code)
+	}
+	if code, _, _ := runCLI("demo", "--max-alignment-ms", "-1", "--dir", t.TempDir()); code != exitThreshold {
+		t.Fatalf("alignment gate exit=%d want 4", code)
+	}
+}
+
+func TestProbeAndFixtures(t *testing.T) {
+	dir := t.TempDir()
+	code, out, errOut := runCLI("fixtures", dir)
+	if code != 0 {
+		t.Fatalf("fixtures exit=%d stderr=%s", code, errOut)
+	}
+	if !strings.Contains(out, "sample.mp4") {
+		t.Fatalf("fixtures output: %s", out)
+	}
+	code, out, errOut = runCLI("probe", dir+"/sample.mxf")
+	if code != 0 {
+		t.Fatalf("probe exit=%d stderr=%s", code, errOut)
+	}
+	var view struct {
+		Format string `json:"format"`
+		Tracks []struct {
+			ID        uint32 `json:"id"`
+			Rotation  int    `json:"rotation"`
+			Samples   int    `json:"samples"`
+			FrameRate string `json:"frame_rate"`
+		} `json:"tracks"`
+	}
+	if err := json.Unmarshal([]byte(out), &view); err != nil {
+		t.Fatalf("probe JSON: %v\n%s", err, out)
+	}
+	if view.Format != "mxf" || len(view.Tracks) != 1 {
+		t.Fatalf("probe view=%+v", view)
+	}
+	if view.Tracks[0].Rotation != 270 {
+		t.Fatalf("rotation=%d", view.Tracks[0].Rotation)
+	}
+	if view.Tracks[0].Samples != 120 || view.Tracks[0].FrameRate != "30000/1001" {
+		t.Fatalf("track=%+v", view.Tracks[0])
+	}
+	if code, _, _ := runCLI("probe", dir+"/missing.mp4"); code != exitInvalid {
+		t.Fatalf("missing file exit=%d want 2", code)
+	}
+}

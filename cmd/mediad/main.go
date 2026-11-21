@@ -75,6 +75,9 @@ demo flags:
   --dir path               working directory (default: temporary)
   --seeks int              index probes per track (default 11)
   --max-burst int          longest recoverable packet gap (default 8)
+  --max-alignment-ms float alignment gate in milliseconds (default 1)
+  --max-bitrate-delta-pct  bitrate deviation gate in percent (default 5)
+  --min-psnr float         minimum quality gate in dB (default 30)
   --json                   print only the machine-readable summary
 
 exit codes:
@@ -95,6 +98,9 @@ func runDemo(args []string, stdout, stderr io.Writer) int {
 	seeks := fs.Int("seeks", 11, "index probes per track")
 	maxBurst := fs.Int("max-burst", 8, "longest recoverable packet gap")
 	asJSON := fs.Bool("json", false, "print only the JSON summary")
+	maxAlignMS := fs.Float64("max-alignment-ms", 1.0, "alignment gate in milliseconds")
+	maxDeltaPct := fs.Float64("max-bitrate-delta-pct", 5.0, "bitrate deviation gate in percent")
+	minPSNR := fs.Float64("min-psnr", 30.0, "minimum quality gate in dB")
 	if err := fs.Parse(args); err != nil {
 		return exitInvalid
 	}
@@ -151,11 +157,11 @@ func runDemo(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 
-	// Verification gates: the manifest's alignment and bitrate thresholds,
-	// then quality and index mismatches.
-	gateErr := res.Manifest.Gate(1.0, 5.0)
+	// Verification gates can be tightened for inspection; the defaults are
+	// the documented acceptance thresholds.
+	gateErr := res.Manifest.Gate(*maxAlignMS, *maxDeltaPct)
 	if gateErr == nil {
-		gateErr = report.Gate(res.Summary, 30)
+		gateErr = report.Gate(res.Summary, *minPSNR)
 	}
 
 	if *asJSON {
