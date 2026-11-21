@@ -82,8 +82,8 @@ func (p Plan) layout(base uint64) layout {
 			l.sizes[i][s] = uint32(t.PayloadMin + rnd.Intn(t.PayloadMax-t.PayloadMin+1))
 		}
 	}
+	pos := base
 	for i := range p.Tracks {
-		pos := base
 		for s := range l.offsets[i] {
 			l.offsets[i][s] = pos
 			pos += uint64(l.sizes[i][s]) + uint64(p.Padding)
