@@ -30,14 +30,15 @@ type Packet struct {
 
 // Gap is an explicit, contiguous run of missing packets.
 type Gap struct {
-	StartExt int64 // first missing extended sequence
-	Count    int64
+	StartExt int64 `json:"start_ext"` // first missing extended sequence
+	Count    int64 `json:"count"`
 	// Blocked reports whether this gap reached the burst threshold and
 	// therefore blocks dependent frames.
-	Blocked bool
+	Blocked bool `json:"blocked"`
 	// From and To are the RTP timestamps of the packets bracketing the gap.
 	// A zero bracket means the gap starts the stream or ends it.
-	From, To uint32
+	From uint32 `json:"from,omitempty"`
+	To   uint32 `json:"to,omitempty"`
 }
 
 // LastExt returns the last missing sequence (inclusive).
@@ -45,18 +46,18 @@ func (g Gap) LastExt() int64 { return g.StartExt + g.Count - 1 }
 
 // StreamStats is the transport outcome used by the manifest and CLI.
 type StreamStats struct {
-	Received     int
-	Unique       int
-	Duplicates   int
-	Reordered    int
-	Lost         int
-	Late         int
-	Wrapped      bool
-	CommittedExt int64
-	FirstExt     int64
-	LastExt      int64
-	Gaps         []Gap
-	LatePackets  []int64
+	Received     int     `json:"received"`
+	Unique       int     `json:"unique"`
+	Duplicates   int     `json:"duplicates"`
+	Reordered    int     `json:"reordered"`
+	Lost         int     `json:"lost"`
+	Late         int     `json:"late"`
+	Wrapped      bool    `json:"wrapped"`
+	CommittedExt int64   `json:"committed_ext"`
+	FirstExt     int64   `json:"first_ext"`
+	LastExt      int64   `json:"last_ext"`
+	Gaps         []Gap   `json:"gaps"`
+	LatePackets  []int64 `json:"late_packets,omitempty"`
 }
 
 // BlockedGaps returns only the gaps that reached the burst threshold.

@@ -45,22 +45,23 @@ func DefaultConfig() Config {
 
 // Layer is one source sample placed into an output frame.
 type Layer struct {
-	TrackKey    string
-	SourceIndex int64
-	SourceStart int64 // timeline ticks
-	SourceEnd   int64 // timeline ticks
-	Rotation    int
-	Crop        *metadata.Crop
-	Color       metadata.Color
-	X, Y, W, H  int
+	TrackKey    string         `json:"track_key"`
+	SourceIndex int64          `json:"source_index"`
+	SourceStart int64          `json:"source_start"` // timeline ticks
+	SourceEnd   int64          `json:"source_end"`   // timeline ticks
+	Rotation    int            `json:"rotation"`
+	Crop        *metadata.Crop `json:"crop,omitempty"`
+	Color       metadata.Color `json:"color"`
+	X, Y, W, H  int            `json:"-"`
+	Rect        [4]int         `json:"rect"`
 	// CodedW/CodedH are the pre-crop source dimensions, needed to sample the
 	// source independently of the forward compositor.
-	CodedW, CodedH int
+	CodedW, CodedH int `json:"coded_w_h"`
 	// Boundary marks a source sample that covers less than the full output
 	// frame; the deterministic rule keeps it because it covers the start.
-	Boundary bool
+	Boundary bool `json:"boundary"`
 	// PartialTicks is how much of the output frame the source sample covers.
-	PartialTicks int64
+	PartialTicks int64 `json:"partial_ticks"`
 }
 
 // Frame is one planned output frame.

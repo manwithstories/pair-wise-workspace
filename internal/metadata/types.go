@@ -94,10 +94,10 @@ type Crop struct {
 
 // Track is one normalized metadata track.
 type Track struct {
-	Key     string
-	Kind    Kind
-	TrackID uint32
-	Codec   string
+	Key     string `json:"key"`
+	Kind    Kind   `json:"kind"`
+	TrackID uint32 `json:"track_id"`
+	Codec   string `json:"codec"`
 	// Timebase is the rational duration of one tick, reduced.
 	Timebase clock.Timebase
 	// Start and Duration are in Timebase ticks; the interval is half-open.
