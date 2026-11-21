@@ -50,17 +50,26 @@ type Exporter struct {
 	framesDir string
 }
 
+// ValidateOutputPath rejects blank paths and any parent-directory segment
+// before Clean would collapse the traversal attempt. Callers should validate
+// the raw user input rather than a pre-cleaned copy.
+func ValidateOutputPath(root string) error {
+	if strings.TrimSpace(root) == "" {
+		return fmt.Errorf("output directory must not be empty")
+	}
+	for _, part := range strings.FieldsFunc(filepath.ToSlash(root), func(r rune) bool { return r == '/' }) {
+		if part == ".." {
+			return fmt.Errorf("output path %q contains a parent-directory segment", root)
+		}
+	}
+	return nil
+}
+
 // NewExporter validates the output root and rejects path traversal: every path
 // written later must remain inside the resolved root.
 func NewExporter(root string) (*Exporter, error) {
-	if strings.TrimSpace(root) == "" {
-		return nil, fmt.Errorf("output directory must not be empty")
-	}
-	// Lexical check before Clean collapses ".." away and hides the escape attempt.
-	for _, part := range strings.FieldsFunc(filepath.ToSlash(root), func(r rune) bool { return r == '/' }) {
-		if part == ".." {
-			return nil, fmt.Errorf("output path %q contains a parent-directory segment", root)
-		}
+	if err := ValidateOutputPath(root); err != nil {
+		return nil, err
 	}
 	clean := filepath.Clean(root)
 	abs, err := filepath.Abs(clean)

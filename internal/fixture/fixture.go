@@ -104,9 +104,12 @@ func GenerateVideoStream(rng *rand.Rand, cfg Config) ([]StreamEvent, int) {
 	// Convert the millisecond burst length to a whole frame count using the exact
 	// frame duration, so an 80ms flag yields a real ~80ms burst of lost frames.
 	frameDurationMs := cfg.DurationTicks / int64(nFrames)
-	burstFrames := int((cfg.LossBurstTicks + frameDurationMs/2) / frameDurationMs)
-	if burstFrames < 1 {
-		burstFrames = 1
+	var burstFrames int
+	if cfg.LossBurstTicks > 0 {
+		burstFrames = int((cfg.LossBurstTicks + frameDurationMs/2) / frameDurationMs)
+		if burstFrames < 1 {
+			burstFrames = 1
+		}
 	}
 	burstEndFrame := burstStartFrame + burstFrames
 	repNextSeq := make([]uint16, len(cfg.Reps)) // next ORIGINAL sequence per rep

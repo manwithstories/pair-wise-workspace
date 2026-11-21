@@ -119,7 +119,12 @@ func runDemo(args []string) error {
 	timeline.MergeDiag(tl, boundaryDiag)
 
 	// 5. Offscreen export with path-traversal protection.
-	exporter, err := render.NewExporter(filepath.Clean(opts.output))
+	// Validate the raw user path (no pre-Clean) so traversal attempts are rejected
+	// before any directory is created.
+	if err := render.ValidateOutputPath(opts.output); err != nil {
+		return err
+	}
+	exporter, err := render.NewExporter(opts.output)
 	if err != nil {
 		return err
 	}
