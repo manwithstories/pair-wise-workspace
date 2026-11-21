@@ -182,3 +182,21 @@ func TestVerifyWritesManifestNextToOutput(t *testing.T) {
 		}
 	}
 }
+
+func TestRecoverFlagIsAuthoritative(t *testing.T) {
+	// An explicit --recover=false must win even for the recover subcommand.
+	_, errOut, code := run(t, "recover", "--fixture", "truncated", "--recover=false")
+	if code != 2 {
+		t.Fatalf("exit=%d stderr=%s", code, errOut)
+	}
+	if !strings.Contains(errOut, "status=error") {
+		t.Fatalf("expected a stage error:\n%s", errOut)
+	}
+	out, errOut, code := run(t, "recover", "--fixture", "truncated")
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errOut)
+	}
+	if !strings.Contains(out, "status=recovered") {
+		t.Fatalf("default recover did not recover:\n%s", out)
+	}
+}

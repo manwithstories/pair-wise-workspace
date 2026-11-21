@@ -197,10 +197,6 @@ func runVerify(args []string, out, errOut io.Writer, recoverDefault bool) error 
 	if o.fixture == "" {
 		return &ExitError{Code: 3, Message: "--fixture is required"}
 	}
-	if !o.recover && recoverDefault {
-		// `recover` without --recover=false still means recovery.
-		o.recover = true
-	}
 
 	rootDir := o.keep
 	if rootDir == "" {
