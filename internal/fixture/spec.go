@@ -116,21 +116,24 @@ func cadenceTicks(rates []int64, n int, timescale int64) []int64 {
 	return out
 }
 
+// CameraVideoSamples is the number of VFR frames the camera delivers.
+const CameraVideoSamples = 72
+
 // cameraTracks builds the MXF camera: a VFR video track and two audio tracks.
 // The third track is the boom channel used to exercise tail isolation.
 func cameraTracks(seed int64, rates []int64) []TrackSpec {
 	r := rand.New(rand.NewSource(seed + 7919))
 	const tsVideo = 90000
-	starts := cadenceTicks(rates, 48, tsVideo)
+	starts := cadenceTicks(rates, CameraVideoSamples, tsVideo)
 	v := TrackSpec{
 		ID: 3, Kind: model.KindVideo, Timescale: tsVideo, Desc: "mxf-vc3",
 		Width: 640, Height: 360, Rotation: 0,
 		Crop:  &CropSpec{X: 8, Y: 8, W: 632, H: 352},
 		Color: &ColorSpec{Primaries: 1, Transfer: 1, Matrix: 1},
 	}
-	for i := 0; i < 48; i++ {
+	for i := 0; i < CameraVideoSamples; i++ {
 		end := int64(0)
-		if i+1 < 48 {
+		if i+1 < CameraVideoSamples {
 			end = starts[i+1]
 		} else {
 			end = starts[i] + (starts[i] - starts[i-1])

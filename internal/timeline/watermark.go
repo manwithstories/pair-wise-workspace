@@ -116,28 +116,32 @@ func Build(events []model.Event, cfg Config) (Plan, error) {
 }
 
 // normalizeTrack sorts one track's events, drops duplicate sequence numbers
-// (keeping the first by deterministic order), inserts explicit gap markers for
-// missing sequence ranges, and counts late-arrival replays by comparing
-// receive order to presentation order.
+// (keeping the first arrival), inserts explicit gap markers for missing
+// sequence ranges, and counts late-arrival replays by comparing receive order
+// to presentation order.
 func normalizeTrack(in []model.Event, cfg Config) ([]model.Event, int, int) {
 	sorted := append([]model.Event(nil), in...)
-	// Deterministic base order: transport sequence, then index. A replay
-	// sorts by presentation time and is independent of arrival order.
+	// Arrival order is authoritative for lateness: a packet displaced in the
+	// transport stream must still be detected even though its PTS is early.
 	sort.SliceStable(sorted, func(i, j int) bool {
+		if sorted[i].Arrival != sorted[j].Arrival {
+			return sorted[i].Arrival < sorted[j].Arrival
+		}
 		if sorted[i].Seq != sorted[j].Seq {
 			return sorted[i].Seq < sorted[j].Seq
 		}
 		return sorted[i].Index < sorted[j].Index
 	})
-	// Deduplicate identical sequence numbers; the first wins.
-	var dedup []model.Event
-	seenSeq := map[uint32]bool{}
+	// Deduplicate identical sequence numbers; the first arrival wins.
 	seqKnown := false
 	for _, e := range sorted {
 		if e.Seq != 0 {
 			seqKnown = true
+			break
 		}
 	}
+	var dedup []model.Event
+	seenSeq := map[uint32]bool{}
 	for _, e := range sorted {
 		if seqKnown && e.Seq != 0 {
 			if seenSeq[e.Seq] {
@@ -161,10 +165,13 @@ func normalizeTrack(in []model.Event, cfg Config) ([]model.Event, int, int) {
 		}
 	}
 
-	// Insert gap markers for missing transport sequence ranges.
+	// Insert gap markers for missing transport sequence ranges. This needs
+	// sequence order, so sort a copy before materializing gaps.
 	withGaps := dedup
 	if seqKnown {
-		withGaps = insertGaps(dedup, cfg)
+		bySeq := append([]model.Event(nil), dedup...)
+		sort.SliceStable(bySeq, func(i, j int) bool { return bySeq[i].Seq < bySeq[j].Seq })
+		withGaps = insertGaps(bySeq, cfg)
 	}
 	sortEvents(withGaps)
 	return withGaps, countGaps(withGaps), replays

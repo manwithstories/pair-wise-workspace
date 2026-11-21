@@ -138,6 +138,7 @@ type Event struct {
 	SourceOffset int64
 	IsGap        bool // explicit gap marker, carries no sample bytes
 	Segment      int  // closed-interval segment assigned by the watermark
+	Arrival      int  // receive order within a source; drives late detection
 }
 
 func (e Event) HasHash() bool { return !e.IsGap }
