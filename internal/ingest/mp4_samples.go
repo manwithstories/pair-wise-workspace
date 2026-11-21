@@ -215,8 +215,9 @@ func parseVisualEntry(r io.ReadSeeker, stsd *boxNode, t *model.Track) error {
 		if _, err := io.ReadFull(r, dims[:]); err != nil {
 			return model.WrapError(model.CodeMP4BoxLength, err, "sample entry dimensions").WithOffset(int64(entry.payloadStart))
 		}
-		t.Display.Width = int(dims[0])<<8 | int(dims[1])
-		t.Display.Height = int(dims[2])<<8 | int(dims[3])
+		t.CodedWidth = int(dims[0])<<8 | int(dims[1])
+		t.CodedHeight = int(dims[2])<<8 | int(dims[3])
+		t.Display.Width, t.Display.Height = t.CodedWidth, t.CodedHeight
 		childStart := int64(entry.payloadStart) + 78
 		for childStart+8 <= entry.end {
 			child, err := readRawBox(r, childStart, entry.end)

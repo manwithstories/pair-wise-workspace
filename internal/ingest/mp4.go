@@ -182,8 +182,7 @@ func parseTrak(r io.ReadSeeker, trak *boxNode, sourcePath string) (*model.Track,
 		ContainerRotation: rot,
 	}
 	t.Display.Rotation = rot
-	t.Display.Width = int(tkhd.Width >> 16)
-	t.Display.Height = int(tkhd.Height >> 16)
+
 	if hdlrNode != nil {
 		hdlr, err := unmarshalAt(r, hdlrNode, &mp4.Hdlr{})
 		if err != nil {

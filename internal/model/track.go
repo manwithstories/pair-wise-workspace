@@ -88,6 +88,11 @@ type Track struct {
 	ContainerColor    ColorDesc
 	ContainerRotation int
 	ContainerCrop     Crop
+	TrackColor        ColorDesc // per-track descriptor (e.g. MXF essence)
+	TrackRotation     int
+	TrackCrop         Crop
+	CodedWidth        int
+	CodedHeight       int
 	SourcePath        string
 }
 

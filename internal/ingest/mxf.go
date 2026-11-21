@@ -117,9 +117,11 @@ func DemuxMXF(r io.ReadSeeker, sourcePath string) (MXFResult, error) {
 			Display: model.DisplayMeta{
 				Rotation: spec.Rotation, Width: spec.Width, Height: spec.Height,
 			},
-			ContainerRotation: spec.Rotation,
-			ContainerColor:    spec.Color,
-			ContainerCrop:     spec.Crop,
+			CodedWidth:    spec.Width,
+			CodedHeight:   spec.Height,
+			TrackRotation: spec.Rotation,
+			TrackColor:    spec.Color,
+			TrackCrop:     spec.Crop,
 		}
 		for _, s := range samples {
 			sum := sha256.Sum256(s.Data)

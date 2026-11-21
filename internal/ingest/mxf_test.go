@@ -37,11 +37,11 @@ func TestDemuxMXFCamera(t *testing.T) {
 		t.Fatal("VFR camera samples are all constant duration")
 	}
 	// Crop and rotation metadata preserved.
-	if !video.ContainerCrop.Valid || video.ContainerCrop.W != 632 {
-		t.Fatalf("crop not preserved: %+v", video.ContainerCrop)
+	if !video.TrackCrop.Valid || video.TrackCrop.W != 632 {
+		t.Fatalf("crop not preserved: %+v", video.TrackCrop)
 	}
-	if video.ContainerColor.Primaries != "bt709" {
-		t.Fatalf("colour=%+v", video.ContainerColor)
+	if video.TrackColor.Primaries != "bt709" {
+		t.Fatalf("colour=%+v", video.TrackColor)
 	}
 	// Sample hashes must be non-zero and stable across two demuxes.
 	f2 := openFile(t, b.CameraMXF)
