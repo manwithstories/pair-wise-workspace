@@ -74,3 +74,31 @@ func TestValidateAcceptsMultiPacketFrame(t *testing.T) {
 		t.Fatalf("packets=%d", res.Packets)
 	}
 }
+
+func TestValidatorIncrementalMatchesBatch(t *testing.T) {
+	samples := [][]byte{
+		bytes.Repeat([]byte{1}, 2000),
+		bytes.Repeat([]byte{2}, 500),
+		bytes.Repeat([]byte{3}, 1200),
+	}
+	batch, err := Validate(samples, 96, 48000, DefaultMTU)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := NewValidator(96, 48000, DefaultMTU)
+	for i, s := range samples {
+		if err := v.AddSample(s, i); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := v.Result(); got != batch {
+		t.Fatalf("incremental=%+v batch=%+v", got, batch)
+	}
+}
+
+func TestValidatorRejectsEmptySample(t *testing.T) {
+	v := NewValidator(96, 48000, 0)
+	if err := v.AddSample(nil, 3); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("got %v", err)
+	}
+}

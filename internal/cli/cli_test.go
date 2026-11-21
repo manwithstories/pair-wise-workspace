@@ -151,3 +151,13 @@ func TestNoArgs(t *testing.T) {
 }
 
 var _ io.Writer = (*bytes.Buffer)(nil)
+
+func TestDemoRTPFlag(t *testing.T) {
+	out, errOut, code := run(t, "demo", "--seed", "17", "--queue", "4", "--slow-consumer-ms", "2", "--rtp")
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errOut)
+	}
+	if !strings.Contains(out, "rtp_packets=") || !strings.Contains(out, "valid=true") {
+		t.Fatalf("RTP summary missing:\n%s", out)
+	}
+}

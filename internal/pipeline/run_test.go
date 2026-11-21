@@ -234,3 +234,19 @@ func TestRunRefusesUnknownCodecWhenAsked(t *testing.T) {
 		t.Fatalf("tracks=%+v", rep.Tracks)
 	}
 }
+
+func TestRunWithRTPCheck(t *testing.T) {
+	root, in, _ := setup(t, fixture.DamageClean)
+	rep, err := Run(context.Background(), Options{
+		InputPath: in, OutputPath: "rtp.mp4", QueueCapacity: 4, Root: root, RTPCheck: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.RTPPackets == 0 {
+		t.Fatal("RTP validation produced no packets")
+	}
+	if rep.Rates.RoundtripMatch != 100 {
+		t.Fatalf("RTP check disturbed the remux: %+v", rep.Rates)
+	}
+}

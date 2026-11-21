@@ -53,6 +53,9 @@ type Options struct {
 	// error instead of a counted omission. The default (false) reports the
 	// count and remuxes the supported tracks only.
 	RefuseUnknownCodecs bool
+	// RTPCheck validates each spooled sample's RTP packet structure using
+	// pion/rtp. It is optional and off by default.
+	RTPCheck bool
 }
 
 // Report is the outcome of a run.
@@ -80,6 +83,8 @@ type Report struct {
 	Queue         stream.Stats
 	MappingDigest string
 	Timebase      clock.Timebase
+	// RTPPackets is the number of valid RTP packets when RTPCheck was on.
+	RTPPackets int
 }
 
 // ScanResult is what a parse-only pass reports.
@@ -370,6 +375,15 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 	// with the source Cues where those are trustworthy.
 	ix := buildIndex(&scanRes)
 
+	var rtpPackets int
+	if opts.RTPCheck {
+		n, err := validateSpooledRTP(spool, perTrack)
+		if err != nil {
+			return nil, err
+		}
+		rtpPackets = n
+	}
+
 	rep := &Report{
 		Info:                scanRes.Info,
 		Tracks:              trackReport.Tracks,
@@ -388,6 +402,7 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 		MappingDigest:       joinDigests(digestParts),
 		Timebase:            tb,
 		Index:               ix,
+		RTPPackets:          rtpPackets,
 	}
 	for _, s := range rep.Skipped {
 		rep.SkippedBytes += s.Length

@@ -32,6 +32,78 @@ type Result struct {
 	MaxPayload int
 }
 
+// Validator checks samples one at a time so callers never need to retain a
+// whole track in memory. It is not safe for concurrent use.
+type Validator struct {
+	PayloadType uint8
+	ClockRate   uint32
+	MTU         int
+	res         Result
+	seq         uint16
+	ts          uint32
+}
+
+// NewValidator returns a Validator with the given framing parameters.
+func NewValidator(payloadType uint8, clockRate uint32, mtu int) *Validator {
+	if mtu <= 0 {
+		mtu = DefaultMTU
+	}
+	return &Validator{PayloadType: payloadType, ClockRate: clockRate, MTU: mtu}
+}
+
+// AddSample frames one sample and checks the RTP round trip.
+func (v *Validator) AddSample(data []byte, index int) error {
+	if len(data) == 0 {
+		return fault.New(fault.StageVerify, fmt.Errorf("%w: sample %d is empty", ErrInvalid, index))
+	}
+	v.res.Samples++
+	for off := 0; off < len(data); off += v.MTU {
+		end := off + v.MTU
+		if end > len(data) {
+			end = len(data)
+		}
+		chunk := data[off:end]
+		pkt := &rtp.Packet{
+			Header: rtp.Header{
+				Version:        2,
+				PayloadType:    v.PayloadType,
+				SequenceNumber: v.seq,
+				Timestamp:      v.ts,
+				SSRC:           0x41524348, // "ARCH"
+				Marker:         end == len(data),
+			},
+			Payload: chunk,
+		}
+		raw, err := pkt.Marshal()
+		if err != nil {
+			return fault.New(fault.StageVerify, fmt.Errorf("%w: %v", ErrInvalid, err))
+		}
+		var parsed rtp.Packet
+		if err := parsed.Unmarshal(raw); err != nil {
+			return fault.New(fault.StageVerify, fmt.Errorf("%w: %v", ErrInvalid, err))
+		}
+		if parsed.Version != 2 || len(parsed.Payload) != len(chunk) {
+			return fault.New(fault.StageVerify, fmt.Errorf("%w: packet %d structure", ErrInvalid, v.res.Packets))
+		}
+		for j := range chunk {
+			if parsed.Payload[j] != chunk[j] {
+				return fault.New(fault.StageVerify,
+					fmt.Errorf("%w: packet %d payload byte %d differs", ErrInvalid, v.res.Packets, j))
+			}
+		}
+		if len(chunk) > v.res.MaxPayload {
+			v.res.MaxPayload = len(chunk)
+		}
+		v.res.Packets++
+		v.seq++
+	}
+	v.ts += v.ClockRate / 50
+	return nil
+}
+
+// Result returns the accumulated counts.
+func (v *Validator) Result() Result { return v.res }
+
 // Validate frames each sample into RTP packets and checks the round trip.
 // clockRate is used for the RTP timestamp field; it does not affect payload
 // validation. A nil payload is rejected so a caller cannot accidentally

@@ -68,6 +68,7 @@ type demoOptions struct {
 	queue          int
 	slowConsumerMS int
 	keep           string
+	rtp            bool
 }
 
 func runDemo(args []string, out, errOut io.Writer) error {
@@ -78,6 +79,7 @@ func runDemo(args []string, out, errOut io.Writer) error {
 	fs.IntVar(&o.queue, "queue", 4, "bounded queue capacity")
 	fs.IntVar(&o.slowConsumerMS, "slow-consumer-ms", 2, "per-block consumer delay")
 	fs.StringVar(&o.keep, "keep", "", "directory that keeps generated fixtures and output")
+	fs.BoolVar(&o.rtp, "rtp", false, "also validate RTP packet structure with pion/rtp")
 	if err := fs.Parse(args); err != nil {
 		return &ExitError{Code: 3, Message: err.Error()}
 	}
@@ -119,6 +121,7 @@ func runDemo(args []string, out, errOut io.Writer) error {
 			QueueCapacity:  o.queue,
 			SlowConsumerMS: o.slowConsumerMS,
 			Root:           root,
+			RTPCheck:       o.rtp,
 		})
 		if err != nil {
 			printStage(errOut, err)
@@ -144,6 +147,9 @@ func runDemo(args []string, out, errOut io.Writer) error {
 		first.Queue.Capacity, first.Queue.Blocked, first.OutputSize, short(first.OutputSHA256))
 	fmt.Fprintf(out, "mapping_digest=%s stable=%t\n",
 		first.MappingDigest, first.MappingDigest == reports[1].MappingDigest)
+	if o.rtp {
+		fmt.Fprintf(out, "rtp_packets=%d valid=true\n", first.RTPPackets)
+	}
 
 	if rates.RoundtripMatch != 100 || rates.KeyframeHit != 100 || rates.SegmentHashMatch != 100 {
 		return &ExitError{Code: 3, Message: "demo did not reach 100% fidelity"}
