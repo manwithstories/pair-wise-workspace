@@ -229,6 +229,20 @@ func (r Rational) String() string {
 	return strconv.FormatInt(c.Num, 10) + "/" + strconv.FormatInt(c.Den, 10)
 }
 
+// UnmarshalJSON decodes the exact string form written by MarshalJSON.
+func (r *Rational) UnmarshalJSON(data []byte) error {
+	s := strings.TrimSpace(string(data))
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		s = s[1 : len(s)-1]
+	}
+	v, err := Parse(s)
+	if err != nil {
+		return err
+	}
+	*r = v
+	return nil
+}
+
 // MarshalJSON encodes the value as its exact string form.
 func (r Rational) MarshalJSON() ([]byte, error) {
 	return []byte(strconv.Quote(r.String())), nil
