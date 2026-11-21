@@ -71,3 +71,6 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 本地运行产物（演示输出、构建二进制等）----
+/tmp/
