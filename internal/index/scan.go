@@ -13,9 +13,8 @@ import (
 
 // Scan errors.
 var (
-	ErrMissingMedia = errors.New("index: referenced media is missing")
-	ErrBadRange     = errors.New("index: byte range outside file")
-	ErrTooLarge     = errors.New("index: media file too large")
+	ErrBadRange = errors.New("index: byte range outside file")
+	ErrTooLarge = errors.New("index: media file too large")
 	// ErrInterrupted signals a deliberate stop after StopAfter entries.
 	ErrInterrupted = errors.New("index: scan interrupted by request")
 )

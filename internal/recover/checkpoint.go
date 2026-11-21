@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"mediascan/internal/index"
-	"mediascan/internal/model"
 )
 
 // Version of the checkpoint layout.
@@ -187,16 +186,4 @@ func short(s string) string {
 		return s[:12] + "..."
 	}
 	return s
-}
-
-// FaultsFromResults decodes the stored result payload for provenance checks.
-func FaultsFromResults(raw json.RawMessage) ([]model.Fault, error) {
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	var fs []model.Fault
-	if err := json.Unmarshal(raw, &fs); err != nil {
-		return nil, err
-	}
-	return fs, nil
 }

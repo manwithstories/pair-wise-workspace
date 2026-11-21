@@ -1,7 +1,6 @@
 package model
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -209,9 +208,4 @@ func (f Fault) Summary() string {
 	b.WriteString(" ")
 	b.WriteString(f.Message)
 	return b.String()
-}
-
-// MarshalFaults renders faults as deterministic indented JSON.
-func MarshalFaults(fs []Fault) ([]byte, error) {
-	return json.MarshalIndent(fs, "", "  ")
 }
