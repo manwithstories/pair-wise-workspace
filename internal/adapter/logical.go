@@ -22,16 +22,34 @@ type LogicalSource struct {
 	failFrom int64
 }
 
-// NewLogicalSource wraps a generated layout.
+// NewLogicalSource wraps a generated MP4 layout.
 func NewLogicalSource(layout *MP4Layout, name string) *LogicalSource {
 	return &LogicalSource{prefix: layout.Prefix, payloadLen: layout.PayloadSize, name: name, failFrom: -1}
+}
+
+// NewMixedSource wraps either generated layout. Essence holes are filled with
+// the same deterministic formula, so a fixture is reproducible and a single
+// implementation covers both containers.
+func NewMixedSource(mxf *MXFLayout, mp4 *MP4Layout, name string) *LogicalSource {
+	switch {
+	case mxf != nil:
+		// The MXF subset materializes its essence holes in the prefix, so the
+		// prefix is the whole file.
+		return &LogicalSource{prefix: mxf.Prefix, payloadLen: 0, name: name, failFrom: -1}
+	case mp4 != nil:
+		return NewLogicalSource(mp4, name)
+	default:
+		return &LogicalSource{name: name, failFrom: -1}
+	}
 }
 
 func (s *LogicalSource) Size() int64  { return int64(len(s.prefix)) + s.payloadLen }
 func (s *LogicalSource) Name() string { return s.name }
 
 // ReadAt serves bytes from the structural prefix or from the synthesized
-// payload. It never allocates proportional to the source size.
+// payload. It never allocates proportional to the source size. Readers that
+// request bytes spanning the prefix/hole boundary get the hole filled in, so
+// no caller can observe an artificial EOF inside the file.
 func (s *LogicalSource) ReadAt(p []byte, off int64) (int, error) {
 	if off < 0 || off >= s.Size() {
 		return 0, io.EOF
@@ -46,18 +64,17 @@ func (s *LogicalSource) ReadAt(p []byte, off int64) (int, error) {
 		}
 		p = p[:avail]
 	}
+	if off+int64(len(p)) > s.Size() {
+		p = p[:s.Size()-off]
+	}
 	n := 0
 	if off < int64(len(s.prefix)) {
 		c := copy(p, s.prefix[off:])
 		n += c
-		off += int64(c)
 	}
 	if n < len(p) {
-		fillPayload(p[n:], off-int64(len(s.prefix)))
+		fillPayload(p[n:], off+int64(n)-int64(len(s.prefix)))
 		n = len(p)
-	}
-	if off+int64(n) >= s.Size() {
-		return n, io.EOF
 	}
 	return n, nil
 }

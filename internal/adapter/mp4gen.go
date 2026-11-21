@@ -56,6 +56,7 @@ type byteBuf struct {
 func (b *byteBuf) u8(v uint8)      { b.b = append(b.b, v) }
 func (b *byteBuf) u16(v uint16)    { b.b = binary.BigEndian.AppendUint16(b.b, v) }
 func (b *byteBuf) u32(v uint32)    { b.b = binary.BigEndian.AppendUint32(b.b, v) }
+func (b *byteBuf) u64(v uint64)    { b.b = binary.BigEndian.AppendUint64(b.b, v) }
 func (b *byteBuf) zeros(n int)     { b.b = append(b.b, make([]byte, n)...) }
 func (b *byteBuf) fourcc(s string) { b.b = append(b.b, s...) }
 
