@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"os"
 	"testing"
 
@@ -124,3 +125,65 @@ func fixtureTestKey(b byte) []byte {
 	k[15] = b
 	return k
 }
+
+func TestKLVPreservesEverySampleByte(t *testing.T) {
+	b := generateInto(t, t.TempDir())
+	f := openFile(t, b.CameraMXF)
+	res, err := DemuxMXF(f, b.CameraMXF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Re-open and hash the exact recorded byte range; it must match.
+	src := openFile(t, b.CameraMXF)
+	for _, tr := range res.Tracks {
+		for i, s := range tr.Samples {
+			var buf [32]byte
+			raw := make([]byte, s.Size)
+			if _, err := src.ReadAt(raw, s.SourceOffset); err != nil {
+				t.Fatalf("track %s sample %d: %v", tr.ID, i, err)
+			}
+			buf = sha256Sum(raw)
+			if buf != s.Hash {
+				t.Fatalf("track %s sample %d offset %d hash mismatch", tr.ID, i, s.SourceOffset)
+			}
+		}
+	}
+}
+
+func TestKLVZeroLengthValueAccepted(t *testing.T) {
+	// A zero-length KLV value is structurally legal and must not be rejected.
+	raw := append(fixtureTestKey(0x01), 0x00)
+	res, err := DemuxMXF(bytes.NewReader(raw), "empty.mxf")
+	if err != nil {
+		t.Fatalf("zero-length value rejected: %v", err)
+	}
+	if res.Err != nil {
+		t.Fatalf("unexpected error: %v", res.Err)
+	}
+}
+
+func TestKLVLongFormBER(t *testing.T) {
+	// Length 200 requires the 0x81 long form and must decode exactly.
+	val := make([]byte, 200)
+	raw := append(fixtureTestKey(0x01), 0x81, 200)
+	raw = append(raw, val...)
+	res, err := DemuxMXF(bytes.NewReader(raw), "ber.mxf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Err != nil {
+		t.Fatalf("long-form BER rejected: %v", res.Err)
+	}
+}
+
+func TestKLVRejectsOversizedBER(t *testing.T) {
+	// Nine length bytes exceed the SMPTE limit of eight.
+	raw := append(fixtureTestKey(0x01), 0x89)
+	raw = append(raw, make([]byte, 9)...)
+	_, err := DemuxMXF(bytes.NewReader(raw), "ber9.mxf")
+	if err == nil {
+		t.Fatal("9-byte BER length accepted")
+	}
+}
+
+func sha256Sum(b []byte) [32]byte { return sha256.Sum256(b) }

@@ -117,3 +117,33 @@ func TestRemuxMissingSourceFails(t *testing.T) {
 		t.Fatal("missing source accepted")
 	}
 }
+
+func TestFingerprintIsStableAndContentSensitive(t *testing.T) {
+	in, _ := buildInputFromFixture(t)
+	fp1 := Fingerprint(in)
+	fp2 := Fingerprint(in)
+	if fp1 != fp2 {
+		t.Fatal("fingerprint unstable for identical input")
+	}
+	// Changing the declared hash of one sample must change the fingerprint.
+	mutated := Input{Tracks: make([]TrackInput, len(in.Tracks))}
+	copy(mutated.Tracks, in.Tracks)
+	mutated.Tracks[0].Samples = append([]InputSample(nil), in.Tracks[0].Samples...)
+	mutated.Tracks[0].Samples[0].Hash[0] ^= 0xFF
+	if Fingerprint(mutated) == fp1 {
+		t.Fatal("fingerprint ignored a sample hash change")
+	}
+}
+
+func TestRemuxRefusesDeclaredHashMismatch(t *testing.T) {
+	in, _ := buildInputFromFixture(t)
+	// Corrupt the declared hash; the copy verifier must reject the output.
+	in.Tracks[0].Samples[0].Hash[0] ^= 0xFF
+	_, err := Remux(filepath.Join(t.TempDir(), "bad.mp4"), in, "fp")
+	if err == nil {
+		t.Fatal("hash mismatch not detected")
+	}
+	if code, _ := model.CodeOf(err); code != model.CodeFingerprint {
+		t.Fatalf("code=%v", code)
+	}
+}

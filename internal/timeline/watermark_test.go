@@ -239,3 +239,59 @@ func TestCheckpointIndex(t *testing.T) {
 		t.Fatalf("checkpoint at zero=%d", CheckpointIndex(0, span))
 	}
 }
+
+func TestTruncatedTailContinuesOtherTracks(t *testing.T) {
+	// A damaged final segment on one track must not stop the others; the
+	// surviving tracks still produce a full ordered timeline.
+	cfg := Config{AllowedLate: 10_000_000, SegmentSpan: 500_000_000}
+	var events []model.Event
+	for i := 0; i < 10; i++ {
+		events = append(events, ev("audio", uint32(i+1), i, int64(i)*40))
+	}
+	// Video only made it to sample 3, then the tail was lost.
+	for i := 0; i < 3; i++ {
+		events = append(events, ev("video", uint32(i+1), i, int64(i)*33))
+	}
+	plan, err := Build(events, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	audio, video := 0, 0
+	for _, e := range plan.Events {
+		switch e.TrackID {
+		case "audio":
+			audio++
+		case "video":
+			if !e.IsGap {
+				video++
+			}
+		}
+	}
+	if audio != 10 || video != 3 {
+		t.Fatalf("audio=%d video=%d, want 10 and 3", audio, video)
+	}
+}
+
+func TestMissingSequenceAmongCompleteTail(t *testing.T) {
+	// A hole in the middle is an explicit gap, but the tail still lands.
+	cfg := Config{AllowedLate: 0, SegmentSpan: 1_000_000_000}
+	events := []model.Event{
+		ev("v", 1, 0, 0), ev("v", 2, 1, 10), ev("v", 4, 3, 30), ev("v", 5, 4, 40),
+	}
+	plan, err := Build(events, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var last model.Event
+	for _, e := range plan.Events {
+		if !e.IsGap {
+			last = e
+		}
+	}
+	if last.Index != 4 {
+		t.Fatalf("tail lost: last index=%d", last.Index)
+	}
+	if plan.Gaps != 1 {
+		t.Fatalf("gaps=%d want 1", plan.Gaps)
+	}
+}

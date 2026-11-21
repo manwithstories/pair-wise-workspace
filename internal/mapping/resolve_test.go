@@ -1,6 +1,7 @@
 package mapping
 
 import (
+	"strings"
 	"testing"
 
 	"mediameld/internal/model"
@@ -143,5 +144,54 @@ func TestBothUnknownStaysUnknown(t *testing.T) {
 	d := adjudicate(v, Policy{})
 	if d.Color.Primaries != "unknown" {
 		t.Fatalf("expected unknown, got %+v", d.Color)
+	}
+}
+
+func TestResolveUnboundFingerprintNamesConflict(t *testing.T) {
+	v := mkTrack("v", model.KindVideo, 640, 360)
+	a := mkTrack("a", model.KindAudio, 0, 0)
+	entries := []Entry{
+		{Role: RoleMainVideo, Fingerprint: v.Fingerprint()},
+		{Role: RoleMainAudio, Fingerprint: "deadbeef"},
+	}
+	_, err := Resolve(entries, candidates(v, a), Policy{}, DefaultRequirement())
+	if err == nil {
+		t.Fatal("unknown fingerprint accepted")
+	}
+	if !strings.Contains(err.Error(), "deadbeef") {
+		t.Fatalf("error does not name the conflicting object: %v", err)
+	}
+}
+
+func TestResolveIsOrderIndependent(t *testing.T) {
+	v := mkTrack("v", model.KindVideo, 640, 360)
+	a := mkTrack("a", model.KindAudio, 0, 0)
+	entries := []Entry{
+		{Role: RoleMainVideo, Fingerprint: v.Fingerprint()},
+		{Role: RoleMainAudio, Fingerprint: a.Fingerprint()},
+	}
+	// Feed candidates in the opposite order; the binding must be identical.
+	r1, err := Resolve(entries, candidates(v, a), Policy{}, DefaultRequirement())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r2, err := Resolve(entries, candidates(a, v), Policy{}, DefaultRequirement())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r1[0].Track.ID != r2[0].Track.ID || r1[1].Track.ID != r2[1].Track.ID {
+		t.Fatal("binding depends on input order")
+	}
+}
+
+func TestDuplicateCropPolicyStillValidates(t *testing.T) {
+	v := mkTrack("v", model.KindVideo, 100, 100)
+	good := model.Crop{Valid: true, X: 0, Y: 0, W: 50, H: 50}
+	d := adjudicate(v, Policy{Crop: &good})
+	if err := d.Crop.Validate(100, 100); err != nil {
+		t.Fatal(err)
+	}
+	if d.Crop.W != 50 {
+		t.Fatalf("policy crop not applied: %+v", d.Crop)
 	}
 }

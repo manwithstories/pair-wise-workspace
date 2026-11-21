@@ -1,6 +1,7 @@
 package manifest
 
 import (
+	"strings"
 	"testing"
 
 	"mediameld/internal/mapping"
@@ -124,5 +125,44 @@ func TestManifestRoundTrip(t *testing.T) {
 	}
 	if got.TimelineHash != m.TimelineHash || len(got.Samples) != len(m.Samples) {
 		t.Fatal("round trip lost data")
+	}
+}
+
+func TestVerifierDetectsSampleCountDrift(t *testing.T) {
+	p := mkPlan()
+	m := Build(p.Plan, nil, remux.Result{SampleHashes: []remux.SampleHash{
+		{TrackID: "1", Index: 0, Hash: hb(1)}, {TrackID: "1", Index: 1, Hash: hb(2)},
+	}}, nil)
+	// Output dropped the trailing sample.
+	output := []model.Event{
+		{TrackID: "1", Index: 0, PTS: 0, Duration: 1_000_000, Hash: hb(1)},
+	}
+	v := Verifier{Demux: func() ([]model.Event, error) { return output, nil }}
+	rep, _ := v.Verify(m, 1_000_000_000)
+	if rep.OK() {
+		t.Fatal("sample-count drift not detected")
+	}
+}
+
+func TestVerifierDetectsSegmentBoundaryCrossing(t *testing.T) {
+	p := mkPlan()
+	m := Build(p.Plan, nil, remux.Result{SampleHashes: []remux.SampleHash{
+		{TrackID: "1", Index: 0, Hash: hb(1)}, {TrackID: "1", Index: 1, Hash: hb(2)},
+	}}, nil)
+	// Second sample is shifted across the 1s segment boundary.
+	output := []model.Event{
+		{TrackID: "1", Index: 0, PTS: 0, Duration: 1_000_000, Hash: hb(1)},
+		{TrackID: "1", Index: 1, PTS: 1_200_000_000, Duration: 1_000_000, Hash: hb(2)},
+	}
+	v := Verifier{Demux: func() ([]model.Event, error) { return output, nil }}
+	rep, _ := v.Verify(m, 1_000_000_000)
+	found := false
+	for _, e := range rep.Errors {
+		if strings.Contains(e, "segment") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("boundary crossing not reported: %v", rep.Errors)
 	}
 }
