@@ -81,9 +81,10 @@ class _OnlineDrift:
         slope, offset = self._fit()
         if self._n >= 32 and abs(slope - 1.0) * 1e6 > DRIFT_SEGMENT_PPM:
             # Drift exceeded: close the segment and refit from here.
-            self.segments.append(
-                DriftSegment(self._start, index - 1, slope, offset)
-            )
+            if len(self.segments) < 64:  # bounded memory
+                self.segments.append(
+                    DriftSegment(self._start, index - 1, slope, offset)
+                )
             self._reset(index)
             self.observe(index, raw, reference)
             slope, offset = self._fit()
@@ -109,6 +110,8 @@ class TrackRepairer:
         self._prev_pts_seconds: Fraction | None = None
         self._drift = _OnlineDrift()
         self._frame_no = 0
+        self._vfr = False
+        self._prev_duration: int | None = None
 
     def _unwrap(self, value: int, index: int) -> tuple[int, str | None]:
         prev = self._prev_dts
@@ -182,18 +185,25 @@ class TrackRepairer:
                 )
             )
             duration = Fraction(0)
-        # Drift correction against the cadence implied by the nominal rate.
-        if pts_seconds is not None and self.rate:
+        # VFR tracks have no cadence to fit drift against: presentation
+        # order is rebuilt from packet order and timestamps are kept as-is.
+        if self._prev_duration is not None and event.duration != self._prev_duration:
+            self._vfr = True
+        if event.duration:
+            self._prev_duration = event.duration
+        if pts_seconds is not None and self.rate and not self._vfr:
             reference = Fraction(self._frame_no) / self.rate
             slope, offset = self._drift.observe(
                 self._frame_no, float(pts_seconds), float(reference)
             )
-            corrected = Fraction(slope) * pts_seconds + Fraction(offset).limit_denominator(10**9)
-            if corrected != pts_seconds:
-                s.repaired_timestamps += 1
-            pts_seconds = corrected
-            if dts_seconds is not None:
-                dts_seconds = Fraction(slope) * dts_seconds + Fraction(offset).limit_denominator(10**9)
+            if abs(slope - 1.0) <= 1000e-6:
+                offset_f = Fraction(offset).limit_denominator(10**9)
+                corrected = Fraction(slope) * pts_seconds + offset_f
+                if corrected != pts_seconds:
+                    s.repaired_timestamps += 1
+                pts_seconds = corrected
+                if dts_seconds is not None:
+                    dts_seconds = Fraction(slope) * dts_seconds + offset_f
         if (
             self._prev_pts_seconds is not None
             and pts_seconds is not None

@@ -158,7 +158,11 @@ def scan(path: str | Path, result: ProbeResult | None = None) -> Iterator[Packet
     return
 
 
-def check_truncation(result: ProbeResult, last_end_seconds: Fraction | None) -> None:
+def check_truncation(
+    result: ProbeResult,
+    last_end_seconds: Fraction | None,
+    last_byte_offset: int | None = None,
+) -> None:
     """Flag inputs whose streams end far before the declared duration.
 
     ``last_end_seconds`` is the greatest (pts + duration) seen, in seconds.
@@ -183,6 +187,7 @@ def check_truncation(result: ProbeResult, last_end_seconds: Fraction | None) -> 
                     severity=Severity.UNREPAIRABLE,
                     track=track.kind.value,
                     packet_index=result.packets_scanned,
+                    byte_offset=last_byte_offset,
                 )
             )
             return

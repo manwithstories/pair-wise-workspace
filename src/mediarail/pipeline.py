@@ -193,6 +193,7 @@ def process_file(
     bq: BackpressureQueue = BackpressureQueue(queue_size, budget)
     probe_result = ProbeResult(input_path)
     last_end: list[Fraction | None] = [None]
+    last_offset: list[int] = [0]
 
     def produce() -> None:
         try:
@@ -202,6 +203,8 @@ def process_file(
                 end = to_seconds((event.pts or 0) + event.duration, event.track.time_base)
                 if end is not None and (last_end[0] is None or end > last_end[0]):
                     last_end[0] = end
+                if event.byte_offset is not None:
+                    last_offset[0] = event.byte_offset
                 bq.put(event, cancel)
         except _Cancelled:
             pass
@@ -271,7 +274,7 @@ def process_file(
     producer.join()
     result.packets_scanned = probe_result.packets_scanned
     result.errors.extend(probe_result.errors)
-    check_truncation(probe_result, last_end[0])
+    check_truncation(probe_result, last_end[0], last_offset[0])
     if probe_result.errors and probe_result.errors[-1] not in result.errors:
         result.errors.append(probe_result.errors[-1])
     for repairer in repairers.values():
