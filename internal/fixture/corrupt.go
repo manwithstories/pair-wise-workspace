@@ -79,7 +79,7 @@ func Corrupt(data []byte, kind Kind) ([]byte, Damage, error) {
 			return nil, Damage{}, fmt.Errorf("fixture: payload offset out of range")
 		}
 		out[at] ^= 0x5A
-		return out, Damage{Kind: kind, Offset: int64(at), LocatorTarget: -1,
+		return out, Damage{Kind: kind, Offset: int64(at), LocatorTarget: int64(at),
 			Detail: "single payload byte flipped"}, nil
 	}
 	return nil, Damage{}, model.NewError(model.StageVerify, model.CodeUnsupported, -1, 0, false,

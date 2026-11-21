@@ -244,7 +244,7 @@ func streamTrack(ctx context.Context, w *mux.Writer, r *demux.Reader, tr *demux.
 
 // verifySamples re-reads the output and compares per-track compressed sample
 // hashes against what was read from the input.
-func verifySamples(dir, output string, plan *mapping.Plan, in *demux.Reader, inHashers []*checksum.SampleHasher, res *Result) error {
+func verifySamples(dir, output string, plan *mapping.Plan, _ *demux.Reader, inHashers []*checksum.SampleHasher, res *Result) error {
 	r, err := demux.Open(context.Background(), output)
 	if err != nil {
 		return err

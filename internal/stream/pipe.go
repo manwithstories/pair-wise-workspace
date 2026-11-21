@@ -106,8 +106,11 @@ func (p *Pipe) Recv() (model.Sample, bool, error) {
 		default:
 		}
 		b := p.Boundary()
-		return model.Sample{}, false, model.NewError(model.StageStream, model.CodeCanceled,
-			b.OutputBytes, b.TrackID, true, "stream canceled: %v", p.ctx.Err())
+		return model.Sample{}, false, &model.Error{
+			Stage: model.StageStream, Code: model.CodeCanceled, Offset: b.OutputBytes,
+			TrackID: b.TrackID, Recoverable: true, Boundary: &b,
+			Message: "stream canceled", Cause: p.ctx.Err(),
+		}
 	case s, ok := <-p.ch:
 		return p.deliver(s, ok)
 	}
@@ -153,6 +156,10 @@ func (p *Pipe) Fail(err error) {
 	}
 	p.mu.Lock()
 	if p.err == nil {
+		if pe, ok := err.(*model.Error); ok && pe.Boundary == nil {
+			b := p.boundary
+			pe.Boundary = &b
+		}
 		p.err = err
 	}
 	p.consumerDone = true

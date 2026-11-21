@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"mediamerge/internal/checksum"
 	"os"
 	"path/filepath"
 	"time"
@@ -46,6 +47,11 @@ func runCorrupt(args []string) error {
 		return fmt.Errorf("corrupt: write damaged fixture: %w", err)
 	}
 	_, readErr := demux.Read(context.Background(), damagedPath)
+	if readErr == nil && fixture.Kind(*kind) == fixture.KindPayloadFlip {
+		// A flipped payload byte is structurally valid, so integrity is only
+		// detectable by comparing sample digests against a known-good run.
+		readErr = verifyPayloadDrift(context.Background(), *dir, damagedPath, dmg)
+	}
 	if readErr == nil {
 		fmt.Printf("error_offset=-1 locator_delta_bytes=-1\n")
 		return model.NewError(model.StageVerify, model.CodeIntegrity, -1, 0, false,
@@ -144,6 +150,91 @@ func runMerge(args []string) error {
 		return err
 	}
 	fmt.Println(res.FormatSummary())
+	return nil
+}
+
+// runSummarize prints mapping, sample counts, time ranges and digests.
+func runSummarize(args []string) error {
+	fs := newFlagSet("summarize")
+	dir := fs.String("dir", "", "work directory")
+	jsonOut := fs.Bool("json", false, "emit the summary as JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := requireDir(fs, *dir); err != nil {
+		return err
+	}
+	ctx := context.Background()
+	base, err := readInputPlan(ctx, filepath.Join(*dir, "input.mp4"))
+	if err != nil {
+		return err
+	}
+	defer base.reader.Close()
+	output, _ := txn.Paths(*dir)
+	rules := mapping.DefaultRules(base.reader.Tracks)
+	plan, err := mapping.Apply(base.reader.Tracks, rules)
+	if err != nil {
+		return err
+	}
+	out, err := demux.Open(ctx, output)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	var inputs []txn.TrackSummaryInput
+	for _, t := range plan.Tracks {
+		inputs = append(inputs, txn.TrackSummaryInput{
+			InputID: t.InputID, TargetID: t.TargetID, Media: t.MediaType, Codec: t.Codec,
+			Timescale: t.Timescale, Samples: len(t.Samples), FirstDTS: t.FirstDTS, LastDTS: t.LastDTS,
+		})
+	}
+	inSHA, inSize, err := checksum.File(base.reader.Path)
+	if err != nil {
+		return err
+	}
+	outSHA, outSize, err := checksum.File(output)
+	if err != nil {
+		return err
+	}
+	_ = inSize
+	digests := make([]txn.TrackDigest, 0, len(plan.Tracks))
+	match := true
+	for i, t := range plan.Tracks {
+		a := checksum.NewSampleHasher()
+		for _, ref := range t.Samples {
+			data, err := base.reader.ReadSample(ref)
+			if err != nil {
+				return err
+			}
+			a.Add(data)
+		}
+		b := checksum.NewSampleHasher()
+		for _, ref := range out.Tracks[i].Samples {
+			data, err := out.ReadSample(ref)
+			if err != nil {
+				return err
+			}
+			b.Add(data)
+		}
+		d := txn.TrackDigest{TargetID: t.TargetID, Samples: len(t.Samples),
+			InputHash: a.Sum(), OutputHash: b.Sum(), Match: a.Sum() == b.Sum()}
+		match = match && d.Match
+		digests = append(digests, d)
+	}
+	res := &txn.Result{InputSHA: inSHA, OutputSHA: outSHA, Samples: 0, Tracks: len(plan.Tracks),
+		SampleMatch: match, Digests: digests, OutputLen: outSize}
+	for _, t := range out.Tracks {
+		res.Samples += len(t.Samples)
+	}
+	summary, err := txn.NewSummary(res, inputs)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		fmt.Println(summary.JSON())
+	} else {
+		fmt.Print(summary.Text())
+	}
 	return nil
 }
 

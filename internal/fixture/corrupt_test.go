@@ -14,7 +14,7 @@ func TestCorruptKindsProduceDistinctBytes(t *testing.T) {
 		if string(out) == string(base) {
 			t.Fatalf("%s did not change bytes", kind)
 		}
-		if dmg.LocatorTarget < 0 && kind != KindPayloadFlip {
+		if dmg.LocatorTarget < 0 {
 			t.Fatalf("%s has no locator", kind)
 		}
 	}

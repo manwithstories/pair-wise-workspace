@@ -31,6 +31,8 @@ func main() {
 		err = runMerge(os.Args[2:])
 	case "plan":
 		err = runPlan(os.Args[2:])
+	case "summarize":
+		err = runSummarize(os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 		return
@@ -66,7 +68,8 @@ usage:
   mediamerge corrupt --dir <workdir> [--kind truncated-box|corrupt-sample-table|tail-truncation|corrupt-sample]
   mediamerge recover --dir <workdir> [--interrupt-after N] [--queue N]
   mediamerge merge   --input <file> --output <file> [--map "1=10:video,2=11:audio"]
-  mediamerge plan    --input <file> [--map ...]
+  mediamerge plan      --input <file> [--map ...]
+  mediamerge summarize --dir <workdir> [--json]
 `)
 }
 
