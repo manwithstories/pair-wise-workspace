@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"mediamerge/internal/checksum"
 	"mediamerge/internal/demux"
@@ -45,6 +46,7 @@ type Result struct {
 	Digests     []TrackDigest
 	Interrupted bool
 	QueuePeak   int
+	StageMS     []int64
 }
 
 // Run executes the full pipeline into dir with the default file names and
@@ -99,6 +101,7 @@ func Merge(ctx context.Context, dir, output string, r *demux.Reader, plan *mappi
 		if err := m.Begin(stage, w.Size()); err != nil {
 			return nil, err
 		}
+		wall := time.Now()
 		peak, err := streamTrack(ctx, w, r, tr, ti, opts.Queue, inHashers[ti])
 		if peak > res.QueuePeak {
 			res.QueuePeak = peak
@@ -113,6 +116,7 @@ func Merge(ctx context.Context, dir, output string, r *demux.Reader, plan *mappi
 			return nil, err
 		}
 		res.Samples += len(tr.Samples)
+		res.StageMS = append(res.StageMS, time.Since(wall).Milliseconds())
 		if opts.InterruptAfter == stage {
 			if err := injectCrash(m, w, r, plan, stage, opts.CrashBytes); err != nil {
 				return nil, err

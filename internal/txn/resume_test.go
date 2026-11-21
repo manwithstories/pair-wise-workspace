@@ -3,10 +3,13 @@ package txn
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"mediamerge/internal/journal"
 )
 
 func TestResumeMatchesCleanRun(t *testing.T) {
@@ -82,5 +85,42 @@ func TestRecoverRejectsTamperedOutput(t *testing.T) {
 	_, err = Recover(work, r.InputSHA, r.Size, plan)
 	if err == nil {
 		t.Fatal("expected digest mismatch")
+	}
+}
+
+// TestJournalOutputMismatchIsRejected covers the fourth fault class: the
+// journal itself disagrees with the bytes on disk. Recovery must refuse to
+// trust the commit rather than resuming over a corrupt prefix.
+func TestJournalOutputMismatchIsRejected(t *testing.T) {
+	dir, r, plan := prepare(t)
+	defer r.Close()
+	work := filepath.Join(dir, "work")
+	os.MkdirAll(work, 0o755)
+	if err := copyInput(work, r.Path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(context.Background(), work, r, plan, Options{Queue: 2, InterruptAfter: 2, CrashBytes: -1}); !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("interrupt: %v", err)
+	}
+	// Rewrite the last complete commit record with a bogus digest.
+	_, jpath := Paths(work)
+	data, err := os.ReadFile(jpath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recs, err := journal.Load(jpath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := recs[len(recs)-1]
+	line := fmt.Sprintf(`{"stage":%d,"kind":"%s","input_sha256":"%s","input_size":%d,"output_len":%d,"prefix_sha256":"%s"}`,
+		last.Stage, journal.KindCommit, last.InputSHA256, last.InputSize, last.OutputLen,
+		"0000000000000000000000000000000000000000000000000000000000000000")
+	_ = data
+	if err := os.WriteFile(jpath, []byte(line+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Recover(work, r.InputSHA, r.Size, plan); err == nil {
+		t.Fatal("recovery accepted a journal/output mismatch")
 	}
 }

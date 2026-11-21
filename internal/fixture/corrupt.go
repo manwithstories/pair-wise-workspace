@@ -69,6 +69,11 @@ func Corrupt(data []byte, kind Kind) ([]byte, Damage, error) {
 		cut := len(out) * 3 / 4
 		return out[:cut], Damage{Kind: kind, Offset: int64(cut), LocatorTarget: int64(cut),
 			Detail: "file truncated mid-mdat"}, nil
+	case KindJournalMismatch:
+		// Not a media mutation: the journal is damaged by the caller (txn
+		// tests) because the bytes live beside the output, not inside it.
+		return out, Damage{Kind: kind, Offset: -1, LocatorTarget: -1,
+			Detail: "journal prefix digest disagrees with output"}, nil
 	case KindPayloadFlip:
 		off, err := findBox(out, "mdat")
 		if err != nil {
