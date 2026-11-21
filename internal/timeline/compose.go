@@ -220,7 +220,11 @@ func Compose(asset *metadata.Asset, gaps []Gap, cfg Config) (*Timeline, error) {
 			end = tf.end
 		}
 	}
-	if cfg.DurationTicks > 0 && cfg.DurationTicks < end {
+	// DurationTicks bounds the timeline. A requested duration longer than the
+	// media yields hole frames (and therefore a documented, blockable tail)
+	// and a shorter one truncates, so the frame grid is always exactly
+	// DurationTicks/frameTicks long when a duration is requested.
+	if cfg.DurationTicks > 0 {
 		end = cfg.DurationTicks
 	}
 	if end <= 0 {
