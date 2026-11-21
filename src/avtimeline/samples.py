@@ -208,7 +208,7 @@ def generate_samples(directory: str, force: bool = False) -> SampleSet:
     )
     _write_wav(
         paths.player_voice,
-        _tone_bank(105_840, 44_100, [330.0, 440.0], 0.05),
+        _tone_bank(105_840, 44_100, [330.0], 0.05),
         44_100,
     )
     _encode_camera(
@@ -226,7 +226,12 @@ def generate_samples(directory: str, force: bool = False) -> SampleSet:
     with open(paths.cam_main, "rb") as handle:
         raw = handle.read()
     truncated = raw[: int(len(raw) * 0.55)]
-    _atomic_write(paths.corrupt_cam, lambda temp: open(temp, "wb").write(truncated))
+
+    def write_truncated(temp: str) -> None:
+        with open(temp, "wb") as handle:
+            handle.write(truncated)
+
+    _atomic_write(paths.corrupt_cam, write_truncated)
     return paths
 
 
