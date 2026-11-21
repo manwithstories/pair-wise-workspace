@@ -176,6 +176,10 @@ func Recover(dir, inputSHA string, inputSize int64, plan *mapping.Plan) (*State,
 			return nil, model.NewError(model.StageRecovery, model.CodeIntegrity, 0, 0, false,
 				"journal record %d belongs to a different input", i)
 		}
+		if r.Kind != journal.KindCommit && r.Kind != journal.KindBegin {
+			return nil, model.NewError(model.StageRecovery, model.CodeIntegrity, 0, 0, false,
+				"journal record %d has unknown kind %q", i, r.Kind)
+		}
 		if r.Kind != journal.KindCommit {
 			continue
 		}

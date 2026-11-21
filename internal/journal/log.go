@@ -149,3 +149,27 @@ func (r Record) Format() string {
 	}
 	return "stage=" + strconv.Itoa(r.Stage) + " kind=" + r.Kind + " output_len=" + strconv.FormatInt(r.OutputLen, 10) + " prefix=" + prefix
 }
+
+// Rewrite atomically replaces a journal with the given records.
+func Rewrite(path string, prefix, rest []Record) (*Log, error) {
+	all := append(append([]Record(nil), prefix...), rest...)
+	tmp := path + ".tmp"
+	l, err := Create(tmp)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range all {
+		if err := l.Append(r); err != nil {
+			l.Close()
+			return nil, err
+		}
+	}
+	if err := l.Close(); err != nil {
+		return nil, err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return nil, model.WrapError(model.StageJournal, model.CodeJournal, 0, 0, false, err,
+			"replace journal")
+	}
+	return Open(path)
+}

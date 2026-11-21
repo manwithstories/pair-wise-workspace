@@ -37,6 +37,9 @@ func runCorrupt(args []string) error {
 		return model.WrapError(model.StageVerify, model.CodeIntegrity, 0, 0, false, err,
 			"read input for corruption")
 	}
+	if fixture.Kind(*kind) == fixture.KindJournalMismatch {
+		return corruptJournal(*dir)
+	}
 	damaged, dmg, err := fixture.Corrupt(data, fixture.Kind(*kind))
 	if err != nil {
 		return err
