@@ -23,6 +23,7 @@ add_library(media_core STATIC
   src/file_util.cpp
   src/wav_reader.cpp
   src/silence.cpp
+  src/segmenter.cpp
 )
 target_include_directories(media_core PUBLIC include)
 target_link_libraries(media_core PUBLIC PkgConfig::FFMPEG)
