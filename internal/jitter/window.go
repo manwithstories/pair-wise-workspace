@@ -113,8 +113,40 @@ func (w *Window) Flush(target uint16) []uint16 {
 	return missing
 }
 
+// SlideTo advances the expected sequence number up to but not including target,
+// abandoning every position before it. The block at target stays buffered so
+// it can drain through the normal in-order path.
+func (w *Window) SlideTo(target uint16) {
+	for SeqDistance(w.nextSeq, target) > 0 {
+		delete(w.buf, w.nextSeq)
+		w.nextSeq++
+	}
+}
+
 // NextSeq reports the sequence number currently expected.
 func (w *Window) NextSeq() (uint16, bool) { return w.nextSeq, w.started }
+
+// Lookup returns the buffered block for a sequence number.
+func (w *Window) Lookup(seq uint16) (*clock.Block, bool) {
+	b, ok := w.buf[seq]
+	return b, ok
+}
+
+// FirstBuffered returns the buffered block closest to the expected sequence.
+func (w *Window) FirstBuffered() (*clock.Block, bool) {
+	if len(w.buf) == 0 {
+		return nil, false
+	}
+	var best uint16
+	bestDist := 1 << 31
+	for s := range w.buf {
+		if d := SeqDistance(w.nextSeq, s); d >= 0 && d < bestDist {
+			best, bestDist = s, d
+		}
+	}
+	b, ok := w.buf[best]
+	return b, ok
+}
 
 // Buffered reports how many blocks currently occupy the window.
 func (w *Window) Buffered() int { return len(w.buf) }
