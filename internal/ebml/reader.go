@@ -138,8 +138,8 @@ func NewReader(rs io.ReadSeeker) *Reader {
 // Offset returns the current offset.
 func (r *Reader) Offset() int64 { return r.off }
 
-// Seek moves the reader to an absolute offset.
-func (r *Reader) Seek(off int64) error {
+// SeekTo moves the reader to an absolute offset.
+func (r *Reader) SeekTo(off int64) error {
 	if off < 0 {
 		return fmt.Errorf("ebml: negative seek offset %d", off)
 	}
@@ -348,7 +348,7 @@ func (r *Reader) ReadSmall(e Element, maxSize int64) ([]byte, error) {
 		return nil, fault.AtElement(fault.StageParse, e.Offset, e.Name(),
 			fmt.Errorf("%w: payload %d exceeds %d", ErrOversized, e.Size, maxSize))
 	}
-	if err := r.Seek(e.DataOffset); err != nil {
+	if err := r.SeekTo(e.DataOffset); err != nil {
 		return nil, err
 	}
 	buf := make([]byte, e.Size)
@@ -360,12 +360,25 @@ func (r *Reader) ReadSmall(e Element, maxSize int64) ([]byte, error) {
 	return buf, nil
 }
 
+// ReadFull fills p from the element's payload at the current reader offset.
+// The caller must have sought to the payload (for example with Seek).
+func (r *Reader) ReadFull(p []byte) (int, error) {
+	if _, err := io.ReadFull(r.rs, p); err != nil {
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			return 0, fault.At(fault.StageParse, r.off, ErrTruncated)
+		}
+		return 0, err
+	}
+	r.off += int64(len(p))
+	return len(p), nil
+}
+
 // Skip advances to the element's end. Unknown-size elements cannot be skipped.
 func (r *Reader) Skip(e Element) error {
 	if e.UnknownSize {
 		return fault.AtElement(fault.StageParse, e.Offset, e.Name(), ErrMalformed)
 	}
-	return r.Seek(e.End)
+	return r.SeekTo(e.End)
 }
 
 // Stream copies the element payload to w without buffering it. It returns the
@@ -378,7 +391,7 @@ func (r *Reader) Stream(e Element, w io.Writer, maxSize int64) (int64, error) {
 		return 0, fault.AtElement(fault.StageParse, e.Offset, e.Name(),
 			fmt.Errorf("%w: payload %d exceeds %d", ErrOversized, e.Size, maxSize))
 	}
-	if err := r.Seek(e.DataOffset); err != nil {
+	if err := r.SeekTo(e.DataOffset); err != nil {
 		return 0, err
 	}
 	n, err := io.CopyN(w, r.rs, e.Size)
