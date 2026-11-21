@@ -163,6 +163,9 @@ func Run(opt Options) (*Result, error) {
 					}
 					return scheduler.Result{}, perr
 				}
+				// A corrupted input is isolated but must not be mistaken for a
+				// clean run: the node succeeds so independent branches continue,
+				// and the caller surfaces the first categorized error.
 				return scheduler.Result{Hash: "metadata:" + metadataHash(parsed)}, nil
 			},
 		},
@@ -289,6 +292,7 @@ func Run(opt Options) (*Result, error) {
 						break
 					}
 				}
+				m.Metrics.FrameCount = len(rendered)
 				if opt.WriteFrames {
 					if werr := writeFrameArtifacts(opt.Out, rendered); werr != nil {
 						return scheduler.Result{}, werr
