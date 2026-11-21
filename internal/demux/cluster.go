@@ -6,6 +6,7 @@ import (
 
 	"archivecheck.local/archivecheck/internal/ebml"
 	"archivecheck.local/archivecheck/internal/fault"
+	"archivecheck.local/archivecheck/internal/index"
 	"archivecheck.local/archivecheck/internal/mkv"
 )
 
@@ -226,6 +227,16 @@ func (s *scanner) emitBlock(b mkv.Block) error {
 			Discardable:   b.Discardable,
 		}
 		stats.Observe(sample)
+		if s.opts.CollectSamples {
+			s.result.Samples = append(s.result.Samples, index.Sample{
+				TrackNumber:   sample.TrackNumber,
+				Tick:          sample.Timestamp,
+				Keyframe:      sample.Keyframe,
+				SourceOffset:  sample.SourceOffset,
+				ClusterOffset: sample.ClusterOffset,
+				FrameIndex:    sample.FrameIndex,
+			})
+		}
 		if s.opts.OnSample != nil {
 			if err := s.opts.OnSample(sample); err != nil {
 				return err

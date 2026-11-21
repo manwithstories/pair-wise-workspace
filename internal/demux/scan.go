@@ -11,6 +11,7 @@ import (
 
 	"archivecheck.local/archivecheck/internal/ebml"
 	"archivecheck.local/archivecheck/internal/fault"
+	"archivecheck.local/archivecheck/internal/index"
 	"archivecheck.local/archivecheck/internal/track"
 )
 
@@ -96,6 +97,8 @@ type Result struct {
 	Info   Info
 	Tracks []track.Source
 	Stats  map[uint64]*TrackStats
+	// Samples is the index-relevant sample list when CollectSamples is set.
+	Samples []index.Sample
 	// BlockCount counts every block payload seen, including unknown-track
 	// blocks that were counted but not delivered.
 	BlockCount int64
@@ -103,6 +106,12 @@ type Result struct {
 	UnknownTrackBlocks int64
 	// UnknownTrackNumbers lists the undeclared track numbers seen.
 	UnknownTrackNumbers []uint64
+	// ClusterOffsets lists every Cluster's absolute offset in file order.
+	ClusterOffsets []int64
+	// CuePoints lists the parsed Cues entries, if any.
+	CuePoints []index.CuePoint
+	// CueCorrupt reports that a Cues element existed but could not be parsed.
+	CueCorrupt bool
 	// Recovery collects damage that was skipped with provable boundaries.
 	Recovery []fault.Skip
 }
@@ -121,6 +130,9 @@ type Options struct {
 	OnTrack func(track.Source)
 	// OnSample is called for every frame of every declared track.
 	OnSample func(Sample) error
+	// CollectSamples retains every sample's index-relevant fields for a
+	// source-derived keyframe index. Payload bytes are never retained.
+	CollectSamples bool
 }
 
 // DefaultOptions returns conservative memory bounds.
@@ -302,6 +314,7 @@ func (s *scanner) walkSegment(start, end int64) error {
 				return err
 			}
 		case ebml.IDCluster:
+			s.result.ClusterOffsets = append(s.result.ClusterOffsets, e.Offset)
 			clusterEnd := e.End
 			if e.UnknownSize {
 				clusterEnd = end

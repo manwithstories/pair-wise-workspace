@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"sort"
 
-	"archivecheck.local/archivecheck/internal/demux"
 	"archivecheck.local/archivecheck/internal/ebml"
 	"archivecheck.local/archivecheck/internal/fault"
 )
@@ -94,10 +93,20 @@ func (ix *Index) Hit(track uint64, tick int64, wantOffset int64) bool {
 	return ok && e.SourceOffset == wantOffset
 }
 
+// Sample is one decoded frame as seen by the index builder.
+type Sample struct {
+	TrackNumber   uint64
+	Tick          int64
+	Keyframe      bool
+	SourceOffset  int64
+	ClusterOffset int64
+	FrameIndex    int
+}
+
 // FromSamples builds a keyframe index from decoded samples in file order.
-// Only complete blocks reach this function, so truncation cannot create a
-// phantom entry.
-func FromSamples(samples []demux.Sample) Index {
+// Only completely decoded blocks reach this function, so a truncated block
+// can never create a phantom entry.
+func FromSamples(samples []Sample) Index {
 	ix := Index{Rebuilt: true}
 	perTrack := map[uint64]int{}
 	for _, s := range samples {
@@ -107,7 +116,7 @@ func FromSamples(samples []demux.Sample) Index {
 		}
 		ix.Entries = append(ix.Entries, Entry{
 			Track:         s.TrackNumber,
-			Tick:          s.Timestamp,
+			Tick:          s.Tick,
 			SourceOffset:  s.SourceOffset,
 			ClusterOffset: s.ClusterOffset,
 			FrameIndex:    s.FrameIndex,

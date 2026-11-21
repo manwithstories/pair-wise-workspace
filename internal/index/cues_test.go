@@ -5,17 +5,16 @@ import (
 	"errors"
 	"testing"
 
-	"archivecheck.local/archivecheck/internal/demux"
 	"archivecheck.local/archivecheck/internal/fault"
 	"archivecheck.local/archivecheck/internal/fixture"
 )
 
-func sample(track uint64, tick int64, key bool, offset int64) demux.Sample {
-	return demux.Sample{TrackNumber: track, Timestamp: tick, Keyframe: key, SourceOffset: offset, ClusterOffset: offset}
+func sample(track uint64, tick int64, key bool, offset int64) Sample {
+	return Sample{TrackNumber: track, Tick: tick, Keyframe: key, SourceOffset: offset, ClusterOffset: offset}
 }
 
 func TestAtOrBeforeAndHit(t *testing.T) {
-	ix := FromSamples([]demux.Sample{
+	ix := FromSamples([]Sample{
 		sample(1, 0, true, 100),
 		sample(1, 40, false, 200),
 		sample(1, 80, true, 300),
@@ -41,7 +40,7 @@ func TestAtOrBeforeAndHit(t *testing.T) {
 }
 
 func TestFromSamplesSkipsNonKeyframes(t *testing.T) {
-	ix := FromSamples([]demux.Sample{sample(1, 0, false, 10), sample(1, 10, true, 20)})
+	ix := FromSamples([]Sample{sample(1, 0, false, 10), sample(1, 10, true, 20)})
 	if len(ix.Entries) != 1 || ix.Entries[0].SourceOffset != 20 {
 		t.Fatalf("entries=%+v", ix.Entries)
 	}
@@ -92,7 +91,7 @@ func cuesPayload(t *testing.T, data []byte) []byte {
 }
 
 func TestAttachCuesRejectsFabricatedPoints(t *testing.T) {
-	ix := FromSamples([]demux.Sample{sample(1, 0, true, 100), sample(1, 40, true, 200)})
+	ix := FromSamples([]Sample{sample(1, 0, true, 100), sample(1, 40, true, 200)})
 	points := []CuePoint{
 		{Tick: 0, Track: 1, ClusterPosition: 10},
 		{Tick: 40, Track: 1, ClusterPosition: 9999},
@@ -114,7 +113,7 @@ func TestAttachCuesRejectsFabricatedPoints(t *testing.T) {
 }
 
 func TestValidate(t *testing.T) {
-	ix := FromSamples([]demux.Sample{sample(1, 10, true, 100)})
+	ix := FromSamples([]Sample{sample(1, 10, true, 100)})
 	if err := ix.Validate(1000); err != nil {
 		t.Fatal(err)
 	}

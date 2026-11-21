@@ -5,6 +5,7 @@ import (
 
 	"archivecheck.local/archivecheck/internal/ebml"
 	"archivecheck.local/archivecheck/internal/fault"
+	"archivecheck.local/archivecheck/internal/index"
 	"archivecheck.local/archivecheck/internal/track"
 )
 
@@ -257,17 +258,19 @@ func (s *scanner) readCues(e ebml.Element) error {
 		return fault.AtElement(fault.StageParse, e.Offset, "Cues", fault.ErrMalformed)
 	}
 	s.result.Info.HasCues = true
-	for s.r.Offset() < e.End {
-		c, err := s.r.Next(e.End)
-		if err != nil {
-			return err
-		}
-		if c.ID == ebml.IDCuePoint {
-			s.result.Info.CueEntries++
-		}
-		if err := s.r.Skip(c); err != nil {
-			return err
-		}
+	payload, err := s.r.ReadSmall(e, 32<<20)
+	if err != nil {
+		// A broken Cues element must not abort a scan that can rebuild the
+		// index from blocks; record it and let the caller decide.
+		s.result.CueCorrupt = true
+		return s.r.SeekTo(e.End)
 	}
+	points, err := index.ParseCues(payload)
+	if err != nil {
+		s.result.CueCorrupt = true
+		return s.r.SeekTo(e.End)
+	}
+	s.result.CuePoints = append(s.result.CuePoints, points...)
+	s.result.Info.CueEntries += len(points)
 	return nil
 }

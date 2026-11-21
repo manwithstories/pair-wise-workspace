@@ -103,6 +103,7 @@ func Scan(ctx context.Context, root *fsguard.Root, path string, recovery bool) (
 	var res demux.Result
 	opts := demux.DefaultOptions()
 	opts.Recover = recovery
+	opts.CollectSamples = true
 	opts.OnSample = func(demux.Sample) error {
 		select {
 		case <-ctx.Done():
@@ -219,6 +220,7 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 	scanOpts := demux.DefaultOptions()
 	scanOpts.MaxBlockBytes = opts.MaxBlockBytes
 	scanOpts.Recover = opts.Recovery
+	scanOpts.CollectSamples = true
 	scanOpts.OnSample = func(s demux.Sample) error {
 		if spoolErr != nil {
 			return spoolErr
@@ -352,8 +354,9 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 		return nil, err
 	}
 
-	// Rebuild the keyframe index from the output's own sample table view.
-	ix := index.FromOutput(sum)
+	// Build the keyframe index from the decoded blocks and corroborate it
+	// with the source Cues where those are trustworthy.
+	ix := buildIndex(&scanRes)
 
 	rep := &Report{
 		Info:                scanRes.Info,
