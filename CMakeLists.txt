@@ -38,3 +38,12 @@ option(MEDIA_BUILD_TESTS "Build Catch2 unit tests" ON)
 
 add_executable(media_pipeline app/main.cpp)
 target_link_libraries(media_pipeline PRIVATE media_core)
+
+if(MEDIA_BUILD_TESTS)
+  enable_testing()
+  find_package(Catch2 3 REQUIRED)
+  add_executable(pipeline_tests tests/pipeline_tests.cpp)
+  target_link_libraries(pipeline_tests PRIVATE media_core
+                                               Catch2::Catch2WithMain)
+  add_test(NAME pipeline_tests COMMAND pipeline_tests)
+endif()
