@@ -71,3 +71,7 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Go 构建产物与本地演示数据 ----
+/mediapack
+.mediapack/

@@ -172,8 +172,13 @@ func FirstBlocked(errs []error) *Error {
 	if len(candidates) == 0 {
 		return nil
 	}
+	// Unnumbered findings (Frame == 0) come after every numbered one: a
+	// framework-level block is reported only when no unit-level block exists.
 	sort.SliceStable(candidates, func(i, j int) bool {
 		a, b := candidates[i], candidates[j]
+		if (a.Frame == 0) != (b.Frame == 0) {
+			return a.Frame != 0
+		}
 		if a.Frame != b.Frame {
 			return a.Frame < b.Frame
 		}
