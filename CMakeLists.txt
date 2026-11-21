@@ -20,6 +20,7 @@ pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
 add_library(media_core STATIC
   src/error.cpp
   src/json.cpp
+  src/file_util.cpp
 )
 target_include_directories(media_core PUBLIC include)
 target_link_libraries(media_core PUBLIC PkgConfig::FFMPEG)
