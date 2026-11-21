@@ -177,6 +177,7 @@ func buildRTPPackets(samples []SampleSpec, driftPPM int64, wrapAt uint32, plan D
 		if err != nil {
 			panic(err)
 		}
+		buf.Write(be32(uint32(len(raw))))
 		buf.Write(raw)
 	}
 	for _, idx := range plan.Order {
