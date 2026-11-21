@@ -71,3 +71,10 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- mediacheck 本地产物 ----
+.demo-work/
+*.test
+/out/
+/mediacheck
+/cmd/mediacheck/mediacheck
