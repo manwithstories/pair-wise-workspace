@@ -22,6 +22,7 @@ from .errors import (
     Phase,
     SourceOffset,
 )
+from .container_scan import precheck_file
 from .packet import PacketRecord, build_record
 from .timebase import as_fraction
 
@@ -97,6 +98,7 @@ class Demuxer:
                 detail={"corruption_type": "empty_file"},
             )
         self._container: av.container.InputContainer | None = None
+        self._precheck: dict[str, Any] = {}
         self._streams: dict[int, StreamInfo] = {}
         self.skipped_streams: list[StreamInfo] = []
         self._last_dts_us: dict[int, int] = {}
@@ -107,8 +109,45 @@ class Demuxer:
         self.negative_priming: dict[int, int] = {}
         self._sequence = 0
 
+    def _raise_if_structurally_corrupt(self) -> None:
+        """依据 box 预检结论，对可定位的结构损坏给出精确/区间偏移。"""
+        pc = self._precheck
+        if pc.get("first_oob_offset") is not None:
+            oob = int(pc["first_oob_offset"])
+            raise MediaCorruptionError(
+                "容器 box 声明长度越过文件尾（截断或 box 长度损坏）",
+                phase=Phase.DEMUX,
+                offset=SourceOffset(
+                    oob,
+                    min(oob + 8, self._file_size),
+                    "越界 box 头（size 字段）",
+                ),
+                detail={"corruption_type": "box_out_of_bounds"},
+            )
+        if not pc.get("has_ftyp"):
+            raise MediaCorruptionError(
+                "缺失 ftyp 品牌 box，不是合法 ISO-BMFF 容器",
+                phase=Phase.DEMUX,
+                offset=SourceOffset(0, min(8, self._file_size), "文件头无 ftyp"),
+                detail={"corruption_type": "missing_ftyp"},
+            )
+        if not pc.get("has_moov"):
+            mdat_end = pc.get("mdat_end")
+            raise MediaCorruptionError(
+                "缺失 moov 索引 box，无法定位轨道与包索引",
+                phase=Phase.DEMUX,
+                offset=SourceOffset(
+                    int(mdat_end) if mdat_end else 0,
+                    self._file_size,
+                    "moov 应在的尾部区间未找到",
+                ),
+                detail={"corruption_type": "missing_index"},
+            )
+
     # ---- 打开与流信息 -------------------------------------------------
     def open(self) -> "Demuxer":
+        self._precheck = precheck_file(self.path)
+        self._raise_if_structurally_corrupt()
         try:
             self._container = av.open(self.path, mode="r", metadata_errors="warn")
         except av.FFmpegError as exc:
@@ -159,7 +198,13 @@ class Demuxer:
     def iter_packets(self) -> Iterator[PacketRecord]:
         if self._container is None:
             raise RuntimeError("Demuxer 尚未 open()")
+        iterator = self._iter_packets_inner()
+        yield from iterator
+        self._check_silent_truncation()
+
+    def _iter_packets_inner(self) -> Iterator[PacketRecord]:
         container = self._container
+        assert container is not None
         try:
             for packet in container.demux():
                 try:
@@ -168,6 +213,30 @@ class Demuxer:
                     raise
         except av.FFmpegError as exc:
             raise _classify_av_error(exc, self._file_size) from exc
+
+    def _check_silent_truncation(self) -> None:
+        """结构完整但实际包数少于 stsz 声明 => 静默截断/坏包（退出码 3）。"""
+        declared = self._precheck.get("declared_sample_count")
+        if declared is None:
+            return
+        actual = sum(i.packet_count for i in self._streams.values())
+        if actual < int(declared):
+            payload_start = self._precheck.get("mdat_payload_start") or 0
+            mdat_end = self._precheck.get("mdat_end") or self._file_size
+            raise MediaCorruptionError(
+                f"包流静默截断：stsz 声明 {declared} 个样本，实际仅解出 {actual} 个",
+                phase=Phase.DEMUX,
+                offset=SourceOffset(
+                    int(payload_start),
+                    int(mdat_end),
+                    "样本表与实际包数不符，坏字节位于 mdat/样本表区间",
+                ),
+                detail={
+                    "corruption_type": "silent_truncation",
+                    "declared_samples": int(declared),
+                    "actual_packets": actual,
+                },
+            )
 
     def _handle_packet(self, packet: Any) -> Iterator[PacketRecord]:
         sidx = int(packet.stream_index)
