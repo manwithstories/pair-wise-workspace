@@ -46,6 +46,11 @@ status=recovered skipped_segments=1 source_offset=1865 hash_verified_segments=21
 
 ## Exit codes
 
+> Note: `go run` collapses any non-zero child status into 1. The stage line
+> still prints the contractual code (`exit=2`), and the built binary returns
+> it exactly; use `go build -o archivecheck ./cmd/archivecheck` when a caller
+> needs to branch on the process status.
+
 | code | meaning |
 | ---- | ------- |
 | 0 | verified, or recovered by the documented rules |
