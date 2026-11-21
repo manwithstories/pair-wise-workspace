@@ -375,17 +375,22 @@ func readEntryCrop(w *mp4Walker, entry *boxNode, width, height int, trackID uint
 		return nil, media.NewError(media.ClassTruncated, "clap payload extends past end of input").
 			WithContainer("mp4").WithTrack(trackID).WithOffset(clap.payload).WithTolerance(0).WithCause(err)
 	}
-	fixed := func(i int) (int, bool) {
-		raw := int32(binary.BigEndian.Uint32(buf[i*4:]))
-		if raw&0xffff != 0 {
+	// clap is four rationals: width, height, horizontal offset, vertical
+	// offset, each a 16.16 numerator followed by a 16.16 denominator. Only
+	// unit denominators are accepted, so a sub-pixel aperture is refused
+	// rather than rounded.
+	value := func(i int) (int, bool) {
+		num := int32(binary.BigEndian.Uint32(buf[i*4:]))
+		den := int32(binary.BigEndian.Uint32(buf[(i+1)*4:]))
+		if num&0xffff != 0 || den != 1<<16 {
 			return 0, false
 		}
-		return int(raw >> 16), true
+		return int(num >> 16), true
 	}
-	cw, okW := fixed(0)
-	ch, okH := fixed(1)
-	hoff, okHoff := fixed(2)
-	voff, okVoff := fixed(3)
+	cw, okW := value(0)
+	ch, okH := value(2)
+	hoff, okHoff := value(4)
+	voff, okVoff := value(6)
 	if !okW || !okH || !okHoff || !okVoff {
 		return nil, media.NewError(media.ClassMetadataConflict,
 			"clap uses sub-pixel offsets, which are outside the supported subset").

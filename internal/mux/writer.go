@@ -77,25 +77,37 @@ func decorateEntry(t *outTrack) []byte {
 		})
 		extra = append(extra, b.b...)
 	}
-	if t.crop != nil && t.width > 0 && t.height > 0 &&
-		t.crop.Width > 0 && t.crop.Height > 0 &&
+	// Video sample entries always carry a clap when the resolved aperture is
+	// not the full frame, even if the coded dimensions were not available.
+	if t.crop != nil && t.crop.Width > 0 && t.crop.Height > 0 &&
 		(t.crop.X != 0 || t.crop.Y != 0 ||
 			t.crop.Width != t.width || t.crop.Height != t.height) {
 		b := &outBuf{}
+		// clap is four signed 16.16 rationals: width, height, horizontal
+		// offset and vertical offset, each with a denominator.
 		b.box("clap", func() {
-			b.u32(uint32(t.crop.Width) << 16)
-			b.u32(uint32(t.crop.Height) << 16)
-			hoff := t.crop.X - (t.width-t.crop.Width)/2
-			voff := t.crop.Y - (t.height-t.crop.Height)/2
-			b.u32(uint32(int32(hoff)) << 16)
-			b.u32(uint32(int32(voff)) << 16)
+			hoff, voff := 0, 0
+			if t.width > 0 && t.height > 0 {
+				hoff = t.crop.X - (t.width-t.crop.Width)/2
+				voff = t.crop.Y - (t.height-t.crop.Height)/2
+			}
+			// Each value is 16.16 fixed point; denominators are 1.
+			for _, v := range []int{t.crop.Width << 16, 1 << 16, t.crop.Height << 16, 1 << 16,
+				hoff << 16, 1 << 16, voff << 16, 1 << 16} {
+				b.u32(uint32(int32(v)))
+			}
 		})
 		extra = append(extra, b.b...)
 	}
 	if len(extra) == 0 {
 		return entry
 	}
-	out := append(entry, extra...)
+	// The sample entry is itself the outer box, so growth must be reflected
+	// in its own size field. Building a fresh slice also keeps the caller's
+	// entry untouched.
+	out := make([]byte, 0, len(entry)+len(extra))
+	out = append(out, entry...)
+	out = append(out, extra...)
 	binary.BigEndian.PutUint32(out[0:], uint32(len(out)))
 	return out
 }
