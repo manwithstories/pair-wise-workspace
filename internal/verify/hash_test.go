@@ -148,3 +148,50 @@ func TestMissingInputHashIsNotAMatch(t *testing.T) {
 		t.Fatalf("unverified hashes counted as matches: %d", res.Matched)
 	}
 }
+
+func TestKeyframeHitsUseOutputStss(t *testing.T) {
+	plan, src := planWith(t)
+	out := &memWS{}
+	sum, err := remux.Write(out, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := Check(bytes.NewReader(out.buf), int64(len(out.buf)), sum.Manifest, Options{
+		Input: bytes.NewReader(src), InputSize: int64(len(src)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.KeyframeQueries == 0 {
+		t.Fatal("no keyframe queries")
+	}
+	if res.KeyframeHits != res.KeyframeQueries {
+		t.Fatalf("hits=%d queries=%d", res.KeyframeHits, res.KeyframeQueries)
+	}
+}
+
+func TestKeyframeCheckDetectsMissingStss(t *testing.T) {
+	plan, src := planWith(t)
+	out := &memWS{}
+	sum, err := remux.Write(out, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Remove every stss box by renaming its type; the checker must then
+	// report zero hits rather than silently assuming success.
+	buf := append([]byte(nil), out.buf...)
+	for i := 0; i+4 <= len(buf); i++ {
+		if string(buf[i:i+4]) == "stss" {
+			copy(buf[i:], "xxxx")
+		}
+	}
+	res, err := Check(bytes.NewReader(buf), int64(len(buf)), sum.Manifest, Options{
+		Input: bytes.NewReader(src), InputSize: int64(len(src)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.KeyframeHits == res.KeyframeQueries {
+		t.Fatal("missing stss still reported as a hit")
+	}
+}

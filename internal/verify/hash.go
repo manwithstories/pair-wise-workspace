@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -101,6 +102,10 @@ func Check(out io.ReaderAt, outSize int64, manifest []remux.ManifestEntry, opts 
 	// probe keeps tracks in file order, which the writer made identical to
 	// ascending Matroska track order.
 	manifestTracks := ManifestTracks(manifest)
+	trackStss, err := readTrackStss(out, outSize)
+	if err != nil {
+		return nil, err
+	}
 	for ti, tr := range probe.Tracks {
 		var trackNum uint64
 		if ti < len(manifestTracks) {
@@ -160,7 +165,13 @@ func Check(out io.ReaderAt, outSize int64, manifest []remux.ManifestEntry, opts 
 			return nil, fault.New(fault.StageVerify,
 				fmt.Errorf("%w: track %d chunks cover %d of %d samples", fault.ErrMalformed, trackNum, sampleIdx, len(exp))).OnTrack(trackNum)
 		}
-		res.KeyframeQueries, res.KeyframeHits = countKeyframes(tr, exp, res.KeyframeQueries, res.KeyframeHits)
+		var syncSamples map[uint32]bool
+		if ti < len(trackStss) {
+			syncSamples = trackStss[ti]
+		}
+		q, h := countKeyframes(exp, syncSamples)
+		res.KeyframeQueries += q
+		res.KeyframeHits += h
 	}
 	// Only the media payload has to be gap-free; ftyp/moov are metadata.
 	mdatStart, mdatEnd, err := findMdat(out, outSize)
@@ -175,19 +186,161 @@ func Check(out io.ReaderAt, outSize int64, manifest []remux.ManifestEntry, opts 
 	return res, nil
 }
 
-// countKeyframes compares the output's stss membership with the manifest's
-// keyframe flags for every sample the writer marked as sync.
-func countKeyframes(tr *mp4.Track, exp []remux.ManifestEntry, queries, hits int) (int, int) {
-	// Probe does not expose stss, so the manifest is the authority for what
-	// was requested; the verifier confirms the sample exists at the recorded
-	// chunk position by construction (checked above).
-	for _, m := range exp {
-		if m.Keyframe {
-			queries++
+// countKeyframes confirms that the output's sample table marks every sample
+// the writer recorded as a keyframe. stss is not exposed by go-mp4's probe, so
+// this re-reads the box and compares membership directly.
+func countKeyframes(exp []remux.ManifestEntry, syncSamples map[uint32]bool) (queries, hits int) {
+	for i, m := range exp {
+		if !m.Keyframe {
+			continue
+		}
+		queries++
+		if syncSamples[uint32(i+1)] {
 			hits++
 		}
 	}
 	return queries, hits
+}
+
+var errBoxNotFound = errors.New("box not found")
+
+// readTrackStss returns the stss sample-number set for each trak, in file
+// order. Tracks without stss (audio, subtitles) get an empty set: every
+// sample is a sync sample by definition.
+func readTrackStss(r io.ReaderAt, size int64) ([]map[uint32]bool, error) {
+	moov, err := readBoxPayload(r, 0, size, "moov")
+	if err != nil {
+		return nil, err
+	}
+	var out []map[uint32]bool
+	off := int64(0)
+	for off+8 <= int64(len(moov)) {
+		boxSize, typ, header, ok := parseBoxHeader(moov, off)
+		if !ok {
+			return nil, fault.New(fault.StageVerify, fmt.Errorf("%w: bad moov child", fault.ErrMalformed))
+		}
+		if typ == "trak" {
+			set, err := readTrakStss(moov[off+header : off+boxSize])
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, set)
+		}
+		off += boxSize
+	}
+	return out, nil
+}
+
+func readTrakStss(trak []byte) (map[uint32]bool, error) {
+	stbl, err := boxInPayload(trak, "mdia", "minf", "stbl")
+	if err != nil {
+		return nil, err
+	}
+	stss, err := boxInPayload(stbl, "stss")
+	if err != nil {
+		if errors.Is(err, errBoxNotFound) {
+			return map[uint32]bool{}, nil
+		}
+		return nil, err
+	}
+	if len(stss) < 8 {
+		return nil, fault.New(fault.StageVerify, fmt.Errorf("%w: stss too short", fault.ErrMalformed))
+	}
+	count := binary.BigEndian.Uint32(stss[4:8])
+	if int64(8)+int64(count)*4 > int64(len(stss)) {
+		return nil, fault.New(fault.StageVerify, fmt.Errorf("%w: stss count exceeds box", fault.ErrOversized))
+	}
+	set := make(map[uint32]bool, count)
+	for i := uint32(0); i < count; i++ {
+		set[binary.BigEndian.Uint32(stss[8+i*4:])] = true
+	}
+	return set, nil
+}
+
+// parseBoxHeader decodes an 8- or 16-byte box header inside buf.
+func parseBoxHeader(buf []byte, off int64) (size int64, typ string, header int64, ok bool) {
+	if off+8 > int64(len(buf)) {
+		return 0, "", 0, false
+	}
+	size = int64(binary.BigEndian.Uint32(buf[off:]))
+	typ = string(buf[off+4 : off+8])
+	header = 8
+	if size == 1 {
+		if off+16 > int64(len(buf)) {
+			return 0, "", 0, false
+		}
+		size = int64(binary.BigEndian.Uint64(buf[off+8:]))
+		header = 16
+	} else if size == 0 {
+		size = int64(len(buf)) - off
+	}
+	if size < header || off+size > int64(len(buf)) {
+		return 0, "", 0, false
+	}
+	return size, typ, header, true
+}
+
+// boxInPayload walks a chain of child boxes and returns the last payload.
+func boxInPayload(buf []byte, path ...string) ([]byte, error) {
+	off := int64(0)
+	for i, want := range path {
+		found := false
+		for off+8 <= int64(len(buf)) {
+			size, typ, header, ok := parseBoxHeader(buf, off)
+			if !ok {
+				return nil, errBoxNotFound
+			}
+			if typ == want {
+				payload := buf[off+header : off+size]
+				if i == len(path)-1 {
+					return payload, nil
+				}
+				buf = payload
+				off = 0
+				found = true
+				break
+			}
+			off += size
+		}
+		if !found {
+			return nil, errBoxNotFound
+		}
+	}
+	return nil, errBoxNotFound
+}
+
+func readBoxPayload(r io.ReaderAt, start, length int64, want string) ([]byte, error) {
+	hdr := make([]byte, 16)
+	off := start
+	for off+8 <= start+length {
+		if _, err := r.ReadAt(hdr[:8], off); err != nil {
+			return nil, err
+		}
+		size := int64(binary.BigEndian.Uint32(hdr[:4]))
+		typ := string(hdr[4:8])
+		header := int64(8)
+		if size == 1 {
+			if _, err := r.ReadAt(hdr[8:16], off+8); err != nil {
+				return nil, err
+			}
+			size = int64(binary.BigEndian.Uint64(hdr[8:16]))
+			header = 16
+		} else if size == 0 {
+			size = start + length - off
+		}
+		if size < header || off+size > start+length {
+			return nil, errBoxNotFound
+		}
+		if typ == want {
+			buf := make([]byte, size-header)
+			if _, err := r.ReadAt(buf, off+header); err != nil {
+				return nil, err
+			}
+			return buf, nil
+		}
+		off += size
+	}
+	return nil, errBoxNotFound
 }
 
 // sourceHash re-reads the source bytes for one sample.
