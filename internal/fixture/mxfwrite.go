@@ -135,20 +135,26 @@ type DeliveryPlan struct {
 func PlanDelivery(n int, lateGap int) DeliveryPlan {
 	order := make([]int, 0, n+1)
 	const lateIdx = 20
+	if lateIdx >= n {
+		for i := 0; i < n; i++ {
+			order = append(order, i)
+		}
+		return DeliveryPlan{Order: order, Duplicate: -1, Missing: -1}
+	}
+	// Frames are delivered in order except one, which is displaced later by
+	// exactly lateGap positions (or trails the stream if that falls off the
+	// end). The frame is reinserted after the frame at lateIdx+lateGap.
+	insertAfter := lateIdx + lateGap
 	for i := 0; i < n; i++ {
 		if i == lateIdx {
 			continue
 		}
 		order = append(order, i)
-		if i == lateIdx+lateGap {
+		if i == insertAfter {
 			order = append(order, lateIdx)
-			if lateIdx+lateGap >= n {
-				// late frame trails the whole stream
-				order = append(order, lateIdx)
-			}
 		}
 	}
-	if lateIdx+lateGap >= n {
+	if insertAfter >= n {
 		order = append(order, lateIdx)
 	}
 	return DeliveryPlan{Order: order, Duplicate: 30, Missing: -1}
