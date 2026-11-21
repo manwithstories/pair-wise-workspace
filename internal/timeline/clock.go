@@ -53,18 +53,24 @@ func (r Rate) NominalFPS() int64 {
 // rate: only 30000/1001 (dropping 2 frame numbers per non-tenth minute).
 func (r Rate) DropFrameAllowed() bool { return r.Num == 30000 && r.Den == 1001 }
 
-// FrameToNanos converts an absolute frame count to nanoseconds using
-// exact integer arithmetic.
+// FrameToNanos converts an absolute frame count to nanoseconds with
+// round-half-away-from-zero so Frame→Nanos→Frame round-trips exactly.
 func (r Rate) FrameToNanos(f int64) int64 {
-	return f * r.Den * NanosPerSecond / r.Num
+	v := f * r.Den * NanosPerSecond
+	if v >= 0 {
+		return (v + r.Num/2) / r.Num
+	}
+	return -((-v + r.Num/2) / r.Num)
 }
 
-// NanosToFrame converts nanoseconds back to the containing frame.
+// NanosToFrame converts nanoseconds back to the nearest frame.
 func (r Rate) NanosToFrame(ns int64) int64 {
-	if ns < 0 {
-		return -((-ns * r.Num) / (r.Den * NanosPerSecond)) - 1
+	v := ns * r.Num
+	d := r.Den * NanosPerSecond
+	if v >= 0 {
+		return (v + d/2) / d
 	}
-	return ns * r.Num / (r.Den * NanosPerSecond)
+	return -((-v + d/2) / d)
 }
 
 // WrapDay folds a nanosecond timestamp into [0, DayNanos), handling
