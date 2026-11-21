@@ -4,6 +4,7 @@
 package fixture
 
 import (
+	"encoding/binary"
 	"math/rand"
 	"sort"
 
@@ -201,6 +202,9 @@ func (g *Generator) LateOverflow(windowPackets int) []Packet {
 
 // CorruptWAV returns a truncated WAV byte stream and the byte offset where the
 // truncation begins.
+// CorruptWAV returns a WAV stream whose data payload is truncated. The RIFF
+// size is rewritten to match the shortened container so the parser walks the
+// full header and reports the exact byte offset where the data ends early.
 func CorruptWAV() ([]byte, int64) {
 	p := &wav.PCM{
 		Channels:    2,
@@ -210,7 +214,10 @@ func CorruptWAV() ([]byte, int64) {
 	}
 	full := wav.Encode(p, 16)
 	cut := int64(len(full)) - 20 // payload ends 20 bytes early
-	return full[:cut], cut
+	out := append([]byte(nil), full[:cut]...)
+	// RIFF size field (offset 4) = total bytes minus the 8-byte RIFF header.
+	binary.LittleEndian.PutUint32(out[4:8], uint32(cut-8))
+	return out, cut
 }
 
 func (g *Generator) orderedIndices() map[uint32][]int {
