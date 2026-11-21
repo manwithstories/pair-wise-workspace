@@ -33,7 +33,8 @@ func run(args []string) int {
 			fmt.Fprintf(os.Stderr, "error_code=%s\n", code)
 		}
 		fmt.Fprintf(os.Stderr, "error=%s\n", err)
-		// For the corrupt case the report already carries the exit code.
+		// A case that already classified its own outcome (e.g. crop
+		// conflict) owns the exit code; otherwise derive it from the error.
 		if res.ExitCode != 0 {
 			return res.ExitCode
 		}

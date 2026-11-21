@@ -255,3 +255,100 @@ func TestRTPWrapAndDriftAreExercised(t *testing.T) {
 	// The demo would have failed with ERR_CLOCK if calibration did not
 	// recover a monotonic timeline, so a successful run above is the proof.
 }
+
+func TestManifestRecordsSourceFingerprintsAndGaps(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "demo")
+	if _, err := Run(acceptanceOptions(out), &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(out, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m struct {
+		Sources []struct {
+			Path        string `json:"path"`
+			Fingerprint string `json:"fingerprint"`
+		} `json:"sources"`
+		Gaps     []json.RawMessage `json:"gaps"`
+		Metadata []struct {
+			TrackID  string `json:"track_id"`
+			Property string `json:"property"`
+			Source   string `json:"source"`
+			Chosen   string `json:"chosen"`
+		} `json:"metadata"`
+		Quality struct {
+			Matched int `json:"matched"`
+			Total   int `json:"total"`
+		} `json:"quality"`
+	}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Sources) != 2 {
+		t.Fatalf("sources=%d want 2", len(m.Sources))
+	}
+	for _, s := range m.Sources {
+		if len(s.Fingerprint) < 32 {
+			t.Errorf("source %s lacks a fingerprint", s.Path)
+		}
+	}
+	// The complete camera stream has no missing sequence numbers.
+	if len(m.Gaps) != 0 {
+		t.Errorf("unexpected gaps=%d", len(m.Gaps))
+	}
+	// Crop and rotation must both appear with a reason.
+	var sawRotation, sawCrop bool
+	for _, md := range m.Metadata {
+		if md.Property == "rotation" && md.Source == "track" {
+			sawRotation = true
+		}
+		if md.Property == "crop" && strings.Contains(md.Chosen, "632") {
+			sawCrop = true
+		}
+	}
+	if !sawRotation || !sawCrop {
+		t.Fatalf("metadata trail incomplete: rotation=%v crop=%v", sawRotation, sawCrop)
+	}
+	if m.Quality.Matched != m.Quality.Total || m.Quality.Total != 120 {
+		t.Fatalf("quality=%+v", m.Quality)
+	}
+}
+
+func TestResumeCheckpointRecordedByDemo(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "demo")
+	if _, err := Run(acceptanceOptions(out), &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(out, "delivery.ckpt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) < 2 || lines[1] != "done" {
+		t.Fatalf("checkpoint not marked done: %q", string(raw))
+	}
+}
+
+func TestRunCropConflictCase(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "crop")
+	opts := acceptanceOptions(out)
+	opts.Case = "crop-conflict"
+	var stdout bytes.Buffer
+	res, err := Run(opts, &stdout)
+	if err == nil {
+		t.Fatal("over-range policy crop accepted")
+	}
+	if code, _ := model.CodeOf(err); code != model.CodeCropRange {
+		t.Fatalf("code=%v", code)
+	}
+	if res.ExitCode != 2 {
+		t.Fatalf("exit=%d want 2", res.ExitCode)
+	}
+	if !strings.Contains(stdout.String(), "conflict_track=") {
+		t.Fatalf("conflict object not named:\n%s", stdout.String())
+	}
+	if _, statErr := os.Stat(filepath.Join(out, "manifest.json")); statErr == nil {
+		t.Fatal("failed run left a manifest")
+	}
+}

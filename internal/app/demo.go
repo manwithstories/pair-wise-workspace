@@ -71,6 +71,8 @@ func Run(opts Options, stdout io.Writer) (Result, error) {
 		return runNormal(bundle, opts, stdout)
 	case "corrupt-klv":
 		return runCorrupt(bundle, opts, stdout)
+	case "crop-conflict":
+		return runCropConflict(bundle, opts, stdout)
 	default:
 		return Result{}, model.NewError(model.CodeUsage, "unknown case %q", opts.Case)
 	}
@@ -232,6 +234,46 @@ func runCorrupt(bundle fixture.Bundle, opts Options, stdout io.Writer) (Result, 
 		return res, nil
 	}
 	return res, nil
+}
+
+// runCropConflict injects a policy crop that exceeds the camera frame. The
+// resolver must reject it with ERR_CROP_RANGE and name the track, and the run
+// must not emit a manifest.
+func runCropConflict(bundle fixture.Bundle, opts Options, stdout io.Writer) (Result, error) {
+	var res Result
+	f, err := os.Open(bundle.CameraMXF)
+	if err != nil {
+		return res, model.WrapError(model.CodeInternal, err, "open camera")
+	}
+	defer f.Close()
+	mxf, err := ingest.DemuxMXF(f, bundle.CameraMXF)
+	if err != nil {
+		return res, err
+	}
+	if len(mxf.Tracks) == 0 {
+		return res, model.NewError(model.CodeTrackMissing, "camera has no tracks")
+	}
+	cam := mxf.Tracks[0]
+	bad := model.Crop{Valid: true, X: 600, Y: 0, W: 200, H: 200}
+	// Use the real track so validation sees its coded dimensions.
+	stab := cam
+	pf := cam.Fingerprint()
+	cands := []mapping.Candidate{{Input: bundle.CameraMXF, Track: stab, Fingerprint: pf}}
+	entries := []mapping.Entry{{Role: mapping.RoleMainVideo, Fingerprint: pf}}
+	req := mapping.Requirement{Video: []mapping.Role{mapping.RoleMainVideo}}
+	_, err = mapping.Resolve(entries, cands, mapping.Policy{Crop: &bad}, req)
+	if err != nil {
+		code, _ := model.CodeOf(err)
+		res.ErrorCode = string(code)
+		res.ExitCode = model.ExitCode(err)
+		fmt.Fprintf(stdout, "error_code=%s\n", res.ErrorCode)
+		fmt.Fprintf(stdout, "conflict_track=%s\n", cam.ID)
+		fmt.Fprintf(stdout, "exit_code=%d\n", res.ExitCode)
+		// Return the classified error so the CLI maps it to exit code 2, but
+		// without a duplicate stderr banner: main prints it once.
+		return res, err
+	}
+	return res, model.NewError(model.CodeInternal, "over-range crop was accepted")
 }
 
 func printNormal(w io.Writer, r Result) {
