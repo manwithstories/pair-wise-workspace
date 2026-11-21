@@ -14,8 +14,10 @@ import (
 const usageText = `mediasync — local media synchronization pipeline
 
 Usage:
-  mediasync demo --seed <int> --duration <dur> --loss-burst <dur> \
-                 --bandwidth <bps,bps,bps> --output <dir>
+  mediasync demo    --seed <int> --duration <dur> --loss-burst <dur> \
+                    --bandwidth <bps,bps,bps> --output <dir>
+  mediasync corrupt  (same flags; injects a burst longer than the reorder
+                     window so unrecoverable gaps and incomplete tracks result)
 
 Durations accept Go-style units (12s, 80ms). Bandwidth accepts k/M suffixes.
 Exit codes: 0 success, 1 processing failure, 2 parameter error.`
@@ -27,13 +29,12 @@ func main() {
 	}
 	switch os.Args[1] {
 	case "demo":
-		if err := runDemo(os.Args[2:]); err != nil {
-			if isArgError(err) {
-				fmt.Fprintf(os.Stderr, "parameter error: %v\n%s\n", err, usageText)
-				os.Exit(2)
-			}
-			fmt.Fprintf(os.Stderr, "processing failure: %v\n", err)
-			os.Exit(1)
+		if err := runDemo(os.Args[2:], false); err != nil {
+			fail(err)
+		}
+	case "corrupt":
+		if err := runDemo(os.Args[2:], true); err != nil {
+			fail(err)
 		}
 	case "-h", "--help", "help":
 		fmt.Println(usageText)
@@ -41,6 +42,15 @@ func main() {
 		fmt.Fprintf(os.Stderr, "unknown command %q\n%s\n", os.Args[1], usageText)
 		os.Exit(2)
 	}
+}
+
+func fail(err error) {
+	if isArgError(err) {
+		fmt.Fprintf(os.Stderr, "parameter error: %v\n%s\n", err, usageText)
+		os.Exit(2)
+	}
+	fmt.Fprintf(os.Stderr, "processing failure: %v\n", err)
+	os.Exit(1)
 }
 
 // argError marks argument failures so main can map them to exit code 2.

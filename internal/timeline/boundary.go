@@ -7,6 +7,10 @@ import (
 	"mediasync/internal/model"
 )
 
+// gapReservedBase mirrors merge.gapBase: ticks at or above it belong to
+// incomplete gap placeholders rather than real media content.
+const gapReservedBase int64 = 1_000_000_000
+
 // Fragment is one contiguous representation segment expressed on the shared
 // clock. Ranges are half-open: [FirstTick, EndTick).
 type Fragment struct {
@@ -112,7 +116,9 @@ func VerifyBoundaries(tl *Timeline, fragments []Fragment) ([]BoundaryMismatch, m
 	}
 	sort.Strings(tracks)
 	for _, track := range tracks {
-		list := byTrack[track]
+		// Gap placeholders live on reserved synthetic ticks and are reported via
+		// the incomplete-tracks/manifest trail, not as boundary contradictions.
+		list := filterRealFragments(byTrack[track])
 		sort.Slice(list, func(i, j int) bool { return list[i].FirstTick < list[j].FirstTick })
 		known := trackTicks[track]
 		for i, f := range list {
@@ -151,6 +157,19 @@ func VerifyBoundaries(tl *Timeline, fragments []Fragment) ([]BoundaryMismatch, m
 		}
 	}
 	return mismatches, diag
+}
+
+// filterRealFragments drops fragments that cover only reserved gap-placeholder
+// ticks; those gaps are represented by incomplete-track diagnostics instead.
+func filterRealFragments(in []Fragment) []Fragment {
+	var out []Fragment
+	for _, f := range in {
+		if f.FirstTick >= gapReservedBase {
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
 }
 
 func record(diag *model.Bag, track string, tick int64, kind model.Kind, repA, repB, msg string) BoundaryMismatch {

@@ -72,9 +72,10 @@ func Merge(master model.Clock, inputs []Input, syncTolerance model.Rational) *Ti
 			}
 			shared := origin + master.Convert(fr.Timestamp, clock)
 			if fr.Incomplete {
-				// Placeholders have no real timestamp: place them in their own
-				// half-open slot after the current tick so they never alias a frame.
-				shared += int64(len(byTick)) + 1
+				// Placeholders have no real timestamp: assign a deterministic
+				// synthetic tick in a reserved high range so they never alias a
+				// genuine frame tick or one another.
+				shared = gapReservedBase + fr.Seq
 			}
 			af := AlignedFrame{Frame: fr, TrackID: meta.TrackID, SharedTick: shared}
 			if fr.Incomplete {
@@ -84,17 +85,19 @@ func Merge(master model.Clock, inputs []Input, syncTolerance model.Rational) *Ti
 				tl.Incomplete = appendOnce(tl.Incomplete, meta.TrackID)
 			}
 			// Single-contributor rule at the timeline boundary: one (track,tick)
-			// pair is owned by exactly one representation. A later contributor is a
-			// suppressed duplicate, never a second frame, so ABR switches cannot
-			// manufacture overlapping fragments.
-			if owner, ok := ownerKey[ownerOf(meta.TrackID, shared)]; ok {
-				tl.Diag.Add(model.Diagnostic{Kind: model.KindFrameSuppressed, Severity: model.SeverityWarning,
-					Track: meta.TrackID, AtTicks: shared, Recoverable: true,
-					Message: fmt.Sprintf("rep=%s suppressed at tick %d already owned by rep=%s",
-						fr.Rep, shared, owner)})
-				continue
+			// pair is owned by exactly one representation. Gap placeholders are
+			// diagnostics on their own reserved ticks and are exempt. A later
+			// content contributor is a suppressed duplicate, never a second frame.
+			if !fr.Incomplete {
+				if owner, ok := ownerKey[ownerOf(meta.TrackID, shared)]; ok {
+					tl.Diag.Add(model.Diagnostic{Kind: model.KindFrameSuppressed, Severity: model.SeverityWarning,
+						Track: meta.TrackID, AtTicks: shared, Recoverable: true,
+						Message: fmt.Sprintf("rep=%s suppressed at tick %d already owned by rep=%s",
+							fr.Rep, shared, owner)})
+					continue
+				}
+				ownerKey[ownerOf(meta.TrackID, shared)] = fr.Rep
 			}
-			ownerKey[ownerOf(meta.TrackID, shared)] = fr.Rep
 			byTick[shared] = append(byTick[shared], af)
 			ticks = append(ticks, shared)
 		}

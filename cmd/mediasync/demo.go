@@ -15,11 +15,22 @@ import (
 	"mediasync/internal/transport"
 )
 
-// runDemo executes the full pipeline and prints the acceptance block.
-func runDemo(args []string) error {
+// runDemo executes the full pipeline and prints the acceptance block. In
+// corrupt mode the loss burst is forced beyond the reorder window so the
+// pipeline produces unrecoverable gaps and reports incomplete tracks.
+func runDemo(args []string, corrupt bool) error {
 	opts, err := parseFlags(args)
 	if err != nil {
 		return err
+	}
+	reorderWindow := 64
+	if corrupt {
+		// A burst far longer than the window guarantees some losses cannot be
+		// retransmitted in time, yielding explicit gap placeholders.
+		if opts.burstMs < 500 {
+			opts.burstMs = 500
+		}
+		reorderWindow = 8
 	}
 	rng := rand.New(rand.NewSource(opts.seed))
 	master := model.Clock{TickRate: 1000} // shared 1kHz simulation clock
@@ -74,7 +85,7 @@ func runDemo(args []string) error {
 	fan, err := transport.NewFanout(transport.FanoutConfig{
 		Track: "cam1", Clock: model.Clock90k, Reps: reps, EstimatorAlpha: 0.4,
 		TickRate: master.TickRate, HoldTicks: 300,
-		Reorder: transport.ReorderConfig{Window: 64}, ExternalSelection: true,
+		Reorder: transport.ReorderConfig{Window: reorderWindow}, ExternalSelection: true,
 	})
 	if err != nil {
 		return err
