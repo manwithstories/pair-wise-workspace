@@ -65,7 +65,11 @@ int runProcess(const Args& a) {
   cfg.outputPath = a.output;
   cfg.manifestPath = a.manifest;
   cfg.checkpointPath = a.checkpoint;
-  cfg.workDir = a.work;
+  // 未显式给 --work 时，以输出文件所在目录为路径限定根，
+  // 保证验收命令（输出位于用户指定目录）可直接运行。
+  cfg.workDir = (!a.work.empty() && a.work != "./tmp")
+                    ? a.work
+                    : fs::path(a.output).parent_path().string();
   cfg.targetBitrate = a.bitrate;
   cfg.maxSegmentSamples = a.maxSamples;
   cfg.targetDurationMs = a.targetDurationMs;
