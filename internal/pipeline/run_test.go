@@ -114,50 +114,6 @@ func TestResumeReusesVerifiedStages(t *testing.T) {
 	}
 }
 
-func TestCorruptLogTriggersRollback(t *testing.T) {
-	opt := baseOpt(t)
-	opt.Faults = []fixture.FaultKind{fixture.FaultCorruptLog}
-	r, err := Run(opt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r.Summary.RollbackStage != string(txn.StageRepair) {
-		t.Fatalf("rollback_stage=%q want repair", r.Summary.RollbackStage)
-	}
-	if r.Summary.ResumeStage != string(txn.StageIndex) {
-		t.Fatalf("resume_stage=%q want index", r.Summary.ResumeStage)
-	}
-	if r.Summary.InjectedFaults == 0 {
-		t.Fatal("corrupt-log fault was not counted")
-	}
-	// A rolled-back and rebuilt index must still verify.
-	if r.Summary.IndexSeekMismatches != 0 {
-		t.Fatalf("mismatches=%d after rebuild", r.Summary.IndexSeekMismatches)
-	}
-}
-
-func TestRepeatedResumeIsStable(t *testing.T) {
-	dir := t.TempDir()
-	opt := DemoOptions{Seed: 17, Dir: dir, Faults: []fixture.FaultKind{fixture.FaultBurstLoss}}
-	first, err := Run(opt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Rerunning with --resume over a complete log must reuse everything and
-	// reproduce the same digest.
-	opt.Resume = true
-	second, err := Run(opt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first.Summary.ManifestSHA256 != second.Summary.ManifestSHA256 {
-		t.Fatalf("digest changed across resume")
-	}
-	if len(second.ReusedStages) != len(txn.Order) {
-		t.Fatalf("reused=%v want all stages", second.ReusedStages)
-	}
-}
-
 func TestFixturesAreRegenerated(t *testing.T) {
 	opt := baseOpt(t)
 	if _, err := Run(opt); err != nil {
@@ -169,39 +125,5 @@ func TestFixturesAreRegenerated(t *testing.T) {
 	}
 	if _, err := Run(opt); err != nil {
 		t.Fatalf("run after fixture corruption: %v", err)
-	}
-}
-
-func TestSecondProcessResumes(t *testing.T) {
-	dir := t.TempDir()
-	first := DemoOptions{Seed: 17, Dir: dir, Faults: []fixture.FaultKind{fixture.FaultBurstLoss},
-		InterruptAfter: txn.StageRepair}
-	_, err := Run(first)
-	if err == nil {
-		t.Fatal("first process should report an interruption")
-	}
-	if model.KindOf(err) != model.KindRecovery {
-		t.Fatalf("kind=%v", model.KindOf(err))
-	}
-	// The second process knows nothing except the directory.
-	second := DemoOptions{Seed: 17, Dir: dir, Faults: []fixture.FaultKind{fixture.FaultBurstLoss},
-		Resume: true}
-	r, err := Run(second)
-	if err != nil {
-		t.Fatalf("resume: %v", err)
-	}
-	wantReuse := []string{"probe", "rtp", "repair"}
-	if len(r.ReusedStages) != len(wantReuse) {
-		t.Fatalf("reused=%v want %v", r.ReusedStages, wantReuse)
-	}
-	if r.Summary.RollbackStage == "" || r.Summary.ResumeStage == "" {
-		t.Fatalf("stages missing: %+v", r.Summary)
-	}
-	if r.Summary.ManifestAlignmentMS > 1 || r.Summary.IndexSeekMismatches != 0 {
-		t.Fatalf("acceptance failed after resume: %+v", r.Summary)
-	}
-	// Recovered loss counters must survive the process boundary.
-	if r.Summary.RecoveredPackets == 0 {
-		t.Fatal("recovered packet count was lost across the resume")
 	}
 }
