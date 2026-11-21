@@ -33,18 +33,29 @@ func (r Rational) Seconds() float64 { return float64(r.Num) / float64(r.Den) }
 // Millis 返回浮点毫秒。
 func (r Rational) Millis() float64 { return r.Seconds() * 1000 }
 
+// norm 将零值 Rational 规范为 0/1，保证零值可用。
+func (r Rational) norm() Rational {
+	if r.Den == 0 {
+		r.Den = 1
+	}
+	return r
+}
+
 // Add 返回 r+o。
 func (r Rational) Add(o Rational) Rational {
+	r, o = r.norm(), o.norm()
 	return New(r.Num*o.Den+o.Num*r.Den, r.Den*o.Den)
 }
 
 // Sub 返回 r-o。
 func (r Rational) Sub(o Rational) Rational {
+	r, o = r.norm(), o.norm()
 	return New(r.Num*o.Den-o.Num*r.Den, r.Den*o.Den)
 }
 
 // Cmp 比较两个时间：-1/0/1。
 func (r Rational) Cmp(o Rational) int {
+	r, o = r.norm(), o.norm()
 	l, rr := r.Num*o.Den, o.Num*r.Den
 	switch {
 	case l < rr:
