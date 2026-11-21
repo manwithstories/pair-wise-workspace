@@ -71,3 +71,8 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Go 构建产物 ----
+/fixture
+/mediad
+/bin/
