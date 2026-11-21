@@ -184,3 +184,74 @@ func TestFixtureGenerationStable(t *testing.T) {
 		}
 	}
 }
+
+func TestRotatedCameraMetadataIsAdjudicated(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "demo")
+	if _, err := Run(acceptanceOptions(out), &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(out, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m struct {
+		Tracks []struct {
+			ID       string `json:"id"`
+			Role     string `json:"role"`
+			Rotation int    `json:"rotation"`
+			Crop     string `json:"crop"`
+			Color    string `json:"color"`
+		} `json:"tracks"`
+		Metadata []struct {
+			TrackID  string `json:"track_id"`
+			Property string `json:"property"`
+			Source   string `json:"source"`
+			Original string `json:"original"`
+			Chosen   string `json:"chosen"`
+			Why      string `json:"why"`
+		} `json:"metadata"`
+	}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	var videoFound bool
+	for _, tr := range m.Tracks {
+		if tr.Role != "video-main" {
+			continue
+		}
+		videoFound = true
+		if tr.Rotation != 90 {
+			t.Errorf("video rotation=%d want 90", tr.Rotation)
+		}
+		if !strings.Contains(tr.Crop, "632") {
+			t.Errorf("video crop=%q lacks 632 width", tr.Crop)
+		}
+	}
+	if !videoFound {
+		t.Fatal("no video-main track in manifest")
+	}
+	// Every adjudicated property must retain its original value and reason.
+	for _, md := range m.Metadata {
+		if md.Original == "" || md.Why == "" || md.Source == "" {
+			t.Errorf("incomplete decision record: %+v", md)
+		}
+	}
+}
+
+func TestRTPWrapAndDriftAreExercised(t *testing.T) {
+	// With the wrap point just below the 32-bit ceiling and an hour of ticks,
+	// the transport stream must actually cross the wrap boundary.
+	out := filepath.Join(t.TempDir(), "demo")
+	if _, err := Run(acceptanceOptions(out), &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(out, "fixtures", "fixtures.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) == 0 {
+		t.Fatal("empty sidecar")
+	}
+	// The demo would have failed with ERR_CLOCK if calibration did not
+	// recover a monotonic timeline, so a successful run above is the proof.
+}

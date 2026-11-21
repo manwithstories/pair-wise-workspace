@@ -147,3 +147,67 @@ func TestRemuxRefusesDeclaredHashMismatch(t *testing.T) {
 		t.Fatalf("code=%v", code)
 	}
 }
+
+func TestRemuxResumesAfterInterrupt(t *testing.T) {
+	in, _ := buildInputFromFixture(t)
+	dir := t.TempDir()
+	out := filepath.Join(dir, "resume.mp4")
+	cp := filepath.Join(dir, "resume.ckpt")
+	fp := Fingerprint(in)
+
+	// First run stops after 20 samples.
+	_, err := RemuxResumable(out, cp, in, fp, 20)
+	if err == nil {
+		t.Fatal("expected simulated interrupt")
+	}
+	if code, _ := model.CodeOf(err); code != model.CodeCheckpoint {
+		t.Fatalf("interrupt code=%v", code)
+	}
+	saved, err := LoadCheckpoint(cp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.SamplesDone != 20 || saved.Stage != "mdat" {
+		t.Fatalf("checkpoint=%+v want 20 samples at mdat", saved)
+	}
+
+	// A different fingerprint must be refused before any byte is rewritten.
+	bad := Input{Tracks: []TrackInput{{ID: "1", Samples: []InputSample{{Hash: [32]byte{9}}}}}}
+	if _, err := RemuxResumable(out, cp, bad, "other", 0); err == nil {
+		t.Fatal("mismatched fingerprint resumed")
+	}
+
+	// Resuming with the correct fingerprint finishes the run.
+	res, err := RemuxResumable(out, cp, in, fp, 0)
+	if err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	if res.HashMismatch != 0 || res.Written != 72 {
+		t.Fatalf("resume result=%+v", res)
+	}
+	done, _ := LoadCheckpoint(cp)
+	if done.Stage != "done" {
+		t.Fatalf("final checkpoint stage=%q", done.Stage)
+	}
+	// The resumed output must re-demux and match every hash.
+	f, err := os.Open(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	tracks, err := ingest.DemuxMP4(f, out)
+	if err != nil {
+		t.Fatalf("resumed output invalid: %v", err)
+	}
+	matched := 0
+	for ti, tr := range tracks {
+		for si, s := range tr.Samples {
+			if s.Hash == in.Tracks[ti].Samples[si].Hash {
+				matched++
+			}
+		}
+	}
+	if matched != 72 {
+		t.Fatalf("resumed output matched %d of 72 samples", matched)
+	}
+}
