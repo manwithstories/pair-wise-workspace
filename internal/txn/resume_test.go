@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"mediamerge/internal/journal"
+	"mediamerge/internal/model"
 )
 
 func TestResumeMatchesCleanRun(t *testing.T) {
@@ -122,5 +123,39 @@ func TestJournalOutputMismatchIsRejected(t *testing.T) {
 	}
 	if _, err := Recover(work, r.InputSHA, r.Size, plan); err == nil {
 		t.Fatal("recovery accepted a journal/output mismatch")
+	}
+}
+
+// TestTruncatedOutputRejectedInRecovery covers the tail-truncation fault as it
+// crosses the transaction boundary: after a complete run, losing output bytes
+// must be caught by the journal length/digest check, not silently accepted.
+func TestTruncatedOutputRejectedInRecovery(t *testing.T) {
+	dir, r, plan := prepare(t)
+	defer r.Close()
+	if err := copyInput(dir, r.Path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(context.Background(), dir, r, plan, Options{Queue: 2, InterruptAfter: -1}); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := Paths(dir)
+	info, err := os.Stat(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cut := info.Size() - 4096
+	if err := os.Truncate(out, cut); err != nil {
+		t.Fatal(err)
+	}
+	_, err = Recover(dir, r.InputSHA, r.Size, plan)
+	if err == nil {
+		t.Fatal("recovery accepted a truncated output")
+	}
+	pe, ok := err.(*model.Error)
+	if !ok || pe.Code != model.CodeIntegrity {
+		t.Fatalf("err=%v", err)
+	}
+	if pe.Offset != cut {
+		t.Fatalf("offset=%d want %d", pe.Offset, cut)
 	}
 }
