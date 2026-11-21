@@ -11,10 +11,8 @@ import json
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
-
-from avtimeline.probe import probe_media  # noqa: E402
-from avtimeline.samples import generate_samples, sample_digests  # noqa: E402
+from avtimeline.probe import probe_media
+from avtimeline.samples import generate_samples, sample_digests
 
 
 def describe(directory: str) -> dict:
