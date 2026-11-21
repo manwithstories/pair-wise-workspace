@@ -20,8 +20,10 @@ const (
 	FaultMissingSegment FaultKind = "missing_segment"
 	// FaultTruncatedBox marks an MP4 box whose declared size exceeds the file.
 	FaultTruncatedBox FaultKind = "truncated_box"
-	// FaultBoxBounds marks an MP4 box with an impossible or oversized size.
+	// FaultBoxBounds marks an MP4 box with an impossible size.
 	FaultBoxBounds FaultKind = "box_bounds"
+	// FaultBoxTooLarge marks a well-formed but unreasonably large box.
+	FaultBoxTooLarge FaultKind = "box_too_large"
 	// FaultTimestamp marks a non-monotonic, negative or wrapped track clock.
 	FaultTimestamp FaultKind = "timestamp"
 	// FaultKeyframe marks an out-of-spec keyframe (GOP) interval.
@@ -37,7 +39,7 @@ const (
 // AllFaultKinds lists every kind in a stable order for reports and tests.
 var AllFaultKinds = []FaultKind{
 	FaultManifest, FaultMissingSegment, FaultTruncatedBox, FaultBoxBounds,
-	FaultTimestamp, FaultKeyframe, FaultAVSync, FaultPacketLoss, FaultRTPScale,
+	FaultBoxTooLarge, FaultTimestamp, FaultKeyframe, FaultAVSync, FaultPacketLoss, FaultRTPScale,
 }
 
 // Valid reports whether k is a known fault kind.
@@ -57,6 +59,13 @@ const (
 	SeverityInfo     Severity = "info"
 	SeverityWarning  Severity = "warning"
 	SeverityCritical Severity = "critical"
+)
+
+// Sentinel errors returned by stream-level validation.
+var (
+	ErrTruncated   = errors.New("model: truncated box")
+	ErrBoxBounds   = errors.New("model: invalid box bounds")
+	ErrBoxTooLarge = errors.New("model: box too large")
 )
 
 // ErrNotFound is returned by lookups that had no matching fault.
