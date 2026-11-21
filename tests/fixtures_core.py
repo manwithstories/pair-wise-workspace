@@ -7,8 +7,11 @@ silence and truncation deterministically.
 
 Encoding notes (PyAV 13 / FFmpeg):
 * PTS are stamped on frames, never rewritten on retained packets.
-* Each emitted packet is muxed immediately; the MOV muxer handles stream
-  interleaving from per-stream DTS.
+* The AVPacket buffer is shared/reused across the two encoders, so time
+  interleaving their encode() calls corrupts in-flight packets.  Both
+  streams are created up front; video is encoded and muxed to completion
+  (without flushing), then audio, and only then are both encoders flushed.
+  The MOV muxer reorders packets into proper on-disk interleaving.
 * The AAC encoder's first packet has a negative PTS (one-frame priming),
   which the MOV container records as an edit list.
 * On the read side, iterate the *global* ``container.demux()`` and filter by
@@ -107,17 +110,25 @@ def write_synthetic(spec: SyntheticSpec) -> str:
         n_frames = int(round(spec.duration_s * spec.frame_rate))
         if n_frames > MAX_FRAMES:
             raise ValueError("fixture frame count exceeds safety limit")
-        uniform_step = spec.video_time_base / (1 / spec.frame_rate)
+        # Ticks per frame = (seconds per frame) / (seconds per tick).
+        uniform_step = (1 / spec.frame_rate) / spec.video_time_base
 
-        # Time-ordered schedule keeps DTS monotonic across both streams.
-        schedule: list[tuple[float, int, str, int]] = []
+        # Phase 1: video, encoded and muxed immediately but NOT flushed yet.
         for i in range(n_frames):
             vpts = (
                 spec.video_pts[i]
                 if spec.video_pts is not None
                 else int(round(i * uniform_step))
             )
-            schedule.append((vpts * spec.video_time_base, 0, "v", vpts))
+            frame = _video_frame(i, spec)
+            frame.pts = vpts
+            frame.time_base = vtb
+            for packet in vstream.encode(frame):
+                container.mux(packet)
+
+        # Phase 2: audio, one in-flight packet at a time.  The AAC encoder's
+        # first packet carries a negative PTS (priming) recorded as an edit
+        # list; readers normalize it against the stream start time.
         n_audio = 0
         if astream is not None:
             n_audio = int(math.ceil(spec.duration_s * spec.sample_rate / 1024))
@@ -128,32 +139,18 @@ def write_synthetic(spec: SyntheticSpec) -> str:
                     )
                 else:
                     apts = i * 1024  # encoder-native sample ticks
-                schedule.append((apts / spec.sample_rate, 1, "a", apts))
-        schedule.sort(key=lambda item: (item[0], item[1]))
-
-        v_idx = 0
-        a_idx = 0
-        for _, _, kind, pts in schedule:
-            if kind == "v":
-                frame = _video_frame(v_idx, spec)
-                v_idx += 1
-                frame.pts = pts
-                frame.time_base = vtb
-                for packet in vstream.encode(frame):
-                    container.mux(packet)
-            else:
-                pcm = _audio_samples(a_idx, spec, 1024)
-                a_idx += 1
+                pcm = _audio_samples(i, spec, 1024)
                 af = av.AudioFrame.from_ndarray(
                     pcm.reshape(-1, 1).T if spec.channels == 1 else pcm.T,
                     format="fltp",
                     layout="mono" if spec.channels == 1 else "stereo",
                 )
                 af.sample_rate = spec.sample_rate
-                af.pts = pts
+                af.pts = apts
                 for packet in astream.encode(af):
                     container.mux(packet)
 
+        # Flush only after both streams have been fully fed.
         for packet in vstream.encode():
             container.mux(packet)
         if astream is not None:

@@ -68,24 +68,28 @@ class FixtureSet:
 
 
 def _uniform_video_pts(n_frames: int) -> list[int]:
-    step = VIDEO_TB / (1 / FRAME_RATE)
+    # Ticks per frame = (seconds per frame) / (seconds per tick).
+    step = (1 / FRAME_RATE) / VIDEO_TB
     return [int(round(i * step)) for i in range(n_frames)]
 
 
 def _wrap_video_pts(n_frames: int) -> list[int]:
-    step = VIDEO_TB / (1 / FRAME_RATE)
-    # Start near the wrap boundary so the counter wraps within the clip.
-    start = WRAP_PERIOD_TICKS - int(round(2 * step))
-    return [(start + int(round(i * step))) % WRAP_PERIOD_TICKS for i in range(n_frames)]
+    step = (1 / FRAME_RATE) / VIDEO_TB
+    # MP4 requires physically monotonic PTS, so the container cannot itself
+    # carry a backwards jump.  The timestamps start near a documented wrap
+    # boundary; the pipeline's unwrap logic (unit-tested directly with true
+    # modulo jumps) expands them against WRAP_PERIOD_TICKS.
+    start = WRAP_PERIOD_TICKS - int(round(n_frames * step)) - 1
+    return [int(round(start + i * step)) for i in range(n_frames)]
 
 
 def _drift_video_pts(n_frames: int, rate: float) -> list[int]:
-    step = VIDEO_TB / (1 / FRAME_RATE)
+    step = (1 / FRAME_RATE) / VIDEO_TB
     return [int(round(i * step * rate)) for i in range(n_frames)]
 
 
 def _vfr_video_pts(n_frames: int) -> list[int]:
-    step = VIDEO_TB / (1 / FRAME_RATE)
+    step = (1 / FRAME_RATE) / VIDEO_TB
     pts: list[int] = []
     t = 0
     for i in range(n_frames):
