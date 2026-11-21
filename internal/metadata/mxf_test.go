@@ -196,3 +196,78 @@ func TestMXFDeterministic(t *testing.T) {
 		t.Fatal("mxf output not deterministic")
 	}
 }
+
+func TestResolveDispatchAndOrdering(t *testing.T) {
+	doc := mxfDoc(t)
+	data, err := doc.Write()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := writeMXFTemp(t, data)
+	f, err := Resolve(path, ResolveOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Tracks) != 2 || f.Tracks[0].ID != 1 || f.Tracks[1].ID != 2 {
+		t.Fatalf("tracks not ordered: %+v", f.Tracks)
+	}
+	if f.Tracks[0].Resolved == nil || f.Tracks[0].Resolved.Primaries != 9 {
+		t.Fatalf("video not normalized: %+v", f.Tracks[0].Resolved)
+	}
+	if f.Tracks[1].Resolved != nil {
+		t.Fatal("audio must not resolve colour")
+	}
+	if _, err := Resolve(writeMXFTemp(t, data)+".unknown", ResolveOptions{}); err == nil {
+		t.Fatal("unknown extension must fail")
+	}
+}
+
+func TestNormalizeFileReportsAllProblems(t *testing.T) {
+	doc := mxfDoc(t)
+	doc.Tracks[0].Color.Transfer = nil
+	doc.ContainerColor = nil
+	data, err := doc.Write()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := ParseMXF(writeMXFTemp(t, data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = NormalizeFile(f, ResolveOptions{})
+	var fe *fault.Error
+	if !errors.As(err, &fe) || fe.Code != fault.CodeColorMissing {
+		t.Fatalf("bad error %v", err)
+	}
+	if len(f.Diagnostics.Errors()) == 0 {
+		t.Fatal("expected diagnostics")
+	}
+	want := "transfer"
+	if !contains(fe.Detail, want) {
+		t.Fatalf("detail %q lacks %q", fe.Detail, want)
+	}
+}
+
+func TestExplicitColourOverride(t *testing.T) {
+	doc := mxfDoc(t)
+	data, _ := doc.Write()
+	f, err := Resolve(writeMXFTemp(t, data), ResolveOptions{
+		ExplicitColor: &ColorDesc{Matrix: u16(5), Source: "explicit"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := f.Tracks[0]
+	if v.Resolved == nil || v.Resolved.Matrix != 5 || v.Resolved.Sources["matrix"] != "explicit" {
+		t.Fatalf("override not applied: %+v", v.Resolved)
+	}
+	var conflicts int
+	for _, d := range f.Diagnostics.Items {
+		if d.Code == fault.CodeColorConflict && d.Field == "matrix" {
+			conflicts++
+		}
+	}
+	if conflicts != 1 {
+		t.Fatalf("conflict count %d", conflicts)
+	}
+}
