@@ -1,0 +1,413 @@
+package journal
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+
+	"mediamerge/internal/fault"
+)
+
+// StageIndex maps pipeline stages to stable WAL stage identifiers.
+type StageID uint16
+
+const (
+	StageParse StageID = 1
+	StageAudio StageID = 2
+	StageMux   StageID = 3
+	StageFinal StageID = 4
+)
+
+func (s StageID) String() string {
+	switch s {
+	case StageParse:
+		return "parse"
+	case StageAudio:
+		return "audio"
+	case StageMux:
+		return "mux"
+	case StageFinal:
+		return "final"
+	default:
+		return fmt.Sprintf("stage-%d", uint16(s))
+	}
+}
+
+// StageState is what the log says about one stage.
+type StageState int
+
+const (
+	// StatePending means the stage has not started.
+	StatePending StageState = iota
+	// StateOpen means a begin record exists without a commit.
+	StateOpen
+	// StateCommitted means the stage committed atomically.
+	StateCommitted
+)
+
+// Recovery is the result of replaying a log against its output file.
+type Recovery struct {
+	// States maps each stage to its recovered state.
+	States map[StageID]StageState
+	// CommittedStages lists committed stage IDs in log order.
+	CommittedStages []StageID
+	// ResumeFrom is the first stage that must run again.
+	ResumeFrom StageID
+	// RolledBackBytes is the size of the uncommitted tail discarded from
+	// the output file.
+	RolledBackBytes int64
+	// TruncatedLogBytes is the torn trailing WAL size that was dropped.
+	TruncatedLogBytes int64
+	// OutputBytes is the length of the output file after rollback.
+	OutputBytes int64
+	// Digests are the per-fragment output hashes of committed stages, in
+	// commit order.
+	Digests [][32]byte
+}
+
+// CommitManager appends stage records and drives atomic commits.
+type CommitManager struct {
+	wal    *WAL
+	output string
+	states map[StageID]StageState
+	// pending collects output fragments for the open stage.
+	pending []OutputFragment
+	open    StageID
+	openSeq uint64
+	// committedDigests preserves fragment hashes across commits.
+	committedDigests [][32]byte
+}
+
+// OutputFragment is one written output range with its payload hash.
+type OutputFragment struct {
+	Offset int64
+	Length int64
+	Digest [32]byte
+}
+
+// NewCommitManager wraps a WAL and the output file it protects.
+func NewCommitManager(wal *WAL, outputPath string) *CommitManager {
+	return &CommitManager{
+		wal:    wal,
+		output: outputPath,
+		states: map[StageID]StageState{},
+	}
+}
+
+func (c *CommitManager) state(s StageID) StageState {
+	if st, ok := c.states[s]; ok {
+		return st
+	}
+	return StatePending
+}
+
+// Begin records the stage input digest and the input byte range. The output
+// fragment list for the stage is reset.
+func (c *CommitManager) Begin(s StageID, inDigest [32]byte, inBytes int64) error {
+	if c.state(s) == StateCommitted {
+		return fault.New(fault.StageJournal, fault.CodeWALGap,
+			fmt.Sprintf("stage %s is already committed", s))
+	}
+	if c.open != 0 && c.open != s {
+		return fault.New(fault.StageJournal, fault.CodeWALGap,
+			fmt.Sprintf("stage %s is still open while beginning %s", c.open, s))
+	}
+	r, err := c.wal.Append(Record{
+		Kind: KindBegin, Stage: uint16(s), Offset: inBytes, Digest: inDigest,
+		Summary: fmt.Sprintf("in_bytes=%d", inBytes),
+	})
+	if err != nil {
+		return fault.Wrap(fault.StageJournal, fault.CodeWriteFailed, err, "append begin record")
+	}
+	c.open = s
+	c.openSeq = r.Seq
+	c.pending = nil
+	c.states[s] = StateOpen
+	return nil
+}
+
+// AppendOutput records one output fragment. It must be called after Begin.
+func (c *CommitManager) AppendOutput(s StageID, frag OutputFragment) error {
+	if c.state(s) != StateOpen {
+		return fault.New(fault.StageJournal, fault.CodeWALGap,
+			fmt.Sprintf("output for stage %s before begin", s))
+	}
+	r, err := c.wal.Append(Record{
+		Kind: KindOutput, Stage: uint16(s), Offset: frag.Offset, Digest: frag.Digest,
+		Summary: fmt.Sprintf("len=%d", frag.Length),
+	})
+	if err != nil {
+		return fault.Wrap(fault.StageJournal, fault.CodeWriteFailed, err, "append output record")
+	}
+	_ = r
+	c.pending = append(c.pending, frag)
+	return nil
+}
+
+// Commit atomically commits the open stage. It validates that the output file
+// is at least as long as the last recorded fragment and that every pending
+// fragment is present before writing the commit record. On success it fsyncs
+// the output file first, so a commit record never describes bytes that are
+// not durable.
+func (c *CommitManager) Commit(s StageID, summary string) error {
+	if c.state(s) != StateOpen {
+		return fault.New(fault.StageJournal, fault.CodeWALGap,
+			fmt.Sprintf("stage %s is not open", s))
+	}
+	var end int64
+	for _, f := range c.pending {
+		if f.Length < 0 || f.Offset < 0 {
+			return fault.New(fault.StageJournal, fault.CodeStageFailed,
+				fmt.Sprintf("stage %s has a negative fragment range", s))
+		}
+		if f.Offset+f.Length > end {
+			end = f.Offset + f.Length
+		}
+	}
+	st, err := os.Stat(c.output)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fault.Wrap(fault.StageCommit, fault.CodeWriteFailed, err, "stat output")
+	}
+	var size int64
+	if st != nil {
+		size = st.Size()
+	}
+	if end > size {
+		return fault.New(fault.StageCommit, fault.CodeChecksumMismatch,
+			fmt.Sprintf("stage %s declares output through byte %d but file has %d", s, end, size))
+	}
+	if f, err := os.OpenFile(c.output, os.O_RDWR, 0o644); err == nil {
+		if err := f.Sync(); err != nil {
+			f.Close()
+			return fault.Wrap(fault.StageCommit, fault.CodeWriteFailed, err, "fsync output")
+		}
+		f.Close()
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fault.Wrap(fault.StageCommit, fault.CodeWriteFailed, err, "open output for sync")
+	}
+
+	for _, frag := range c.pending {
+		ok, err := verifyFragment(c.output, frag)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fault.New(fault.StageCommit, fault.CodeChecksumMismatch,
+				fmt.Sprintf("stage %s fragment at %d+%d does not match its recorded hash", s, frag.Offset, frag.Length))
+		}
+	}
+
+	sum := summary
+	if sum == "" {
+		h := sha256.New()
+		for _, f := range c.pending {
+			h.Write(f.Digest[:])
+		}
+		sum = "digest=" + hex.EncodeToString(h.Sum(nil))
+	}
+	if _, err := c.wal.Append(Record{
+		Kind: KindCommit, Stage: uint16(s), Offset: end, Summary: sum,
+	}); err != nil {
+		return fault.Wrap(fault.StageJournal, fault.CodeWriteFailed, err, "append commit record")
+	}
+	for _, f := range c.pending {
+		c.committedDigests = append(c.committedDigests, f.Digest)
+	}
+	c.states[s] = StateCommitted
+	c.pending = nil
+	c.open = 0
+	return nil
+}
+
+func verifyFragment(path string, frag OutputFragment) (bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, fault.Wrap(fault.StageCommit, fault.CodeWriteFailed, err, "open output")
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, io.NewSectionReader(f, frag.Offset, frag.Length)); err != nil {
+		return false, fault.Wrap(fault.StageCommit, fault.CodeWriteFailed, err, "read output fragment")
+	}
+	var got [32]byte
+	copy(got[:], h.Sum(nil))
+	return got == frag.Digest, nil
+}
+
+// Rollback closes an uncommitted tail: it appends a rollback record and
+// truncates the output file to the last committed boundary. The byte count
+// discarded is returned.
+func (c *CommitManager) Rollback() (int64, error) {
+	boundary := c.committedBoundary()
+	st, err := os.Stat(c.output)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return 0, err
+	}
+	var size int64
+	if st != nil {
+		size = st.Size()
+	}
+	var discarded int64
+	if size > boundary {
+		discarded = size - boundary
+		if err := os.Truncate(c.output, boundary); err != nil {
+			return 0, fault.Wrap(fault.StageCommit, fault.CodeWriteFailed, err, "truncate uncommitted tail")
+		}
+	}
+	if c.open != 0 {
+		if _, err := c.wal.Append(Record{
+			Kind: KindRollback, Stage: uint16(c.open), Offset: discarded,
+			Summary: fmt.Sprintf("rolled_back=%d", discarded),
+		}); err != nil {
+			return discarded, fault.Wrap(fault.StageJournal, fault.CodeWriteFailed, err, "append rollback record")
+		}
+		c.states[c.open] = StatePending
+		c.open = 0
+		c.pending = nil
+	}
+	return discarded, nil
+}
+
+// committedBoundary recovers the output offset of the last commit record.
+func (c *CommitManager) committedBoundary() int64 {
+	records, _, err := c.wal.Read()
+	if err != nil {
+		return 0
+	}
+	var boundary int64
+	for _, r := range records {
+		if r.Kind == KindCommit {
+			boundary = r.Offset
+		}
+	}
+	return boundary
+}
+
+// CommittedDigests returns output fragment digests of all committed stages.
+func (c *CommitManager) CommittedDigests() [][32]byte {
+	out := make([][32]byte, len(c.committedDigests))
+	copy(out, c.committedDigests)
+	return out
+}
+
+// Recover replays a log against an output file. It validates sequence
+// monotonicity, marks committed stages, detects an uncommitted tail and
+// truncates the output back to the last commit boundary.
+func Recover(walPath, outputPath string) (*Recovery, error) {
+	f, err := os.Open(walPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return &Recovery{States: map[StageID]StageState{}, ResumeFrom: StageParse}, nil
+		}
+		return nil, fault.Wrap(fault.StageJournal, fault.CodeWALCorrupt, err, "open wal")
+	}
+	records, tail, err := ReadAll(f)
+	f.Close()
+	if err != nil {
+		return nil, fault.Wrap(fault.StageJournal, fault.CodeWALCorrupt, err, "read wal")
+	}
+	rec := &Recovery{States: map[StageID]StageState{}, TruncatedLogBytes: tail.TruncatedBytes}
+	var boundary int64
+	var lastSeq uint64
+	openStages := map[StageID]bool{}
+	for _, r := range records {
+		if r.Seq != lastSeq+1 {
+			return nil, fault.New(fault.StageJournal, fault.CodeWALGap,
+				fmt.Sprintf("record sequence %d does not follow %d", r.Seq, lastSeq))
+		}
+		lastSeq = r.Seq
+		s := StageID(r.Stage)
+		switch r.Kind {
+		case KindBegin:
+			openStages[s] = true
+			rec.States[s] = StateOpen
+		case KindOutput:
+			if !openStages[s] {
+				return nil, fault.New(fault.StageJournal, fault.CodeWALGap,
+					fmt.Sprintf("output record for %s without begin", s))
+			}
+			var d [32]byte
+			copy(d[:], r.Digest[:])
+			openStages[s] = true
+		case KindCommit:
+			if !openStages[s] {
+				return nil, fault.New(fault.StageJournal, fault.CodeWALGap,
+					fmt.Sprintf("commit record for %s without begin", s))
+			}
+			openStages[s] = false
+			rec.States[s] = StateCommitted
+			rec.CommittedStages = append(rec.CommittedStages, s)
+			boundary = r.Offset
+		case KindRollback:
+			openStages[s] = false
+			rec.States[s] = StatePending
+		}
+	}
+	for s, open := range openStages {
+		if open {
+			rec.States[s] = StateOpen
+		}
+	}
+
+	// Resume at the first stage after the committed prefix.
+	rec.ResumeFrom = StageParse
+	for _, s := range []StageID{StageParse, StageAudio, StageMux, StageFinal} {
+		if rec.States[s] == StateCommitted {
+			rec.ResumeFrom = s + 1
+		} else {
+			break
+		}
+	}
+
+	st, err := os.Stat(outputPath)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	if st != nil {
+		rec.OutputBytes = st.Size()
+		if st.Size() > boundary {
+			rec.RolledBackBytes = st.Size() - boundary
+			if err := os.Truncate(outputPath, boundary); err != nil {
+				return nil, fault.Wrap(fault.StageCommit, fault.CodeWriteFailed, err, "rollback truncate")
+			}
+			rec.OutputBytes = boundary
+		} else if st.Size() < boundary {
+			return nil, fault.New(fault.StageCommit, fault.CodeWALGap,
+				fmt.Sprintf("log commits through byte %d but output is only %d", boundary, st.Size()))
+		}
+	}
+
+	// Append a rollback record for stages left open so a second restart does
+	// not see them as open again.
+	needsRollback := false
+	for _, st := range rec.States {
+		if st == StateOpen {
+			needsRollback = true
+		}
+	}
+	if needsRollback {
+		w, err := OpenWAL(walPath)
+		if err != nil {
+			return nil, err
+		}
+		for s, st := range rec.States {
+			if st != StateOpen {
+				continue
+			}
+			if _, err := w.Append(Record{Kind: KindRollback, Stage: uint16(s), Offset: rec.RolledBackBytes,
+				Summary: fmt.Sprintf("recovered_rollback=%d", rec.RolledBackBytes)}); err != nil {
+				w.Close()
+				return nil, err
+			}
+			rec.States[s] = StatePending
+		}
+		w.Close()
+	}
+	return rec, nil
+}
