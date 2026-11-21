@@ -185,18 +185,35 @@ func runDemo(args []string, stdout, stderr io.Writer) int {
 }
 
 // runFixtures writes the same MP4 and MXF samples the demo uses, so the
-// probe can be exercised on a file outside a pipeline run.
+// probe can be exercised on a file outside a pipeline run. With --bad-crop it
+// also writes a sample whose clean aperture exceeds the frame, which the
+// probe must reject.
 func runFixtures(args []string, stdout, stderr io.Writer) int {
-	if len(args) != 1 {
+	fs := flag.NewFlagSet("fixtures", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	seed := fs.Int64("seed", 17, "fixture seed")
+	badCrop := fs.Bool("bad-crop", false, "also write an out-of-range crop sample")
+	if err := fs.Parse(args); err != nil {
+		return exitInvalid
+	}
+	if fs.NArg() != 1 {
 		fmt.Fprintln(stderr, "mediad: fixtures takes exactly one directory")
 		return exitInvalid
 	}
-	dir := args[0]
-	if err := pipeline.WriteFixtures(17, dir); err != nil {
+	dir := fs.Arg(0)
+	if err := pipeline.WriteFixtures(*seed, dir); err != nil {
 		fmt.Fprintf(stderr, "mediad: %v\n", err)
 		return model.ExitCodeOf(err)
 	}
 	fmt.Fprintf(stdout, "wrote %s and %s\n", filepath.Join(dir, pipeline.MP4Name), filepath.Join(dir, pipeline.MXFName))
+	if *badCrop {
+		path := filepath.Join(dir, "bad-crop.mp4")
+		if err := pipeline.WriteBadCropFixture(*seed, path); err != nil {
+			fmt.Fprintf(stderr, "mediad: %v\n", err)
+			return model.ExitCodeOf(err)
+		}
+		fmt.Fprintf(stdout, "wrote %s\n", path)
+	}
 	return exitOK
 }
 

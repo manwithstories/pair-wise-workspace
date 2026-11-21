@@ -29,11 +29,12 @@ func ResolveColor(cands []model.ColorCandidate) model.ColorDecision {
 		}
 	}
 	dec.Chosen = best.Color
+	// A conflict is any candidate that disagrees numerically with the
+	// winner, including one at the same precedence layer (e.g. two colr
+	// boxes in one sample description). The trace keeps both.
 	for _, c := range cands {
-		if c.Layer != best.Layer || c.Origin != best.Origin {
-			if !c.Color.Equal(best.Color) {
-				dec.Conflicts++
-			}
+		if !c.Color.Equal(best.Color) {
+			dec.Conflicts++
 		}
 	}
 	return dec
@@ -114,10 +115,9 @@ func cropError(t *model.Track, cause error) error {
 			span = fmt.Sprintf("[%s, %s]", t.Start.String(), end.String())
 		}
 	}
-	e := model.Wrap(model.KindInvalidMedia, "normalize",
+	return model.New(model.KindInvalidMedia, "normalize",
 		fmt.Sprintf("crop out of range on %dx%d frame over time range %s: %v",
-			t.CodedWidth, t.CodedHeight, span, cause), cause)
-	return e.WithTrack(t.ID)
+			t.CodedWidth, t.CodedHeight, span, cause)).WithTrack(t.ID)
 }
 
 // Container normalises every track and returns one result per track.

@@ -654,6 +654,22 @@ func targetSpecs() []manifest.TrackTarget {
 	}
 }
 
+// WriteBadCropFixture writes an MP4 whose clean aperture exceeds the coded
+// frame. Probing it must fail with the track ID and time range, never
+// silently truncate.
+func WriteBadCropFixture(seed int64, path string) error {
+	spec := fixture.MP4Spec{Tracks: []fixture.TrackSpec{{
+		ID: 9, Kind: "video", Codec: "avc1", Timescale: 30000,
+		Frames: 60, FrameDelta: 1000, Width: 1920, Height: 1080,
+		SampleBytes: 1024, CropLeft: 1000, CropRight: 1000,
+	}}}
+	_, err := fixture.WriteMP4(path, spec, seed)
+	if err != nil {
+		return model.Wrap(model.KindInternal, "pipeline", "write bad-crop fixture", err)
+	}
+	return nil
+}
+
 // WriteFixtures writes the demo's media samples into dir using the demo
 // seed and track layout. It exists so the probe can be demonstrated on real
 // files without running the whole pipeline.

@@ -231,9 +231,9 @@ func probeTrak(r io.ReadSeeker, trak *mp4.BoxInfo, limits Limits) (model.Track, 
 			end, _ := tr.End()
 			span = fmt.Sprintf("[%s, %s]", tr.Start.String(), end.String())
 		}
-		return tr, model.Wrap(model.KindInvalidMedia, "probe.mp4",
+		return tr, model.New(model.KindInvalidMedia, "probe.mp4",
 			fmt.Sprintf("crop out of range on %dx%d frame over time range %s: %v",
-				tr.CodedWidth, tr.CodedHeight, span, cropErr), cropErr).WithTrack(tr.ID)
+				tr.CodedWidth, tr.CodedHeight, span, cropErr)).WithTrack(tr.ID)
 	}
 	if err := tr.Validate(); err != nil {
 		return tr, err

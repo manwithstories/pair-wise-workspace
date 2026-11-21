@@ -30,6 +30,9 @@ type TrackSpec struct {
 	CropLeft, CropRight, CropTop, CropBottom uint32
 	// Color is written as a colr nclx box; nil leaves it out.
 	Color *ColorSpec
+	// ConflictColor, when set, is written as a second, disagreeing colr
+	// box so the arbitration path can be exercised.
+	ConflictColor *ColorSpec
 	// SampleBytes is the payload size of each sample.
 	SampleBytes int
 	// GOPLength > 0 makes only every GOPLength-th sample a sync sample.
@@ -374,16 +377,19 @@ func buildStsd(w *mp4.Writer, t TrackSpec) error {
 				return err
 			}
 		}
-		if t.Color != nil {
+		for _, c := range []*ColorSpec{t.Color, t.ConflictColor} {
+			if c == nil {
+				continue
+			}
 			if _, err := w.StartBox(&mp4.BoxInfo{Type: mp4.BoxTypeColr()}); err != nil {
 				return err
 			}
 			if _, err := mp4.Marshal(w, &mp4.Colr{
 				ColourType:              [4]byte{'n', 'c', 'l', 'x'},
-				ColourPrimaries:         t.Color.Primaries,
-				TransferCharacteristics: t.Color.Transfer,
-				MatrixCoefficients:      t.Color.Matrix,
-				FullRangeFlag:           t.Color.FullRange,
+				ColourPrimaries:         c.Primaries,
+				TransferCharacteristics: c.Transfer,
+				MatrixCoefficients:      c.Matrix,
+				FullRangeFlag:           c.FullRange,
 			}, mp4.Context{}); err != nil {
 				return err
 			}
