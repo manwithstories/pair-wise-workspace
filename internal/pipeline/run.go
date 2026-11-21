@@ -16,6 +16,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -48,6 +49,10 @@ type Options struct {
 	MovieTimescale int64
 	// Root confines both paths.
 	Root *fsguard.Root
+	// RefuseUnknownCodecs turns a track with an unsupported codec into a hard
+	// error instead of a counted omission. The default (false) reports the
+	// count and remuxes the supported tracks only.
+	RefuseUnknownCodecs bool
 }
 
 // Report is the outcome of a run.
@@ -266,6 +271,13 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 		return nil, err
 	}
 	trackReport := track.NewReport(tracks, unknown)
+
+	// The contract is explicit: a track using a codec with no documented MP4
+	// mapping is counted and refused, never silently dropped or transcoded.
+	if opts.RefuseUnknownCodecs && len(unknown) > 0 {
+		return nil, fault.New(fault.StageMap,
+			fmt.Errorf("%w: %s", fault.ErrUnsupportedCodec, strings.Join(trackReport.UnknownCodecIDs, ","))).OnTrack(unknown[0].Number)
+	}
 
 	// Map each track through the shared timebase.
 	plan := &remux.Plan{MovieTimescale: opts.MovieTimescale, Brand: "isom"}

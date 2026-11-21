@@ -223,11 +223,12 @@ func runVerify(args []string, out, errOut io.Writer, recoverDefault bool) error 
 
 	outName := o.fixture + ".mp4"
 	rep, runErr := pipeline.Run(context.Background(), pipeline.Options{
-		InputPath:     in,
-		OutputPath:    outName,
-		Recovery:      o.recover,
-		QueueCapacity: o.queue,
-		Root:          root,
+		InputPath:           in,
+		OutputPath:          outName,
+		Recovery:            o.recover,
+		QueueCapacity:       o.queue,
+		Root:                root,
+		RefuseUnknownCodecs: true,
 	})
 	if runErr != nil {
 		var re *fault.RecoveryError

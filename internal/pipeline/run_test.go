@@ -186,3 +186,51 @@ func TestRunRequiresQueueCapacity(t *testing.T) {
 		t.Fatal("zero capacity accepted")
 	}
 }
+
+func TestRunRefusesUnknownCodecWhenAsked(t *testing.T) {
+	dir := t.TempDir()
+	tracks := []fixture.TrackSpec{
+		{Number: 1, Type: 1, CodecID: "V_MPEG2", Width: 320, Height: 180},
+		{Number: 2, Type: 1, CodecID: "V_VP9", Width: 320, Height: 180},
+	}
+	blocks := []fixture.BlockSpec{
+		{Track: 1, Tick: 0, Key: true, Data: fixture.Pattern("m", 0, 32)},
+		{Track: 2, Tick: 0, Key: true, Data: fixture.Pattern("v", 0, 32)},
+	}
+	doc := fixture.Build(tracks, blocks, fixture.Layout{ClusterSpan: 4})
+	if err := os.WriteFile(filepath.Join(dir, "mixed.mkv"), doc.Bytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root, err := fsguard.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Run(context.Background(), Options{
+		InputPath: "mixed.mkv", OutputPath: "out.mp4", QueueCapacity: 2, Root: root,
+		RefuseUnknownCodecs: true,
+	})
+	if !errors.Is(err, fault.ErrUnsupportedCodec) {
+		t.Fatalf("got %v", err)
+	}
+	if fault.ExitCode(err) != 2 {
+		t.Fatalf("exit=%d", fault.ExitCode(err))
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "out.mp4")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatal("refused input still produced an output")
+	}
+
+	// Without the flag the supported track is remuxed and the unknown track is
+	// counted, never silently mapped.
+	rep, err := Run(context.Background(), Options{
+		InputPath: "mixed.mkv", OutputPath: "out2.mp4", QueueCapacity: 2, Root: root,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Unknown) != 1 || rep.Unknown[0] != "V_MPEG2" {
+		t.Fatalf("unknown=%v", rep.Unknown)
+	}
+	if len(rep.Tracks) != 1 || rep.Tracks[0].CodecID != "V_VP9" {
+		t.Fatalf("tracks=%+v", rep.Tracks)
+	}
+}

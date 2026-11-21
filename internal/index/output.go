@@ -2,9 +2,10 @@ package index
 
 import "archivecheck.local/archivecheck/internal/remux"
 
-// FromOutput builds the keyframe index from the writer's completed sample
-// table. This is the index the CLI reports on: every entry is a sample that
-// actually exists in the output file at a known offset.
+// FromOutput builds a keyframe index from the writer's completed sample table.
+// It is used where the source Matroska file is no longer available (for
+// example when indexing a finished archive copy) and every entry refers to a
+// sample that exists in the output at a recorded offset.
 func FromOutput(sum *remux.Summary) Index {
 	ix := Index{Rebuilt: true}
 	for _, m := range sum.Manifest {
@@ -19,9 +20,7 @@ func FromOutput(sum *remux.Summary) Index {
 			Track:        m.Track,
 			Tick:         m.Tick,
 			SourceOffset: off,
-			FrameIndex:   0,
 			OutputSample: int(m.OutputSample),
-			FromCues:     false,
 		})
 	}
 	return ix
