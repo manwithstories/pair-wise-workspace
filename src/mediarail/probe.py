@@ -125,6 +125,19 @@ def scan(path: str | Path, result: ProbeResult | None = None) -> Iterator[Packet
             )
             if track is None or track.kind is TrackKind.OTHER:
                 continue
+            if (packet.size or 0) == 0 and packet.pts is None and packet.dts is None:
+                # Empty flush trailer packet: no payload, no timestamps.
+                result.errors.append(
+                    MediaError(
+                        code=ErrorCode.CORRUPT_PACKET,
+                        message="empty packet with no timestamps dropped",
+                        severity=Severity.REPAIRED,
+                        track=track.kind.value,
+                        packet_index=per_track.get(track.index, 0),
+                        byte_offset=packet.pos,
+                    )
+                )
+                continue
             idx = per_track.get(track.index, 0)
             per_track[track.index] = idx + 1
             offset = packet.pos if packet.pos is not None else last_offset

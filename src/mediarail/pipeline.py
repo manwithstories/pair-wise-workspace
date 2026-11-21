@@ -129,12 +129,14 @@ def mux_journal(journal_path: Path, input_path: Path, output_path: Path) -> None
     try:
         for s in src.streams:
             if s.type in ("video", "audio"):
-                stream_map[s.index] = (s, out.add_stream(template=s))
+                out_s = out.add_stream(template=s)
+                out_s.time_base = s.time_base
+                stream_map[s.index] = (s, out_s)
         for item in read_journal(journal_path):
             if isinstance(item, dict):
                 continue
             in_s, out_s = stream_map[item.stream_index]
-            tb = Fraction(out_s.time_base)
+            tb = Fraction(in_s.time_base)
             pkt = av.Packet(item.payload)
             pkt.stream = out_s
             pkt.time_base = tb
@@ -272,6 +274,11 @@ def process_file(
         producer.join(timeout=2)
         return result
     producer.join()
+    if cancel.cancelled:
+        # Cancelled mid-stream: the partial journal and checkpoint stay
+        # for resume; do not run truncation/unrepairable classification.
+        result.cancelled = True
+        return result
     result.packets_scanned = probe_result.packets_scanned
     result.errors.extend(probe_result.errors)
     check_truncation(probe_result, last_end[0], last_offset[0])
