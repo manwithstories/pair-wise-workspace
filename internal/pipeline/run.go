@@ -241,7 +241,7 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 		}
 		off := spoolPos
 		spoolPos += int64(len(s.Data))
-		return q.Send(ctx, remux.Sample{
+		if err := q.Send(ctx, remux.Sample{
 			TrackNumber:  s.TrackNumber,
 			Reader:       spool,
 			Offset:       off,
@@ -251,7 +251,22 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 			PTS:          s.Timestamp,
 			Keyframe:     s.Keyframe,
 			Tick:         s.Timestamp,
-		})
+		}); err != nil {
+			// Attach the source byte that was in flight so a cancelled or
+			// blocked hand-off is actionable, not just "stage=queue".
+			var fe *fault.Error
+			if errors.As(err, &fe) {
+				if fe.Offset < 0 {
+					fe.Offset = s.SourceOffset
+				}
+				if fe.Track == 0 {
+					fe.Track = s.TrackNumber
+				}
+				return fe
+			}
+			return err
+		}
+		return nil
 	}
 	var scanRes demux.Result
 	scanErr := demux.ScanReader(input, scanOpts, &scanRes)

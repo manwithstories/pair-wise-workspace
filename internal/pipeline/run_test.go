@@ -250,3 +250,25 @@ func TestRunWithRTPCheck(t *testing.T) {
 		t.Fatalf("RTP check disturbed the remux: %+v", rep.Rates)
 	}
 }
+
+func TestRunHandOffFailureCarriesSourceOffset(t *testing.T) {
+	root, in, _ := setup(t, fixture.DamageSlowCancel)
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { cancel() }()
+	_, err := Run(ctx, Options{
+		InputPath: in, OutputPath: "cancelled.mp4", QueueCapacity: 1, Root: root,
+		SlowConsumerMS: 5,
+	})
+	if err == nil {
+		t.Fatal("expected failure")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("got %v", err)
+	}
+	if fault.OffsetOf(err) <= 0 {
+		t.Fatalf("hand-off failure has no source offset: %v", err)
+	}
+	if fault.StageOf(err) != fault.StageQueue {
+		t.Fatalf("stage=%q", fault.StageOf(err))
+	}
+}
