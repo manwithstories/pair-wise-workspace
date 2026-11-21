@@ -1,0 +1,188 @@
+"""Synthetic MP4/MOV fixture generation (part 1: core encoder helpers).
+
+All sample media is generated locally from NumPy arrays — no external files
+are ever referenced.  Every frame carries an explicit PTS so the scenario
+builders in :mod:`tests.fixtures` can emulate wraparound, drift, VFR gaps,
+silence and truncation deterministically.
+
+Encoding notes (PyAV 13 / FFmpeg):
+* PTS are stamped on frames, never rewritten on retained packets.
+* Each emitted packet is muxed immediately; the MOV muxer handles stream
+  interleaving from per-stream DTS.
+* The AAC encoder's first packet has a negative PTS (one-frame priming),
+  which the MOV container records as an edit list.
+* On the read side, iterate the *global* ``container.demux()`` and filter by
+  stream — single-stream ``demux(stream)`` is unreliable in this PyAV build
+  and collapses multi-stream packet counts.
+"""
+
+from __future__ import annotations
+
+import math
+import os
+from dataclasses import dataclass
+from fractions import Fraction
+
+import av
+import numpy as np
+
+# Conservative resource caps; fixtures stay deliberately tiny.
+MAX_FRAMES = 4096
+LIMIT_BYTES = 256 * 1024 * 1024
+
+
+@dataclass
+class SyntheticSpec:
+    """Declarative description of one synthetic clip."""
+
+    path: str
+    duration_s: float = 2.0
+    width: int = 160
+    height: int = 120
+    frame_rate: float = 12.0
+    sample_rate: int = 24_000
+    channels: int = 1
+    # Explicit video PTS ticks (stream time base units); None => uniform.
+    video_pts: list[int] | None = None
+    # Explicit audio PTS ticks (audio_time_base units); None => uniform.
+    audio_pts: list[int] | None = None
+    video_time_base: float = 1 / 12_000
+    audio_time_base: float = 1 / 48_000
+    # Frame indices whose audio region is replaced with digital silence.
+    silent_frames: set[int] | None = None
+    # Deterministic content seed; identical seeds => identical content.
+    seed: int = 1
+    with_audio: bool = True
+
+
+def _video_frame(frame_idx: int, spec: SyntheticSpec) -> av.VideoFrame:
+    """Build a deterministic YUV420p frame whose content varies per index."""
+    rng = np.random.default_rng(spec.seed * 7919 + frame_idx)
+    level = 40 + (frame_idx * 7) % 180
+    y = np.full((spec.height, spec.width), level, dtype=np.uint8)
+    noise = rng.integers(0, 18, size=(spec.height, spec.width), dtype=np.uint8)
+    y = np.clip(y.astype(np.int16) + noise.astype(np.int16), 0, 255).astype(np.uint8)
+    half_h, half_w = spec.height // 2, spec.width // 2
+    u = np.full((half_h, half_w), 128, dtype=np.uint8)
+    v = np.full((half_h, half_w), 128, dtype=np.uint8)
+    frame = av.VideoFrame(spec.width, spec.height, "yuv420p")
+    frame.planes[0].update(y.tobytes())
+    frame.planes[1].update(u.tobytes())
+    frame.planes[2].update(v.tobytes())
+    return frame
+
+
+def _audio_samples(frame_idx: int, spec: SyntheticSpec, n: int) -> np.ndarray:
+    """One AAC frame of mono/stereo float32 tone, or silence when flagged."""
+    if spec.silent_frames and frame_idx in spec.silent_frames:
+        shape = (n, spec.channels) if spec.channels > 1 else (n,)
+        return np.zeros(shape, dtype=np.float32)
+    start = frame_idx * 1024
+    t = (np.arange(start, start + n) / spec.sample_rate).astype(np.float32)
+    tone = 0.35 * np.sin(2 * math.pi * 440 * t)
+    if spec.channels > 1:
+        tone = np.repeat(tone[:, None], spec.channels, axis=1)
+    return tone.astype(np.float32)
+
+
+def write_synthetic(spec: SyntheticSpec) -> str:
+    """Encode and mux the clip described by ``spec``; return its path."""
+    if os.path.exists(spec.path):
+        os.remove(spec.path)
+    container = av.open(spec.path, "w", format="mov", options={"movflags": "faststart"})
+    try:
+        vstream = container.add_stream(
+            "libx264", rate=Fraction(spec.frame_rate).limit_denominator(1000)
+        )
+        vstream.width, vstream.height = spec.width, spec.height
+        vstream.pix_fmt = "yuv420p"
+        vstream.options = {"preset": "ultrafast", "crf": "28"}
+        vtb = Fraction(spec.video_time_base).limit_denominator(1_000_000)
+        vstream.time_base = vtb
+        astream = None
+        if spec.with_audio:
+            astream = container.add_stream("aac", rate=spec.sample_rate)
+            astream.layout = "mono" if spec.channels == 1 else "stereo"
+
+        n_frames = int(round(spec.duration_s * spec.frame_rate))
+        if n_frames > MAX_FRAMES:
+            raise ValueError("fixture frame count exceeds safety limit")
+        uniform_step = spec.video_time_base / (1 / spec.frame_rate)
+
+        # Time-ordered schedule keeps DTS monotonic across both streams.
+        schedule: list[tuple[float, int, str, int]] = []
+        for i in range(n_frames):
+            vpts = (
+                spec.video_pts[i]
+                if spec.video_pts is not None
+                else int(round(i * uniform_step))
+            )
+            schedule.append((vpts * spec.video_time_base, 0, "v", vpts))
+        n_audio = 0
+        if astream is not None:
+            n_audio = int(math.ceil(spec.duration_s * spec.sample_rate / 1024))
+            for i in range(n_audio):
+                if spec.audio_pts is not None:
+                    apts = int(
+                        round(spec.audio_pts[i] * spec.audio_time_base * spec.sample_rate)
+                    )
+                else:
+                    apts = i * 1024  # encoder-native sample ticks
+                schedule.append((apts / spec.sample_rate, 1, "a", apts))
+        schedule.sort(key=lambda item: (item[0], item[1]))
+
+        v_idx = 0
+        a_idx = 0
+        for _, _, kind, pts in schedule:
+            if kind == "v":
+                frame = _video_frame(v_idx, spec)
+                v_idx += 1
+                frame.pts = pts
+                frame.time_base = vtb
+                for packet in vstream.encode(frame):
+                    container.mux(packet)
+            else:
+                pcm = _audio_samples(a_idx, spec, 1024)
+                a_idx += 1
+                af = av.AudioFrame.from_ndarray(
+                    pcm.reshape(-1, 1).T if spec.channels == 1 else pcm.T,
+                    format="fltp",
+                    layout="mono" if spec.channels == 1 else "stereo",
+                )
+                af.sample_rate = spec.sample_rate
+                af.pts = pts
+                for packet in astream.encode(af):
+                    container.mux(packet)
+
+        for packet in vstream.encode():
+            container.mux(packet)
+        if astream is not None:
+            for packet in astream.encode():
+                container.mux(packet)
+    finally:
+        container.close()
+    if os.path.getsize(spec.path) > LIMIT_BYTES:
+        raise ValueError("fixture exceeds size safety limit")
+    return spec.path
+
+
+def truncate_file(path: str, keep_fraction: float = 0.75) -> str:
+    """Cut the file tail to emulate a truncated recording."""
+    size = os.path.getsize(path)
+    with open(path, "r+b") as fh:
+        fh.truncate(int(size * keep_fraction))
+    return path
+
+
+def corrupt_mdat(path: str, *, offset_fraction: float = 0.55, span: int = 64) -> str:
+    """Flip bytes inside the mdat payload without touching the moov box."""
+    size = os.path.getsize(path)
+    offset = int(size * offset_fraction)
+    with open(path, "r+b") as fh:
+        fh.seek(offset)
+        blob = bytearray(fh.read(span))
+        for i in range(0, len(blob), 7):
+            blob[i] ^= 0xFF
+        fh.seek(offset)
+        fh.write(blob)
+    return path
