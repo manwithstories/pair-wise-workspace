@@ -171,6 +171,16 @@ PipelineReport Pipeline::run() {
       }
       have_checkpoint = true;
       report.resumed = true;
+      // Carry forward damage already found in the committed prefix so the
+      // resumed run's report is cumulative, not merely what this pass saw.
+      for (const ErrorEntry& entry : checkpoint.errors) {
+        report.errors.add(entry);
+      }
+      report.frames_corrupt = checkpoint.frames_corrupt;
+      report.frames_duplicate = checkpoint.frames_duplicate;
+      report.frames_truncated = checkpoint.frames_truncated;
+      report.frames_repaired = checkpoint.frames_repaired;
+      report.first_corrupt_offset = report.errors.first_offset();
     }
   }
 
@@ -526,6 +536,10 @@ PipelineReport Pipeline::run() {
     saved.output_path = options_.output_dir;
     saved.frames_committed = partial.entries.size();
     saved.frames_repaired = report.frames_repaired;
+    saved.frames_corrupt = report.frames_corrupt;
+    saved.frames_duplicate = report.frames_duplicate;
+    saved.frames_truncated = report.frames_truncated;
+    saved.errors = report.errors.entries();
     saved.peak_queue_frames = report.peak_queue_frames;
     saved.phase = "writing";
     for (auto& stream : streams) {

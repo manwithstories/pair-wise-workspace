@@ -261,6 +261,43 @@ TEST_CASE("manifest records everything an archivist needs", "[pipeline]") {
   CHECK(manifest.tracks.size() == 2);
 }
 
+TEST_CASE("resume after damage keeps the cumulative damage report",
+          "[pipeline]") {
+  TempDir dir;
+  // The boundary scenario corrupts a frame at a known offset.  Interrupt after
+  // that frame has been consumed, then resume: the final report must still
+  // name the original corrupt offset.
+  GenerateResult generated = make_delivery(dir, Scenario::kBoundary, 2000);
+  REQUIRE(generated.ok);
+  REQUIRE(generated.first_corrupt_offset > 0);
+
+  PipelineOptions options = options_for(dir);
+  options.stop_after_frames = 1200;  // past the corrupted frame
+  Pipeline interrupted(options);
+  PipelineReport first = interrupted.run();
+  REQUIRE(first.ok);
+  REQUIRE(first.interrupted);
+  CHECK(first.first_corrupt_offset == generated.first_corrupt_offset);
+
+  PipelineOptions resume = options;
+  resume.stop_after_frames = 0;
+  Pipeline second(resume);
+  PipelineReport report = second.run();
+  REQUIRE(report.ok);
+  CHECK(report.resumed);
+  CHECK(report.first_corrupt_offset == generated.first_corrupt_offset);
+  CHECK(report.frames_corrupt == 1);
+
+  bool found = false;
+  for (const ErrorEntry& entry : report.errors.entries()) {
+    if (entry.code == "checksum_mismatch") {
+      found = true;
+      CHECK(entry.offset == static_cast<std::uint64_t>(generated.first_corrupt_offset));
+    }
+  }
+  CHECK(found);
+}
+
 TEST_CASE("query locates frames by time and sequence", "[pipeline]") {
   TempDir dir;
   REQUIRE(make_delivery(dir, Scenario::kNormal, 600).ok);

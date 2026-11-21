@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "media/checksum.hpp"
 #include "media/json.hpp"
 #include "media/timeline.hpp"
 #include "media/types.hpp"
@@ -51,6 +52,12 @@ struct Checkpoint {
   std::vector<TimelineState> timeline;  // per-track timeline state
   std::vector<CommittedSegment> segments;
   std::vector<CommittedEntry> entries;
+  // Damage and truncation already observed in the committed prefix, carried
+  // forward so a resumed run's report is cumulative rather than partial.
+  std::vector<ErrorEntry> errors;
+  std::uint64_t frames_corrupt = 0;
+  std::uint64_t frames_duplicate = 0;
+  std::uint64_t frames_truncated = 0;
   Json extra;
 
   [[nodiscard]] Json to_json() const;

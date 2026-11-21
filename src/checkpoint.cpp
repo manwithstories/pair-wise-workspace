@@ -105,6 +105,26 @@ Json Checkpoint::to_json() const {
     entry_array.push(std::move(item));
   }
   root.set("entries", std::move(entry_array));
+  root.set("frames_corrupt",
+           Json::make_int(static_cast<std::int64_t>(frames_corrupt)));
+  root.set("frames_duplicate",
+           Json::make_int(static_cast<std::int64_t>(frames_duplicate)));
+  root.set("frames_truncated",
+           Json::make_int(static_cast<std::int64_t>(frames_truncated)));
+  Json error_array = Json::make_array();
+  for (const ErrorEntry& error : errors) {
+    Json item = Json::make_object();
+    item.set("code", Json::make_string(error.code));
+    item.set("severity", Json::make_string(error.severity));
+    item.set("track", Json::make_string(error.track));
+    item.set("offset", Json::make_int(static_cast<std::int64_t>(error.offset)));
+    item.set("has_offset", Json::make_bool(error.has_offset));
+    item.set("seq", Json::make_int(static_cast<std::int64_t>(error.seq)));
+    item.set("has_seq", Json::make_bool(error.has_seq));
+    item.set("message", Json::make_string(error.message));
+    error_array.push(std::move(item));
+  }
+  root.set("errors", std::move(error_array));
   root.set("extra", extra);
   return root;
 }
@@ -190,6 +210,29 @@ bool Checkpoint::from_json(const Json& value, Checkpoint& out, Error& error) {
       if (const Json* v = item.find("keyframe")) entry.keyframe = v->as_bool();
       if (const Json* v = item.find("sha256")) entry.sha256 = v->as_string();
       checkpoint.entries.push_back(std::move(entry));
+    }
+  }
+  if (const Json* v = value.find("frames_corrupt")) {
+    checkpoint.frames_corrupt = static_cast<std::uint64_t>(v->as_int());
+  }
+  if (const Json* v = value.find("frames_duplicate")) {
+    checkpoint.frames_duplicate = static_cast<std::uint64_t>(v->as_int());
+  }
+  if (const Json* v = value.find("frames_truncated")) {
+    checkpoint.frames_truncated = static_cast<std::uint64_t>(v->as_int());
+  }
+  if (const Json* errs = value.find("errors"); errs && errs->is_array()) {
+    for (const Json& item : errs->items()) {
+      ErrorEntry entry;
+      if (const Json* v = item.find("code")) entry.code = v->as_string();
+      if (const Json* v = item.find("severity")) entry.severity = v->as_string();
+      if (const Json* v = item.find("track")) entry.track = v->as_string();
+      if (const Json* v = item.find("offset")) entry.offset = static_cast<std::uint64_t>(v->as_int());
+      if (const Json* v = item.find("has_offset")) entry.has_offset = v->as_bool();
+      if (const Json* v = item.find("seq")) entry.seq = static_cast<std::uint64_t>(v->as_int());
+      if (const Json* v = item.find("has_seq")) entry.has_seq = v->as_bool();
+      if (const Json* v = item.find("message")) entry.message = v->as_string();
+      checkpoint.errors.push_back(std::move(entry));
     }
   }
   if (const Json* extra = value.find("extra")) {
