@@ -22,7 +22,12 @@ import os
 from dataclasses import dataclass, field
 
 from .errors import ErrorLog, FatalMediaError
-from .fingerprint import AudioChunkAccumulator, Fingerprint, VideoChunkAccumulator
+from .fingerprint import (
+    AudioChunkAccumulator,
+    Fingerprint,
+    VideoChunkAccumulator,
+    find_duplicates,
+)
 from .index import MediaIndex, file_content_hash
 from .probe import AUDIO, VIDEO, Probe
 from .segments import FrameMark, Segmenter
@@ -335,3 +340,69 @@ class Pipeline:
         target = max(1, self.config.target_kbps)
         delta = ((actual_kbps - target) / target) * 100.0
         return actual_kbps, delta
+
+    def run_batch(
+        self, cases: list, *, wrap_periods: dict[str, int] | None = None
+    ) -> list[PipelineResult]:
+        """Process every case, then resolve cross-file duplicates.
+
+        Fingerprints are read back from the committed index so duplicate
+        detection relies solely on durable content hashes.  Each file's
+        ``duplicate_count`` is updated in place on its returned metrics.
+        """
+        wrap_periods = wrap_periods or {}
+        results: list[PipelineResult] = []
+        for case in cases:
+            result = self.process_file(
+                case.path, wrap_period_ticks=wrap_periods.get(case.name)
+            )
+            results.append(result)
+
+        fingerprints = [
+            Fingerprint(
+                source=res.metrics.source,
+                video_hashes=[
+                    h for h in self.index.load_fingerprint_hashes(res.metrics.source)
+                ],
+                audio_hashes=[],
+            )
+            for res in results
+        ]
+        pairs = find_duplicates(fingerprints)
+        counts: dict[str, int] = {}
+        for pair in pairs:
+            counts[pair["source_a"]] = counts.get(pair["source_a"], 0) + 1
+            counts[pair["source_b"]] = counts.get(pair["source_b"], 0) + 1
+        for result in results:
+            result.metrics.duplicate_count = counts.get(result.metrics.source, 0)
+        self._duplicate_pairs = pairs
+        return results
+
+    @staticmethod
+    def aggregate_exit(results: list[PipelineResult], *, bitrate_tol_pct: float = 10.0,
+                       alignment_tol_ms: float = 40.0) -> tuple[int, list[str]]:
+        """Determine the terminal exit code and human-readable failures."""
+        from . import EXIT_FATAL, EXIT_OK, EXIT_RECOVERED
+
+        failures: list[str] = []
+        any_recovered = False
+        for result in results:
+            m = result.metrics
+            if m.status not in ("ok", "recovered"):
+                failures.append(f"{os.path.basename(m.source)}: fatal status {m.status}")
+                continue
+            if abs(m.bitrate_delta_pct) > bitrate_tol_pct:
+                failures.append(
+                    f"{os.path.basename(m.source)}: bitrate delta {m.bitrate_delta_pct:.1f}%"
+                )
+            if m.manifest_alignment_ms > alignment_tol_ms:
+                failures.append(
+                    f"{os.path.basename(m.source)}: alignment {m.manifest_alignment_ms:.1f}ms"
+                )
+            if m.status == "recovered":
+                any_recovered = True
+        if failures:
+            return EXIT_FATAL, failures
+        if any_recovered:
+            return EXIT_RECOVERED, []
+        return EXIT_OK, []
