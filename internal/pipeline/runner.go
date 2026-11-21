@@ -98,7 +98,8 @@ type FlowConfig struct {
 	// SlowConsumer injects a delay into the transform stage to exercise
 	// backpressure in acceptance runs.
 	SlowConsumer time.Duration
-	// Progress receives progress events when set.
+	// Progress receives progress events when set. The runner serialises
+	// calls, so implementations do not need their own locking.
 	Progress func(Event)
 	// ReorderWindow overrides the per-source reorder window when > 0.
 	ReorderWindow int
@@ -235,10 +236,11 @@ type Runner struct {
 	peak     int64
 	slots    chan struct{}
 
-	stagesMu  sync.Mutex
-	stagePeak map[string]int
-	queueWait int64
-	queueHits int
+	stagesMu   sync.Mutex
+	progressMu sync.Mutex
+	stagePeak  map[string]int
+	queueWait  int64
+	queueHits  int
 
 	bp *budget
 
@@ -268,6 +270,10 @@ func (r *Runner) emit(stage, camera string, seq uint64, kind, detail string) {
 	if r.cfg.Progress == nil {
 		return
 	}
+	// Progress is called from every stage goroutine; serialise it so an
+	// embedder can append to shared state without its own lock.
+	r.progressMu.Lock()
+	defer r.progressMu.Unlock()
 	r.cfg.Progress(Event{Stage: stage, Camera: camera, Seq: seq, Kind: kind, Detail: detail})
 }
 
