@@ -1,5 +1,0 @@
-if(EXISTS "/Users/clearliu/WorkSpace/pair-wise-workspace/14142/build/pipeline_tests-b12d07c_tests.cmake")
-  include("/Users/clearliu/WorkSpace/pair-wise-workspace/14142/build/pipeline_tests-b12d07c_tests.cmake")
-else()
-  add_test(pipeline_tests_NOT_BUILT-b12d07c pipeline_tests_NOT_BUILT-b12d07c)
-endif()

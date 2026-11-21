@@ -1,8 +1,0 @@
-clock repair: wrap, duplicate, backward, drift 5 0.0173703
-decoder: valid png passes, garbage is isolated 5 0.0182186
-frame_record: container roundtrip preserves fields 5 0.018293
-frame_record: rejects truncation, bad length, unknown time base 2 0.0201364
-index: VFR gaps, duplicates, keyframe hits 2 0.0187947
-pipeline: bounded queue, isolation, structural failure 2 0.0395631
-segment writer: crash recovery keeps only verified segments 5 0.0367492
----
