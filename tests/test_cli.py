@@ -104,6 +104,24 @@ class ExitCodeTests(TempDirMixin, unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertTrue(payload["valid"])
 
+    def test_interrupted_without_resume_is_incomplete(self) -> None:
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            code = main(
+                [
+                    "demo",
+                    "--workdir",
+                    self.path("partial"),
+                    "--break-at",
+                    "encode",
+                    "--clean",
+                ]
+            )
+        payload = json.loads(buffer.getvalue())
+        self.assertEqual(code, 3)
+        self.assertTrue(payload["interrupted"])
+        self.assertFalse(payload["resume_requested"])
+
     def test_stop_policy_on_damaged_material_returns_two(self) -> None:
         buffer = io.StringIO()
         with redirect_stdout(buffer):

@@ -261,7 +261,14 @@ def run_demo(args: argparse.Namespace) -> int:
     if resume_seconds is not None and full_seconds > 0:
         threshold_ok = resume_seconds < full_seconds * 0.5
     summary["resume_within_budget"] = threshold_ok
+    if result.interrupted_at is not None and not args.resume:
+        summary["interrupted"] = True
+        summary["resume_requested"] = False
     code = _exit_code(resumed_result, summary, threshold_ok)
+    if result.interrupted_at is not None and not args.resume:
+        # An interrupted run without --resume has not produced a manifest, so
+        # output verification cannot pass; report it as a failed output check.
+        code = int(ExitCode.VERIFY_FAILED)
     summary["exit_code"] = code
     _emit(summary, args.json_out)
     return code
