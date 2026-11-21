@@ -29,18 +29,18 @@ type CropRect struct {
 
 // TrackMeta is the normalized metadata record shared by MXF and MP4 sources.
 type TrackMeta struct {
-	TrackID    string
-	Kind       model.TrackKind
-	Source     string
-	Timescale  int64
-	Start      model.Rational // seconds, relative to the shared timeline origin
-	FrameRate  model.Rational // frames per second, exact
-	Width      int64
-	Height     int64
-	Rotation   int64 // degrees, clockwise; only cardinal values survive policy
-	HasRot     bool
-	Crop       *CropRect
-	Color      *ColorDesc
+	TrackID   string
+	Kind      model.TrackKind
+	Source    string
+	Timescale int64
+	Start     model.Rational // seconds, relative to the shared timeline origin
+	FrameRate model.Rational // frames per second, exact
+	Width     int64
+	Height    int64
+	Rotation  int64 // degrees, clockwise; only cardinal values survive policy
+	HasRot    bool
+	Crop      *CropRect
+	Color     *ColorDesc
 }
 
 // ParseResult bundles normalized tracks with every diagnostic raised while
