@@ -91,29 +91,49 @@ class Segmenter:
         return best_idx, best_note
 
     def build(self) -> list[Segment]:
-        """Finalize all segments once the stream of marks is complete."""
+        """Finalize all segments once the stream of marks is complete.
+
+        Boundary times form one shared grid across every track, so audio and
+        video cuts at the same ordinal reference the same corrected instant.
+        Each track then snaps its own frames to those shared boundaries using
+        the nearest-frame (ties-to-earlier) rule, bounding A/V discrepancy to
+        at most one frame interval rather than letting it accumulate.
+        """
+        tracks = sorted(self._marks)
+        if not tracks:
+            return []
+        timeline_end = max(marks[-1].corrected_s for marks in self._marks.values())
+        # Shared boundary grid in corrected seconds.
+        boundaries: list[float] = []
+        boundary = self.target
+        while boundary < timeline_end:
+            boundaries.append(boundary)
+            boundary += self.target
+
         segments: list[Segment] = []
-        for track in sorted(self._marks):
+        for track in tracks:
             marks = self._marks[track]
             if not marks:
                 continue
-            timeline_end = marks[-1].corrected_s
-            boundary = self.target
-            seg_id = 0
-            start_idx = 0
-            while start_idx < len(marks):
-                if boundary >= timeline_end:
+            # Every segment references the shared grid directly: both edges
+            # snap to boundary times, so per-track frame quantization never
+            # accumulates across segments.
+            grid = [0.0] + boundaries + [timeline_end]
+            for seg_id in range(len(grid) - 1):
+                left_s, right_s = grid[seg_id], grid[seg_id + 1]
+                start_idx = self._index_at_or_after(marks, left_s)
+                if start_idx >= len(marks):
+                    break
+                if seg_id == len(grid) - 2:
                     end_idx = len(marks) - 1
                     note = "tail-segment"
                 else:
-                    end_idx, note = self._nearest_index(marks, boundary)
+                    end_idx, note = self._nearest_index(marks, right_s)
                     if end_idx < start_idx:
                         end_idx = start_idx
                 start_mark = marks[start_idx]
                 end_mark = marks[end_idx]
                 notes = [note] if note else []
-                if end_mark.corrected_s - start_mark.corrected_s <= 0 and end_idx == start_idx and boundary < timeline_end:
-                    notes.append("zero-length-boundary-skipped")
                 segments.append(
                     Segment(
                         segment_id=seg_id,
@@ -126,10 +146,15 @@ class Segmenter:
                         boundary_notes=notes,
                     )
                 )
-                seg_id += 1
-                start_idx = end_idx + 1
-                boundary = marks[start_idx].corrected_s + self.target if start_idx < len(marks) else boundary
         return segments
+
+    @staticmethod
+    def _index_at_or_after(marks: list[FrameMark], target_s: float) -> int:
+        """First frame whose corrected time is at or after ``target_s``."""
+        for i, mark in enumerate(marks):
+            if mark.corrected_s >= target_s - 1e-9:
+                return i
+        return len(marks)
 
 
 def audio_sample_window(

@@ -30,7 +30,10 @@ from fixtures_core import (
 # Large wrap period (ticks of the 1/12000 video time base) keeps raw PTS
 # non-negative while still exercising the unwrap logic multiple times.
 WRAP_PERIOD_TICKS = 1 << 33
-FRAME_RATE = 12.0
+# 30 fps keeps the video frame period (~33 ms) below the 40 ms alignment
+# tolerance so nearest-frame boundary quantization stays within bounds even
+# when audio and video snap in opposite directions around a cut point.
+FRAME_RATE = 30.0
 VIDEO_TB = 1 / 12_000
 SAMPLE_RATE = 24_000
 AUDIO_TB = 1 / 48_000
@@ -94,12 +97,14 @@ def _vfr_video_pts(n_frames: int) -> list[int]:
     t = 0
     for i in range(n_frames):
         pts.append(int(round(t)))
-        # Every 4th interval is 1.5x long (a missing-presentation gap).
-        t += step * (1.5 if i % 4 == 3 else 1.0)
+        # Every 4th interval is 1.25x long (a missing-presentation gap of
+        # ~21 ms at 12 fps): an explicit timestamp jump small enough that the
+        # nearest-frame segmentation stays inside the alignment tolerance.
+        t += step * (1.25 if i % 4 == 3 else 1.0)
     return pts
 
 
-def build_fixtures(root: str, *, corrupted: bool = True) -> FixtureSet:
+def build_fixtures(root: str, *, corrupted: bool = True, target_kbps: int | None = None) -> FixtureSet:
     """Create the full scenario set under ``root``; return descriptions."""
     out = Path(root)
     (out / "media").mkdir(parents=True, exist_ok=True)
@@ -108,6 +113,8 @@ def build_fixtures(root: str, *, corrupted: bool = True) -> FixtureSet:
     cases: list[FixtureCase] = []
 
     def add(spec: SyntheticSpec, case: FixtureCase) -> None:
+        spec.target_kbps = target_kbps
+        spec.frame_rate = FRAME_RATE
         write_synthetic(spec)
         cases.append(case)
 
@@ -202,7 +209,15 @@ def build_fixtures(root: str, *, corrupted: bool = True) -> FixtureSet:
     )
 
     trunc_path = media / "truncated.mp4"
-    write_synthetic(SyntheticSpec(path=str(trunc_path), duration_s=DURATION_S, seed=606))
+    write_synthetic(
+        SyntheticSpec(
+            path=str(trunc_path),
+            duration_s=DURATION_S,
+            seed=606,
+            target_kbps=target_kbps,
+            frame_rate=FRAME_RATE,
+        )
+    )
     truncate_file(str(trunc_path), keep_fraction=0.7)
     cases.append(
         FixtureCase(
@@ -216,7 +231,15 @@ def build_fixtures(root: str, *, corrupted: bool = True) -> FixtureSet:
 
     if corrupted:
         cor_path = media / "corrupted.mp4"
-        write_synthetic(SyntheticSpec(path=str(cor_path), duration_s=DURATION_S, seed=808))
+        write_synthetic(
+            SyntheticSpec(
+                path=str(cor_path),
+                duration_s=DURATION_S,
+                seed=808,
+                target_kbps=target_kbps,
+                frame_rate=FRAME_RATE,
+            )
+        )
         corrupt_mdat(str(cor_path))
         cases.append(
             FixtureCase(

@@ -56,6 +56,12 @@ class SyntheticSpec:
     # Deterministic content seed; identical seeds => identical content.
     seed: int = 1
     with_audio: bool = True
+    # Target total bitrate (kbps); None uses a fixed CRF.  The encoder
+    # overshoots an ABR target on this tiny synthetic content, so a measured
+    # correction factor maps the requested value onto an effective bitrate.
+    target_kbps: int | None = None
+    # Empirical ABR overshoot factor for ultrafast x264 on these clips.
+    abr_correction: float = 0.9
 
 
 def _video_frame(frame_idx: int, spec: SyntheticSpec) -> av.VideoFrame:
@@ -99,13 +105,22 @@ def write_synthetic(spec: SyntheticSpec) -> str:
         )
         vstream.width, vstream.height = spec.width, spec.height
         vstream.pix_fmt = "yuv420p"
-        vstream.options = {"preset": "ultrafast", "crf": "28"}
+        if spec.target_kbps is not None:
+            # Reserve headroom for the AAC track; correct measured overshoot.
+            video_target = max(
+                32_000, int(spec.target_kbps * 1000 * spec.abr_correction) - 64_000
+            )
+            vstream.bit_rate = video_target
+            vstream.options = {"preset": "ultrafast"}
+        else:
+            vstream.options = {"preset": "ultrafast", "crf": "28"}
         vtb = Fraction(spec.video_time_base).limit_denominator(1_000_000)
         vstream.time_base = vtb
         astream = None
         if spec.with_audio:
             astream = container.add_stream("aac", rate=spec.sample_rate)
             astream.layout = "mono" if spec.channels == 1 else "stereo"
+            astream.bit_rate = 64_000
 
         n_frames = int(round(spec.duration_s * spec.frame_rate))
         if n_frames > MAX_FRAMES:
