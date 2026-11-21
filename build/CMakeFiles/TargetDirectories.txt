@@ -1,0 +1,3 @@
+/Users/clearliu/WorkSpace/pair-wise-workspace/14147/build/CMakeFiles/media_core.dir
+/Users/clearliu/WorkSpace/pair-wise-workspace/14147/build/CMakeFiles/edit_cache.dir
+/Users/clearliu/WorkSpace/pair-wise-workspace/14147/build/CMakeFiles/rebuild_cache.dir

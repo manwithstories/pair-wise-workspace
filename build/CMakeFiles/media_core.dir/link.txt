@@ -1,0 +1,2 @@
+/usr/bin/ar qc libmedia_core.a CMakeFiles/media_core.dir/src/error.cpp.o
+/usr/bin/ranlib libmedia_core.a
