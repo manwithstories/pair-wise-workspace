@@ -212,6 +212,30 @@ func TestRunnerCancelKeepsCommitted(t *testing.T) {
 	}
 }
 
+func TestRunnerCancelRaceFree(t *testing.T) {
+	// Cancellation must not leave concurrent writers on the fault list or
+	// counters; run under -race to make this meaningful.
+	dir := t.TempDir()
+	src := writeStream(t, dir, streamSpec{camera: "cam1", n: 400, step: 3000})
+	for i := 0; i < 3; i++ {
+		ctx, cancel := context.WithCancel(context.Background())
+		r := New(FlowConfig{
+			QueueCap: 2, Workers: 4, MaxInflight: 4, MaxPayloadBytes: 1 << 20,
+			SlowConsumer: time.Millisecond,
+			Progress: func(e Event) {
+				if e.Stage == StageTransform && e.Seq == uint64(10+i*5) {
+					cancel()
+				}
+			},
+		})
+		res := r.Run(ctx, []Source{src})
+		cancel()
+		if !res.Canceled {
+			t.Fatalf("iteration %d not canceled", i)
+		}
+	}
+}
+
 func TestRunnerChecksumMismatchReported(t *testing.T) {
 	dir := t.TempDir()
 	src := writeStream(t, dir, streamSpec{

@@ -376,7 +376,10 @@ func (r *Runner) Run(ctx context.Context, sources []Source) FlowResult {
 			r.parseSource(ctx, src, parseCh, addFaults)
 		}()
 	}
+	var parseWGDone sync.WaitGroup
+	parseWGDone.Add(1)
 	go func() {
+		defer parseWGDone.Done()
 		parseWG.Wait()
 		close(parseCh)
 	}()
@@ -419,6 +422,13 @@ func (r *Runner) Run(ctx context.Context, sources []Source) FlowResult {
 	for it := range verifyCh {
 		res.Items = append(res.Items, it)
 	}
+	// Cancellation makes consumers exit before their producers finish
+	// flushing. Join every stage before reading shared state so the fault
+	// list and counters are stable.
+	parseWGDone.Wait()
+	reorderWG.Wait()
+	transformWG.Wait()
+	verifyWG.Wait()
 
 	// Deterministic output order: camera, timeline position, sequence.
 	sort.SliceStable(res.Items, func(i, j int) bool {
@@ -435,7 +445,10 @@ func (r *Runner) Run(ctx context.Context, sources []Source) FlowResult {
 	elapsed := time.Since(start)
 	wait, hits := r.bp.stats()
 	res.Canceled = ctx.Err() != nil
-	res.Faults = faults.Sorted()
+	faultMu.Lock()
+	snapshot := append(fault.List(nil), faults...)
+	faultMu.Unlock()
+	res.Faults = snapshot.Sorted()
 	res.Metrics = FlowMetrics{
 		PeakInflight:     int(atomic.LoadInt64(&r.peak)),
 		PeakStageQueue:   r.stagePeakCopy(),
