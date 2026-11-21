@@ -1,6 +1,7 @@
 package fault
 
 import (
+	"context"
 	"errors"
 	"testing"
 )
@@ -81,5 +82,14 @@ func TestEveryCorruptionSentinelMapsToExit2(t *testing.T) {
 		if got := ExitCode(New(StageVerify, s)); got != 3 {
 			t.Errorf("%v -> exit %d", s, got)
 		}
+	}
+}
+
+func TestContextCancellationIsRuntime(t *testing.T) {
+	if got := ExitCode(New(StageQueue, context.Canceled)); got != 3 {
+		t.Fatalf("context.Canceled exit=%d", got)
+	}
+	if got := ExitCode(New(StageQueue, context.DeadlineExceeded)); got != 3 {
+		t.Fatalf("deadline exit=%d", got)
 	}
 }

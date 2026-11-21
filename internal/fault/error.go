@@ -6,6 +6,7 @@
 package fault
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -151,6 +152,8 @@ func (e *Error) Class() Class {
 		errors.Is(e.Err, ErrMalformed), errors.Is(e.Err, ErrUnknownTrack),
 		errors.Is(e.Err, ErrCorruptBlock), errors.Is(e.Err, ErrBoundary):
 		return ClassCorrupt
+	case errors.Is(e.Err, context.Canceled), errors.Is(e.Err, context.DeadlineExceeded):
+		return ClassRuntime
 	case e.Stage == StageIO, e.Stage == StageOpen:
 		return ClassRuntime
 	default:
