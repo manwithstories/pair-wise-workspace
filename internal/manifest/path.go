@@ -139,6 +139,10 @@ func ReadLimited(path string) ([]byte, error) {
 	return data, nil
 }
 
+// NoByteRange marks a segment that has no byte-range restriction. Zero is a
+// valid range start, so an explicit sentinel is required.
+const NoByteRange int64 = -1
+
 // wrapLine annotates a parse error with the manifest path and 1-based line.
 func wrapLine(path string, line int, err error) error {
 	return fmt.Errorf("%s:%d: %w", path, line+1, err)
@@ -155,8 +159,9 @@ func (r *Resolver) ValidateSegment(seg Segment) (Segment, error) {
 	if seg.Start.Sign() < 0 {
 		return Segment{}, fmt.Errorf("%w: %s has negative start", ErrBadManifest, seg.Name)
 	}
-	if seg.ByteEnd < 0 && seg.ByteStart == 0 {
-		// No byte range recorded.
+	if seg.ByteEnd == NoByteRange {
+		// No byte range recorded; ByteStart may be zero legitimately.
+		seg.ByteStart = 0
 	} else if seg.ByteEnd < seg.ByteStart || seg.ByteStart < 0 {
 		return Segment{}, fmt.Errorf("%w: %s byte range %d-%d", ErrBadManifest, seg.Name, seg.ByteStart, seg.ByteEnd)
 	}

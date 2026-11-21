@@ -129,7 +129,7 @@ func expandTemplate(r *Resolver, tpl *mpdTemplate, ts uint32, repID string) ([]S
 		if err != nil {
 			return nil, "", model.Rational{}, err
 		}
-		seg, err := r.ValidateSegment(Segment{Name: baseName(media), URI: media, Start: start, Duration: dur})
+		seg, err := r.ValidateSegment(Segment{Name: baseName(media), URI: media, Start: start, Duration: dur, ByteEnd: NoByteRange})
 		if err != nil {
 			return nil, "", model.Rational{}, err
 		}

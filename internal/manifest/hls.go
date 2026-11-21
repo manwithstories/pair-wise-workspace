@@ -98,7 +98,8 @@ func ParseHLS(r *Resolver, relPath string, data []byte) (*Timeline, error) {
 			return nil, wrapLine(relPath, lineNo, ErrUnsupported)
 		}
 		seen[key] = true
-		seg := Segment{Name: baseName(pendingName), URI: pendingName, Start: cursor, Duration: *pendingDur}
+		seg := Segment{Name: baseName(pendingName), URI: pendingName, Start: cursor,
+			Duration: *pendingDur, ByteStart: 0, ByteEnd: NoByteRange}
 		if haveRange {
 			seg.ByteStart, seg.ByteEnd = pendingByte[0], pendingByte[1]
 		}

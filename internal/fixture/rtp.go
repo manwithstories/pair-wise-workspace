@@ -7,27 +7,28 @@ import (
 	"path/filepath"
 )
 
-// HLS media playlist: 12 two-second segments of one MP4 byte stream, with a
-// deliberate gap at MissingIdx.
+// HLS media playlist: 12 two-second segments with a deliberate gap at
+// MissingIdx, plus an init map.
 func hlsPlaylist(l Layout) []byte {
 	out := []byte("#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:2\n#EXT-X-MEDIA-SEQUENCE:0\n")
+	out = append(out, []byte("#EXT-X-MAP:URI=\"media/init-v.mp4\"\n")...)
+	// The playlist references every slot, including the one whose media file
+	// is deliberately absent, so scanning reports a missing dependency.
 	for i := 0; i < SegmentCount; i++ {
-		if i == l.MissingIdx {
-			continue
-		}
-		out = append(out, []byte(fmt.Sprintf("#EXTINF:2.000,\n%s\n", videoSeg(i)))...)
+		out = append(out, []byte(fmt.Sprintf("#EXTINF:2.000,\n%s\n", SegmentURI(i)))...)
 	}
 	out = append(out, []byte("#EXT-X-ENDLIST\n")...)
 	return out
 }
 
-// DASH MPD: matching video and audio SegmentTemplates with SegmentTimeline.
+// dashManifest emits matching video and audio SegmentTemplates over the same
+// media files, using an explicit SegmentTimeline.
 func dashManifest(l Layout) []byte {
 	body := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" mediaPresentationDuration="PT24S">
   <Period id="p0" start="PT0S">
     <AdaptationSet id="video" contentType="video" mimeType="video/mp4" timescale="%d">
-      <SegmentTemplate timescale="%d" initialization="init-v.mp4" media="video/seg-$Number%02d.m4s" startNumber="1">
+      <SegmentTemplate timescale="%d" initialization="media/init-v.mp4" media="media/seg-$Number%%02d.m4s" startNumber="1">
         <SegmentTimeline>
           <S t="0" d="%d" r="%d"/>
         </SegmentTimeline>
@@ -35,7 +36,7 @@ func dashManifest(l Layout) []byte {
       <Representation id="v0" bandwidth="1200000" mimeType="video/mp4"/>
     </AdaptationSet>
     <AdaptationSet id="audio" contentType="audio" mimeType="audio/mp4" timescale="%d">
-      <SegmentTemplate timescale="%d" initialization="init-a.mp4" media="audio/seg-$Number%02d.m4s" startNumber="1">
+      <SegmentTemplate timescale="%d" initialization="media/init-a.mp4" media="media/seg-$Number%%02d.m4s" startNumber="1">
         <SegmentTimeline>
           <S t="0" d="%d" r="%d"/>
         </SegmentTimeline>
@@ -44,30 +45,25 @@ func dashManifest(l Layout) []byte {
     </AdaptationSet>
   </Period>
 </MPD>
-`, VideoTimescale, VideoTimescale, 1, SegmentSeconds*VideoTimescale, SegmentCount-1,
-		AudioTimescale, AudioTimescale, 1, SegmentSeconds*AudioTimescale, SegmentCount-1)
+`, VideoTimescale, VideoTimescale, SegmentSeconds*VideoTimescale, SegmentCount-1,
+		AudioTimescale, AudioTimescale, SegmentSeconds*AudioTimescale, SegmentCount-1)
 	return []byte(body)
 }
-
-// RTP generation: a 90 kHz video RTP stream over UDP with a controlled loss
-// pattern. Every lossEvery-th sequence number is dropped; a small reordering
-// window and one duplicate exercise the jitter buffer.
 
 // RTPTimestampStep is the 90 kHz timestamp advance per 30 ms packet.
 const RTPTimestampStep = 90_000 * 30 / 1000
 
-// RTPPacket is the on-disk form of one captured packet: 4-byte big-endian
-// length followed by the raw RTP bytes.
+// RTPPacket is the on-disk form of one captured packet.
 type RTPPacket struct {
 	Seq     uint16
-	Lost    bool
 	Payload []byte
 }
 
-// GenerateRTP writes lossEvery-induced gaps plus a duplicate and swaps a pair
-// of packets inside the reorder window. It returns the count of dropped
-// packets so the demo can report the expected loss.
-func GenerateRTP(path string, packets int, lossEvery int) (dropped int, err error) {
+// GenerateRTP writes a length-prefixed capture exercising loss, duplicates
+// and reordering. Every lossEvery-th sequence number is dropped, one packet is
+// duplicated, and two packets are held back so they arrive after their
+// successors. It returns the number of dropped packets.
+func GenerateRTP(path string, packets, lossEvery int) (dropped int, err error) {
 	if packets <= 0 || lossEvery <= 1 {
 		return 0, fmt.Errorf("fixture: invalid rtp parameters %d/%d", packets, lossEvery)
 	}
@@ -80,10 +76,7 @@ func GenerateRTP(path string, packets int, lossEvery int) (dropped int, err erro
 	}
 	defer f.Close()
 	var pending *RTPPacket
-	flush := func(p *RTPPacket) error {
-		if p == nil {
-			return nil
-		}
+	emit := func(p *RTPPacket) error {
 		buf := make([]byte, 12, 12+len(p.Payload))
 		buf[0], buf[1] = 0x80, 0x60
 		binary.BigEndian.PutUint16(buf[2:], p.Seq)
@@ -96,26 +89,33 @@ func GenerateRTP(path string, packets int, lossEvery int) (dropped int, err erro
 		_, werr := f.Write(rec)
 		return werr
 	}
-	emit := func(p *RTPPacket) error {
-		return flush(p)
+	flush := func() error {
+		if pending == nil {
+			return nil
+		}
+		err := emit(pending)
+		pending = nil
+		return err
 	}
 	for i := 0; i < packets; i++ {
-		seq := uint16(i)
 		if i > 0 && i%lossEvery == 0 {
-			dropped++
-			continue // simulate transport loss
+			dropped++ // simulated transport loss
+			continue
 		}
 		payload := make([]byte, 40)
 		for j := range payload {
 			payload[j] = byte((i*13 + j*7) % 251)
 		}
-		pkt := &RTPPacket{Seq: seq, Payload: payload}
-		// Hold one packet back to force an out-of-order arrival pair.
-		if i == 9 {
+		pkt := &RTPPacket{Seq: uint16(i), Payload: payload}
+		// Hold the lower half of each pair so it arrives out of order.
+		if i == 9 || i == 13 {
+			if err := flush(); err != nil {
+				return dropped, err
+			}
 			pending = pkt
 			continue
 		}
-		if i == 10 && pending != nil {
+		if (i == 10 || i == 14) && pending != nil {
 			if err := emit(pkt); err != nil {
 				return dropped, err
 			}
@@ -129,11 +129,11 @@ func GenerateRTP(path string, packets int, lossEvery int) (dropped int, err erro
 			return dropped, err
 		}
 		if i == 4 {
-			// Duplicate of the previous packet, as a retransmission would look.
+			// A retransmission duplicate of an already-delivered packet.
 			if err := emit(pkt); err != nil {
 				return dropped, err
 			}
 		}
 	}
-	return dropped, flush(pending)
+	return dropped, flush()
 }
