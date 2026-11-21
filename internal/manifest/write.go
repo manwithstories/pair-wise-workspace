@@ -151,6 +151,51 @@ type ArtifactRecord struct {
 	Bytes  int64  `json:"bytes"`
 }
 
+// ContentSHA256 is the SHA-256 of this manifest's canonical JSON with the
+// manifest.json artifact entry removed. Because a manifest cannot contain the
+// hash of its own final bytes, this digest describes the manifest body and is
+// reproducible by VerifySelfHash.
+func (m *Manifest) ContentSHA256() (string, error) {
+	clone := *m
+	clone.Artifacts = make([]ArtifactRecord, 0, len(m.Artifacts))
+	for _, a := range m.Artifacts {
+		if a.Path == "manifest.json" {
+			continue
+		}
+		clone.Artifacts = append(clone.Artifacts, a)
+	}
+	data, err := json.Marshal(&clone)
+	if err != nil {
+		return "", model.Wrap(model.CategoryManifest, "hash", err)
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+// VerifySelfHash recomputes the body digest and compares it with the
+// manifest.json artifact entry. A missing entry is reported, not ignored.
+func (m *Manifest) VerifySelfHash() error {
+	var recorded string
+	for _, a := range m.Artifacts {
+		if a.Path == "manifest.json" {
+			recorded = a.SHA256
+			break
+		}
+	}
+	if recorded == "" {
+		return model.New(model.CategoryManifest, "self-hash", "manifest has no self hash")
+	}
+	want, err := m.ContentSHA256()
+	if err != nil {
+		return err
+	}
+	if want != recorded {
+		return model.New(model.CategoryManifest, "self-hash",
+			fmt.Sprintf("manifest body changed: %s != %s", want, recorded))
+	}
+	return nil
+}
+
 // StabilityRecord compares a re-run with the first run.
 type StabilityRecord struct {
 	FrameHashesStable bool     `json:"frame_hashes_stable"`
@@ -165,15 +210,22 @@ func New(seed int64, mode string) *Manifest {
 	return &Manifest{Version: Version, Seed: seed, Mode: mode}
 }
 
-// AddArtifact hashes a file and records it.
+// AddArtifact hashes a file and records it under its base name.
 func (m *Manifest) AddArtifact(path string) error {
+	return m.AddArtifactAs(path, filepath.Base(path))
+}
+
+// AddArtifactAs hashes a file and records it under a manifest-relative name.
+// Frame artifacts use "frames/frame_0000.ppm" so a consumer can locate them
+// unambiguously next to manifest.json.
+func (m *Manifest) AddArtifactAs(path, name string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return model.Wrap(model.CategoryManifest, "artifact", err)
 	}
 	sum := sha256.Sum256(data)
 	m.Artifacts = append(m.Artifacts, ArtifactRecord{
-		Path: filepath.Base(path), SHA256: hex.EncodeToString(sum[:]), Bytes: int64(len(data)),
+		Path: name, SHA256: hex.EncodeToString(sum[:]), Bytes: int64(len(data)),
 	})
 	sort.SliceStable(m.Artifacts, func(i, j int) bool { return m.Artifacts[i].Path < m.Artifacts[j].Path })
 	return nil

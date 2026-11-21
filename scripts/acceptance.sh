@@ -103,5 +103,7 @@ if command -v cmp >/dev/null 2>&1; then
   cmp "$ROOT/first/frames/frame_0000.ppm" "$ROOT/second/frames/frame_0000.ppm" \
     || fail "resumed frame differs from original"
 fi
+# Re-verify every artifact hash and the manifest body hash from the terminal.
+"$BIN" verify-manifest "$ROOT/demo/manifest.json"
 
 echo "PASS: all acceptance checks satisfied"

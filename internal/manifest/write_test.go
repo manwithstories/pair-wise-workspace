@@ -126,3 +126,37 @@ func TestAddArtifactHashes(t *testing.T) {
 		t.Fatal("missing artifact accepted")
 	}
 }
+
+func TestSelfHashIsReproducibleFromDisk(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "manifest.json")
+	m := sampleManifest()
+	if err := m.Write(path); err != nil {
+		t.Fatal(err)
+	}
+	sum, err := m.ContentSHA256()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Artifacts = append(m.Artifacts, ArtifactRecord{Path: "manifest.json", SHA256: sum})
+	if err := m.Write(path); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := loaded.VerifySelfHash(); err != nil {
+		t.Fatalf("freshly written manifest fails its own hash: %v", err)
+	}
+	// Tampering with the body must be detected.
+	loaded.Frames[0].FrameHash = "tampered"
+	if err := loaded.VerifySelfHash(); err == nil {
+		t.Fatal("tampered manifest passed self-hash verification")
+	}
+	// A missing entry is an error, not a silent pass.
+	loaded2 := sampleManifest()
+	if err := loaded2.VerifySelfHash(); err == nil {
+		t.Fatal("manifest without a self hash passed verification")
+	}
+}

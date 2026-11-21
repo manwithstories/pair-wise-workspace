@@ -56,7 +56,8 @@ type Layer struct {
 	Rect        [4]int         `json:"rect"`
 	// CodedW/CodedH are the pre-crop source dimensions, needed to sample the
 	// source independently of the forward compositor.
-	CodedW, CodedH int `json:"coded_w_h"`
+	CodedW int `json:"coded_w"`
+	CodedH int `json:"coded_h"`
 	// Boundary marks a source sample that covers less than the full output
 	// frame; the deterministic rule keeps it because it covers the start.
 	Boundary bool `json:"boundary"`

@@ -153,3 +153,33 @@ func TestHelpAndVersion(t *testing.T) {
 		t.Fatal("version failed")
 	}
 }
+
+func TestVerifyManifestDetectsTampering(t *testing.T) {
+	out := t.TempDir()
+	if code, _, stderr := runCLI("demo", "--out", out, "--frames", "3"); code != 0 {
+		t.Fatalf("demo exit=%d %s", code, stderr)
+	}
+	path := filepath.Join(out, "manifest.json")
+	if code, stdout, stderr := runCLI("verify-manifest", path); code != 0 {
+		t.Fatalf("verify exit=%d %s%s", code, stdout, stderr)
+	}
+	// Tamper with the manifest body: verification must fail with exit 2.
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := strings.Replace(string(raw), `"frame_count": 3`, `"frame_count": 999`, 1)
+	if tampered == string(raw) {
+		t.Fatal("tamper fixture did not apply")
+	}
+	if err := os.WriteFile(path, []byte(tampered), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr := runCLI("verify-manifest", path); code != 2 {
+		t.Fatalf("tampered verify exit=%d, want 2 (%s)", code, stderr)
+	}
+	// A missing manifest is a usage/data error, never a panic.
+	if code, _, _ := runCLI("verify-manifest"); code != 1 {
+		t.Fatal("missing path should be a usage error")
+	}
+}

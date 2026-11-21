@@ -299,7 +299,7 @@ func Run(opt Options) (*Result, error) {
 					}
 					for _, rf := range rendered {
 						path := filepath.Join(opt.Out, "frames", frameName(rf.Index))
-						if aerr := m.AddArtifact(path); aerr != nil {
+						if aerr := m.AddArtifactAs(path, filepath.Join("frames", frameName(rf.Index))); aerr != nil {
 							return scheduler.Result{}, aerr
 						}
 					}
@@ -410,20 +410,26 @@ func finalizeManifest(res *Result, opt Options) error {
 		})
 	}
 	path := filepath.Join(opt.Out, "manifest.json")
+	// A manifest cannot contain the hash of its own final bytes. Record the
+	// digest of the canonical body (all artifacts except manifest.json and
+	// this entry itself) so VerifySelfHash can reproduce it exactly.
+	for i := 0; i < len(m.Artifacts); i++ {
+		if m.Artifacts[i].Path == "manifest.json" {
+			m.Artifacts = append(m.Artifacts[:i], m.Artifacts[i+1:]...)
+			i--
+		}
+	}
+	// The entry's Bytes field would change the body, so compute the digest
+	// with the entry absent, then append it as a fixed-size record.
+	sum, err := m.ContentSHA256()
+	if err != nil {
+		return err
+	}
+	m.Artifacts = append(m.Artifacts, manifest.ArtifactRecord{Path: "manifest.json", SHA256: sum})
 	if err := m.Write(path); err != nil {
 		return err
 	}
-	// The manifest file changed; refresh its recorded hash.
-	for i := range m.Artifacts {
-		if m.Artifacts[i].Path == "manifest.json" {
-			m.Artifacts = append(m.Artifacts[:i], m.Artifacts[i+1:]...)
-			break
-		}
-	}
-	if err := m.AddArtifact(path); err != nil {
-		return err
-	}
-	return m.Write(path)
+	return m.VerifySelfHash()
 }
 
 func bandwidthRecordsOf(m *manifest.Manifest) []transport.BandwidthSampleRecord {

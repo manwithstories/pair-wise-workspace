@@ -4,13 +4,17 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"mediad/internal/fixtures"
+	"mediad/internal/manifest"
 	"mediad/internal/model"
 	"mediad/internal/pipeline"
 )
@@ -35,6 +39,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "demo":
 		return runDemo(args[1:], stdout, stderr)
+	case "verify-manifest":
+		return runVerify(args[1:], stdout, stderr)
 	case "version", "--version", "-version":
 		fmt.Fprintln(stdout, "mediad 1.0.0")
 		return exitOK
@@ -67,6 +73,11 @@ Flags:
   --no-frames             do not write PPM frame artifacts
   --render-scale int      raster downscale for verification renders (default 4)
   --resume-from string    resume an interrupted run from a prior manifest
+
+Commands:
+  demo             run the full pipeline
+  verify-manifest  re-check artifact and manifest hashes
+  version          print the version
 
 Exit codes:
   0  success
@@ -178,6 +189,62 @@ func printResult(w io.Writer, res *pipeline.Result) {
 		fmt.Fprintln(w)
 	}
 	fmt.Fprintf(w, "out=%s\n", res.OutDir)
+}
+
+// runVerify checks every artifact hash and the manifest self-hash. It is the
+// re-run stability check an operator can invoke from the terminal.
+func runVerify(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("verify-manifest", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	if err := fs.Parse(args); err != nil {
+		return exitUsage
+	}
+	if fs.NArg() != 1 {
+		fmt.Fprintln(stderr, "mediad: verify-manifest requires one manifest path")
+		return exitUsage
+	}
+	path := fs.Arg(0)
+	m, err := manifest.Load(path)
+	if err != nil {
+		fmt.Fprintln(stderr, err.Error())
+		return model.ExitCode(err)
+	}
+	dir := filepath.Dir(path)
+	checked := 0
+	for _, a := range m.Artifacts {
+		if a.Path == "manifest.json" {
+			// The file's final bytes differ from its body digest by construction;
+			// VerifySelfHash checks the body instead.
+			continue
+		}
+		p := filepath.Join(dir, a.Path)
+		data, rerr := os.ReadFile(p)
+		if rerr != nil {
+			fmt.Fprintf(stderr, "mediad: manifest: artifact: %v\n", rerr)
+			return exitData
+		}
+		sum := sha256.Sum256(data)
+		if got := hex.EncodeToString(sum[:]); got != a.SHA256 {
+			fmt.Fprintf(stderr, "mediad: manifest: artifact hash mismatch: %s\n", a.Path)
+			return exitData
+		}
+		checked++
+	}
+	if err := m.VerifySelfHash(); err != nil {
+		fmt.Fprintln(stderr, err.Error())
+		return exitData
+	}
+	fmt.Fprintf(stdout, "verified_artifacts=%d\nmanifest_sha256=%s\n", checked, manifestSelfHash(m))
+	return exitOK
+}
+
+func manifestSelfHash(m *manifest.Manifest) string {
+	for _, a := range m.Artifacts {
+		if a.Path == "manifest.json" {
+			return a.SHA256
+		}
+	}
+	return ""
 }
 
 func validScenario(s string) bool {
