@@ -336,6 +336,7 @@ func runDemo(args []string, stdout, stderr io.Writer) error {
 		TrackTypes:   types,
 		TrackCodecs:  codecs,
 		Resume:       resumeInfo,
+		RTPClocks:    rtpClocks(st.container),
 	})
 	if err := writeManifest(man, st.manifest); err != nil {
 		return err
@@ -355,6 +356,28 @@ func interruptAfterFor(f *demoFlags, resume *pipeline.ResumePlan) int {
 		return 0
 	}
 	return f.interruptAfter
+}
+
+// rtpClocks summarizes each track on the delivery clock. Video uses 90 kHz
+// and audio uses its sample rate, the conventional RTP rates.
+func rtpClocks(c *media.Container) map[string]string {
+	out := make(map[string]string, len(c.Tracks))
+	for _, t := range c.Tracks {
+		rate := t.Timescale
+		if t.Type == media.MediaVideo {
+			rate = 90000
+		}
+		clock, err := media.NewRTPClock(rate)
+		if err != nil {
+			continue
+		}
+		info, err := clock.Summarize(t.Index)
+		if err != nil {
+			continue
+		}
+		out[t.ID.String()] = info.String()
+	}
+	return out
 }
 
 // resolvedMeta converts resolved descriptions into the muxer's form.

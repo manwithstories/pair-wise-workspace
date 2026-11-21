@@ -45,6 +45,8 @@ type TrackEntry struct {
 	ColorFrom    string   `json:"color_from"`
 	Warnings     []string `json:"warnings,omitempty"`
 	Conflicts    []string `json:"conflicts,omitempty"`
+	// RTP records the delivery clock range for the track.
+	RTP string `json:"rtp_clock,omitempty"`
 }
 
 // Manifest is the complete delivery record.
@@ -104,6 +106,9 @@ func Build(in Input) *Manifest {
 		if !e.Match {
 			match = false
 		}
+		if clock, ok := in.RTPClocks[tr.Key]; ok {
+			e.RTP = clock
+		}
 		if r, ok := lookupResolved(in.Resolved, tr.Key); ok {
 			e.Type = string(in.TrackTypes[tr.Key])
 			e.Codec = in.TrackCodecs[tr.Key]
@@ -143,6 +148,8 @@ type Input struct {
 	TrackTypes   map[string]media.MediaType
 	TrackCodecs  map[string]string
 	Faults       []Fault
+	// RTPClocks maps track key to its delivery-clock summary.
+	RTPClocks map[string]string
 }
 
 func lookupResolved(r *metadata.Result, key string) (metadata.Resolved, bool) {

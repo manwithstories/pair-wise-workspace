@@ -15,7 +15,7 @@ Dependencies are pinned:
 | Module | Version | Use |
 | --- | --- | --- |
 | `github.com/abema/go-mp4` | v1.4.1 | MP4 box definitions |
-| `github.com/pion/rtp` | v1.8.9 | RTP timestamp/sequence types |
+| `github.com/pion/rtp` | v1.8.9 | RTP datagram boundaries, header extensions, sequence numbers |
 
 ## Build and test
 
@@ -81,7 +81,9 @@ internal/manifest      delivery record, including every fault location
 **Time.** Timestamps are `media.Rat` values (`int64/int64`); floating point is
 used only for display. A per-track `Unwrapper` expands 32-bit wrapping clocks
 and returns the exact input offset when a transition is exactly half the range
-and therefore cannot be resolved.
+and therefore cannot be resolved. `media.RTPClock` maps those exact times onto
+the 32-bit delivery clock and uses `pion/rtp` for datagram boundaries, header
+extensions and sequence numbers; the manifest records each track's RTP range.
 
 **Errors.** Every failure is a `media.Error` carrying a class, container,
 track and byte offset. `errors.Is` matches on class, and the class determines
