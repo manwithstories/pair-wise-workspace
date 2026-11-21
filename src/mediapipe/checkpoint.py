@@ -169,8 +169,8 @@ class CheckpointStore:
 
 
 def mapping_fingerprint(mappings: list[Any]) -> str:
-    """映射配置指纹：规范化后求 SHA-256。"""
+    """映射配置指纹：规范化后求 SHA-256（映射顺序已在 validate 中规范化）。"""
     normalized = json.dumps(
-        sorted(m.to_dict() for m in mappings), sort_keys=True
+        [m.to_dict() for m in mappings], sort_keys=True
     )
     return hashlib.sha256(normalized.encode()).hexdigest()

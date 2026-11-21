@@ -156,7 +156,14 @@ def _timeline_compare(
         per_packet.append((rec.sequence, shifts))
         if rec.duration_us is not None and out_pkt.duration is not None:
             out_dur_us = to_microseconds(int(out_pkt.duration), out_tb)
-            if abs(out_dur_us - rec.duration_us) > 1:
+            # 容器会把前导 priming 包的 duration 清零（edit-list 行为），容忍之
+            is_priming = rec.dts is not None and rec.dts < 0
+            if out_dur_us == 0 and is_priming:
+                continue
+            # 不同 time_base 与 AAC 帧长量化（1024/48000≈21333us）会带来
+            # 单帧级抖动，容差取 1us 与源时长 5% 的较大者，但不接受整帧丢失
+            tol = max(1, int(rec.duration_us * 0.05))
+            if abs(out_dur_us - rec.duration_us) > tol:
                 mismatches.append(
                     {
                         "field": "duration_us",
