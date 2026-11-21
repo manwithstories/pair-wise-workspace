@@ -240,7 +240,8 @@ func runVerify(args []string, out, errOut io.Writer, recoverDefault bool) error 
 		var re *fault.RecoveryError
 		switch {
 		case errors.As(runErr, &re) && o.recover:
-			// Recovery produced usable output; report the manifest.
+			// Recovery stopped at damage that could still be proven; the
+			// manifest records exactly what was skipped.
 			printRecovered(out, re, fx.Note)
 			return nil
 		case errors.As(runErr, &re):
@@ -283,13 +284,15 @@ func printRecoveredReport(out io.Writer, re *fault.RecoveryError, rep *pipeline.
 		fmt.Fprintf(out, "skipped start=%d length=%d reason=%q\n", s.Start, s.Length, s.Reason)
 	}
 	fmt.Fprintf(out, "skipped_bytes=%d output=%s output_sha256=%s\n",
-		re.SkippedBytes()+rep.SkippedBytes, rep.OutputPath, short(rep.OutputSHA256))
+		re.SkippedBytes(), rep.OutputPath, short(rep.OutputSHA256))
 	fmt.Fprintf(out, "note=%q\n", note)
 }
 
+// printRecovered prints the manifest for a run that stopped after recovery,
+// so no output file exists and no segment can be hash-verified.
 func printRecovered(out io.Writer, re *fault.RecoveryError, note string) {
-	fmt.Fprintf(out, "status=recovered skipped_segments=%d source_offset=%d hash_verified_segments=%d exit=0\n",
-		len(re.Skips), firstOffset(re), hashVerified(re))
+	fmt.Fprintf(out, "status=recovered skipped_segments=%d source_offset=%d hash_verified_segments=0 exit=0\n",
+		len(re.Skips), firstOffset(re))
 	for _, s := range re.Skips {
 		fmt.Fprintf(out, "skipped start=%d length=%d reason=%q\n", s.Start, s.Length, s.Reason)
 	}
@@ -307,20 +310,6 @@ func firstOffset(re *fault.RecoveryError) int64 {
 		return fault.OffsetOf(re.Cause)
 	}
 	return min
-}
-
-func hashVerified(re *fault.RecoveryError) int64 {
-	// Every segment outside the skipped ranges was hashed during verification.
-	var n int64
-	for _, s := range re.Skips {
-		if s.Length == 0 {
-			n++
-		}
-	}
-	if n == 0 {
-		n = 1
-	}
-	return n
 }
 
 // inspectOptions parse an arbitrary file.
