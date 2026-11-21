@@ -38,6 +38,9 @@ type Sample struct {
 	// Tick is the sample's presentation timestamp in source Segment ticks,
 	// retained so the keyframe index can answer source-time queries.
 	Tick int64
+	// DurationTick is the source-declared duration in Segment ticks, or 0 when
+	// the muxer must derive it from decode deltas.
+	DurationTick int64
 	// StaticDuration marks tracks whose samples all share DefaultDuration.
 	StaticDuration bool
 }

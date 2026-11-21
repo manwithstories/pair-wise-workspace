@@ -57,6 +57,10 @@ type Sample struct {
 	FrameIndex int
 	// Laced reports that the sample came from a multi-frame block.
 	Laced bool
+	// DurationTicks is the Matroska BlockDuration in Segment ticks, or 0 when
+	// the block carried none. For laced blocks the Laced/2 frame-sharing rule
+	// applies and the caller divides by the frame count.
+	DurationTicks int64
 	// Discardable mirrors the Matroska discardable flag.
 	Discardable bool
 }

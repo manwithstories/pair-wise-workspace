@@ -54,6 +54,8 @@ type Block struct {
 	Lacing      int
 	// Frames holds the un-laced frames in block order.
 	Frames []Frame
+	// DurationTicks is the BlockGroup BlockDuration, 0 when absent.
+	DurationTicks int64
 	// SourceOffset is the absolute offset of the block payload.
 	SourceOffset int64
 }

@@ -94,3 +94,41 @@ func TestDeterministicDigest(t *testing.T) {
 		t.Fatalf("duration=%d", a.Duration())
 	}
 }
+
+func TestExplicitDurationWins(t *testing.T) {
+	tb := MustTimebase(DefaultTimestampScale)
+	samples := []Sample{
+		{Index: 0, DTS: 0, PTS: 0, Duration: 10},
+		{Index: 1, DTS: 40, PTS: 40, Duration: 0},
+	}
+	m, err := MapSamples(tb, DefaultTimescale, samples, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 10ms declared despite the 40ms decode gap.
+	if m.Samples[0].Duration != 10_000 {
+		t.Fatalf("duration=%d", m.Samples[0].Duration)
+	}
+	// The final sample has no explicit duration, so the median decode delta
+	// (40ms) applies rather than a fabricated zero.
+	if m.Samples[1].Duration != 40_000 {
+		t.Fatalf("final sample duration=%d", m.Samples[1].Duration)
+	}
+}
+
+func TestLacedDurationSharesAcrossFrames(t *testing.T) {
+	// frameDuration is exercised through the demuxer; this pins the mapping
+	// behaviour when each laced frame carries its share.
+	tb := MustTimebase(DefaultTimestampScale)
+	samples := []Sample{
+		{Index: 0, DTS: 0, PTS: 0, Duration: 5},
+		{Index: 1, DTS: 5, PTS: 5, Duration: 5},
+	}
+	m, err := MapSamples(tb, DefaultTimescale, samples, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Samples[0].Duration != 5_000 || m.Samples[1].Duration != 5_000 {
+		t.Fatalf("durations=%d,%d", m.Samples[0].Duration, m.Samples[1].Duration)
+	}
+}

@@ -7,6 +7,14 @@ import (
 
 // Build assembles a complete Matroska document.
 func Build(tracks []TrackSpec, blocks []BlockSpec, layout Layout) Document {
+	return buildWithBlocks(tracks, blocks, layout, func(spec BlockSpec, rel int64) []byte {
+		return Block(spec, rel)
+	})
+}
+
+// buildWithBlocks is the shared assembler; encode turns one block spec into
+// its element bytes.
+func buildWithBlocks(tracks []TrackSpec, blocks []BlockSpec, layout Layout, encode func(BlockSpec, int64) []byte) Document {
 	if layout.DocType == "" {
 		layout.DocType = "matroska"
 	}
@@ -79,7 +87,7 @@ func Build(tracks []TrackSpec, blocks []BlockSpec, layout Layout) Document {
 	cuesLen := 0
 	var clusterPlan clustersLayout
 	for pass := 0; pass < 2; pass++ {
-		clusterPlan = assembleClusters(clusters, layout, prefixLen, cuesLen)
+		clusterPlan = assembleClusters(clusters, layout, prefixLen, cuesLen, encode)
 		if layout.NoCues {
 			break
 		}
@@ -173,6 +181,65 @@ func groupClusters(specs []BlockSpec, span int) [][]BlockSpec {
 	return out
 }
 
+// BlockGroup encodes a BlockGroup with an optional Keyframe flag and
+// BlockDuration, which SimpleBlock cannot carry.
+func BlockGroup(spec BlockSpec, rel int64, duration int64) []byte {
+	block := NewEncoder()
+	block.Raw(EncTrackVint(spec.Track))
+	block.Raw([]byte{byte(uint16(rel) >> 8), byte(rel)})
+	flags := byte(0)
+	if spec.Laced > 1 {
+		flags |= 2 << 1 // fixed lacing
+	}
+	block.Raw([]byte{flags})
+	if spec.Laced > 1 {
+		if len(spec.Data)%spec.Laced != 0 {
+			panic("fixture: laced payload must divide evenly")
+		}
+		block.Raw([]byte{byte(spec.Laced - 1)})
+	}
+	block.Raw(spec.Data)
+
+	inner := NewEncoder()
+	inner.Element(0xA1, block.Bytes()) // Block
+	if spec.Key {
+		inner.UintElement(0x9D, 1) // Keyframe
+	} else {
+		inner.IntElement(0xFB, -1) // ReferenceBlock
+	}
+	if duration > 0 {
+		inner.IntElement(0x9B, duration) // BlockDuration
+	}
+	out := NewEncoder()
+	out.Element(0xA0, inner.Bytes()) // BlockGroup
+	return out.Bytes()
+}
+
+// GroupedBlockSpec attaches a BlockDuration to a block.
+type GroupedBlockSpec struct {
+	BlockSpec
+	Duration int64
+}
+
+// BuildGrouped builds a document whose blocks are BlockGroups carrying
+// explicit durations. Durations are matched to specs by (track, tick, payload)
+// so identical specs stay distinguishable without extra IDs.
+func BuildGrouped(tracks []TrackSpec, blocks []GroupedBlockSpec, layout Layout) Document {
+	specs := make([]BlockSpec, len(blocks))
+	durations := make(map[string]int64, len(blocks))
+	for i, b := range blocks {
+		specs[i] = b.BlockSpec
+		durations[groupKey(b.BlockSpec)] = b.Duration
+	}
+	return buildWithBlocks(tracks, specs, layout, func(spec BlockSpec, rel int64) []byte {
+		return BlockGroup(spec, rel, durations[groupKey(spec)])
+	})
+}
+
+func groupKey(spec BlockSpec) string {
+	return fmt.Sprintf("%d/%d/%x", spec.Track, spec.Tick, spec.Data)
+}
+
 // Block encodes one SimpleBlock element at the given relative timestamp.
 func Block(spec BlockSpec, rel int64) []byte {
 	block := NewEncoder()
@@ -214,7 +281,7 @@ type clustersLayout struct {
 
 // assembleClusters builds the Cluster bytes with Segment-relative offsets
 // computed as if the Cues payload occupied cuesLen bytes before them.
-func assembleClusters(clusters [][]BlockSpec, layout Layout, prefixLen, cuesLen int) clustersLayout {
+func assembleClusters(clusters [][]BlockSpec, layout Layout, prefixLen, cuesLen int, encode func(BlockSpec, int64) []byte) clustersLayout {
 	// Offsets are measured from the start of the Segment payload, so the
 	// Clusters must account for whatever precedes them.
 	leading := prefixLen
@@ -227,7 +294,7 @@ func assembleClusters(clusters [][]BlockSpec, layout Layout, prefixLen, cuesLen 
 		ts := cl[0].Tick
 		ce.UintElement(0xE7, uint64(ts))
 		for _, b := range cl {
-			ce.Raw(Block(b, b.Tick-ts))
+			ce.Raw(encode(b, b.Tick-ts))
 		}
 		start := int64(leading + len(out.bytes))
 		out.offsets = append(out.offsets, start)

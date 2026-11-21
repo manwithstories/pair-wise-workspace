@@ -249,6 +249,7 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 			SourceOffset: s.SourceOffset,
 			DTS:          s.Timestamp,
 			PTS:          s.Timestamp,
+			DurationTick: s.DurationTicks,
 			Keyframe:     s.Keyframe,
 			Tick:         s.Timestamp,
 		}); err != nil {
@@ -307,7 +308,7 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 		list := perTrack[tr.Number]
 		samples := make([]clock.Sample, len(list))
 		for j, s := range list {
-			samples[j] = clock.Sample{Index: j, DTS: s.DTS, PTS: s.PTS}
+			samples[j] = clock.Sample{Index: j, DTS: s.DTS, PTS: s.PTS, Duration: s.DurationTick}
 		}
 		m, err := clock.MapSamples(tb, clock.DefaultTimescale, samples, int64(tr.DefaultDuration))
 		if err != nil {

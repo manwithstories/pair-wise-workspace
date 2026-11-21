@@ -12,6 +12,9 @@ type Sample struct {
 	Index int
 	DTS   int64
 	PTS   int64
+	// Duration is an explicit source-tick duration (for example a Matroska
+	// BlockDuration). Zero means "derive from the next sample's DTS".
+	Duration int64
 }
 
 // MappedSample is a sample in output timescale.
@@ -55,6 +58,7 @@ type Mapping struct {
 
 type working struct {
 	dts, pts int64
+	dur      int64
 	index    int
 }
 
@@ -97,7 +101,15 @@ func MapSamples(tb Timebase, timescale int64, samples []Sample, defaultDurationN
 		if i > 0 && s.PTS < samples[i-1].PTS {
 			m.Stats.PTSRegression++
 		}
-		ws[i] = working{dts: dts, pts: pts, index: s.Index}
+		var dur int64
+		if s.Duration > 0 {
+			d, err := tb.TicksToTimescale(s.Duration, timescale)
+			if err != nil {
+				return Mapping{}, fmt.Errorf("sample %d duration: %w", i, err)
+			}
+			dur = d
+		}
+		ws[i] = working{dts: dts, pts: pts, dur: dur, index: s.Index}
 		if !haveMin || dts < minDTS {
 			minDTS, haveMin = dts, true
 		}
@@ -128,14 +140,21 @@ func MapSamples(tb Timebase, timescale int64, samples []Sample, defaultDurationN
 		ws[i].pts += m.Shift
 	}
 	for i := range ws {
-		dur := defaultDur
+		// An explicit duration wins; otherwise use the decode delta and fall
+		// back to the track default, then the median delta for a final sample.
+		dur := ws[i].dur
+		if dur <= 0 {
+			dur = defaultDur
+		}
 		if i+1 < len(ws) {
 			if d := ws[i+1].dts - ws[i].dts; d > 0 {
-				dur = d
+				if ws[i].dur <= 0 {
+					dur = d
+				}
 			} else {
 				m.Stats.DuplicateDTS++
 			}
-		} else if dur == 0 {
+		} else if dur <= 0 {
 			dur = medianDelta(ws)
 		}
 		off := ws[i].pts - ws[i].dts

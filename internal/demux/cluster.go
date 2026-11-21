@@ -106,11 +106,12 @@ func (s *scanner) readBlockGroup(e ebml.Element, buf []byte) ([]byte, error) {
 		return buf, fault.AtElement(fault.StageDemux, e.Offset, "BlockGroup", fault.ErrMalformed)
 	}
 	var (
-		haveKeyframe bool
-		keyframe     bool
-		haveBlock    bool
-		blockOffset  int64
-		blockData    []byte
+		haveKeyframe  bool
+		keyframe      bool
+		haveBlock     bool
+		blockOffset   int64
+		blockData     []byte
+		blockDuration int64
 	)
 	for s.r.Offset() < e.End {
 		c, err := s.r.Next(e.End)
@@ -137,6 +138,12 @@ func (s *scanner) readBlockGroup(e ebml.Element, buf []byte) ([]byte, error) {
 			}
 			keyframe = v != 0
 			haveKeyframe = true
+		case ebml.IDBlockDuration:
+			v, err := s.r.ReadInt(c)
+			if err != nil {
+				return buf, err
+			}
+			blockDuration = v
 		case ebml.IDReferenceBlock:
 			// Presence implies a non-keyframe, but only when Keyframe is
 			// absent (older muxers).
@@ -167,6 +174,7 @@ func (s *scanner) readBlockGroup(e ebml.Element, buf []byte) ([]byte, error) {
 	if err != nil {
 		return buf, err
 	}
+	b.DurationTicks = blockDuration
 	if err := s.emitBlock(b); err != nil {
 		return buf, err
 	}
@@ -218,6 +226,7 @@ func (s *scanner) emitBlock(b mkv.Block) error {
 			TrackNumber:   b.TrackNumber,
 			Timestamp:     s.clusterTS + int64(b.RelativeTimestamp),
 			Keyframe:      b.Keyframe,
+			DurationTicks: frameDuration(b.DurationTicks, len(b.Frames)),
 			Data:          f.Data,
 			SourceOffset:  f.SourceOffset,
 			BlockOffset:   b.SourceOffset,
@@ -244,6 +253,15 @@ func (s *scanner) emitBlock(b mkv.Block) error {
 		}
 	}
 	return nil
+}
+
+// frameDuration shares a block duration across a laced block. Matroska states
+// the duration applies to the block as a whole.
+func frameDuration(total int64, frames int) int64 {
+	if total <= 0 || frames <= 1 {
+		return total
+	}
+	return total / int64(frames)
 }
 
 func (s *scanner) declared(n uint64) bool {

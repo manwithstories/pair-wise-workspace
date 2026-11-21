@@ -301,3 +301,19 @@ func readSize(b []byte) (uint64, int) {
 	size &^= uint64(1) << (7 * uint(n))
 	return size, n
 }
+
+func TestBuildGroupedCarriesDurations(t *testing.T) {
+	tracks := []TrackSpec{{Number: 1, Type: 1, CodecID: "V_VP9", Width: 64, Height: 64}}
+	blocks := []GroupedBlockSpec{
+		{BlockSpec: BlockSpec{Track: 1, Tick: 0, Key: true, Data: Pattern("v", 0, 16)}, Duration: 30},
+		{BlockSpec: BlockSpec{Track: 1, Tick: 40, Key: false, Data: Pattern("v", 1, 16)}, Duration: 30},
+	}
+	doc := BuildGrouped(tracks, blocks, Layout{ClusterSpan: 4})
+	_, samples := scanDoc(t, doc, demux.DefaultOptions())
+	if len(samples) != 2 {
+		t.Fatalf("samples=%d", len(samples))
+	}
+	if samples[0].DurationTicks != 30 || samples[1].DurationTicks != 30 {
+		t.Fatalf("sample durations=%d,%d", samples[0].DurationTicks, samples[1].DurationTicks)
+	}
+}
