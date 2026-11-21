@@ -157,3 +157,16 @@ func ExitCodeFor(err error) int {
 	}
 	return ClassOf(err).ExitCode()
 }
+
+// WithTrackContext stamps container and track identity onto any error that
+// came from deep inside a parser.
+func WithTrackContext(err error, container string, track uint32) error {
+	if err == nil {
+		return nil
+	}
+	var e *Error
+	if errors.As(err, &e) {
+		return e.WithContainer(container).WithTrack(track)
+	}
+	return err
+}
