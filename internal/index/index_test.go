@@ -22,6 +22,16 @@ func TestKeyframeIndexSkipsBadAndNonKey(t *testing.T) {
 	}
 }
 
+func TestAddIdempotent(t *testing.T) {
+	k := NewKeyframeIndexer()
+	v := FrameView{ID: 5, SSRC: 1, PTSUs: 100, Keyframe: true}
+	k.Add(v)
+	k.Add(v) // resume replay must not create a duplicate entry
+	if len(k.Result().Entries) != 1 {
+		t.Fatalf("idempotent add produced %d entries", len(k.Result().Entries))
+	}
+}
+
 func TestLookupAtOrBefore(t *testing.T) {
 	k := NewKeyframeIndexer()
 	for _, pts := range []int64{0, 100, 250, 400} {

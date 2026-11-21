@@ -32,6 +32,7 @@ type Metrics struct {
 	ClipFrames         int
 	PreservedBoundary  int
 	UncertainIntervals []clock.UncertainInterval
+	ResumedShards      int
 }
 
 // Config is the pipeline-facing run configuration.
@@ -44,9 +45,10 @@ type Config struct {
 }
 
 // Run restores one synthetic capture. When resume is true it opens an
-// existing checkpoint and reuses the intact shard prefix.
+// existing checkpoint, reuses the intact shard prefix and skips the packet
+// ticks already covered by that prefix so shards are never rewritten.
 func Run(recs []synth.Record, truth synth.Truth, cfg Config, resume bool) (Metrics, *checkpoint.Store, error) {
-	store, err := openStore(cfg, resume)
+	store, resumeCursor, err := openStore(cfg, resume)
 	if err != nil {
 		return Metrics{}, nil, err
 	}
@@ -55,8 +57,11 @@ func Run(recs []synth.Record, truth synth.Truth, cfg Config, resume bool) (Metri
 	vb := video.NewBuilder()
 	ki := index.NewKeyframeIndexer()
 	m := Metrics{}
+	m.ResumedShards = len(store.State().Shards)
 	block := newBlock()
 	totalTicks := int64(0)
+	// skipped marks packet ticks already represented by reused shards.
+	skipped := int64(0)
 	// Source-of-truth lookup keyed by SSRC+sequence so reordering never
 	// confuses which generated packet an emitted packet corresponds to.
 	source := map[[2]uint32]synth.Record{}
@@ -81,6 +86,37 @@ func Run(recs []synth.Record, truth synth.Truth, cfg Config, resume bool) (Metri
 		}
 		for _, op := range emitted {
 			totalTicks++
+			// On resume, packet ticks already covered by reused shards are
+			// replayed through the timeline (so drift/unwrap state stays
+			// continuous) and still counted for metrics, but not
+			// re-serialized into a new shard.
+			if resumeCursor > 0 && skipped < resumeCursor {
+				skipped++
+				if _, err := tl.Map(op.SSRC, op.Seq, op.Packet.Timestamp, rateFor(op.SSRC)); err != nil {
+					return m, nil, fmt.Errorf("pipeline: %w", err)
+				}
+				m.RecoverablePackets++
+				if src, ok := source[[2]uint32{op.SSRC, uint32(op.Seq)}]; ok && roundTripEqual(src, op) {
+					m.RoundTripped++
+				}
+				if op.SSRC == synth.VideoSSRC {
+					frame, ferr := vb.Push(video.PacketInput{
+						Tick: op.Tick, SSRC: op.SSRC, Seq: op.Seq,
+						Timestamp: op.Packet.Timestamp, Marker: op.Packet.Marker,
+						Payload: op.Packet.Payload,
+					})
+					if ferr != nil {
+						return m, nil, fmt.Errorf("pipeline: %w", ferr)
+					}
+					if frame != nil {
+						ki.Add(index.FrameView{
+							ID: frame.ID, SSRC: frame.SSRC, PTSUs: frame.PTSUs,
+							Keyframe: frame.Keyframe, Bad: frame.Bad, FirstTick: frame.FirstTick,
+						})
+					}
+				}
+				continue
+			}
 			st, err := tl.Map(op.SSRC, op.Seq, op.Packet.Timestamp, rateFor(op.SSRC))
 			if err != nil {
 				return m, nil, fmt.Errorf("pipeline: %w", err)
@@ -123,13 +159,14 @@ func Run(recs []synth.Record, truth synth.Truth, cfg Config, resume bool) (Metri
 	}
 	// Drain audio normalization on the remaining bounded fragment.
 	flushAudio(block)
-	// Close any frames still waiting for a marker at end of stream.
+	// Close any frames still waiting for a marker at end of stream. Frames
+	// already serialized into a shard were indexed inline; Flush only adds
+	// the index entries that had no closing marker, never a new shard.
 	for _, frame := range vb.Flush() {
 		ki.Add(index.FrameView{
 			ID: frame.ID, SSRC: frame.SSRC, PTSUs: frame.PTSUs,
 			Keyframe: frame.Keyframe, Bad: frame.Bad, FirstTick: frame.FirstTick,
 		})
-		block.addFrame(frame)
 	}
 	if block.len() > 0 {
 		if err := finalizeBlock(store, block, ki, tl, cfg, totalTicks); err != nil {
@@ -156,12 +193,16 @@ func Run(recs []synth.Record, truth synth.Truth, cfg Config, resume bool) (Metri
 	return m, store, nil
 }
 
-func openStore(cfg Config, resume bool) (*checkpoint.Store, error) {
+func openStore(cfg Config, resume bool) (*checkpoint.Store, int64, error) {
 	if resume {
-		store, _, err := checkpoint.Resume(cfg.OutDir, cfg.CheckpointEvery, cfg.Params)
-		return store, err
+		store, st, err := checkpoint.Resume(cfg.OutDir, cfg.CheckpointEvery, cfg.Params)
+		if err != nil {
+			return nil, 0, err
+		}
+		return store, st.Cursor, nil
 	}
-	return checkpoint.Open(cfg.OutDir, cfg.CheckpointEvery, cfg.Params)
+	store, err := checkpoint.Open(cfg.OutDir, cfg.CheckpointEvery, cfg.Params)
+	return store, 0, err
 }
 
 func rateFor(ssrc uint32) uint32 {

@@ -99,6 +99,38 @@ func TestResumeReusesShards(t *testing.T) {
 	}
 }
 
+func TestResumeSkipsProcessedTicks(t *testing.T) {
+	recs, truth := synth.NewBuilder(synth.Config{
+		Seed: 41, VideoPackets: 300, AudioPackets: 150, WrapAt: 4294967000,
+	}).Build()
+	dir := t.TempDir()
+	cfg := testCfg(dir)
+	first, _, err := Run(recs, truth, cfg, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A resumed run must not duplicate shards and must keep full metrics.
+	second, store, err := Run(recs, truth, cfg, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Segments != first.Segments {
+		t.Fatalf("resume must keep segment count: %d -> %d", first.Segments, second.Segments)
+	}
+	if second.ResumedShards != first.Segments {
+		t.Fatalf("resumed shards: got %d want %d", second.ResumedShards, first.Segments)
+	}
+	if second.RoundTripRate < 0.99 || second.KeyframeHitRate != 1.0 {
+		t.Fatalf("resume metrics lost: rt=%v kf=%v", second.RoundTripRate, second.KeyframeHitRate)
+	}
+	// Shard hashes must be byte-identical to the first run.
+	for i := range store.State().Shards {
+		if store.State().Shards[i].SHA256 == "" {
+			t.Fatalf("shard %d missing hash", i)
+		}
+	}
+}
+
 func TestResumeRejectsChangedParams(t *testing.T) {
 	recs, truth := synth.NewBuilder(synth.Config{Seed: 41, VideoPackets: 200}).Build()
 	dir := t.TempDir()

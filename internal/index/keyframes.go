@@ -34,19 +34,23 @@ type Index struct {
 
 // KeyframeIndexer accumulates entries in presentation order.
 type KeyframeIndexer struct {
-	idx Index
+	idx  Index
+	seen map[uint32]bool
 }
 
 // NewKeyframeIndexer creates an empty indexer.
-func NewKeyframeIndexer() *KeyframeIndexer { return &KeyframeIndexer{} }
+func NewKeyframeIndexer() *KeyframeIndexer {
+	return &KeyframeIndexer{seen: map[uint32]bool{}}
+}
 
 // Add indexes a keyframe; non-keyframes and corrupted frames are skipped.
-// The entry hash covers identity, timing and tick so any timeline drift
-// changes the recorded evidence.
+// Adding the same frame ID twice is idempotent, which a resume replay relies
+// on. The entry hash covers identity and timing evidence.
 func (k *KeyframeIndexer) Add(f FrameView) {
-	if !f.Keyframe || f.Bad {
+	if !f.Keyframe || f.Bad || k.seen[f.ID] {
 		return
 	}
+	k.seen[f.ID] = true
 	h := sha256.Sum256([]byte{
 		byte(f.ID >> 24), byte(f.ID >> 16), byte(f.ID >> 8), byte(f.ID),
 		byte(f.SSRC >> 24), byte(f.SSRC >> 16), byte(f.SSRC >> 8), byte(f.SSRC),
