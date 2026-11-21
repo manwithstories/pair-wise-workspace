@@ -104,12 +104,27 @@ func Run(opt DemoOptions) (Result, error) {
 		limit = stageIndex(opt.InterruptAfter)
 	}
 	if opt.Resume && limit < 0 {
-		// A plain resume over an existing log: recover first (in case the
-		// previous process died) and record which stages can be reused.
-		if _, err := txm.Recover(); err != nil {
+		// A plain resume over an existing log from a previous process:
+		// recover first, then report the boundary the dead process reached
+		// and the stage this process continues from.
+		if dirty, reason := txm.CorruptTail(); dirty {
+			res.Notes = append(res.Notes, "recovery discarded a torn WAL tail: "+reason)
+		}
+		stage, err := txm.Recover()
+		if err != nil {
 			return res, err
 		}
 		res.RollbackStage = txm.RollbackStage()
+		if res.RollbackStage == "" {
+			// A torn tail with no checksum failure means the last stage
+			// committed cleanly and the next one died mid-commit.
+			if last := lastCommitted(txm.Committed()); last != "" {
+				res.RollbackStage = string(last)
+			}
+		}
+		if stage != "" {
+			res.ResumeStage = string(stage)
+		}
 		committed := txm.Committed()
 		for _, s := range txn.Order {
 			if _, ok := committed[s]; ok {
@@ -185,6 +200,17 @@ func Run(opt DemoOptions) (Result, error) {
 		}
 	}
 	return res, r.finish()
+}
+
+// lastCommitted returns the latest pipeline stage with a valid checkpoint.
+func lastCommitted(m map[txn.Stage]txn.Checkpoint) txn.Stage {
+	var last txn.Stage
+	for _, s := range txn.Order {
+		if _, ok := m[s]; ok {
+			last = s
+		}
+	}
+	return last
 }
 
 func (o *DemoOptions) validate() error {

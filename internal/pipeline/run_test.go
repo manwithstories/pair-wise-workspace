@@ -171,3 +171,37 @@ func TestFixturesAreRegenerated(t *testing.T) {
 		t.Fatalf("run after fixture corruption: %v", err)
 	}
 }
+
+func TestSecondProcessResumes(t *testing.T) {
+	dir := t.TempDir()
+	first := DemoOptions{Seed: 17, Dir: dir, Faults: []fixture.FaultKind{fixture.FaultBurstLoss},
+		InterruptAfter: txn.StageRepair}
+	_, err := Run(first)
+	if err == nil {
+		t.Fatal("first process should report an interruption")
+	}
+	if model.KindOf(err) != model.KindRecovery {
+		t.Fatalf("kind=%v", model.KindOf(err))
+	}
+	// The second process knows nothing except the directory.
+	second := DemoOptions{Seed: 17, Dir: dir, Faults: []fixture.FaultKind{fixture.FaultBurstLoss},
+		Resume: true}
+	r, err := Run(second)
+	if err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	wantReuse := []string{"probe", "rtp", "repair"}
+	if len(r.ReusedStages) != len(wantReuse) {
+		t.Fatalf("reused=%v want %v", r.ReusedStages, wantReuse)
+	}
+	if r.Summary.RollbackStage == "" || r.Summary.ResumeStage == "" {
+		t.Fatalf("stages missing: %+v", r.Summary)
+	}
+	if r.Summary.ManifestAlignmentMS > 1 || r.Summary.IndexSeekMismatches != 0 {
+		t.Fatalf("acceptance failed after resume: %+v", r.Summary)
+	}
+	// Recovered loss counters must survive the process boundary.
+	if r.Summary.RecoveredPackets == 0 {
+		t.Fatal("recovered packet count was lost across the resume")
+	}
+}
