@@ -71,3 +71,8 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Build outputs ----
+/mediamerge
+*.test
+/dist/

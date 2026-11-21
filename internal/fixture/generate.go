@@ -27,6 +27,9 @@ type Plan struct {
 	Tracks  []TrackSpec
 	Seed    int64
 	Padding int // free-space bytes inserted after each sample
+	// UniformSizes makes every sample in a track the same size, which lets
+	// header-only size computation stay exact for multi-gigabyte inputs.
+	UniformSizes bool
 }
 
 // DefaultPlan builds n tracks cycling through common codec/timescale pairs.
@@ -42,12 +45,12 @@ func DefaultPlan(n, samples int) Plan {
 		min   int
 		max   int
 	}{
-		{"video", "h264", 30000, 16000, 28000},
-		{"audio", "aac", 48000, 2400, 5200},
-		{"video", "hevc", 24000, 14000, 26000},
-		{"audio", "alac", 44100, 3000, 6000},
+		{"video", "h264", 30000, 22000, 40000},
+		{"audio", "aac", 48000, 4200, 6000},
+		{"video", "hevc", 24000, 19000, 30000},
+		{"audio", "alac", 44100, 5000, 7000},
 	}
-	p := Plan{Seed: 0x5eed, Tracks: make([]TrackSpec, n)}
+	p := Plan{Seed: 0x5eed, Tracks: make([]TrackSpec, n), UniformSizes: true}
 	for i := 0; i < n; i++ {
 		c := codecs[i%len(codecs)]
 		p.Tracks[i] = TrackSpec{
@@ -78,8 +81,12 @@ func (p Plan) layout(base uint64) layout {
 	for i, t := range p.Tracks {
 		l.sizes[i] = make([]uint32, t.Samples)
 		l.offsets[i] = make([]uint64, t.Samples)
+		size := uint32(t.PayloadMin)
+		if !p.UniformSizes {
+			size = uint32(t.PayloadMin + rnd.Intn(t.PayloadMax-t.PayloadMin+1))
+		}
 		for s := range l.sizes[i] {
-			l.sizes[i][s] = uint32(t.PayloadMin + rnd.Intn(t.PayloadMax-t.PayloadMin+1))
+			l.sizes[i][s] = size
 		}
 	}
 	pos := base

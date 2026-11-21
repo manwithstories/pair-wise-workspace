@@ -16,6 +16,9 @@ func TestResumeMatchesCleanRun(t *testing.T) {
 	if err := os.MkdirAll(work, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := copyInput(work, r.Path); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := Run(context.Background(), work, r, plan, Options{Queue: 1, InterruptAfter: 2, CrashBytes: 3}); !errors.Is(err, ErrInterrupted) {
 		t.Fatalf("interrupt: %v", err)
 	}
@@ -61,6 +64,9 @@ func TestRecoverRejectsTamperedOutput(t *testing.T) {
 	defer r.Close()
 	work := filepath.Join(dir, "work")
 	os.MkdirAll(work, 0o755)
+	if err := copyInput(work, r.Path); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := Run(context.Background(), work, r, plan, Options{Queue: 2, InterruptAfter: 1, CrashBytes: 0}); !errors.Is(err, ErrInterrupted) {
 		t.Fatalf("interrupt: %v", err)
 	}

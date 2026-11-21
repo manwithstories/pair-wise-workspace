@@ -47,9 +47,20 @@ type Result struct {
 	QueuePeak   int
 }
 
-// Run executes demux→mapping→bounded stream→remux with per-stage journal
-// commits. It writes the journal and output inside m.dir.
+// Run executes the full pipeline into dir with the default file names and
+// produces the recovery fixture (input copy + journal + output) that the
+// recover command consumes.
 func Run(ctx context.Context, dir string, r *demux.Reader, plan *mapping.Plan, opts Options) (*Result, error) {
+	output, _ := Paths(dir)
+	if err := copyInput(dir, r.Path); err != nil {
+		return nil, err
+	}
+	return Merge(ctx, dir, output, r, plan, opts)
+}
+
+// Merge executes demux→mapping→bounded stream→remux into an explicit output
+// path, journaling every stage inside dir.
+func Merge(ctx context.Context, dir, output string, r *demux.Reader, plan *mapping.Plan, opts Options) (*Result, error) {
 	if opts.Queue < 1 {
 		opts.Queue = 1
 	}
@@ -60,8 +71,9 @@ func Run(ctx context.Context, dir string, r *demux.Reader, plan *mapping.Plan, o
 	if err != nil {
 		return nil, err
 	}
+	m.Output = output
 	defer m.Close()
-	w, _, err := mux.New(m.Output, plan)
+	w, _, err := mux.New(output, plan)
 	if err != nil {
 		return nil, err
 	}
@@ -102,25 +114,8 @@ func Run(ctx context.Context, dir string, r *demux.Reader, plan *mapping.Plan, o
 		}
 		res.Samples += len(tr.Samples)
 		if opts.InterruptAfter == stage {
-			if stage < len(plan.Tracks) {
-				next := plan.Tracks[stage]
-				if err := m.Begin(stage+1, w.Size()); err != nil {
-					return nil, err
-				}
-				n := opts.CrashBytes
-				if n < 0 {
-					n = len(next.Samples) / 2
-				}
-				for k := 0; k < n && k < len(next.Samples); k++ {
-					data, rerr := r.ReadSample(next.Samples[k])
-					if rerr != nil {
-						return nil, rerr
-					}
-					if _, werr := w.WritePartial(data); werr != nil {
-						return nil, werr
-					}
-				}
-				_ = w.Sync() // the crash may still leave written bytes behind
+			if err := injectCrash(m, w, r, plan, stage, opts.CrashBytes); err != nil {
+				return nil, err
 			}
 			w.Close()
 			closed = true
@@ -141,15 +136,41 @@ func Run(ctx context.Context, dir string, r *demux.Reader, plan *mapping.Plan, o
 		return nil, err
 	}
 	res.OutputLen = total
-	outSHA, _, err := checksum.File(m.Output)
+	outSHA, _, err := checksum.File(output)
 	if err != nil {
 		return nil, err
 	}
 	res.OutputSHA = outSHA
-	if err := verifySamples(dir, plan, inHashers, res); err != nil {
+	if err := verifySamples(dir, output, plan, r, inHashers, res); err != nil {
 		return nil, err
 	}
 	return res, nil
+}
+
+// injectCrash writes uncommitted bytes after a committed stage so that
+// recovery has something real to roll back.
+func injectCrash(m *Manager, w *mux.Writer, r *demux.Reader, plan *mapping.Plan, stage, crashBytes int) error {
+	if stage >= len(plan.Tracks) {
+		return nil
+	}
+	next := plan.Tracks[stage]
+	if err := m.Begin(stage+1, w.Size()); err != nil {
+		return err
+	}
+	n := crashBytes
+	if n < 0 {
+		n = len(next.Samples) / 2
+	}
+	for k := 0; k < n && k < len(next.Samples); k++ {
+		data, err := r.ReadSample(next.Samples[k])
+		if err != nil {
+			return err
+		}
+		if _, err := w.WritePartial(data); err != nil {
+			return err
+		}
+	}
+	return w.Sync()
 }
 
 // streamTrack pushes one track through a bounded pipe. The producer blocks on
@@ -223,8 +244,7 @@ func streamTrack(ctx context.Context, w *mux.Writer, r *demux.Reader, tr *demux.
 
 // verifySamples re-reads the output and compares per-track compressed sample
 // hashes against what was read from the input.
-func verifySamples(dir string, plan *mapping.Plan, inHashers []*checksum.SampleHasher, res *Result) error {
-	output, _ := Paths(dir)
+func verifySamples(dir, output string, plan *mapping.Plan, in *demux.Reader, inHashers []*checksum.SampleHasher, res *Result) error {
 	r, err := demux.Open(context.Background(), output)
 	if err != nil {
 		return err

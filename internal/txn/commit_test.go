@@ -38,6 +38,9 @@ func TestRunAndRecoverIdempotent(t *testing.T) {
 	defer r.Close()
 	work := filepath.Join(dir, "work")
 	os.MkdirAll(work, 0o755)
+	if err := copyInput(work, r.Path); err != nil {
+		t.Fatal(err)
+	}
 	// Interrupt after stage 2 (track 2).
 	res, err := Run(context.Background(), work, r, plan, Options{Queue: 2, InterruptAfter: 2, CrashBytes: -1})
 	if !errors.Is(err, ErrInterrupted) {
