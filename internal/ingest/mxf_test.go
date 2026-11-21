@@ -6,6 +6,7 @@ import (
 	"os"
 	"testing"
 
+	"mediameld/internal/fixture"
 	"mediameld/internal/model"
 )
 
@@ -59,7 +60,10 @@ func TestDemuxMXFCamera(t *testing.T) {
 
 func TestDemuxMXFCorruptTailIsolates(t *testing.T) {
 	b := generateInto(t, t.TempDir())
-	path := b.Dir + "/camera_corrupt.mxf"
+	if err := fixture.WriteCorrupt(b); err != nil {
+		t.Fatal(err)
+	}
+	path := fixture.CorruptPath(b)
 	f := openFile(t, path)
 	res, err := DemuxMXF(f, path)
 	if err != nil {

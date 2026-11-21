@@ -1,8 +1,6 @@
 package app
 
 import (
-	"fmt"
-	"io"
 	"os"
 	"strings"
 
@@ -225,6 +223,3 @@ func sortStrings(v []string) {
 		}
 	}
 }
-
-var _ = fmt.Sprint
-var _ io.Writer

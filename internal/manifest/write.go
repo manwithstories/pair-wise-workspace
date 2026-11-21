@@ -26,6 +26,17 @@ type Manifest struct {
 	SamplesCount int            `json:"samples_count"`
 	LateReplays  int            `json:"late_replays"`
 	Quality      Quality        `json:"quality"`
+	Bitrate      Bitrate        `json:"bitrate"`
+}
+
+// Bitrate is the independent container-vs-media accounting.
+type Bitrate struct {
+	TargetBPS           int64   `json:"target_bps"`
+	ActualBPS           int64   `json:"actual_bps"`
+	DeviationPct        float64 `json:"deviation_pct"`
+	ContainerBytes      int64   `json:"container_bytes"`
+	MediaBytes          int64   `json:"media_bytes"`
+	DeliveredDurationNS int64   `json:"delivered_duration_ns"`
 }
 
 type SourceRecord struct {
@@ -149,6 +160,24 @@ func Build(plan timeline.Plan, resolved []mapping.Resolution, remuxRes remux.Res
 				TrackID: r.Track.ID, Property: reason.Field, Source: reason.Source,
 				Original: reason.Original, Chosen: reason.Chosen, Why: reason.Why,
 			})
+		}
+	}
+	m.Bitrate = Bitrate{
+		ContainerBytes:      remuxRes.Bytes,
+		DeliveredDurationNS: m.TimeRange.EndNS - m.TimeRange.StartNS,
+	}
+	for _, s := range remuxRes.SampleHashes {
+		m.Bitrate.MediaBytes += int64(s.Size)
+	}
+	if span := m.Bitrate.DeliveredDurationNS; span > 0 {
+		m.Bitrate.TargetBPS = m.Bitrate.MediaBytes * 8 * 1_000_000_000 / span
+		m.Bitrate.ActualBPS = m.Bitrate.ContainerBytes * 8 * 1_000_000_000 / span
+		if m.Bitrate.TargetBPS > 0 {
+			dev := float64(m.Bitrate.ActualBPS-m.Bitrate.TargetBPS) / float64(m.Bitrate.TargetBPS) * 100
+			if dev < 0 {
+				dev = -dev
+			}
+			m.Bitrate.DeviationPct = dev
 		}
 	}
 	// Quality is purely hash accounting.

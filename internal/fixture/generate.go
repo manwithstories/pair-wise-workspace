@@ -17,6 +17,8 @@ type Bundle struct {
 	RTPStream string
 	Plans     []PlanRecord
 	Duration  int64 // unified duration in ns
+	Seed      int64
+	VFR       []int64
 }
 
 // PlanRecord captures the receive order so tests can assert replays.
@@ -25,6 +27,20 @@ type PlanRecord struct {
 	Order     []int
 	Duplicate int
 	Missing   int
+}
+
+// CorruptPath is the location of the deliberately damaged MXF variant.
+func CorruptPath(b Bundle) string { return filepath.Join(b.Dir, "camera_corrupt.mxf") }
+
+// WriteCorrupt writes the damaged MXF variant. It is generated on demand so a
+// normal run does not pay for bytes only the failure case reads.
+func WriteCorrupt(b Bundle) error {
+	camera := cameraTracks(b.Seed, effectiverates(b.VFR))
+	data := buildMXF(camera, true)
+	if len(data) > 8<<20 {
+		return fmt.Errorf("corrupt fixture exceeds 8 MiB")
+	}
+	return os.WriteFile(CorruptPath(b), data, 0o644)
 }
 
 // Generate writes all fixtures under outDir, which must be inside the caller's
@@ -39,7 +55,6 @@ func Generate(outDir string, opts Options) (Bundle, error) {
 
 	studioBytes := buildMP4(studio)
 	cameraBytes := buildMXF(camera, false)
-	cameraCorrupt := buildMXF(camera, true)
 
 	plan := PlanDelivery(len(camera[0].Samples), 12)
 	rtpBytes := buildRTPPackets(camera[0].Samples, opts.DriftPPM, opts.WrapAt, plan)
@@ -50,6 +65,8 @@ func Generate(outDir string, opts Options) (Bundle, error) {
 		CameraMXF: filepath.Join(outDir, "camera.mxf"),
 		RTPStream: filepath.Join(outDir, "camera.rtp"),
 		Plans:     []PlanRecord{{Name: "camera", Order: plan.Order, Duplicate: plan.Duplicate, Missing: plan.Missing}},
+		Seed:      opts.Seed,
+		VFR:       rates,
 	}
 	files := []struct {
 		path string
@@ -58,7 +75,6 @@ func Generate(outDir string, opts Options) (Bundle, error) {
 		{b.StudioMP4, studioBytes},
 		{b.CameraMXF, cameraBytes},
 		{b.RTPStream, rtpBytes},
-		{filepath.Join(outDir, "camera_corrupt.mxf"), cameraCorrupt},
 	}
 	for _, f := range files {
 		if len(f.data) > 8<<20 {

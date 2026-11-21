@@ -77,8 +77,6 @@ type Sample struct {
 
 func (s Sample) HashHex() string { return hex.EncodeToString(s.Hash[:]) }
 
-// RotationStep is the rotation applied to display geometry, in degrees
-// clockwise. It is only meaningful when the track is video.
 // Track is a demultiplexed elementary stream.
 type Track struct {
 	ID                string

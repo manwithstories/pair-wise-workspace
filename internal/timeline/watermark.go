@@ -9,7 +9,6 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
-	"fmt"
 	"sort"
 
 	"mediameld/internal/model"
@@ -297,5 +296,3 @@ func CheckpointIndex(t model.Instant, span model.Instant) int {
 	}
 	return s - 1
 }
-
-var _ = fmt.Sprint

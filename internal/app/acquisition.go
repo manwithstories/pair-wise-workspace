@@ -3,7 +3,6 @@ package app
 import (
 	"os"
 	"sort"
-	"strings"
 
 	"mediameld/internal/ingest"
 	"mediameld/internal/mapping"
@@ -106,8 +105,6 @@ func stableIDs(res []mapping.Resolution) []string {
 	sort.Strings(ids)
 	return ids
 }
-
-var _ = strings.Contains
 
 // resolutionFor finds the resolved role bound to a track id.
 func resolutionFor(res []mapping.Resolution, id string) *mapping.Resolution {

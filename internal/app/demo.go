@@ -160,33 +160,16 @@ func runNormal(bundle fixture.Bundle, opts Options, stdout io.Writer) (Result, e
 		res.QualityMatchRatePct = 100
 	}
 
-	// Bitrate accounting from the actual container bytes and time span.
-	span := plan.Watermark
-	if span <= 0 {
-		span = planSegSpan(plan)
-	}
-	// Target is the authored media bitrate; actual counts whole container
-	// bytes. The gap between them is pure container overhead.
-	mediaBytes := int64(0)
-	for _, s := range remuxRes.SampleHashes {
-		mediaBytes += int64(s.Size)
-	}
-	mediaSpan := planSegSpan(plan)
-	res.TargetBitrateBPS = actualBitrate(mediaBytes, mediaSpan)
-	res.ActualBitrateBPS = actualBitrate(remuxRes.Bytes, mediaSpan)
-	if res.TargetBitrateBPS > 0 {
-		dev := (float64(res.ActualBitrateBPS) - float64(res.TargetBitrateBPS)) / float64(res.TargetBitrateBPS) * 100
-		if dev < 0 {
-			dev = -dev
-		}
-		res.BitrateDeviationPct = dev
-	}
-
-	// Manifest plus independent verification.
+	// Manifest plus independent verification. Bitrate accounting is derived
+	// inside the manifest from the delivered time range, so this report and
+	// the on-disk record can never disagree.
 	man := manifest.Build(plan, resolved, remuxRes, []manifest.SourceRecord{
 		{Path: filepath.Base(bundle.StudioMP4), Fingerprint: sourceFingerprint(bundle.StudioMP4)},
 		{Path: filepath.Base(bundle.CameraMXF), Fingerprint: sourceFingerprint(bundle.CameraMXF)},
 	})
+	res.TargetBitrateBPS = man.Bitrate.TargetBPS
+	res.ActualBitrateBPS = man.Bitrate.ActualBPS
+	res.BitrateDeviationPct = man.Bitrate.DeviationPct
 	rep, err := verifyOutput(outPath, man)
 	if err != nil {
 		return res, err
@@ -204,7 +187,10 @@ func runNormal(bundle fixture.Bundle, opts Options, stdout io.Writer) (Result, e
 
 func runCorrupt(bundle fixture.Bundle, opts Options, stdout io.Writer) (Result, error) {
 	var res Result
-	path := filepath.Join(bundle.Dir, "camera_corrupt.mxf")
+	if err := fixture.WriteCorrupt(bundle); err != nil {
+		return res, model.WrapError(model.CodeInternal, err, "write corrupt fixture")
+	}
+	path := fixture.CorruptPath(bundle)
 	f, err := os.Open(path)
 	if err != nil {
 		return res, model.WrapError(model.CodeInternal, err, "open corrupt fixture")
@@ -345,23 +331,6 @@ func sourceFingerprint(path string) string {
 	h := sha256.New()
 	io.Copy(h, f)
 	return hex.EncodeToString(h.Sum(nil))[:32]
-}
-
-func planSegSpan(plan timeline.Plan) model.Instant {
-	var maxT model.Instant
-	for _, e := range plan.Events {
-		if e.PTS+e.Duration > maxT {
-			maxT = e.PTS + e.Duration
-		}
-	}
-	return maxT
-}
-
-func actualBitrate(bytesTotal int64, span model.Instant) int64 {
-	if span <= 0 {
-		return 0
-	}
-	return bytesTotal * 8 * int64(1_000_000_000) / int64(span)
 }
 
 func sortedIDs(res []mapping.Resolution) []string {
