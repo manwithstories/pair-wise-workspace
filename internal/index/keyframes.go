@@ -167,3 +167,24 @@ func Coverage(got []Keyframe, want []Keyframe) float64 {
 	}
 	return float64(hit) / float64(len(want)) * 100
 }
+
+// FrameDuration returns the smallest positive sample duration.  It is the
+// tolerance used when checking that another representation's keyframe sits
+// within one frame of a boundary.
+func (t *Table) FrameDuration() (clock.Ticks, error) {
+	var best clock.Ticks
+	set := false
+	for _, d := range t.Durations {
+		if d.Sign() <= 0 {
+			continue
+		}
+		if !set || d.Cmp(best) < 0 {
+			best, set = d, true
+		}
+	}
+	if !set {
+		return clock.Ticks{}, fault.New(fault.ClassInput, "index", fmt.Sprintf("%d", t.Track),
+			"no-duration", "track has no positive sample duration")
+	}
+	return best, nil
+}
