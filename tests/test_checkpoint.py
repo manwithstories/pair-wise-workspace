@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import unittest
+from fractions import Fraction
 
 from avtimeline.checkpoint import (
     Artifact,
@@ -172,6 +173,39 @@ class ManifestTests(TempDirMixin, unittest.TestCase):
         )
         issues = check_alignment(manifest, ["360p", "180p"])
         self.assertIn("missing_rendition", [i.code for i in issues])
+
+    def test_ntsc_audio_rounding_is_accepted(self) -> None:
+        from avtimeline.encode import EncodedSegment, Rendition
+        from avtimeline.manifest import build_manifest, check_alignment
+        from avtimeline.model import Rate, Span
+        from avtimeline.segment import plan_segments
+
+        rate = Rate.parse("30000/1001")
+        plan = plan_segments(Span.of(0, Fraction(101, 50)), rate, 48000, Fraction(2, 5))
+        encoded = [
+            EncodedSegment(
+                rendition="a",
+                index=segment.index,
+                path=self.path("a.mp4"),
+                sha256="0" * 64,
+                size=1,
+                duration=segment.duration,
+                video_frames=segment.video_frames,
+                audio_samples=segment.audio_samples,
+                actual_video_frames=segment.video_frames,
+                actual_audio_samples=segment.audio_samples,
+            )
+            for segment in plan.segments
+        ]
+        manifest = build_manifest(
+            plan,
+            {"a": encoded},
+            [Rendition("a", 320, 180, 1, 1)],
+            {"start": "0", "end": "101/50"},
+            Fraction(2, 5),
+        )
+        self.assertGreater(plan.max_boundary_error(), 0)
+        self.assertEqual(check_alignment(manifest), [])
 
     def test_serialization_is_deterministic(self) -> None:
         from avtimeline.encode import EncodedSegment, Rendition

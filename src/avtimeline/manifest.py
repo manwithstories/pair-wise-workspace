@@ -22,7 +22,9 @@ from .normalize import ColorDecision
 from .segment import SegmentPlan
 
 MANIFEST_NAME = "manifest.json"
-ALIGNMENT_TOLERANCE = Fraction(0)
+# Renditions must agree exactly; audio sample indices may only be rounded to
+# the nearest sample, which is half a sample worst case (e.g. at 29.97 fps).
+AUDIO_ALIGNMENT_TOLERANCE = Fraction(1, 2)
 
 
 @dataclass
@@ -238,15 +240,28 @@ def check_alignment(
                     location=MediaLocation(pts=start),
                 )
             )
-        frame_bytes = Fraction(segment["video_start_frame"]) * step
+        frame_time = Fraction(segment["video_start_frame"]) * step
         sample_time = Fraction(segment["audio_start_sample"], audio_rate)
-        if abs(frame_bytes - start) > ALIGNMENT_TOLERANCE or abs(sample_time - start) > ALIGNMENT_TOLERANCE:
+        frame_error = abs(frame_time - start)
+        sample_error = abs(sample_time - start)
+        if frame_error != 0:
             issues.append(
                 Issue(
-                    code="boundary_error",
+                    code="frame_boundary_error",
                     message=(
-                        f"segment {index} boundary {start} is represented as "
-                        f"{frame_bytes} (frame) and {sample_time} (sample)"
+                        f"segment {index} boundary {start} is {frame_error}s away from "
+                        f"its frame representation {frame_time}"
+                    ),
+                    location=MediaLocation(pts=start),
+                )
+            )
+        if sample_error > AUDIO_ALIGNMENT_TOLERANCE / audio_rate:
+            issues.append(
+                Issue(
+                    code="sample_boundary_error",
+                    message=(
+                        f"segment {index} boundary {start} is {sample_error}s away from "
+                        f"its sample representation {sample_time}"
                     ),
                     location=MediaLocation(pts=start),
                 )
