@@ -4,8 +4,11 @@ package fixture
 // It is exported so demux tests can inject targeted mutations.
 func BuildMP4(tracks []TrackSpec) []byte { return buildMP4(tracks) }
 
-// StudioTracks and CameraTracks expose the canonical fixture track layout.
+// StudioTracks exposes the canonical studio track layout.
 func StudioTracks(seed int64) []TrackSpec { return studioTracks(seed) }
+
+// CameraTracks exposes the canonical camera track layout for MXF tests.
+func CameraTracks(seed int64, rates []int64) []TrackSpec { return cameraTracks(seed, rates) }
 
 // buildMP4 serializes tracks into a structurally valid, non-fragmented MP4.
 // Samples are stored verbatim as one chunk each so that byte hashes survive
@@ -22,6 +25,11 @@ func buildMP4(tracks []TrackSpec) []byte {
 		for si, s := range samples {
 			trackOffsets[ti][si] = int64(len(mdatPayload))
 			mdatPayload = append(mdatPayload, s.Data...)
+		}
+		if t.IncompleteTail {
+			// Declare one more chunk whose offset lies past the end of the
+			// media data, modelling a truncated final write.
+			trackOffsets[ti] = append(trackOffsets[ti], int64(len(mdatPayload))+1<<20)
 		}
 	}
 
@@ -105,7 +113,14 @@ func buildTrak(t TrackSpec, relOffsets []int64, mdatPayloadBase int64, trailerDu
 	return box("trak", tkhd, mdia)
 }
 
-func samplesFor(t TrackSpec) []SampleSpec { return t.Samples }
+func samplesFor(t TrackSpec) []SampleSpec {
+	// An incomplete tail drops the last sample from the container while the
+	// track's declared count still includes it, modelling a truncated write.
+	if t.IncompleteTail && len(t.Samples) > 0 {
+		return t.Samples[:len(t.Samples)-1]
+	}
+	return t.Samples
+}
 
 func trackDur(t TrackSpec) int64 {
 	var d int64
@@ -122,8 +137,12 @@ func dinfBox() []byte {
 	return box("dinf", dref)
 }
 
+// tableSamples is the set of samples the sample tables describe. For a track
+// with an incomplete tail this still includes the missing sample, so the
+// mismatch between declared and stored bytes is visible to the demuxer.
+func tableSamples(t TrackSpec) []SampleSpec { return t.Samples }
+
 func sampleTables(t TrackSpec, offsets []int64) []byte {
-	t.Samples = samplesFor(t)
 	stsd := stsdBox(t)
 	// stts: coalesce consecutive equal deltas.
 	samples := samplesFor(t)
@@ -143,10 +162,10 @@ func sampleTables(t TrackSpec, offsets []int64) []byte {
 	// stsc: one sample per chunk.
 	stsc := fullbox("stsc", 0, 0, be32(1), be32(1), be32(1), be32(1))
 	var sizes [][]byte
-	for _, s := range samplesFor(t) {
+	for _, s := range samples {
 		sizes = append(sizes, be32(uint32(len(s.Data))))
 	}
-	stsz := fullbox("stsz", 0, 0, be32(0), be32(uint32(len(samplesFor(t)))), join(sizes...))
+	stsz := fullbox("stsz", 0, 0, be32(0), be32(uint32(len(samples))), join(sizes...))
 	var chunkOff [][]byte
 	for _, o := range offsets {
 		chunkOff = append(chunkOff, be32(uint32(o)))
@@ -156,17 +175,17 @@ func sampleTables(t TrackSpec, offsets []int64) []byte {
 	parts := [][]byte{stsd, stts, stsc, stsz, stco}
 	if hasCTTS(t) {
 		var entries [][]byte
-		for _, s := range samplesFor(t) {
+		for _, s := range samples {
 			entries = append(entries, be32(1), be32s(int32(s.PTS-s.DTS)))
 		}
-		ctts := fullbox("ctts", 0, 0, be32(uint32(len(samplesFor(t)))), join(entries...))
+		ctts := fullbox("ctts", 0, 0, be32(uint32(len(samples))), join(entries...))
 		parts = append(parts, ctts)
 	}
 	return box("stbl", parts...)
 }
 
 func hasCTTS(t TrackSpec) bool {
-	for _, s := range samplesFor(t) {
+	for _, s := range tableSamples(t) {
 		if s.PTS != s.DTS {
 			return true
 		}

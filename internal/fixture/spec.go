@@ -25,16 +25,17 @@ type SampleSpec struct {
 
 // TrackSpec describes a fixture track before it is serialized.
 type TrackSpec struct {
-	ID        uint32
-	Kind      model.TrackKind
-	Timescale int64
-	Desc      string
-	Width     int
-	Height    int
-	Rotation  int
-	Color     *ColorSpec
-	Crop      *CropSpec
-	Samples   []SampleSpec
+	ID             uint32
+	Kind           model.TrackKind
+	Timescale      int64
+	Desc           string
+	IncompleteTail bool // container stores one fewer sample than declared
+	Width          int
+	Height         int
+	Rotation       int
+	Color          *ColorSpec
+	Crop           *CropSpec
+	Samples        []SampleSpec
 }
 
 // Options controls fixture generation. All values are explicit so repeated
@@ -78,7 +79,7 @@ func studioTracks(seed int64) []TrackSpec {
 	}
 	for i := 0; i < 48; i++ {
 		v.Samples = append(v.Samples, SampleSpec{
-			Data: patternBytes(r, 8000+i%37, 'V', i),
+			Data: patternBytes(r, 5000+i%37, 'V', i),
 			DTS:  int64(i) * delta,
 			PTS:  int64(i)*delta + 2*delta,
 			Dur:  delta,
@@ -89,7 +90,7 @@ func studioTracks(seed int64) []TrackSpec {
 	a := TrackSpec{ID: 2, Kind: model.KindAudio, Timescale: tsAudio, Desc: "mp4a"}
 	for i := 0; i < 24; i++ {
 		a.Samples = append(a.Samples, SampleSpec{
-			Data: patternBytes(r, 900+i%11, 'A', i),
+			Data: patternBytes(r, 4000+i%11, 'A', i),
 			DTS:  int64(i) * adelta,
 			PTS:  int64(i) * adelta,
 			Dur:  adelta,
@@ -127,7 +128,7 @@ func cameraTracks(seed int64, rates []int64) []TrackSpec {
 	starts := cadenceTicks(rates, CameraVideoSamples, tsVideo)
 	v := TrackSpec{
 		ID: 3, Kind: model.KindVideo, Timescale: tsVideo, Desc: "mxf-vc3",
-		Width: 640, Height: 360, Rotation: 0,
+		Width: 640, Height: 360, Rotation: 90,
 		Crop:  &CropSpec{X: 8, Y: 8, W: 632, H: 352},
 		Color: &ColorSpec{Primaries: 1, Transfer: 1, Matrix: 1},
 	}
@@ -139,7 +140,7 @@ func cameraTracks(seed int64, rates []int64) []TrackSpec {
 			end = starts[i] + (starts[i] - starts[i-1])
 		}
 		v.Samples = append(v.Samples, SampleSpec{
-			Data: patternBytes(r, 9000+i%53, 'C', i),
+			Data: patternBytes(r, 50000+i%53, 'C', i),
 			DTS:  starts[i], PTS: starts[i], Dur: end - starts[i],
 		})
 	}
@@ -149,7 +150,7 @@ func cameraTracks(seed int64, rates []int64) []TrackSpec {
 		t := TrackSpec{ID: id, Kind: model.KindAudio, Timescale: tsAudio, Desc: "mxf-pcm"}
 		for i := 0; i < n; i++ {
 			t.Samples = append(t.Samples, SampleSpec{
-				Data: patternBytes(r, 1200+i%13, tag, i),
+				Data: patternBytes(r, 4500+i%13, tag, i),
 				DTS:  int64(i) * adelta, PTS: int64(i) * adelta, Dur: adelta,
 			})
 		}

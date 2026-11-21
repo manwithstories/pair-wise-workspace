@@ -127,7 +127,8 @@ func DemuxMXF(r io.ReadSeeker, sourcePath string) (MXFResult, error) {
 			sum := sha256.Sum256(s.Data)
 			track.Samples = append(track.Samples, model.Sample{
 				Index: len(track.Samples), DTS: s.DTS, PTS: s.PTS, Duration: s.Dur,
-				Size: int32(len(s.Data)), Hash: sum, SourceOffset: su.ValueStart,
+				Size: int32(len(s.Data)), Hash: sum,
+				SourceOffset: su.ValueStart + s.RelOffset,
 			})
 		}
 		res.Tracks = append(res.Tracks, track)
@@ -141,6 +142,7 @@ func DemuxMXF(r io.ReadSeeker, sourcePath string) (MXFResult, error) {
 
 type sampleValue struct {
 	Data          []byte
+	RelOffset     int64 // byte offset of Data within the samples value
 	DTS, PTS, Dur int64
 }
 
@@ -163,7 +165,7 @@ func parseSamplesValue(v []byte) ([]sampleValue, error) {
 		if pos+size > len(v) {
 			return out, model.NewError(model.CodeKLVStructure, "sample %d payload truncated", i)
 		}
-		out = append(out, sampleValue{Data: v[pos : pos+size], DTS: dts, PTS: pts, Dur: dur})
+		out = append(out, sampleValue{Data: v[pos : pos+size], RelOffset: int64(pos), DTS: dts, PTS: pts, Dur: dur})
 		pos += size
 	}
 	return out, nil
