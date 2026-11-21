@@ -14,8 +14,8 @@ import (
 // Traceable error kinds. Every irregularity is returned as an error AND
 // recorded as an Issue; timestamps are never silently rewritten.
 var (
-	ErrSeqGap      = errors.New("clock: mfhd sequence gap")
-	ErrDupSeq      = errors.New("clock: duplicate mfhd sequence number")
+	ErrSeqGap       = errors.New("clock: mfhd sequence gap")
+	ErrDupSeq       = errors.New("clock: duplicate mfhd sequence number")
 	ErrTFDTRollback = errors.New("clock: tfdt rollback")
 	ErrTFDTOverflow = errors.New("clock: tfdt overflow")
 )
