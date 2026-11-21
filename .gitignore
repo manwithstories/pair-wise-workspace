@@ -71,3 +71,20 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Python 构建产物与本地环境（不提交）----
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+build/
+dist/
+.pytest_cache/
+*.db
+*.sqlite
+*.sqlite3
+
+# ---- 本地运行/演示输出（样例数据随代码生成，不入库）----
+/tmp/
+manifest.jsonl
