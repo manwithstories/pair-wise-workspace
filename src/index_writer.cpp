@@ -418,7 +418,15 @@ bool SegmentWriter::finish(MediaIndex& index, Error& error) {
     track.sample_rate = desc.sample_rate;
     track.channels = desc.channels;
     track.rate = desc.rate;
-    track.segments = states_[t]->segment_index;
+    // Count every segment for this track, committed and newly written.
+    std::uint64_t segment_count = 0;
+    for (const SegmentInfo& segment : committed_segments_) {
+      if (segment.track == desc.id) ++segment_count;
+    }
+    for (const SegmentInfo& segment : segments_) {
+      if (segment.track == desc.id) ++segment_count;
+    }
+    track.segments = segment_count;
     index.tracks.push_back(std::move(track));
   }
   index.segments = committed_segments_;
@@ -458,6 +466,21 @@ bool SegmentWriter::finish(MediaIndex& index, Error& error) {
                      if (a.track != b.track) return a.track < b.track;
                      return a.time_ns < b.time_ns;
                    });
+  // Recount per-track totals over the merged, sorted entry list (committed
+  // entries from a resume are included).
+  for (IndexTrack& track : index.tracks) {
+    track.entries = 0;
+    track.frames = 0;
+  }
+  for (const IndexEntry& entry : index.entries) {
+    for (IndexTrack& track : index.tracks) {
+      if (track.id == entry.track) {
+        ++track.entries;
+        ++track.frames;
+        break;
+      }
+    }
+  }
   index.frames_total = index.entries.size();
   return true;
 }

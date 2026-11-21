@@ -56,7 +56,7 @@ include(CTest)
 if(BUILD_TESTING)
   include(Catch)
   add_executable(mediaqc_tests
-    tests/pipeline_tests.cpp
+    tests/sha256_tests.cpp
     tests/timeline_tests.cpp
     tests/track_graph_tests.cpp
     tests/delivery_tests.cpp
