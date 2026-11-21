@@ -170,20 +170,26 @@ func TestKeyframeHitsUseOutputStss(t *testing.T) {
 	}
 }
 
-func TestKeyframeCheckDetectsMissingStss(t *testing.T) {
+func TestKeyframeCheckRejectsEmptyStss(t *testing.T) {
 	plan, src := planWith(t)
 	out := &memWS{}
 	sum, err := remux.Write(out, plan)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Remove every stss box by renaming its type; the checker must then
-	// report zero hits rather than silently assuming success.
+	// Replace the stss entry count with zero. A present-but-empty stss means
+	// "no sync samples", so the manifest's keyframes must no longer hit.
 	buf := append([]byte(nil), out.buf...)
-	for i := 0; i+4 <= len(buf); i++ {
+	patched := false
+	for i := 0; i+12 <= len(buf); i++ {
 		if string(buf[i:i+4]) == "stss" {
-			copy(buf[i:], "xxxx")
+			copy(buf[i+8:i+12], []byte{0, 0, 0, 0})
+			patched = true
+			break
 		}
+	}
+	if !patched {
+		t.Fatal("no stss box found")
 	}
 	res, err := Check(bytes.NewReader(buf), int64(len(buf)), sum.Manifest, Options{
 		Input: bytes.NewReader(src), InputSize: int64(len(src)),
@@ -192,6 +198,6 @@ func TestKeyframeCheckDetectsMissingStss(t *testing.T) {
 		t.Fatal(err)
 	}
 	if res.KeyframeHits == res.KeyframeQueries {
-		t.Fatal("missing stss still reported as a hit")
+		t.Fatal("empty stss still reported as a hit")
 	}
 }

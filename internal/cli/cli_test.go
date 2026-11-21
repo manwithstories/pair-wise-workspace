@@ -161,3 +161,24 @@ func TestDemoRTPFlag(t *testing.T) {
 		t.Fatalf("RTP summary missing:\n%s", out)
 	}
 }
+
+func TestVerifyWritesManifestNextToOutput(t *testing.T) {
+	dir := t.TempDir()
+	out, errOut, code := run(t, "verify", "--fixture", "clean", "--recover=false", "--keep", dir)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, errOut)
+	}
+	if !strings.Contains(out, "manifest=") {
+		t.Fatalf("no manifest line:\n%s", out)
+	}
+	manifest := filepath.Join(dir, "clean.mp4.manifest.json")
+	data, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"output_sha256"`, `"mapping_digest"`, `"samples"`, `"keyframes"`, `"peak"`} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("manifest missing %s", want)
+		}
+	}
+}

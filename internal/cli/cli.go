@@ -259,9 +259,10 @@ func runVerify(args []string, out, errOut io.Writer, recoverDefault bool) error 
 	}
 	if o.recover && len(rep.Skipped) > 0 {
 		re := &fault.RecoveryError{Skips: rep.Skipped}
-		printRecoveredReport(out, re, rep, fx.Note)
+		printRecoveredReport(out, errOut, re, rep, fx.Note)
 		return nil
 	}
+	writeManifestFile(&repManifest{rep: rep}, rep.OutputPath+".manifest.json", out, errOut)
 	fmt.Fprintf(out, "fixture=%s status=ok tracks=%d bytes=%d\n", o.fixture, len(rep.Tracks), rep.OutputSize)
 	fmt.Fprintf(out, "roundtrip_match=%.2f%% keyframe_hit=%.2f%% segment_hash_match=%.2f%%\n",
 		rep.Rates.RoundtripMatch, rep.Rates.KeyframeHit, rep.Rates.SegmentHashMatch)
@@ -269,7 +270,7 @@ func runVerify(args []string, out, errOut io.Writer, recoverDefault bool) error 
 }
 
 // printRecoveredReport prints the recovery manifest for a run that completed.
-func printRecoveredReport(out io.Writer, re *fault.RecoveryError, rep *pipeline.Report, note string) {
+func printRecoveredReport(out, errOut io.Writer, re *fault.RecoveryError, rep *pipeline.Report, note string) {
 	verified := int64(0)
 	if rep.Verification != nil {
 		for _, s := range rep.Verification.SourceSegments {
@@ -283,6 +284,7 @@ func printRecoveredReport(out io.Writer, re *fault.RecoveryError, rep *pipeline.
 	for _, s := range re.Skips {
 		fmt.Fprintf(out, "skipped start=%d length=%d reason=%q\n", s.Start, s.Length, s.Reason)
 	}
+	writeManifestFile(&repManifest{rep: rep}, rep.OutputPath+".manifest.json", out, errOut)
 	fmt.Fprintf(out, "skipped_bytes=%d output=%s output_sha256=%s\n",
 		re.SkippedBytes(), rep.OutputPath, short(rep.OutputSHA256))
 	fmt.Fprintf(out, "note=%q\n", note)

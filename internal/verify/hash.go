@@ -190,12 +190,16 @@ func Check(out io.ReaderAt, outSize int64, manifest []remux.ManifestEntry, opts 
 // the writer recorded as a keyframe. stss is not exposed by go-mp4's probe, so
 // this re-reads the box and compares membership directly.
 func countKeyframes(exp []remux.ManifestEntry, syncSamples map[uint32]bool) (queries, hits int) {
+	// A track without an stss box has every sample marked as sync by
+	// definition (ISO/IEC 14496-12 8.5.2), which is the normal case for audio
+	// and subtitles.
+	allSync := syncSamples == nil
 	for i, m := range exp {
 		if !m.Keyframe {
 			continue
 		}
 		queries++
-		if syncSamples[uint32(i+1)] {
+		if allSync || syncSamples[uint32(i+1)] {
 			hits++
 		}
 	}
@@ -239,7 +243,8 @@ func readTrakStss(trak []byte) (map[uint32]bool, error) {
 	stss, err := boxInPayload(stbl, "stss")
 	if err != nil {
 		if errors.Is(err, errBoxNotFound) {
-			return map[uint32]bool{}, nil
+			// No stss: every sample is a sync sample.
+			return nil, nil
 		}
 		return nil, err
 	}

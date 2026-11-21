@@ -71,6 +71,7 @@ type Report struct {
 	Skipped      []fault.Skip
 	SkippedBytes int64
 
+	InputPath    string
 	OutputPath   string
 	OutputSize   int64
 	OutputSHA256 string
@@ -402,6 +403,7 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 
 	rep := &Report{
 		Info:                scanRes.Info,
+		InputPath:           opts.InputPath,
 		Tracks:              trackReport.Tracks,
 		Unknown:             trackReport.UnknownCodecIDs,
 		Stats:               scanRes.Stats,
