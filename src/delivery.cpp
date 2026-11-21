@@ -313,6 +313,13 @@ const std::vector<std::string>& default_required_frame_fields() {
 DeliveryLoadResult load_delivery(const std::string& dir) {
   DeliveryLoadResult result;
   const fs::path path = fs::path(dir) / "delivery.json";
+  std::error_code exists_ec;
+  if (!fs::exists(path, exists_ec)) {
+    // A missing manifest is invalid input, not an I/O fault.
+    result.error = make_error(ErrorCategory::kInvalidInput, "delivery_missing",
+                              "no delivery.json in " + dir);
+    return result;
+  }
   std::string text;
   if (!read_text_file(path, text, result.error)) {
     return result;
