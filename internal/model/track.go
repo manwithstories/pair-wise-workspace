@@ -30,6 +30,9 @@ type Crop struct {
 // IsZero reports whether no pixels are cropped.
 func (c Crop) IsZero() bool { return c == Crop{} }
 
+// Equal reports whether two crops are identical.
+func (c Crop) Equal(o Crop) bool { return c == o }
+
 // Width returns the clean width after cropping codedWidth.
 func (c Crop) Width(codedWidth uint32) (uint32, error) {
 	if c.Left+c.Right >= codedWidth {

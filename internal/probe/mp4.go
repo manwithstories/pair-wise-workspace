@@ -255,9 +255,15 @@ func sampleEntry(r io.ReadSeeker, trak *mp4.BoxInfo, tr *model.Track, limits Lim
 	}
 	var entry *mp4.BoxInfo
 	_, err = mp4.ReadBoxStructureFromInternal(r, stds[0], func(h *mp4.ReadHandle) (interface{}, error) {
-		if entry == nil && len(h.Path) == 2 {
-			cp := h.BoxInfo
-			entry = &cp
+		switch len(h.Path) {
+		case 1: // the stsd box itself: descend into its sample entries
+			_, err := h.Expand()
+			return nil, err
+		case 2: // first child is the sample entry
+			if entry == nil {
+				cp := h.BoxInfo
+				entry = &cp
+			}
 		}
 		return nil, nil
 	})
@@ -296,7 +302,7 @@ func rotationAndCrop(r io.ReadSeeker, trak *mp4.BoxInfo, th *mp4.Tkhd, stsd *mp4
 	tr.Crop = model.Crop{}
 
 	// clap is not modelled by go-mp4 v1.4.1; read the raw payload.
-	claps, err := mp4.ExtractBox(r, stsd, mp4.BoxPath{mp4.BoxTypeAny(), mp4.BoxTypeAny(), mp4.StrToBoxType("clap")})
+	claps, err := mp4.ExtractBox(r, stsd, mp4.BoxPath{mp4.BoxTypeAny(), mp4.StrToBoxType("clap")})
 	if err != nil {
 		return model.Wrap(model.KindInvalidMedia, "probe.mp4", "extract clap", err).WithTrack(tr.ID)
 	}
@@ -321,7 +327,7 @@ func rotationAndCrop(r io.ReadSeeker, trak *mp4.BoxInfo, th *mp4.Tkhd, stsd *mp4
 		}
 	}
 
-	pasps, err := mp4.ExtractBoxWithPayload(r, stsd, mp4.BoxPath{mp4.BoxTypeAny(), mp4.BoxTypeAny(), mp4.BoxTypePasp()})
+	pasps, err := mp4.ExtractBoxWithPayload(r, stsd, mp4.BoxPath{mp4.BoxTypeAny(), mp4.BoxTypePasp()})
 	if err != nil {
 		return model.Wrap(model.KindInvalidMedia, "probe.mp4", "extract pasp", err).WithTrack(tr.ID)
 	}
@@ -336,7 +342,7 @@ func rotationAndCrop(r io.ReadSeeker, trak *mp4.BoxInfo, th *mp4.Tkhd, stsd *mp4
 }
 
 func colorFromMP4(r io.ReadSeeker, stsd *mp4.BoxInfo, tr *model.Track) error {
-	colrs, err := mp4.ExtractBoxWithPayload(r, stsd, mp4.BoxPath{mp4.BoxTypeAny(), mp4.BoxTypeAny(), mp4.BoxTypeColr()})
+	colrs, err := mp4.ExtractBoxWithPayload(r, stsd, mp4.BoxPath{mp4.BoxTypeAny(), mp4.BoxTypeColr()})
 	if err != nil {
 		return model.Wrap(model.KindInvalidMedia, "probe.mp4", "extract colr", err).WithTrack(tr.ID)
 	}
