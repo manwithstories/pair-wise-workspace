@@ -160,6 +160,7 @@ class Pipeline:
         # excludes from composition.
         self._excluded: set[str] = set()
         self.skipped_tracks: list[dict[str, Any]] = []
+        self._skipped_errors: list[MediaError] = []
 
     # ------------------------------------------------------------------ setup
     def _samples(self) -> SampleSet:
@@ -340,7 +341,10 @@ class Pipeline:
         return self._finish(started)
 
     def _finish(self, started: float) -> PipelineResult:
-        self.result.errors = self._collector.errors
+        self.result.errors = sorted(
+            list(self._collector.errors) + list(self._skipped_errors),
+            key=MediaError.sort_key,
+        )
         self.result.skipped_tracks = list(self.skipped_tracks)
         self.result.timings["total"] = self.clock() - started
         if self.result.interrupted_at is None:
@@ -413,6 +417,17 @@ class Pipeline:
                         continue
                     payload = read_json(artifact.path)
                     probes[payload["track"]] = probe_from_json(payload)
+                    for raw in payload.get("errors", []):
+                        error = MediaError.from_dict(raw)
+                        self._skipped_errors.append(error)
+                        self.skipped_tracks.append(
+                            {
+                                "track": payload["track"],
+                                "reason": "probe_failed",
+                                "first_code": raw.get("code"),
+                                "first_pts": raw.get("pts"),
+                            }
+                        )
                 if not probes:
                     return False
                 self._media["probes"] = probes
@@ -425,6 +440,9 @@ class Pipeline:
                     if not artifact.path.endswith(".json"):
                         continue
                     payload = read_json(artifact.path)
+                    if payload.get("kind") == "color":
+                        self.result.color = payload.get("decision")
+                        continue
                     if payload.get("kind") == "video":
                         videos[payload["track"]] = video_from_json(payload)
                     elif payload.get("kind") == "audio":
@@ -494,9 +512,7 @@ class Pipeline:
 
     # ------------------------------------------------------------------ stages
     def _stage_timeline(self, timeline: Timeline) -> bool:
-        with open(self.paths["timeline"], "rb") as handle:
-            self._record_bytes(Stage.TIMELINE, self.paths["timeline"])
-            _ = handle.read(0)
+        self._record_bytes(Stage.TIMELINE, self.paths["timeline"])
         issues = validate_timeline(timeline)
         for issue in issues:
             self._collector.add(issue.to_media_error(Stage.TIMELINE))
@@ -512,8 +528,7 @@ class Pipeline:
                 continue
             probe = probe_media(self._source_path(timeline, track.id), track_id=source)
             probes[source] = probe
-            for error in probe.errors:
-                self._collector.add(error)
+            ignored: list[dict[str, Any]] = []
             if any(e.severity >= Severity.ERROR for e in probe.errors):
                 self._excluded.add(source)
                 self.skipped_tracks.append(
@@ -526,8 +541,22 @@ class Pipeline:
                         else None,
                     }
                 )
+                self.result.skipped_tracks = list(self.skipped_tracks)
+                if self.config.policy == "skip":
+                    # Under the skip policy the damaged source is excluded and
+                    # its errors stay in the summary without failing the run;
+                    # they are persisted so a resumed run can still report
+                    # them.
+                    ignored = [e.to_dict() for e in probe.errors]
+                    self._skipped_errors.extend(probe.errors)
+                else:
+                    for error in probe.errors:
+                        self._collector.add(error)
+            else:
+                for error in probe.errors:
+                    self._collector.add(error)
             path = os.path.join(self.paths["probe"], f"{source}.json")
-            write_json(path, probe_to_json(probe, source))
+            write_json(path, probe_to_json(probe, source, ignored))
             self._record_bytes(Stage.PROBE, path)
         self._media["probes"] = probes
         self.result.probes = probes
@@ -552,8 +581,19 @@ class Pipeline:
             for key, probe in probes.items()
         }
         policy = ColorPolicy(mode=self.config.color_policy, track=self.config.color_track)
-        decision = resolve_color("cam_main", color_sources, policy) if color_sources else None
+        preferred = ("cam_main", "team_voice", "player_voice", "edge_tail", "cam_alt")
+        decision = (
+            resolve_color("cam_main", color_sources, policy, preferred)
+            if color_sources
+            else None
+        )
         self.result.color = decision.to_dict() if decision else None
+        color_path = os.path.join(self.paths["normalized"], "color.json")
+        write_json(
+            color_path,
+            {"kind": "color", "decision": self.result.color},
+        )
+        self._record_bytes(Stage.NORMALIZE, color_path)
         videos: dict[str, NormalizedVideo] = {}
         audios: dict[str, NormalizedAudio] = {}
         from .normalize import VideoSpec

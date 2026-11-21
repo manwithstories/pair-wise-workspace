@@ -123,6 +123,33 @@ class MediaError(Exception):
             payload["context"] = dict(self.context)
         return payload
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "MediaError":
+        location = MediaLocation(
+            track=str(payload.get("track", "") or ""),
+            pts=Fraction(payload["pts"]) if payload.get("pts") else None,
+            frame=payload.get("frame"),
+            sample_start=payload.get("sample_start"),
+            sample_end=payload.get("sample_end"),
+            stream_index=payload.get("stream_index"),
+        )
+        try:
+            stage = Stage[str(payload.get("stage", "probe")).upper()]
+        except KeyError:
+            stage = Stage.PROBE
+        try:
+            severity = Severity[str(payload.get("severity", "error")).upper()]
+        except KeyError:
+            severity = Severity.ERROR
+        return cls(
+            code=str(payload.get("code", "unknown")),
+            stage=stage,
+            message=str(payload.get("message", "")),
+            location=location,
+            severity=severity,
+            context=payload.get("context", {}),
+        )
+
     def sort_key(self) -> tuple:
         pts = self.location.pts
         # An error without a timestamp sorts last; within the same timestamp we

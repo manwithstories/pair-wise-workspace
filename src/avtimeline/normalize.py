@@ -164,9 +164,17 @@ class ColorDecision:
 
 
 def resolve_color(
-    track_id: str, sources: dict[str, ColorMetadata], policy: ColorPolicy
+    track_id: str,
+    sources: dict[str, ColorMetadata],
+    policy: ColorPolicy,
+    preferred: Iterable[str] = (),
 ) -> ColorDecision:
-    """Resolve colour metadata for one track and record the reasoning."""
+    """Resolve colour metadata for one track and record the reasoning.
+
+    ``preferred`` lists source names in priority order for the ``first``
+    policy; it keeps the choice stable when several sources disagree (the
+    program camera wins over a secondary angle).
+    """
     usable = {name: meta for name, meta in sources.items() if not meta.is_unspecified()}
     conflicts: list[str] = []
     if len({meta.signature() for meta in usable.values()}) > 1:
@@ -179,7 +187,9 @@ def resolve_color(
     elif policy.mode == "track" and policy.track and policy.track in usable:
         output, decided_by = usable[policy.track], f"policy:track:{policy.track}"
     elif usable:
-        first_name = sorted(usable)[0]
+        ordered = [name for name in preferred if name in usable]
+        ordered += [name for name in sorted(usable) if name not in ordered]
+        first_name = ordered[0]
         output, decided_by = usable[first_name], f"policy:first:{first_name}"
     else:
         output, decided_by = ColorMetadata(1, 1, 1, 1), "fallback:bt709"

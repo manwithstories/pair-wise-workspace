@@ -39,7 +39,9 @@ def read_json(path: str) -> dict[str, Any]:
         return json.load(handle)
 
 
-def probe_to_json(probe: ProbeResult, track_id: str) -> dict[str, Any]:
+def probe_to_json(
+    probe: ProbeResult, track_id: str, errors: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
     return {
         "kind": "probe",
         "track": track_id,
@@ -51,7 +53,7 @@ def probe_to_json(probe: ProbeResult, track_id: str) -> dict[str, Any]:
         "keyframes": [str(t) for t in probe.keyframe_times],
         "decoded_video_frames": probe.decoded_video_frames,
         "decoded_audio_samples": probe.decoded_audio_samples,
-        "errors": [e.to_dict() for e in probe.errors],
+        "errors": errors if errors is not None else [e.to_dict() for e in probe.errors],
         "streams": [
             {
                 "index": s.index,
