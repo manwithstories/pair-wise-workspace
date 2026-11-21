@@ -145,15 +145,18 @@ func keyframeAt(r Representation, t clock.Ticks, tolerance clock.Ticks) (index.K
 		}
 		return kf, dev, nil
 	}
-	// No keyframe at or before t: the first keyframe may still be within one
-	// frame after t, which happens when the primary and this layer disagree
-	// about whether frame 1 starts at zero.
+	// No keyframe at or before t.  That is tolerable only at the very start,
+	// where the first keyframe may sit within one frame after zero because
+	// the representations disagree about the first sample's start; at any
+	// later boundary it is a genuine misalignment.
 	first := r.Keyframes.Keyframes[0]
-	if dev, err := first.Ticks.Sub(t); err == nil && dev.Cmp(tolerance) <= 0 {
-		return first, dev, nil
+	if t.IsZero() {
+		if dev, err := first.Ticks.Sub(t); err == nil && dev.Cmp(tolerance) <= 0 {
+			return first, dev, nil
+		}
 	}
-	return index.Keyframe{}, clock.Ticks{}, fault.New(fault.ClassInput, "segments", r.Name,
-		"missing-boundary-keyframe", fmt.Sprintf("no keyframe at or before %s", t))
+	return index.Keyframe{}, clock.Ticks{}, fault.New(fault.ClassDependency, "segments", r.Name,
+		"boundary-misaligned", fmt.Sprintf("no keyframe at or before boundary %s", t))
 }
 
 // framesBetween counts primary frames whose start lies in [start, end).

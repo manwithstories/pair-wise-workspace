@@ -153,7 +153,7 @@ func TestKeyframeAtBeforeFirstKeyframeFails(t *testing.T) {
 		{Name: "late", FrameDuration: clock.MustNew(3000, 1), Keyframes: secondary},
 	}, clock.MustNew(9000, 1), DefaultLimits())
 	fe, ok := fault.As(err)
-	if !ok || fe.Code != "missing-boundary-keyframe" || fe.Track != "late" {
+	if !ok || fe.Code != "boundary-misaligned" || fe.Track != "late" {
 		t.Fatalf("got %v", err)
 	}
 }
