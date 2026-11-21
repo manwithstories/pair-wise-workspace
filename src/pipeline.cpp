@@ -10,6 +10,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -341,16 +342,23 @@ PipelineReport Pipeline::run() {
     std::uint64_t seq = 0;
     bool keyframe = false;
     std::array<std::uint8_t, 32> sha{};
+    std::uint64_t size = 0;  // cost charged against the byte budget
     std::vector<std::uint8_t> payload;
   };
   // Bounded queue between the reader and the writer.  The single-threaded
   // design still enforces the cap: the reader refuses to run ahead of the
-  // writer by more than `queue_frames` items, which is the backpressure the
-  // spec requires.  With a slow consumer the peak stays at the configured cap.
+  // writer by more than `queue_frames` items or `queue_bytes` bytes, which is
+  // the backpressure the spec requires.  With a slow consumer the peak stays
+  // at the configured cap.
   std::vector<std::unique_ptr<Frame>> pending;
   const std::uint64_t max_pending =
       options_.queue_frames == 0 ? 1 : options_.queue_frames;
+  const std::uint64_t max_pending_bytes =
+      options_.queue_bytes == 0 ? std::numeric_limits<std::uint64_t>::max()
+                                : options_.queue_bytes;
+  std::uint64_t pending_bytes = 0;
   std::uint64_t peak_pending = 0;
+  std::uint64_t peak_pending_bytes = 0;
 
   auto flush_oldest = [&]() -> bool {
     if (pending.empty()) return true;
@@ -369,6 +377,7 @@ PipelineReport Pipeline::run() {
       return false;
     }
     report.index_entries++;
+    pending_bytes -= frame.size;
     pending.erase(pending.begin());
     return true;
   };
@@ -492,8 +501,13 @@ PipelineReport Pipeline::run() {
       }
 
       ++report.frames_verified;
-      // Enforce the queue bound: flush the oldest before adding another.
-      while (pending.size() >= max_pending) {
+      // Enforce both queue bounds before admitting another frame: the frame
+      // count and the total buffered bytes.  A single frame always fits even
+      // if it alone exceeds the byte cap, so the pipeline can make progress.
+      const std::uint64_t incoming_bytes = packet.data.size() + 256;
+      while (pending.size() >= max_pending ||
+             (pending_bytes + incoming_bytes > max_pending_bytes &&
+              !pending.empty())) {
         if (!flush_oldest()) {
           return report;
         }
@@ -505,9 +519,13 @@ PipelineReport Pipeline::run() {
       frame->seq = meta.seq;
       frame->keyframe = packet.keyframe;
       frame->sha = meta.sha;
+      frame->size = incoming_bytes;
       frame->payload = std::move(packet.data);
+      pending_bytes += incoming_bytes;
       pending.push_back(std::move(frame));
       peak_pending = std::max<std::uint64_t>(peak_pending, pending.size());
+      peak_pending_bytes =
+          std::max<std::uint64_t>(peak_pending_bytes, pending_bytes);
       produced = true;
     }
     if (!produced) break;  // every track exhausted
@@ -521,6 +539,7 @@ PipelineReport Pipeline::run() {
     }
   }
   report.peak_queue_frames = peak_pending;
+  report.peak_queue_bytes = peak_pending_bytes;
 
   if (report.interrupted) {
     // Finalize the partial segments so everything already written is a valid,

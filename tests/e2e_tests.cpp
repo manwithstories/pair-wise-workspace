@@ -298,6 +298,23 @@ TEST_CASE("resume after damage keeps the cumulative damage report",
   CHECK(found);
 }
 
+TEST_CASE("byte budget bounds the queue independently of frame count",
+          "[pipeline]") {
+  TempDir dir;
+  REQUIRE(make_delivery(dir, Scenario::kSlowConsumer, 3000).ok);
+  PipelineOptions options = options_for(dir);
+  options.queue_frames = 1000;        // frame count would allow a huge queue
+  options.queue_bytes = 8192;         // but the byte budget is tiny
+  Pipeline pipeline(options);
+  PipelineReport report = pipeline.run();
+  REQUIRE(report.ok);
+  CHECK(report.index_entries == 3000);
+  // A single frame may exceed the budget, so allow one frame of slack, but the
+  // queue must never grow to the thousands the frame cap alone would permit.
+  CHECK(report.peak_queue_bytes <= options.queue_bytes + 4096);
+  CHECK(report.peak_queue_frames < 100);
+}
+
 TEST_CASE("query locates frames by time and sequence", "[pipeline]") {
   TempDir dir;
   REQUIRE(make_delivery(dir, Scenario::kNormal, 600).ok);
