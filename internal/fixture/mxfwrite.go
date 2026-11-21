@@ -156,13 +156,20 @@ func PlanDelivery(n int, lateGap int) DeliveryPlan {
 
 // buildRTPPackets serializes RTP packets for the camera video samples.
 // Payloads carry the same essence bytes as the MXF track so the merge step can
-// prove byte identity; timestamps carry drift and wrap.
+// prove byte identity.
+//
+// RTP timestamps advance in true-time increments converted to source ticks at
+// driftPPM (a fast capture clock emits more ticks than true elapsed time), then
+// are offset by a large base near the wrap point. This is the inverse of the
+// calibration the receiver applies, so drift and wrap must both be undone to
+// recover the container timeline.
 func buildRTPPackets(samples []SampleSpec, driftPPM int64, wrapAt uint32, plan DeliveryPlan) []byte {
 	var buf bytes.Buffer
+	const base = int64(3_600) * 90000 // one hour of ticks
 	emit := func(idx int) {
 		s := samples[idx]
-		fast := s.PTS * (1_000_000 + driftPPM) / 1_000_000
-		ts := uint32((uint64(wrapAt) + uint64(fast)) & 0xFFFFFFFF)
+		tsTicks := base + s.PTS*(1_000_000+driftPPM)/1_000_000
+		ts := uint32((uint64(wrapAt) + uint64(tsTicks)) & 0xFFFFFFFF)
 		p := &rtp.Packet{
 			Header: rtp.Header{
 				Version:        2,

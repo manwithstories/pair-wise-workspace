@@ -79,7 +79,7 @@ func studioTracks(seed int64) []TrackSpec {
 	}
 	for i := 0; i < 48; i++ {
 		v.Samples = append(v.Samples, SampleSpec{
-			Data: patternBytes(r, 5000+i%37, 'V', i),
+			Data: patternBytes(r, 7000+i%37, 'V', i),
 			DTS:  int64(i) * delta,
 			PTS:  int64(i)*delta + 2*delta,
 			Dur:  delta,
@@ -90,7 +90,7 @@ func studioTracks(seed int64) []TrackSpec {
 	a := TrackSpec{ID: 2, Kind: model.KindAudio, Timescale: tsAudio, Desc: "mp4a"}
 	for i := 0; i < 24; i++ {
 		a.Samples = append(a.Samples, SampleSpec{
-			Data: patternBytes(r, 4000+i%11, 'A', i),
+			Data: patternBytes(r, 5000+i%11, 'A', i),
 			DTS:  int64(i) * adelta,
 			PTS:  int64(i) * adelta,
 			Dur:  adelta,
@@ -140,7 +140,7 @@ func cameraTracks(seed int64, rates []int64) []TrackSpec {
 			end = starts[i] + (starts[i] - starts[i-1])
 		}
 		v.Samples = append(v.Samples, SampleSpec{
-			Data: patternBytes(r, 50000+i%53, 'C', i),
+			Data: patternBytes(r, 58000+i%53, 'C', i),
 			DTS:  starts[i], PTS: starts[i], Dur: end - starts[i],
 		})
 	}
@@ -150,7 +150,7 @@ func cameraTracks(seed int64, rates []int64) []TrackSpec {
 		t := TrackSpec{ID: id, Kind: model.KindAudio, Timescale: tsAudio, Desc: "mxf-pcm"}
 		for i := 0; i < n; i++ {
 			t.Samples = append(t.Samples, SampleSpec{
-				Data: patternBytes(r, 4500+i%13, tag, i),
+				Data: patternBytes(r, 5000+i%13, tag, i),
 				DTS:  int64(i) * adelta, PTS: int64(i) * adelta, Dur: adelta,
 			})
 		}

@@ -89,13 +89,13 @@ func runNormal(bundle fixture.Bundle, opts Options, stdout io.Writer) (Result, e
 	if err != nil {
 		return res, err
 	}
-	cam, err := demuxMXF(bundle.CameraMXF)
+	camera, err := demuxMXF(bundle.CameraMXF)
 	if err != nil {
 		return res, err
 	}
 	var all []trackBundle
 	all = append(all, studio...)
-	all = append(all, cam...)
+	all = append(all, camera...)
 
 	// Map by fingerprint: studio video/audio plus camera audio.
 	resolved, err := resolveBundle(all)
@@ -106,12 +106,24 @@ func runNormal(bundle fixture.Bundle, opts Options, stdout io.Writer) (Result, e
 	// Calibrate every sample against the shared time base.
 	events := calibrate(resolved, opts)
 
-	// Arrival order: camera video events follow the RTP receive plan.
-	rtp, err := demuxRTP(bundle.RTPStream)
+	// Acquisition calibration: 32-bit RTP ticks are unwrapped in sequence
+	// order, drift-compensated, and used as the camera video timeline. The
+	// container remains the source of sample bytes and durations.
+	acq, err := readAcquisition(bundle.RTPStream, opts.DriftPPM)
 	if err != nil {
 		return res, err
 	}
-	applyArrival(events, rtp, mainVideoID(resolved))
+	videoID := mainVideoID(resolved)
+	cam := resolutionFor(resolved, videoID)
+	if cam == nil {
+		return res, model.NewError(model.CodeTrackMissing, "main video track not resolved")
+	}
+	if drift := acq.maxDriftNS(events, videoID); drift > 1_000_000 {
+		return res, model.NewError(model.CodeClock,
+			"transport and container timelines disagree by %dns on track %s", drift, videoID)
+	}
+	events = rtpEvents(acq, cam, events)
+	applyArrival(events, acq, videoID)
 
 	plan, err := timeline.Build(events, timeline.Config{
 		AllowedLate: model.Instant(opts.LateMS) * 1_000_000,

@@ -63,7 +63,10 @@ func calibrate(resolved []mapping.Resolution, opts Options) []model.Event {
 	var events []model.Event
 	for _, r := range resolved {
 		t := r.Track
-		clock := model.Clock{Timescale: t.Timescale, DriftPPM: opts.DriftPPM}
+		// Container timestamps are the canonical acquisition timeline and
+		// carry no clock drift; drift and wrap are transport-clock properties
+		// unwound on the RTP path.
+		clock := model.Clock{Timescale: t.Timescale}
 		for i, s := range t.Samples {
 			events = append(events, model.Event{
 				TrackID: t.ID, Fingerprint: r.Fingerprint, Kind: t.Kind,
@@ -77,56 +80,56 @@ func calibrate(resolved []mapping.Resolution, opts Options) []model.Event {
 	return events
 }
 
-// rtpArrival is the receive order of camera frames decoded from the RTP file.
-type rtpArrival struct {
-	order []int
-}
-
-// demuxRTP decodes the arrival order so late frames can be flagged even when
-// their presentation timestamps are early.
-func demuxRTP(path string) (rtpArrival, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return rtpArrival{}, model.WrapError(model.CodeInternal, err, "open rtp")
-	}
-	defer f.Close()
-	res, err := ingest.DemuxRTP(f, "cam")
-	if err != nil {
-		return rtpArrival{}, err
-	}
-	order := make([]int, 0, len(res.Packets))
-	seen := map[uint16]bool{}
-	for _, p := range res.Packets {
-		if seen[p.Seq] {
-			continue
-		}
-		seen[p.Seq] = true
-		order = append(order, int(p.Seq)-1000)
-	}
-	return rtpArrival{order: order}, nil
-}
-
-// applyArrival stamps camera video events with their RTP receive position.
-// Other tracks have no transport schedule, so their own sample order is their
-// arrival order and they are offset into a disjoint range to keep comparisons
-// meaningful only within a track.
-func applyArrival(events []model.Event, rtp rtpArrival, videoTrackID string) {
-	pos := map[int]int{}
-	for i, srcIdx := range rtp.order {
-		pos[srcIdx] = i
-	}
-	for i := range events {
-		if events[i].TrackID != videoTrackID {
-			events[i].Arrival = 1_000_000 + events[i].Index
-			continue
-		}
-		if p, ok := pos[events[i].Index]; ok {
-			events[i].Arrival = p
+// rtpEvents replaces the camera video timeline with one derived from the
+// transport stream: timestamps come from unwrapped, drift-compensated RTP
+// ticks, while identity (hash, size, byte offset) and durations come from the
+// MXF sample so the remux still copies container bytes verbatim.
+func rtpEvents(acq acquisition, cam *mapping.Resolution, containerNS []model.Event) []model.Event {
+	var out []model.Event
+	byIndex := map[int]model.Event{}
+	for _, e := range containerNS {
+		if e.TrackID == cam.Track.ID {
+			byIndex[e.Index] = e
 		} else {
-			// A frame that never arrived is treated as trailing, not dropped.
-			events[i].Arrival = 2_000_000 + events[i].Index
+			out = append(out, e)
 		}
 	}
+	var prevEnd model.Instant
+	nsByFrame := acq.NS()
+	maxIdx := len(nsByFrame)
+	if len(byIndex) > 0 {
+		for idx := range byIndex {
+			if idx+1 > maxIdx {
+				maxIdx = idx + 1
+			}
+		}
+	}
+	for idx := 0; idx < maxIdx; idx++ {
+		ns, ok := acq.byFrame[idx]
+		if !ok {
+			continue
+		}
+		base, hasContainer := byIndex[idx]
+		ev := model.Event{
+			TrackID: cam.Track.ID, Fingerprint: cam.Fingerprint, Kind: model.KindVideo,
+			Index: idx, Seq: uint32(idx + 1),
+			PTS: model.Instant(ns), DTS: model.Instant(ns),
+		}
+		if hasContainer {
+			ev.Duration = base.Duration
+			ev.Hash = base.Hash
+			ev.Size = base.Size
+			ev.SourceOffset = base.SourceOffset
+		} else if prevEnd > 0 {
+			ev.Duration = model.Instant(ns) - prevEnd
+		}
+		if ev.Duration < 0 {
+			ev.Duration = 0
+		}
+		prevEnd = ev.PTS + ev.Duration
+		out = append(out, ev)
+	}
+	return out
 }
 
 // buildRemuxInput maps the stable timeline back onto physical source bytes.
@@ -144,12 +147,19 @@ func buildRemuxInput(resolved []mapping.Resolution, plan timeline.Plan) remux.In
 	sortStrings(ids)
 	for _, id := range ids {
 		r := byID[id]
+		// The delivery container normalizes every track to a nanosecond
+		// timescale. That makes the stored ticks identical to the unified
+		// timeline instants, so no rounding can accumulate.
 		ti := remux.TrackInput{
-			ID: r.Track.ID, Kind: r.Track.Kind, Timescale: r.Track.Timescale,
+			ID: r.Track.ID, Kind: r.Track.Kind, Timescale: remux.DeliveryTimescale,
 			Desc: r.Track.SampleDesc, Width: r.Track.CodedWidth, Height: r.Track.CodedHeight,
 			Rotation: r.Decision.Rotation,
 		}
-		// Consume only non-gap events, which are exactly the delivered samples.
+		// Consume only non-gap events, which are exactly the delivered
+		// samples. DTS is written as the running sum of durations (what stts
+		// can express) and PTS stays the exact absolute instant, so the
+		// composition offset absorbs any truncation in individual durations.
+		var dts int64
 		for _, e := range plan.Events {
 			if e.TrackID != id || e.IsGap {
 				continue
@@ -157,9 +167,10 @@ func buildRemuxInput(resolved []mapping.Resolution, plan timeline.Plan) remux.In
 			ti.Samples = append(ti.Samples, remux.InputSample{
 				SourcePath: r.Track.SourcePath, Offset: e.SourceOffset, Size: e.Size,
 				Hash: e.Hash, TrackID: id, TrackKind: r.Track.Kind,
-				Timescale: r.Track.Timescale, DTS: int64(e.DTS), PTS: int64(e.PTS),
+				Timescale: remux.DeliveryTimescale, DTS: dts, PTS: int64(e.PTS),
 				Duration: int64(e.Duration),
 			})
+			dts += int64(e.Duration)
 		}
 		in.Tracks = append(in.Tracks, ti)
 	}
@@ -181,11 +192,14 @@ func verifyOutput(outPath string, man manifest.Manifest) (manifest.Report, error
 		}
 		var events []model.Event
 		for _, t := range tracks {
+			// Output sample times are in the track's own timescale; convert
+			// them to unified nanoseconds exactly as the writer did.
+			clock := model.Clock{Timescale: t.Timescale}
 			for _, s := range t.Samples {
 				events = append(events, model.Event{
 					TrackID: t.ID, Index: s.Index, Seq: uint32(s.Index + 1),
-					DTS: model.Instant(s.DTS), PTS: model.Instant(s.PTS),
-					Duration: model.Instant(s.Duration), Hash: s.Hash, Size: s.Size,
+					DTS: clock.Calibrate(s.DTS), PTS: clock.Calibrate(s.PTS),
+					Duration: clock.Calibrate(s.Duration), Hash: s.Hash, Size: s.Size,
 				})
 			}
 		}

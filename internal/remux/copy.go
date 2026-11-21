@@ -15,6 +15,11 @@ import (
 	"mediameld/internal/model"
 )
 
+// DeliveryTimescale is the normalized timescale of the delivery container:
+// one tick per nanosecond. Storing unified instants directly avoids any
+// rational conversion on the output side.
+const DeliveryTimescale int64 = 1_000_000_000
+
 // InputSample binds a sample's identity to the physical bytes to copy.
 type InputSample struct {
 	SourcePath  string
