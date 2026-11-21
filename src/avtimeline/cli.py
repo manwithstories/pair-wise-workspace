@@ -52,7 +52,12 @@ def build_parser() -> argparse.ArgumentParser:
     demo.add_argument("--resume", action="store_true", help="resume from a checkpoint when present")
     demo.add_argument("--corrupt-sample", action="store_true", help="include the truncated camera fixture")
     demo.add_argument("--edge-sample", action="store_true", help="include the 0.2 s tail and alternate camera fixtures")
-    demo.add_argument("--policy", choices=("stop", "skip"), default="skip", help="behaviour on damaged input")
+    demo.add_argument(
+        "--policy",
+        choices=("stop", "skip"),
+        default="skip",
+        help="behaviour on damaged input (demo default: skip)",
+    )
     demo.add_argument("--clean", action="store_true", help="remove the workdir before running")
     demo.add_argument("--force-samples", action="store_true", help="regenerate fixtures from scratch")
     demo.add_argument("--json-out", default=None, help="also write the summary JSON here")
@@ -61,6 +66,7 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("--workdir", required=True)
     verify.add_argument("--corrupt-sample", action="store_true")
     verify.add_argument("--edge-sample", action="store_true")
+    verify.add_argument("--policy", choices=("stop", "skip"), default="skip")
     verify.add_argument("--json-out", default=None)
 
     inspect = sub.add_parser("inspect", help="parse and validate a timeline document")
@@ -262,6 +268,16 @@ def run_demo(args: argparse.Namespace) -> int:
 def run_verify(args: argparse.Namespace) -> int:
     workdir = os.path.abspath(args.workdir)
     os.makedirs(workdir, exist_ok=True)
+    if args.corrupt_sample and args.policy == "stop":
+        print(
+            json.dumps(
+                {
+                    "error": "verify needs --policy skip when --corrupt-sample is set",
+                    "exit_code": int(ExitCode.INVALID_INPUT),
+                }
+            )
+        )
+        return int(ExitCode.INVALID_INPUT)
     config = _config_from_args(args)
     first_dir = os.path.join(workdir, "run1")
     second_dir = os.path.join(workdir, "run2")
@@ -285,6 +301,16 @@ def run_verify(args: argparse.Namespace) -> int:
         edge_sample=args.edge_sample,
         force_samples=True,
     )
+    if first.has_fatal or first.stopped_on_invalid_input or second.has_fatal or second.stopped_on_invalid_input:
+        summary = {
+            "sha256_match": False,
+            "aligned_segments": 0,
+            "first_errors": [e.to_dict() for e in first.errors],
+            "second_errors": [e.to_dict() for e in second.errors],
+            "exit_code": int(ExitCode.INVALID_INPUT),
+        }
+        _emit(summary, args.json_out)
+        return int(ExitCode.INVALID_INPUT)
     repeat = _compare_runs(first, second)
     summary = {
         "sha256_match": repeat["sha256_match"],
