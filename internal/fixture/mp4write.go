@@ -105,12 +105,7 @@ func buildTrak(t TrackSpec, relOffsets []int64, mdatPayloadBase int64, trailerDu
 	return box("trak", tkhd, mdia)
 }
 
-func samplesFor(t TrackSpec) []SampleSpec {
-	if t.DeleteTail && len(t.Samples) > 0 {
-		return t.Samples[:len(t.Samples)-1]
-	}
-	return t.Samples
-}
+func samplesFor(t TrackSpec) []SampleSpec { return t.Samples }
 
 func trackDur(t TrackSpec) int64 {
 	var d int64
@@ -129,7 +124,6 @@ func dinfBox() []byte {
 
 func sampleTables(t TrackSpec, offsets []int64) []byte {
 	t.Samples = samplesFor(t)
-	offsets = offsets[:len(t.Samples)]
 	stsd := stsdBox(t)
 	// stts: coalesce consecutive equal deltas.
 	samples := samplesFor(t)

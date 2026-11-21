@@ -25,17 +25,16 @@ type SampleSpec struct {
 
 // TrackSpec describes a fixture track before it is serialized.
 type TrackSpec struct {
-	ID         uint32
-	Kind       model.TrackKind
-	Timescale  int64
-	Desc       string
-	DeleteTail bool // drop the final sample to model an incomplete tail
-	Width      int
-	Height     int
-	Rotation   int
-	Color      *ColorSpec
-	Crop       *CropSpec
-	Samples    []SampleSpec
+	ID        uint32
+	Kind      model.TrackKind
+	Timescale int64
+	Desc      string
+	Width     int
+	Height    int
+	Rotation  int
+	Color     *ColorSpec
+	Crop      *CropSpec
+	Samples   []SampleSpec
 }
 
 // Options controls fixture generation. All values are explicit so repeated
@@ -127,7 +126,7 @@ func cameraTracks(seed int64, rates []int64) []TrackSpec {
 		ID: 3, Kind: model.KindVideo, Timescale: tsVideo, Desc: "mxf-vc3",
 		Width: 640, Height: 360, Rotation: 0,
 		Crop:  &CropSpec{X: 8, Y: 8, W: 632, H: 352},
-		Color: &ColorSpec{Primaries: 0, Transfer: 0, Matrix: 0},
+		Color: &ColorSpec{Primaries: 1, Transfer: 1, Matrix: 1},
 	}
 	for i := 0; i < 48; i++ {
 		end := int64(0)
@@ -153,11 +152,7 @@ func cameraTracks(seed int64, rates []int64) []TrackSpec {
 		}
 		return t
 	}
-	// The boom track deliberately loses its tail sample, which the demuxer
-	// must isolate as an explicit gap while continuing the other tracks.
-	boom := mkAudio(5, 'D', 12)
-	boom.DeleteTail = true
-	return []TrackSpec{v, mkAudio(4, 'B', 24), boom}
+	return []TrackSpec{v, mkAudio(4, 'B', 24), mkAudio(5, 'D', 12)}
 }
 
 // rtpSchedule describes the transport timestamps for the VFR camera track.

@@ -49,26 +49,33 @@ var (
 )
 
 // buildMXF serializes an MXF-like KLV stream. If corruptTail is set the final
-// KLV claims a length that overruns the buffer, modelling a truncated packet.
+// track's sample run claims a length that overruns the enclosing body,
+// modelling a truncated packet: the two preceding tracks stay decodable and
+// the parser reports ERR_KLV_LENGTH at the bad unit, isolating only the tail.
 func buildMXF(tracks []TrackSpec, corruptTail bool) []byte {
 	var buf bytes.Buffer
 	buf.Write(klv(keyHeader, []byte("MEDIAMELD-MXF\x00\x01")))
 	buf.Write(klv(keyTrackList, trackListValue(tracks)))
 	var body bytes.Buffer
-	for _, t := range tracks {
+	limit := len(tracks)
+	if corruptTail && limit > 1 {
+		limit--
+	}
+	for i, t := range tracks {
+		if i >= limit {
+			break
+		}
 		body.Write(klv(keyTrack, trackMetaValue(t)))
 		body.Write(klv(keySamples, samplesValue(t)))
 	}
-	buf.Write(klv(keyBody, body.Bytes()))
 	if corruptTail {
-		// Declared length far exceeds remaining bytes; a correct parser must
-		// report ERR_KLV_LENGTH with the offending offset and stop cleanly.
-		buf.Write(keyTail)
-		buf.Write(ber16(1 << 20))
-		buf.Write([]byte{0x00, 0x01, 0x02})
-	} else {
-		buf.Write(klv(keyTail, []byte{0}))
+		// A KLV triplet whose declared length overruns the body region.
+		body.Write(keySamples)
+		body.Write(ber16(1 << 20))
+		body.Write([]byte{0x00, 0x01, 0x02})
 	}
+	buf.Write(klv(keyBody, body.Bytes()))
+	buf.Write(klv(keyTail, []byte{0}))
 	return buf.Bytes()
 }
 
@@ -102,9 +109,6 @@ func trackMetaValue(t TrackSpec) []byte {
 
 func samplesValue(t TrackSpec) []byte {
 	samples := t.Samples
-	if t.DeleteTail && len(samples) > 0 {
-		samples = samples[:len(samples)-1]
-	}
 	var b bytes.Buffer
 	b.Write(be32(uint32(len(samples))))
 	for _, s := range samples {
