@@ -161,6 +161,7 @@ class Pipeline:
         self._excluded: set[str] = set()
         self.skipped_tracks: list[dict[str, Any]] = []
         self._skipped_errors: list[MediaError] = []
+        self._reused: set[Stage] = set()
 
     # ------------------------------------------------------------------ setup
     def _samples(self) -> SampleSet:
@@ -304,15 +305,15 @@ class Pipeline:
                 (Stage.ENCODE, lambda: self._stage_encode(timeline)),
                 (Stage.MANIFEST, lambda: self._stage_manifest(timeline)),
             ]
-            start_index = self._resume_index()
             for index, (stage, action) in enumerate(stages):
-                if index < start_index:
-                    if self._rehydrate(stage):
-                        self.result.stages.append(
-                            StageRecord(stage=stage, status="reused", seconds=0.0)
-                        )
-                        continue
-                    start_index = index
+                # A stage is reused when its artifacts still validate. Stages
+                # with no persisted artifact (the composed program) simply
+                # rerun; downstream stages can still be reused from disk.
+                if self.resume and stage in self._reused and self._rehydrate(stage):
+                    self.result.stages.append(
+                        StageRecord(stage=stage, status="reused", seconds=0.0)
+                    )
+                    continue
                 stage_started = self.clock()
                 ok = action()
                 elapsed = self.clock() - stage_started
@@ -388,6 +389,7 @@ class Pipeline:
             return
         reusable = reusable_stages(load.checkpoint, load.status, load.first_invalid_stage)
         self.result.reused_stages = reusable
+        self._reused = set(reusable)
         if not reusable:
             return
         self._checkpoint = Checkpoint(
@@ -396,12 +398,6 @@ class Pipeline:
             artifacts=[a for a in load.checkpoint.artifacts if a.stage in reusable],
         )
         self.result.resumed_from = STAGE_ORDER[STAGE_ORDER.index(reusable[-1]) + 1] if reusable[-1] is not STAGE_ORDER[-1] else None
-
-    def _resume_index(self) -> int:
-        if not self.resume or not self.result.reused_stages:
-            return 0
-        last = max(STAGE_ORDER.index(s) for s in self.result.reused_stages)
-        return last + 1 if last + 1 < len(STAGE_ORDER) else len(STAGE_ORDER) - 1
 
     def _rehydrate(self, stage: Stage) -> bool:
         try:

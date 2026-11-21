@@ -46,6 +46,10 @@ def run_pipeline(
     return Pipeline(workdir, config or make_config(), **kwargs).run()
 
 
+def reused_stages(result: PipelineResult) -> set[Any]:
+    return {record.stage for record in result.stages if record.status == "reused"}
+
+
 def samples(directory: str, force: bool = True) -> SampleSet:
     return generate_samples(directory, force=force)
 
