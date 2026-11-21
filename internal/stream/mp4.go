@@ -40,19 +40,23 @@ func ScanMP4(r io.ReadSeeker, size int64) *MP4Info {
 	handler := func(h *mp4.ReadHandle) (interface{}, error) {
 		t := h.BoxInfo.Type
 		end := int64(h.BoxInfo.Offset + h.BoxInfo.Size)
+		// trust marks only fully verified bytes, never declared sizes
+		trust := func() {
+			if end <= size {
+				info.TrustedBytes = max64(info.TrustedBytes, end)
+			}
+		}
 		switch t {
 		case mp4.BoxTypeMoov(), mp4.BoxTypeMdia(), mp4.BoxTypeMinf(),
 			mp4.BoxTypeDinf(), mp4.BoxTypeStbl():
-			info.TrustedBytes = max64(info.TrustedBytes, end)
 			return h.Expand()
 		case mp4.BoxTypeTrak():
 			raw = append(raw, rawTrack{})
 			cur = len(raw) - 1
-			info.TrustedBytes = max64(info.TrustedBytes, end)
 			return h.Expand()
 		}
 		if cur < 0 {
-			info.TrustedBytes = max64(info.TrustedBytes, end)
+			trust()
 			return nil, nil // box outside any trak (ftyp, mdat, ...)
 		}
 		rt := &raw[cur]
@@ -62,7 +66,7 @@ func ScanMP4(r io.ReadSeeker, size int64) *MP4Info {
 				"unreadable %s payload: %v", t, err)
 			return nil, nil // keep scanning siblings
 		}
-		info.TrustedBytes = max64(info.TrustedBytes, end)
+		trust()
 		switch b := box.(type) {
 		case *mp4.Tkhd:
 			rt.id = b.TrackID
@@ -127,7 +131,7 @@ func (rt *rawTrack) finalize(fl *fault.List) Track {
 		return tr
 	}
 	tr.DurationNs = int64(rt.duration) * timeline.NanosPerSecond / int64(rt.timescale)
-	if len(rt.stts) == 0 || rt.sampleCount == 0 && !rt.hasStss {
+	if len(rt.stts) == 0 || rt.sampleCount == 0 {
 		tr.IndexOK = false
 		fl.Addf(fault.CatStream, -1, true,
 			"track %d: incomplete sample index (stts=%d stss=%v)",

@@ -70,17 +70,28 @@ func (r *Reorderer) Feed(p *rtp.Packet) []*rtp.Packet {
 		ss.next = p.SequenceNumber
 	}
 	diff := int16(p.SequenceNumber - ss.next)
-	switch {
-	case diff < 0:
+	if diff < 0 {
 		// Older than the committed edge: too late, count as gap.
 		st.Late++
 		st.Gaps++
 		return nil
-	case int(diff) >= r.window:
-		// Beyond the window: skip the hole, count it as gap.
-		st.Gaps += int(diff)
-		ss.next = p.SequenceNumber
-		ss.pending = map[uint16]*rtp.Packet{}
+	}
+	if int(diff) >= r.window {
+		// Push the window forward: commit buffered packets up to the
+		// new one, counting the truly missing sequence numbers as gaps.
+		var out []*rtp.Packet
+		for ss.next != p.SequenceNumber {
+			if q, ok := ss.pending[ss.next]; ok {
+				delete(ss.pending, ss.next)
+				st.Committed++
+				out = append(out, q)
+			} else {
+				st.Gaps++
+			}
+			ss.next++
+		}
+		ss.pending[p.SequenceNumber] = p
+		return append(out, r.commit(ss)...)
 	}
 	if _, dup := ss.pending[p.SequenceNumber]; dup {
 		return nil
