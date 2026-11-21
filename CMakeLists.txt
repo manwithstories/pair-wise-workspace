@@ -25,6 +25,7 @@ add_library(media_core STATIC
   src/silence.cpp
   src/segmenter.cpp
   src/fingerprint.cpp
+  src/checkpoint.cpp
 )
 target_include_directories(media_core PUBLIC include)
 target_link_libraries(media_core PUBLIC PkgConfig::FFMPEG)
