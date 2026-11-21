@@ -49,6 +49,7 @@ class DemoSummaryTests(TempDirMixin, unittest.TestCase):
         self.assertLess(summary["resume_ratio"], 0.5)
         self.assertTrue(summary["resume_within_budget"])
         self.assertEqual(summary["interrupted_at"], "encode")
+        self.assertEqual(summary["checkpoint_status"], "valid")
         self.assertEqual(summary["exit_code"], 0)
 
     def test_summary_has_no_media_payload(self) -> None:

@@ -103,6 +103,7 @@ class PipelineResult:
     timings: dict[str, float] = field(default_factory=dict)
     alignment_issues: list[Issue] = field(default_factory=list)
     checkpoint_status: str = CheckpointStatus.MISSING
+    checkpoint_detail: str = ""
     interrupted_at: Stage | None = None
     manifest_text: str = ""
     segments_by_rendition: dict[str, list[EncodedSegment]] = field(default_factory=dict)
@@ -404,6 +405,7 @@ class Pipeline:
             return
         load = load_checkpoint(self.workdir, digest)
         self.result.checkpoint_status = load.status
+        self.result.checkpoint_detail = load.reason
         if load.checkpoint is None:
             return
         if load.status not in (CheckpointStatus.VALID, CheckpointStatus.BROKEN_ARTIFACT):

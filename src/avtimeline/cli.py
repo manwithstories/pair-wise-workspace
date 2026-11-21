@@ -255,6 +255,8 @@ def run_demo(args: argparse.Namespace) -> int:
     summary["interrupted_at"] = result.interrupted_at.label if result.interrupted_at else None
     summary["resumed_from"] = resumed_result.resumed_from.label if resumed_result.resumed_from else None
     summary["reused_stages"] = [s.label for s in resumed_result.reused_stages]
+    summary["checkpoint_status"] = resumed_result.checkpoint_status
+    summary["checkpoint_detail"] = resumed_result.checkpoint_detail
     threshold_ok = True
     if resume_seconds is not None and full_seconds > 0:
         threshold_ok = resume_seconds < full_seconds * 0.5
