@@ -50,6 +50,20 @@ go build -o ./tmp/bin/mediad ./cmd/mediad
 `scripts/acceptance.sh` runs both and checks every threshold (bitrate error
 <= 8 %, PSNR >= 30 dB, SSIM >= 0.90, drift <= 1 ms, exit codes 0/2).
 
+## Verifying a run
+
+```sh
+mediad verify-manifest ./tmp/demo/manifest.json
+# verified_artifacts=30
+# manifest_sha256=<digest>
+```
+
+The command re-hashes every frame artifact and checks the manifest body against
+its recorded self-hash. A manifest cannot contain the digest of its own final
+bytes, so `manifest.json` appears in `artifacts` with the digest of the canonical
+body (all other artifacts plus the manifest content); `VerifySelfHash`
+reproduces it exactly and reports a missing or mismatched entry as an error.
+
 ## Exit codes
 
 | code | meaning |
