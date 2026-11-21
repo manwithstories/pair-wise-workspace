@@ -162,7 +162,6 @@ func TestRunCancelKeepsCommittedSegments(t *testing.T) {
 	out := t.TempDir()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	var segs int
 	rep, err := Run(ctx, Config{
 		InputDir: in, OutDir: out, Ladder: testLadder(t), QueueCap: 2,
 		SlowConsumer: 3_000_000,
@@ -181,7 +180,33 @@ func TestRunCancelKeepsCommittedSegments(t *testing.T) {
 	if rep.FramesCommitted == 0 {
 		t.Fatal("no frames committed before cancellation")
 	}
-	_ = segs
+	if rep.FramesCommitted >= rep.FramesParsed {
+		t.Fatalf("canceled run committed every parsed frame: %d/%d",
+			rep.FramesCommitted, rep.FramesParsed)
+	}
+	// Segments produced from the committed prefix must be present and
+	// listed: cancellation never deletes confirmed work.
+	if rep.Segments == 0 {
+		t.Fatal("no segments retained after cancellation")
+	}
+	listed := 0
+	for _, path := range rep.Manifests {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("manifest missing after cancel: %v", err)
+		}
+		if len(data) == 0 {
+			t.Fatalf("empty manifest after cancel: %s", path)
+		}
+		var m segment.Manifest
+		if err := json.Unmarshal(data, &m); err != nil {
+			t.Fatalf("manifest invalid after cancel: %v", err)
+		}
+		listed += len(m.Segments)
+	}
+	if listed == 0 {
+		t.Fatal("no segment entries retained in manifests")
+	}
 }
 
 func TestRunMissingFixture(t *testing.T) {
