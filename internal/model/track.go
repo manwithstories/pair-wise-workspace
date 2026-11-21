@@ -82,8 +82,8 @@ const (
 	ColorLayerExplicit ColorLayer = "explicit"
 )
 
-// colorRank orders layers; larger wins.
-func (l ColorLayer) rank() int {
+// Rank orders layers; larger wins during arbitration.
+func (l ColorLayer) Rank() int {
 	switch l {
 	case ColorLayerContainer:
 		return 1
@@ -137,7 +137,11 @@ type Track struct {
 	SampleAspect clock.Rational `json:"sample_aspect"`
 
 	// Color is the arbitrated colour description and the trace that led to it.
+	// It is filled by normalize from ColorCandidates; probes only collect the
+	// candidates so that arbitration stays in one place.
 	Color ColorDecision `json:"color"`
+	// ColorCandidates are the raw observations made by a probe.
+	ColorCandidates []ColorCandidate `json:"-"`
 
 	// DeclaredBitrateKbps is whatever the container metadata claims. It is
 	// only a target; the manifest computes the actual value from samples.
