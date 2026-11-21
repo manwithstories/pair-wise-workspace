@@ -186,15 +186,22 @@ def truncate_file(path: str, keep_fraction: float = 0.75) -> str:
     return path
 
 
-def corrupt_mdat(path: str, *, offset_fraction: float = 0.55, span: int = 64) -> str:
-    """Flip bytes inside the mdat payload without touching the moov box."""
+def corrupt_mdat(path: str, *, offset_fraction: float = 0.35, span: int = 1024) -> str:
+    """Corrupt mdat payload bytes so at least one packet fails to decode.
+
+    The mid-file payload region contains coded video slices; zeroing a wide
+    span there (empirically around 30-40% into the file for these clips)
+    produces packets the decoder rejects while the moov box and container
+    structure stay valid, so the demuxer remains usable and the bad region is
+    isolated as a recoverable error.
+    """
     size = os.path.getsize(path)
-    offset = int(size * offset_fraction)
+    start = int(size * offset_fraction)
     with open(path, "r+b") as fh:
-        fh.seek(offset)
+        fh.seek(start)
         blob = bytearray(fh.read(span))
-        for i in range(0, len(blob), 7):
-            blob[i] ^= 0xFF
-        fh.seek(offset)
+        for i in range(0, len(blob), 2):
+            blob[i] = 0x00 if blob[i] != 0x00 else 0xFF
+        fh.seek(start)
         fh.write(blob)
     return path

@@ -104,13 +104,22 @@ class ErrorLog:
     """Collects recoverable regions; raises on the first fatal error."""
 
     regions: list[ErrorRegion] = field(default_factory=list)
+    _seen: set[tuple] = field(default_factory=set)
 
     def recoverable(self, exc: RecoverableMediaError, *, end_s: float | None = None) -> ErrorRegion:
+        start = 0.0 if exc.time_s is None else exc.time_s
+        end = exc.time_s if end_s is None else end_s
+        key = (exc.code, round(start, 6), exc.track)
+        if key in self._seen:
+            # Same fault seen on a later pass (e.g. calibration then consume);
+            # keep the first record so the manifest stays deterministic.
+            return next(r for r in self.regions if (r.code, round(r.start_s, 6), r.track) == key)
+        self._seen.add(key)
         region = ErrorRegion(
             code=exc.code,
             message=exc.message,
-            start_s=0.0 if exc.time_s is None else exc.time_s,
-            end_s=exc.time_s if end_s is None else end_s,
+            start_s=start,
+            end_s=end,
             track=exc.track,
         )
         self.regions.append(region)
