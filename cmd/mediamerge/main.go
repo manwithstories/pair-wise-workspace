@@ -27,7 +27,13 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
-func run(args []string, stdout, stderr *os.File) int {
+// ioWriter is the minimal sink the command needs; os.File satisfies it and
+// tests can capture output without creating temporary files.
+type ioWriter interface {
+	Write([]byte) (int, error)
+}
+
+func run(args []string, stdout, stderr ioWriter) int {
 	if len(args) == 0 {
 		usage(stderr)
 		return exitUsage
@@ -47,7 +53,7 @@ func run(args []string, stdout, stderr *os.File) int {
 	}
 }
 
-func usage(w *os.File) {
+func usage(w ioWriter) {
 	fmt.Fprint(w, `mediamerge - deterministic media delivery pipeline
 
 usage:
@@ -108,7 +114,7 @@ func parseDemoFlags(args []string) (demoFlags, error) {
 	return f, nil
 }
 
-func runDemo(args []string, stdout, stderr *os.File) int {
+func runDemo(args []string, stdout, stderr ioWriter) int {
 	f, err := parseDemoFlags(args)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -132,6 +138,7 @@ func runDemo(args []string, stdout, stderr *os.File) int {
 	// A crash simulation always includes the recovery pass: the acceptance
 	// run asks for both in one process, and printing only the crash would
 	// leave the operator without the recovered numbers.
+	recoveryPass := false
 	if f.failAfter > 0 {
 		if err := os.RemoveAll(f.workDir); err != nil {
 			fmt.Fprintf(stderr, "cannot reset work directory: %v\n", err)
@@ -152,7 +159,7 @@ func runDemo(args []string, stdout, stderr *os.File) int {
 		fmt.Fprintf(stdout, "INTERRUPTED stage=%s committed=%d\n", first.FailStage, len(first.CommittedStages))
 		opts.Resume = true
 		opts.FailAfterStage = 0
-		resumeExpectedROLLEDBACK = true
+		recoveryPass = true
 	} else if !f.resume {
 		if err := os.RemoveAll(f.workDir); err != nil {
 			fmt.Fprintf(stderr, "cannot reset work directory: %v\n", err)
@@ -171,14 +178,14 @@ func runDemo(args []string, stdout, stderr *os.File) int {
 		printFault(stderr, runErr)
 		return exitFail
 	}
-	if err := checkAcceptance(res); err != nil {
+	if err := checkAcceptanceFor(res, recoveryPass); err != nil {
 		printFault(stderr, err)
 		return exitFail
 	}
 	return exitOK
 }
 
-func printResult(w *os.File, res *pipeline.Result, opts pipeline.Options) {
+func printResult(w ioWriter, res *pipeline.Result, opts pipeline.Options) {
 	fmt.Fprintf(w, "PARSE_ROUNDTRIP_RATE %.3f (%d/%d)\n",
 		res.Parse.RoundtripRate(), res.Parse.TracksMatched, res.Parse.TracksCompared)
 	fmt.Fprintf(w, "KEYFRAME_HIT_RATE %.3f (%d/%d)\n",
@@ -216,7 +223,7 @@ func printResult(w *os.File, res *pipeline.Result, opts pipeline.Options) {
 	fmt.Fprintf(w, "OUTPUT %s\n", res.OutputPath)
 }
 
-func printFault(w *os.File, err error) {
+func printFault(w ioWriter, err error) {
 	var fe *fault.Error
 	if errors.As(err, &fe) {
 		fmt.Fprintf(w, "FAULT stage=%s code=%s track=%d detail=%q\n",
@@ -227,12 +234,10 @@ func printFault(w *os.File, err error) {
 	fmt.Fprintf(w, "FAULT %v\n", err)
 }
 
-// resumeExpectedROLLEDBACK records that this invocation performed a crash
-// simulation, which requires a non-zero rollback on the recovery pass.
-var resumeExpectedROLLEDBACK bool
-
-// checkAcceptance enforces the thresholds from the delivery contract.
-func checkAcceptance(res *pipeline.Result) error {
+// checkAcceptanceFor enforces the thresholds from the delivery contract. The
+// recovery expectation is passed in, never stored, so repeated invocations in
+// one process (the CLI tests) cannot inherit each other's mode.
+func checkAcceptanceFor(res *pipeline.Result, recoveryPass bool) error {
 	var problems []string
 	if res.Parse.TracksCompared == 0 || res.Parse.RoundtripRate() != 1 {
 		problems = append(problems, fmt.Sprintf("parse roundtrip rate %.3f", res.Parse.RoundtripRate()))
@@ -246,7 +251,7 @@ func checkAcceptance(res *pipeline.Result) error {
 	if len(res.CommittedStages) < 2 {
 		problems = append(problems, fmt.Sprintf("committed stages %d", len(res.CommittedStages)))
 	}
-	if resumeExpectedROLLEDBACK {
+	if recoveryPass {
 		if !res.WALRecovered {
 			problems = append(problems, "recovery pass did not observe WAL state")
 		}
@@ -263,7 +268,7 @@ func checkAcceptance(res *pipeline.Result) error {
 	return nil
 }
 
-func runCorrupt(f demoFlags, stdout, stderr *os.File) int {
+func runCorrupt(f demoFlags, stdout, stderr ioWriter) int {
 	dir := filepath.Join(f.workDir, "corrupt")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		fmt.Fprintf(stderr, "cannot create corrupt fixture directory: %v\n", err)
@@ -291,7 +296,7 @@ func runCorrupt(f demoFlags, stdout, stderr *os.File) int {
 	return exitFail
 }
 
-func runVerify(args []string, stdout, stderr *os.File) int {
+func runVerify(args []string, stdout, stderr ioWriter) int {
 	f, err := parseDemoFlags(args)
 	if err != nil {
 		fmt.Fprintf(stderr, "argument error: %v\n", err)
@@ -303,7 +308,7 @@ func runVerify(args []string, stdout, stderr *os.File) int {
 		return exitFail
 	}
 	printResult(stdout, res, pipeline.DefaultOptions())
-	if err := checkAcceptance(res); err != nil {
+	if err := checkAcceptanceFor(res, false); err != nil {
 		printFault(stderr, err)
 		return exitFail
 	}
