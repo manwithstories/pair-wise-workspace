@@ -7,7 +7,7 @@ import (
 
 // pcm builds an interleaved 16-bit stereo buffer from per-channel
 // constant amplitudes, one entry per frame.
-func pcm(t *testing.T, frames [] [2]int16) []byte {
+func pcm(t *testing.T, frames [][2]int16) []byte {
 	t.Helper()
 	buf := make([]byte, len(frames)*4)
 	for i, f := range frames {
