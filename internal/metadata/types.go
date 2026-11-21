@@ -58,6 +58,10 @@ type Color struct {
 	Source    string
 	Priority  int
 	Defaulted bool
+	// Incomplete means the container supplied a color description but left at
+	// least one component unspecified. It is a metadata error, not a silent
+	// default: the operator must see that the source was partial.
+	Incomplete bool
 	// Conflicts lists descriptions that were present but not chosen. They are
 	// preserved so the manifest can explain the decision.
 	Conflicts []string
@@ -112,7 +116,10 @@ type Track struct {
 	Crop        *Crop
 	Color       Color
 	Container   string
-	Notes       []string
+	// Audio sampling metadata (zero for video tracks).
+	SampleRate int
+	Channels   int
+	Notes      []string
 }
 
 // Interval returns the half-open timeline interval of the track.
@@ -319,6 +326,7 @@ func NewColor(primaries, transfer, matrix uint16, fullRange bool, source string)
 	}
 	if primaries == 0 || transfer == 0 || matrix == 0 {
 		c.Defaulted = true
+		c.Incomplete = true
 	}
 	return c
 }
