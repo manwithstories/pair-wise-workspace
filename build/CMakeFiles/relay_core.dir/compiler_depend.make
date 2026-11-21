@@ -1895,7 +1895,10 @@ CMakeFiles/relay_core.dir/src/frame_record.cpp.o: /Users/clearliu/WorkSpace/pair
   /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include/stddef.h \
   /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/21/include/stdint.h \
   /Users/clearliu/WorkSpace/pair-wise-workspace/14142/include/relay/frame_record.hpp \
-  /Users/clearliu/WorkSpace/pair-wise-workspace/14142/include/relay/media_clock.hpp
+  /Users/clearliu/WorkSpace/pair-wise-workspace/14142/include/relay/media_clock.hpp \
+  /opt/homebrew/Cellar/ffmpeg/9.0.2_1/include/libavutil/attributes.h \
+  /opt/homebrew/Cellar/ffmpeg/9.0.2_1/include/libavutil/mem.h \
+  /opt/homebrew/Cellar/ffmpeg/9.0.2_1/include/libavutil/sha.h
 
 CMakeFiles/relay_core.dir/src/index_builder.cpp.o: /Users/clearliu/WorkSpace/pair-wise-workspace/14142/src/index_builder.cpp \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/SDKSettings.json
@@ -1910,6 +1913,10 @@ CMakeFiles/relay_core.dir/src/stream_pipeline.cpp.o: /Users/clearliu/WorkSpace/p
 /Users/clearliu/WorkSpace/pair-wise-workspace/14142/src/stream_pipeline.cpp:
 
 /Users/clearliu/WorkSpace/pair-wise-workspace/14142/src/segment_writer.cpp:
+
+/opt/homebrew/Cellar/ffmpeg/9.0.2_1/include/libavutil/sha.h:
+
+/opt/homebrew/Cellar/ffmpeg/9.0.2_1/include/libavutil/attributes.h:
 
 /Users/clearliu/WorkSpace/pair-wise-workspace/14142/include/relay/frame_record.hpp:
 
@@ -2646,6 +2653,8 @@ CMakeFiles/relay_core.dir/src/stream_pipeline.cpp.o: /Users/clearliu/WorkSpace/p
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__concepts/class_or_enum.h:
 
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__math/logarithms.h:
+
+/opt/homebrew/Cellar/ffmpeg/9.0.2_1/include/libavutil/mem.h:
 
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__new/global_new_delete.h:
 
