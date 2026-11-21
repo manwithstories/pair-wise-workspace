@@ -15,17 +15,17 @@ import (
 
 // Manifest is the on-disk record of a delivery.
 type Manifest struct {
-	Version         int            `json:"version"`
-	Sources         []SourceRecord `json:"sources"`
-	Tracks          []TrackRecord  `json:"tracks"`
-	TimeRange       TimeRange      `json:"time_range"`
-	Gaps            []GapRecord    `json:"gaps"`
-	Metadata        []MetaDecision `json:"metadata"`
-	Samples         []SampleRecord `json:"samples"`
-	TimelineHash    string         `json:"timeline_sha256"`
-	SamplesCount    int            `json:"samples_count"`
-	LateReplays     int            `json:"late_replays"`
-	Quality         Quality        `json:"quality"`
+	Version      int            `json:"version"`
+	Sources      []SourceRecord `json:"sources"`
+	Tracks       []TrackRecord  `json:"tracks"`
+	TimeRange    TimeRange      `json:"time_range"`
+	Gaps         []GapRecord    `json:"gaps"`
+	Metadata     []MetaDecision `json:"metadata"`
+	Samples      []SampleRecord `json:"samples"`
+	TimelineHash string         `json:"timeline_sha256"`
+	SamplesCount int            `json:"samples_count"`
+	LateReplays  int            `json:"late_replays"`
+	Quality      Quality        `json:"quality"`
 }
 
 type SourceRecord struct {
