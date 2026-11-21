@@ -23,7 +23,7 @@ import (
 func runCorrupt(args []string) error {
 	fs := newFlagSet("corrupt")
 	dir := fs.String("dir", "", "work directory")
-	kind := fs.String("kind", "truncated-box", "corruption kind")
+	kind := fs.String("kind", "truncated-box", "corruption kind (truncated-box, corrupt-sample-table, tail-truncation, corrupt-sample, unknown-required-box, zero-timescale)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}

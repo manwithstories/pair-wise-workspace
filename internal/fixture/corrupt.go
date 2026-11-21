@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"mediamerge/internal/model"
+	"mediamerge/internal/mp4util"
 )
 
 // Kind enumerates the four fault classes required by the acceptance tests.
@@ -16,6 +17,8 @@ const (
 	KindTailTruncation  Kind = "tail-truncation"
 	KindJournalMismatch Kind = "journal-mismatch"
 	KindPayloadFlip     Kind = "corrupt-sample"
+	KindUnknownBox      Kind = "unknown-required-box"
+	KindZeroTimescale   Kind = "zero-timescale"
 )
 
 // Damage describes a one-point mutation. Offset is the first byte that is
@@ -69,6 +72,36 @@ func Corrupt(data []byte, kind Kind) ([]byte, Damage, error) {
 		cut := len(out) * 3 / 4
 		return out[:cut], Damage{Kind: kind, Offset: int64(cut), LocatorTarget: int64(cut),
 			Detail: "file truncated mid-mdat"}, nil
+	case KindUnknownBox:
+		// Insert an unknown box where a required table box must live. The
+		// demuxer reports the first byte of the unknown box header.
+		off, err := findBox(out, "stsz")
+		if err != nil {
+			return nil, Damage{}, err
+		}
+		unknown := mp4util.Box("zzzz", []byte{0, 1, 2, 3})
+		at := off
+		merged := make([]byte, 0, len(out)+len(unknown))
+		merged = append(merged, out[:at]...)
+		merged = append(merged, unknown...)
+		merged = append(merged, out[at:]...)
+		// Grow every enclosing container by the inserted length.
+		growAncestors(merged, at, len(unknown))
+		return merged, Damage{Kind: kind, Offset: int64(at), LocatorTarget: int64(at),
+			Detail: "unknown box inserted inside stbl"}, nil
+	case KindZeroTimescale:
+		off, err := findBox(out, "mdhd")
+		if err != nil {
+			return nil, Damage{}, err
+		}
+		// v0 mdhd: timescale at payload offset 12.
+		at := off + 8 + 12
+		if off+8+4 > len(out) || out[off+8] != 0 {
+			return nil, Damage{}, fmt.Errorf("fixture: unexpected mdhd version")
+		}
+		binary.BigEndian.PutUint32(out[at:at+4], 0)
+		return out, Damage{Kind: kind, Offset: int64(at), LocatorTarget: int64(at),
+			Detail: "zero mdhd timescale"}, nil
 	case KindJournalMismatch:
 		// Not a media mutation: the journal is damaged by the caller (txn
 		// tests) because the bytes live beside the output, not inside it.
@@ -94,6 +127,49 @@ func Corrupt(data []byte, kind Kind) ([]byte, Damage, error) {
 var containers = map[string]bool{
 	"moov": true, "trak": true, "mdia": true, "minf": true, "stbl": true,
 	"dinf": true, "edts": true, "udta": true, "mvex": true, "moof": true, "traf": true,
+}
+
+// growAncestors increases the declared size of every box that contains byte
+// offset at. It walks from the file root downward.
+func growAncestors(data []byte, at, growth int) {
+	walkGrow(data, 0, len(data), at, growth)
+}
+
+func walkGrow(data []byte, start, end, at, growth int) bool {
+	off := start
+	for off+8 <= end {
+		size := int(binary.BigEndian.Uint32(data[off : off+4]))
+		hdr := 8
+		if size == 1 {
+			if off+16 > end {
+				return false
+			}
+			size = int(binary.BigEndian.Uint64(data[off+8 : off+16]))
+			hdr = 16
+		} else if size == 0 {
+			size = end - off
+		}
+		if size < hdr || off+size > end {
+			return false
+		}
+		name := string(data[off+4 : off+8])
+		if at >= off && at < off+size {
+			if containers[name] {
+				walkGrow(data, off+hdr, off+size, at, growth)
+			}
+			// Only ancestors that have not already been grown need updating;
+			// the root moov is grown once, its children once.
+			newSize := size + growth
+			if hdr == 8 {
+				binary.BigEndian.PutUint32(data[off:off+4], uint32(newSize))
+			} else {
+				binary.BigEndian.PutUint64(data[off+8:off+16], uint64(newSize))
+			}
+			return true
+		}
+		off += size
+	}
+	return false
 }
 
 // findBox locates the first box of the given type at any nesting depth.

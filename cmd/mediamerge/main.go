@@ -65,7 +65,7 @@ func usage() {
 usage:
   mediamerge demo    --dir <workdir> [--tracks N] [--samples N] [--queue N]
   mediamerge verify  --dir <workdir>
-  mediamerge corrupt --dir <workdir> [--kind truncated-box|corrupt-sample-table|tail-truncation|corrupt-sample]
+  mediamerge corrupt --dir <workdir> [--kind truncated-box|corrupt-sample-table|tail-truncation|corrupt-sample|unknown-required-box|zero-timescale]
   mediamerge recover --dir <workdir> [--interrupt-after N] [--queue N]
   mediamerge merge   --input <file> --output <file> [--map "1=10:video,2=11:audio"]
   mediamerge plan      --input <file> [--map ...]

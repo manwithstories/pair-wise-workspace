@@ -37,6 +37,8 @@ type rawTrack struct {
 	sizeBase   int64 // payload offset of the first stsz/stz2 entry
 	sizeFixed  bool
 	chunkBase  int64 // payload offset of the first stco/co64 entry
+	// mdhdTimescaleOffset is the absolute offset of the mdhd timescale field.
+	mdhdTimescaleOffset int64
 }
 
 type sttsRun struct{ count, delta uint32 }
@@ -74,6 +76,11 @@ func (f *File) parseTrak(box Table) (*Track, error) {
 						return nil, err
 					}
 					rt.timescale, rt.duration, rt.language = ts, dur, lang
+					if m.Payload[0] == 1 {
+						rt.mdhdTimescaleOffset = m.PayloadOffset() + 20
+					} else {
+						rt.mdhdTimescaleOffset = m.PayloadOffset() + 12
+					}
 					foundMdhd = true
 				case "hdlr":
 					h, err := readHDLR(m)
@@ -95,7 +102,7 @@ func (f *File) parseTrak(box Table) (*Track, error) {
 			"trak at %d missing tkhd/mdhd/hdlr", box.Offset)
 	}
 	if rt.timescale == 0 {
-		return nil, derr(model.StageDemux, model.CodeTimebase, box.Offset, rt.id, false,
+		return nil, derr(model.StageDemux, model.CodeTimebase, rt.mdhdTimescaleOffset, rt.id, false,
 			"track %d has zero timescale", rt.id)
 	}
 	if err := f.finishTrack(rt); err != nil {

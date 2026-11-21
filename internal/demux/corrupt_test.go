@@ -15,7 +15,9 @@ import (
 func verifyLocator(t *testing.T, kind fixture.Kind, wantCode string) {
 	t.Helper()
 	dir := t.TempDir()
-	base := fixture.DefaultPlan(2, 16).Build()
+	p := fixture.DefaultPlan(2, 16)
+	p.UniformSizes = false
+	base := p.Build()
 	damaged, dmg, err := fixture.Corrupt(base, kind)
 	if err != nil {
 		t.Fatalf("%s: %v", kind, err)
@@ -52,4 +54,12 @@ func TestCorruptSampleTableLocator(t *testing.T) {
 
 func TestTailTruncationLocator(t *testing.T) {
 	verifyLocator(t, fixture.KindTailTruncation, model.CodeTruncated)
+}
+
+func TestUnknownRequiredBoxLocator(t *testing.T) {
+	verifyLocator(t, fixture.KindUnknownBox, model.CodeUnknownBox)
+}
+
+func TestZeroTimescaleLocator(t *testing.T) {
+	verifyLocator(t, fixture.KindZeroTimescale, model.CodeTimebase)
 }
