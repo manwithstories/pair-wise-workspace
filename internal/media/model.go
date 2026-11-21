@@ -128,6 +128,12 @@ type Track struct {
 	HasRotate  bool
 	Crop       *Crop
 	SourcePath string
+	// SampleEntry is the raw stsd entry copied verbatim into the output, so
+	// codec configuration survives the remux untouched.
+	SampleEntry []byte
+	// InputSHA256 is the adapter-computed hash of this track's input sample
+	// stream, when available.
+	InputSHA256 string
 }
 
 // SampleCount returns the number of coded samples in the track.

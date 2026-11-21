@@ -29,6 +29,10 @@ type TrackState struct {
 	OutputID uint32 `json:"output_id"`
 	Written  int    `json:"written"`
 	SHA256   string `json:"sha256"`
+	// HashState is the marshaled SHA-256 state after Written samples, so a
+	// resumed run can continue a single running hash instead of
+	// re-reading the already-verified prefix.
+	HashState string `json:"hash_state,omitempty"`
 }
 
 // Segment is one verified run of output bytes.
@@ -62,12 +66,23 @@ type Manager struct {
 	cp   Checkpoint
 	// nextExpected is the segment start used when appending the next record.
 	nextExpected int64
+	// resume marks that the current segment list starts at plan.Offset.
+	resume *ResumePlan
 }
 
 // NewManager creates a manager for path. It does not read an existing file;
 // use Load for that.
 func NewManager(path string) *Manager {
 	return &Manager{path: path, cp: Checkpoint{Version: Version, FinalSHA: map[string]string{}}}
+}
+
+// Adopt continues from a verified resume plan: prior segments stay in the
+// file and are preserved on the next save.
+func (m *Manager) Adopt(fingerprint, mappingSign, outputPath string, totalSamples int, plan *ResumePlan) {
+	m.Init(fingerprint, mappingSign, outputPath, totalSamples)
+	m.cp.Segments = nil
+	m.nextExpected = plan.Offset
+	m.resume = plan
 }
 
 // Path returns the checkpoint file location.
@@ -146,6 +161,7 @@ type ResumePlan struct {
 	Offset     int64
 	Written    map[string]int
 	SHA256     map[string]string
+	HashState  map[string]string
 	Segments   int
 	RolledBack int // segments discarded because they failed verification
 }
@@ -199,7 +215,11 @@ func Load(path, fingerprint, mappingSign, outputPath string) (*ResumePlan, error
 		return nil, media.NewError(media.ClassIO, "cannot stat output").WithCause(err)
 	}
 
-	plan := &ResumePlan{Written: map[string]int{}, SHA256: map[string]string{}}
+	plan := &ResumePlan{
+		Written:   map[string]int{},
+		SHA256:    map[string]string{},
+		HashState: map[string]string{},
+	}
 	for i := len(cp.Segments) - 1; i >= 0; i-- {
 		seg := cp.Segments[i]
 		var start int64
@@ -224,6 +244,7 @@ func Load(path, fingerprint, mappingSign, outputPath string) (*ResumePlan, error
 		for _, t := range seg.Tracks {
 			plan.Written[t.Key] = t.Written
 			plan.SHA256[t.Key] = t.SHA256
+			plan.HashState[t.Key] = t.HashState
 		}
 		return plan.finish(out, info)
 	}

@@ -186,6 +186,15 @@ func (w *mp4Walker) unmarshal(n *boxNode, dst mp4.IBox) error {
 	return nil
 }
 
+// rawBox returns a box's exact bytes, header included.
+func (w *mp4Walker) rawBox(n *boxNode) []byte {
+	buf := make([]byte, n.size)
+	if _, err := w.src.ReadAt(buf, n.off); err != nil {
+		return nil
+	}
+	return buf
+}
+
 // parseSampleTable collects the sample tables, validates each one against
 // the real input size, and returns a lazy index.
 func parseSampleTable(w *mp4Walker, stbl *boxNode, timescale uint32, trackID uint32) (*sampleTable, error) {

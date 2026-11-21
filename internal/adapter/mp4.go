@@ -207,6 +207,7 @@ func (a *MP4Adapter) parseSampleDescription(w *mp4Walker, stbl *boxNode, t *medi
 	if _, err := w.childrenFrom(entry, start); err != nil {
 		return "", err
 	}
+	t.SampleEntry = w.rawBox(entry)
 	t.Color = readEntryColor(w, entry)
 	crop, err := readEntryCrop(w, entry, t.Width, t.Height, t.ID.Value)
 	if err != nil {
