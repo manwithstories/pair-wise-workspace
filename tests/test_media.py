@@ -97,6 +97,39 @@ class ProbeTests(TempDirMixin, unittest.TestCase):
         self.assertGreater(probe.decoded_video_frames or 0, 0)
 
 
+class UnsupportedLayoutTests(TempDirMixin, unittest.TestCase):
+    def test_ten_channel_layout_is_reported(self) -> None:
+        import numpy as np
+
+        from avtimeline.wavio import write_wav
+
+        path = self.path("ten.wav")
+        write_wav(path, np.zeros((10, 4800), dtype=np.float32), 48000, subtype="FLOAT")
+        probe = probe_media(path, track_id="ten")
+        audio_stream = probe.audio()
+        self.assertIsNotNone(audio_stream)
+        assert audio_stream is not None
+        self.assertEqual(audio_stream.channels, 10)
+        self.assertIn("unsupported_layout", [e.code for e in probe.errors])
+        self.assertEqual(probe.errors[0].location.track, "ten")
+
+    def test_normalization_fails_with_location(self) -> None:
+        import numpy as np
+
+        from avtimeline.normalize import normalize_audio
+        from avtimeline.wavio import write_wav
+
+        path = self.path("ten.wav")
+        write_wav(path, np.zeros((10, 4800), dtype=np.float32), 48000, subtype="FLOAT")
+        probe = probe_media(path, track_id="ten")
+        audio, error = normalize_audio(probe, self.path("norm"), "ten")
+        self.assertIsNone(audio)
+        self.assertIsNotNone(error)
+        assert error is not None
+        self.assertEqual(error.location.track, "ten")
+        self.assertEqual(error.location.sample_start, 0)
+
+
 class NormalizeTests(TempDirMixin, unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
