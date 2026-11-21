@@ -145,6 +145,13 @@ class Demuxer:
     def stream_infos(self) -> list[StreamInfo]:
         return list(self._streams.values())
 
+    @property
+    def av_streams(self) -> list[Any]:
+        """底层 PyAV 流（重封装时作为输出流模板）。"""
+        if self._container is None:
+            raise RuntimeError("Demuxer 尚未 open()")
+        return list(self._container.streams)
+
     def info(self, stream_index: int) -> StreamInfo:
         return self._streams[stream_index]
 
@@ -167,6 +174,9 @@ class Demuxer:
         info = self._streams.get(sidx)
         if info is not None and info.skipped:
             return  # 未知类型：跳过但流已计数
+        if packet.dts is None:
+            # 解复用末端的 flush 空包，无媒体时间，不进入流水线
+            return
         pos = getattr(packet, "pos", None)
         if pos is None or pos < 0:
             # 无字节定位（如流式 muxer 产物）：给出序号级区间，明确不可精确归因
