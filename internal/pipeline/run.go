@@ -169,16 +169,6 @@ func Run(opt DemoOptions) (Result, error) {
 }
 
 // lastCommitted returns the latest pipeline stage with a valid checkpoint.
-func lastCommitted(m map[txn.Stage]txn.Checkpoint) txn.Stage {
-	var last txn.Stage
-	for _, s := range txn.Order {
-		if _, ok := m[s]; ok {
-			last = s
-		}
-	}
-	return last
-}
-
 func (o *DemoOptions) validate() error {
 	if o.Dir == "" {
 		return model.New(model.KindInvalidInput, "pipeline", "working directory is required")
