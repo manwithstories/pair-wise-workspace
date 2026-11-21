@@ -33,6 +33,7 @@ from mediapipe.errors import (  # noqa: E402
 from mediapipe.mapping import StreamMapping, default_mapping, validate_mapping  # noqa: E402
 from mediapipe.packet import PacketRecord, Payload  # noqa: E402
 from mediapipe.pipeline import Pipeline, PipelineConfig  # noqa: E402
+from mediapipe.pcm import check_reference_pcm, generate_reference_pcm  # noqa: E402
 from mediapipe.timebase import from_microseconds, to_microseconds  # noqa: E402
 
 
@@ -61,6 +62,17 @@ class BoundedQueueTest(unittest.TestCase):
         qa.put(self._rec(0))
         with self.assertRaises(QueueFullAborted):
             qa.put(self._rec(1))
+
+
+class PcmTest(unittest.TestCase):
+    def test_generate_and_check_pcm(self):
+        d = tempfile.mkdtemp()
+        wav = os.path.join(d, "ref.wav")
+        meta = generate_reference_pcm(wav, seconds=0.5)
+        self.assertEqual(meta["samples"], 24000)
+        report = check_reference_pcm(wav, expected_samples=24000)
+        self.assertEqual(report["channels"], 2)
+        self.assertGreater(report["rms"], 0.0)
 
 
 class PipelineTest(unittest.TestCase):
