@@ -194,7 +194,3 @@ func (m Mapping) Duration() int64 {
 	}
 	return d
 }
-
-// AllSync reports whether every sample is a sync sample. It is used by tracks
-// that carry no explicit sync flags.
-func AllSync() bool { return true }
