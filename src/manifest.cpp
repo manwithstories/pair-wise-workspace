@@ -80,21 +80,30 @@ json::Value ManifestWriter::toJson(const Manifest& m) {
 }
 
 SampleTick ManifestWriter::verifyAlignment(const Manifest& m) {
-  // 输出时间线必须由非重复片段的半开区间首尾相接拼成，且总长一致。
+  // 输出时间线（输出采样率刻度）：非重复片段半开区间必须首尾相接。
   SampleTick cursor = 0;
-  SampleTick sourceCovered = 0;
+  SampleTick uniqueSource = 0;  // 去重后写入输出的源帧数（源刻度）
+  SampleTick allSource = 0;     // 全部片段覆盖的源帧（含重复段）
   for (const auto& s : m.segments) {
-    if (s.duplicate) continue;
+    if (!s.sourceRange.valid()) return -4;
+    allSource += s.sourceRange.length();
+    if (s.duplicate) {
+      if (s.outputRange.start != 0 || s.outputRange.end != 0) return -3;
+      continue;
+    }
     if (s.outputRange.start != cursor) return cursor - s.outputRange.start;
     if (s.outputRange.end <= s.outputRange.start) return -1;
-    if (s.outputRange.length() != s.sourceRange.length()) return -2;
     cursor = s.outputRange.end;
-    sourceCovered += s.sourceRange.length();
+    uniqueSource += s.sourceRange.length();
   }
   if (cursor != m.outputTotalFrames) return cursor - m.outputTotalFrames;
-  // 源时间线：所有片段（含重复）的源区间应恰好覆盖 [0, sourceTotalFrames)。
-  if (sourceCovered != m.sourceTotalFrames)
-    return sourceCovered - m.sourceTotalFrames;
+  // 全部源片段（含重复）应恰好覆盖 [0, sourceTotalFrames)。
+  if (allSource != m.sourceTotalFrames)
+    return allSource - m.sourceTotalFrames;
+  // 同采样率时输出帧数必须等于去重后的源帧数。
+  if (m.sourceSampleRate == m.outputSampleRate &&
+      uniqueSource != m.outputTotalFrames)
+    return uniqueSource - m.outputTotalFrames;
   return 0;
 }
 

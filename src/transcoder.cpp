@@ -8,6 +8,7 @@ extern "C" {
 #include <libswresample/swresample.h>
 }
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -66,14 +67,26 @@ Transcoder::~Transcoder() {
   delete impl_;
 }
 
+SampleTick Transcoder::encodedFrames() const { return impl_->framesOut; }
+
+uint32_t Transcoder::outputSampleRate() const { return impl_->outRate; }
+
 MediaError Transcoder::open() {
   const char* path = impl_->cfg.outputPath.c_str();
-  if (avformat_alloc_output_context2(&impl_->oc, nullptr, path, nullptr) < 0 ||
+  // 仅用文件名推断容器格式，避免目录前缀干扰扩展名探测。
+  std::string base = std::filesystem::path(path).filename().string();
+  if (avformat_alloc_output_context2(&impl_->oc, nullptr, nullptr,
+                                     base.c_str()) < 0 ||
       !impl_->oc)
     return impl_->fail(ErrorCode::EncodeFailed,
                        "cannot infer output format from extension");
-  const AVCodec* codec = avcodec_find_encoder(
-      impl_->oc->oformat->audio_codec);
+  const AVCodec* codec = nullptr;
+  // 原生 AAC 在短素材上 VBR 偏离目标码率；macOS 优先 AudioToolbox aac_at，
+  // 其码率控制更贴合目标，找不到时回退原生 aac。
+  if (impl_->oc->oformat->audio_codec == AV_CODEC_ID_AAC)
+    codec = avcodec_find_encoder_by_name("aac_at");
+  if (!codec)
+    codec = avcodec_find_encoder(impl_->oc->oformat->audio_codec);
   if (!codec)
     return impl_->fail(ErrorCode::UnsupportedFormat,
                        "no encoder available for container");
@@ -142,55 +155,62 @@ MediaError Transcoder::push(const TranscodeInput& in) {
   if (!impl_->opened) return impl_->fail(ErrorCode::EncodeFailed, "not open");
   impl_->framesIn += static_cast<SampleTick>(in.frames);
 
-  impl_->inFrame->sample_rate = in.sampleRate;
-  impl_->inFrame->format = AV_SAMPLE_FMT_S32;
   AVChannelLayout inLayout = defaultLayout(in.channels);
-  av_channel_layout_copy(&impl_->inFrame->ch_layout, &inLayout);
-  av_channel_layout_uninit(&inLayout);
-  impl_->inFrame->nb_samples = static_cast<int>(in.frames);
-  if (av_frame_get_buffer(impl_->inFrame, 0) < 0)
-    return impl_->fail(ErrorCode::EncodeFailed, "in frame alloc failed");
-  std::memcpy(impl_->inFrame->data[0], in.samples,
-              in.frames * in.channels * sizeof(int32_t));
+  // AAC 等编码器要求固定 frame_size；按编码器帧长切块喂入。
+  int chunk = impl_->enc->frame_size > 0 ? impl_->enc->frame_size
+                                         : static_cast<int>(in.frames);
+  size_t offset = 0;
+  while (offset < in.frames) {
+    int n = std::min<int>(chunk, static_cast<int>(in.frames - offset));
+    av_frame_unref(impl_->inFrame);
+    impl_->inFrame->sample_rate = in.sampleRate;
+    impl_->inFrame->format = AV_SAMPLE_FMT_S32;
+    av_channel_layout_copy(&impl_->inFrame->ch_layout, &inLayout);
+    impl_->inFrame->nb_samples = n;
+    if (av_frame_get_buffer(impl_->inFrame, 0) < 0)
+      return impl_->fail(ErrorCode::EncodeFailed, "in frame alloc failed");
+    std::memcpy(impl_->inFrame->data[0],
+                in.samples + offset * in.channels,
+                n * in.channels * sizeof(int32_t));
 
-  int dstCap = swr_get_out_samples(impl_->swr, impl_->inFrame->nb_samples);
-  if (av_frame_unref(impl_->outFrame),
-      av_frame_copy_props(impl_->outFrame, impl_->inFrame) < 0)
-    return impl_->fail(ErrorCode::EncodeFailed, "frame props failed");
-  impl_->outFrame->format = AV_SAMPLE_FMT_FLTP;
-  av_channel_layout_copy(&impl_->outFrame->ch_layout, &impl_->outLayout);
-  impl_->outFrame->sample_rate = impl_->enc->sample_rate;
-  impl_->outFrame->nb_samples = dstCap;
-  if (av_frame_get_buffer(impl_->outFrame, 0) < 0)
-    return impl_->fail(ErrorCode::EncodeFailed, "out frame alloc failed");
+    int dstCap = swr_get_out_samples(impl_->swr, n);
+    av_frame_unref(impl_->outFrame);
+    if (av_frame_copy_props(impl_->outFrame, impl_->inFrame) < 0)
+      return impl_->fail(ErrorCode::EncodeFailed, "frame props failed");
+    impl_->outFrame->format = AV_SAMPLE_FMT_FLTP;
+    av_channel_layout_copy(&impl_->outFrame->ch_layout, &impl_->outLayout);
+    impl_->outFrame->sample_rate = impl_->enc->sample_rate;
+    impl_->outFrame->nb_samples = dstCap;
+    if (av_frame_get_buffer(impl_->outFrame, 0) < 0)
+      return impl_->fail(ErrorCode::EncodeFailed, "out frame alloc failed");
 
-  uint8_t* outPtrs[8] = {};
-  for (int i = 0; i < 8; ++i) outPtrs[i] = impl_->outFrame->data[i];
-  int converted = swr_convert(impl_->swr, outPtrs, dstCap,
-                              impl_->inFrame->data,
-                              impl_->inFrame->nb_samples);
-  if (converted < 0)
-    return impl_->fail(ErrorCode::EncodeFailed, "swr_convert failed");
-  impl_->outFrame->nb_samples = converted;
-  impl_->outFrame->pts = impl_->framesOut;
-  impl_->framesOut += converted;
+    uint8_t* outPtrs[8] = {};
+    for (int i = 0; i < 8; ++i) outPtrs[i] = impl_->outFrame->data[i];
+    int converted = swr_convert(impl_->swr, outPtrs, dstCap,
+                                impl_->inFrame->data, n);
+    if (converted < 0)
+      return impl_->fail(ErrorCode::EncodeFailed, "swr_convert failed");
+    impl_->outFrame->nb_samples = converted;
+    impl_->outFrame->pts = impl_->framesOut;
+    impl_->framesOut += converted;
 
-  if (avcodec_send_frame(impl_->enc, impl_->outFrame) < 0)
-    return impl_->fail(ErrorCode::EncodeFailed, "send_frame failed");
-  while (true) {
-    int rc = avcodec_receive_packet(impl_->enc, impl_->pkt);
-    if (rc == AVERROR(EAGAIN) || rc == AVERROR_EOF) break;
-    if (rc < 0)
-      return impl_->fail(ErrorCode::EncodeFailed, "receive_packet failed");
-    impl_->payloadBytes += impl_->pkt->size;
-    av_packet_rescale_ts(impl_->pkt, impl_->enc->time_base,
-                         impl_->stream->time_base);
-    impl_->pkt->stream_index = impl_->stream->index;
-    if (av_interleaved_write_frame(impl_->oc, impl_->pkt) < 0)
-      return impl_->fail(ErrorCode::EncodeFailed, "write_frame failed");
+    if (avcodec_send_frame(impl_->enc, impl_->outFrame) < 0)
+      return impl_->fail(ErrorCode::EncodeFailed, "send_frame failed");
+    while (true) {
+      int rc = avcodec_receive_packet(impl_->enc, impl_->pkt);
+      if (rc == AVERROR(EAGAIN) || rc == AVERROR_EOF) break;
+      if (rc < 0)
+        return impl_->fail(ErrorCode::EncodeFailed, "receive_packet failed");
+      impl_->payloadBytes += impl_->pkt->size;
+      av_packet_rescale_ts(impl_->pkt, impl_->enc->time_base,
+                           impl_->stream->time_base);
+      impl_->pkt->stream_index = impl_->stream->index;
+      if (av_interleaved_write_frame(impl_->oc, impl_->pkt) < 0)
+        return impl_->fail(ErrorCode::EncodeFailed, "write_frame failed");
+    }
+    offset += static_cast<size_t>(n);
   }
-  av_frame_unref(impl_->inFrame);
-  av_frame_unref(impl_->outFrame);
+  av_channel_layout_uninit(&inLayout);
   return MediaError{};
 }
 
@@ -220,7 +240,8 @@ MediaError Transcoder::finish(TranscodeResult* result) {
       std::filesystem::file_size(impl_->cfg.outputPath, ec);
   if (ec) return impl_->fail(ErrorCode::IoFailure, "output stat failed");
 
-  // 码率只用整数帧时长推导：8*字节*采样率/帧数，全程无浮点累计。
+  // 实测码率按输出文件整体字节与整数帧时长推导（与 ffprobe 同口径），
+  // 全程整数运算，无浮点累计漂移。
   result->targetBitrateBps = impl_->cfg.targetBitrate;
   result->outputFrames = impl_->framesOut;
   result->outputSampleRate = impl_->outRate;
@@ -228,9 +249,9 @@ MediaError Transcoder::finish(TranscodeResult* result) {
   result->outputBytes = fileBytes;
   result->actualBitrateBps =
       impl_->framesOut > 0
-          ? static_cast<int64_t>(8.0 *
-                                 static_cast<double>(impl_->payloadBytes) *
-                                     impl_->outRate / impl_->framesOut)
+          ? static_cast<int64_t>(
+                static_cast<__int128_t>(fileBytes) * 8 * impl_->outRate /
+                impl_->framesOut)
           : 0;
   return MediaError{};
 }

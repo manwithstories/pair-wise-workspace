@@ -39,10 +39,14 @@ CheckpointParams Pipeline::buildParams(const WavSummary& sum) const {
 
 std::vector<SampleRange> Pipeline::collectGaps(
     const std::vector<MediaError>& errs) const {
+  // 缺口锚定在错误发生时的样本序号上，用单点区间表达；切分器按区间相交标记。
   std::vector<SampleRange> gaps;
   for (const auto& e : errs) {
     SampleTick s = e.sampleIndex >= 0 ? e.sampleIndex : 0;
-    gaps.push_back(SampleRange{s, s + 1});
+    if (s > 0)
+      gaps.push_back(SampleRange{s - 1, s});
+    else
+      gaps.push_back(SampleRange{0, 1});
   }
   return gaps;
 }
@@ -105,7 +109,11 @@ PipelineResult Pipeline::run() {
   }
 
   // ---- 阶段 2：切分规划 ----
-  SegmenterConfig scfg{cfg_.maxSegmentSamples, cfg_.targetDurationTicks,
+  SampleTick durationTicks = cfg_.targetDurationTicks;
+  if (durationTicks == 0 && cfg_.targetDurationMs > 0)
+    durationTicks = msToTicks(cfg_.targetDurationMs,
+                              sum.format.sampleRate);
+  SegmenterConfig scfg{cfg_.maxSegmentSamples, durationTicks,
                        cfg_.splitOnSilence};
   Segmenter segmenter(scfg, sum.format.sampleRate, silenceRanges,
                       sum.totalFrames, collectGaps(r.recoverableErrors));
@@ -156,14 +164,16 @@ PipelineResult Pipeline::run() {
         TranscodeInput ti{segSamples.data(),
                           static_cast<size_t>(seg.range.length()),
                           sum.format.channels, sum.format.sampleRate};
+        SampleTick before = transcoder.encodedFrames();
         MediaError te = transcoder.push(ti);
         if (!te.ok()) {
           stageErr = te;
           return;
         }
-        SampleTick len = seg.range.length();
-        mSegs[seg.id].outputRange = SampleRange{outCursor, outCursor + len};
-        outCursor += len;
+        // 输出区间使用输出采样率刻度，由编码器实际帧数记账，杜绝浮点漂移。
+        SampleTick after = transcoder.encodedFrames();
+        mSegs[seg.id].outputRange = SampleRange{before, after};
+        outCursor = after;
       }
       segSamples.clear();
     });

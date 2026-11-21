@@ -48,6 +48,10 @@ class Transcoder {
   MediaError push(const TranscodeInput& in);  // 可多次调用（逐段）
   MediaError finish(TranscodeResult* result);
 
+  // 截至当前已编码的输出帧总数（输出采样率整数刻度）。
+  SampleTick encodedFrames() const;
+  uint32_t outputSampleRate() const;
+
  private:
   struct Impl;
   Impl* impl_;

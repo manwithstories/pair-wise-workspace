@@ -32,6 +32,7 @@ struct PipelineConfig {
   uint32_t targetSampleRate = 0;   // 0=沿用源
   uint16_t targetChannels = 0;     // 0=沿用源
   SampleTick maxSegmentSamples = 0;
+  int64_t targetDurationMs = 0;     // 0=不按时长切；内部整数换算为刻度
   SampleTick targetDurationTicks = 0;
   bool splitOnSilence = false;
   SilenceConfig silence;

@@ -35,3 +35,6 @@ target_include_directories(media_core PUBLIC include)
 target_link_libraries(media_core PUBLIC PkgConfig::FFMPEG)
 
 option(MEDIA_BUILD_TESTS "Build Catch2 unit tests" ON)
+
+add_executable(media_pipeline app/main.cpp)
+target_link_libraries(media_pipeline PRIVATE media_core)
