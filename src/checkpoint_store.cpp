@@ -39,7 +39,8 @@ std::string serialize(const Checkpoint& c) {
        << sanitize(r.note) << "\n";
   }
   // Self-integrity trailer: detects a torn or truncated write on load.
-  os << "checksum " << Sha256::hex_of(os.str()) << "\n";
+  std::string body = os.str();
+  os << "checksum " << Sha256::hex_of(body) << "\n";
   return os.str();
 }
 

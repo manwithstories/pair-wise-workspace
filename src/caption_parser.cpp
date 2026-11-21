@@ -121,12 +121,19 @@ CaptionParseResult parse_blocks(std::string_view text, CaptionFormat fmt,
   int64_t prev_end = -1;
   uint32_t ordinal = 0;
   size_t i = first_line;
+  uint64_t pending_offset = 0;  // start of the current cue block
+  bool have_pending = false;
   while (i < lines.size()) {
     // Skip blank lines and (SRT) numeric index lines.
     std::string_view line = trim(lines[i].text);
-    if (line.empty()) { ++i; continue; }
+    if (line.empty()) { ++i; have_pending = false; continue; }
     int64_t ignored = 0;
-    if (fmt == CaptionFormat::Srt && parse_uint(line, ignored)) { ++i; continue; }
+    if (fmt == CaptionFormat::Srt && parse_uint(line, ignored)) {
+      pending_offset = lines[i].offset;  // block starts at the index line
+      have_pending = true;
+      ++i;
+      continue;
+    }
     if (fmt == CaptionFormat::WebVtt &&
         (line.starts_with("NOTE") || line.starts_with("STYLE") || line.starts_with("REGION"))) {
       // Skip metadata block up to the next blank line.
@@ -134,7 +141,8 @@ CaptionParseResult parse_blocks(std::string_view text, CaptionFormat fmt,
       continue;
     }
 
-    uint64_t block_offset = lines[i].offset;
+    uint64_t block_offset = have_pending ? pending_offset : lines[i].offset;
+    have_pending = false;
     // A WebVTT cue may carry an identifier line before the timing line.
     if (line.find("-->") == std::string_view::npos) {
       if (i + 1 < lines.size() &&
