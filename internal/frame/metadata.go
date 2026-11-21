@@ -58,7 +58,6 @@ type MetaRequest struct {
 type MetadataWriter struct {
 	path string
 	f    *os.File
-	buf  [sha256.Size * 2]byte
 }
 
 // CreateMetadata starts a fresh sidecar table at dir/name.
