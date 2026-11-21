@@ -89,9 +89,16 @@ func Build(plan timeline.Plan, resolved []mapping.Resolution, remuxRes remux.Res
 	m := Manifest{
 		Version:      1,
 		Sources:      sources,
+		Tracks:       []TrackRecord{},
+		Gaps:         []GapRecord{},
+		Metadata:     []MetaDecision{},
+		Samples:      []SampleRecord{},
 		TimelineHash: plan.Hash,
 		SamplesCount: len(remuxRes.SampleHashes),
 		LateReplays:  plan.LateReplays,
+	}
+	if m.Sources == nil {
+		m.Sources = []SourceRecord{}
 	}
 	// Time range from the delivered samples.
 	first := true

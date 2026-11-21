@@ -143,6 +143,14 @@ func runNormal(bundle fixture.Bundle, opts Options, stdout io.Writer) (Result, e
 	if err != nil {
 		return res, err
 	}
+	// Persist a completed checkpoint so a re-run can prove idempotent resume.
+	ckpt := filepath.Join(opts.OutDir, "delivery.ckpt")
+	if err := remux.SaveCheckpoint(ckpt, remux.Checkpoint{
+		Fingerprint: remux.Fingerprint(remuxIn), Stage: "done",
+		SamplesDone: len(remuxRes.SampleHashes),
+	}); err != nil {
+		return res, err
+	}
 	res.SampleHashMismatches = remuxRes.HashMismatch
 	res.Samples = len(remuxRes.SampleHashes)
 	res.QualitySamples = remuxRes.Matched
