@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"mediamerge/internal/checksum"
 	"mediamerge/internal/demux"
@@ -87,9 +88,9 @@ func Run(ctx context.Context, dir string) (*Report, error) {
 			"hash output")
 	}
 	rep.OutputSHA, rep.OutputLen = outSHA, outSize
-	if got := recs[len(recs)-1-3]; got.OutputLen > outSize {
+	if st.CommittedLen != outSize {
 		return nil, model.NewError(model.StageVerify, model.CodeIntegrity, outSize, 0, false,
-			"journal claims %d bytes, output is %d", got.OutputLen, outSize)
+			"journal commits %d bytes, output is %d", st.CommittedLen, outSize)
 	}
 	out, err := demux.Open(ctx, output)
 	if err != nil {
@@ -138,13 +139,16 @@ func Run(ctx context.Context, dir string) (*Report, error) {
 	return rep, nil
 }
 
-// within reports whether path stays inside root after cleaning.
+// within reports whether path stays inside root and is not a symlink.
 func within(root, path string) bool {
 	rel, err := filepath.Rel(root, path)
-	if err != nil {
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return false
 	}
-	return rel == "." || (rel != ".." && len(rel) > 0 && rel[0] != '.' || len(rel) > 2 && rel[:2] != "..")
+	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return false
+	}
+	return true
 }
 
 // EnsureDir creates dir and rejects symlinked work directories.
