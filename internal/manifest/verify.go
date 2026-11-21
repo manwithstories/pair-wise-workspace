@@ -121,6 +121,41 @@ func (v Verifier) Verify(m Manifest, span model.Instant) (Report, error) {
 			rep.Errors = append(rep.Errors, fmt.Sprintf("manifest segment %d has no output events", seg))
 		}
 	}
+	// The declared delivery range must bracket the actual output range to
+	// within the same 1ms tolerance used for per-track first/last alignment.
+	var outLo, outHi int64
+	outFirst := true
+	for _, e := range events {
+		if e.IsGap {
+			continue
+		}
+		if outFirst {
+			outLo, outHi = int64(e.PTS), int64(e.PTS+e.Duration)
+			outFirst = false
+			continue
+		}
+		if int64(e.PTS) < outLo {
+			outLo = int64(e.PTS)
+		}
+		if int64(e.PTS+e.Duration) > outHi {
+			outHi = int64(e.PTS + e.Duration)
+		}
+	}
+	if !outFirst {
+		for _, pair := range [][2]int64{{m.TimeRange.StartNS, outLo}, {m.TimeRange.EndNS, outHi}} {
+			diff := pair[0] - pair[1]
+			if diff < 0 {
+				diff = -diff
+			}
+			if ms := diff / 1_000_000; ms > rep.AlignmentMaxMS {
+				rep.AlignmentMaxMS = ms
+			}
+			if diff > 1_000_000 {
+				rep.Errors = append(rep.Errors, fmt.Sprintf(
+					"declared range boundary %dns is %dns from output boundary %dns", pair[0], diff, pair[1]))
+			}
+		}
+	}
 	return rep, nil
 }
 
