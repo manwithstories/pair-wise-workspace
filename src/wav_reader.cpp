@@ -235,14 +235,23 @@ MediaError WavReader::read(const FrameCallback& onFrame) {
                      "missing RIFF/WAVE signature", false);
 
   while (true) {
+    std::streamoff headerPos = in_.tellg();
     char head[8];
     if (!in_.read(head, 8)) {
-      if (in_.eof() && in_.gcount() == 0) break;  // 正常结束
-      auto pos = in_.tellg();
-      int64_t off = pos >= 0 ? static_cast<int64_t>(pos)
-                             : static_cast<int64_t>(summary_.fileSize);
-      MediaError e = makeError(ErrorCode::TruncatedChunk, off, frameCursor_,
-                               "chunk header truncated", true);
+      std::streamsize got = in_.gcount();
+      if (in_.eof() && got == 0) break;  // 正常结束
+      int64_t off = headerPos >= 0 ? static_cast<int64_t>(headerPos)
+                                   : static_cast<int64_t>(summary_.fileSize);
+      // 残余字节不足以构成块头：data 之后的非整帧尾块，报告原始偏移。
+      ErrorCode code = got > 0 && got < 8
+                           ? ErrorCode::NonIntegerFrameTail
+                           : ErrorCode::TruncatedChunk;
+      summary_.tailBytes += static_cast<uint64_t>(got > 0 ? got : 0);
+      MediaError e = makeError(
+          code, off, frameCursor_,
+          std::to_string(got > 0 ? got : 0) +
+              " trailing bytes do not form a whole chunk/frame",
+          true);
       if (!handleCorruption(&err, e)) return err;
       break;
     }
