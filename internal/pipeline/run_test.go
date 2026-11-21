@@ -293,3 +293,16 @@ func TestRunRefusesToOverwriteInput(t *testing.T) {
 		t.Fatal("refused run modified the source file")
 	}
 }
+
+func TestRunCancelledContextExitCode(t *testing.T) {
+	root, in, _ := setup(t, fixture.DamageSlowCancel)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := Run(ctx, Options{InputPath: in, OutputPath: "x.mp4", QueueCapacity: 1, Root: root})
+	if err == nil {
+		t.Fatal("expected cancellation")
+	}
+	if fault.ExitCode(err) != 3 {
+		t.Fatalf("cancellation exit=%d want 3", fault.ExitCode(err))
+	}
+}

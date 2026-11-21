@@ -62,3 +62,24 @@ func TestRecoveryError(t *testing.T) {
 		t.Fatalf("exit=%d", ExitCode(re))
 	}
 }
+
+func TestEveryCorruptionSentinelMapsToExit2(t *testing.T) {
+	sentinels := []error{
+		ErrTruncated, ErrOversized, ErrMalformed, ErrUnknownTrack,
+		ErrUnsupportedCodec, ErrCorruptBlock, ErrBoundary,
+	}
+	for _, s := range sentinels {
+		err := New(StageParse, s)
+		if got := ExitCode(err); got != 2 {
+			t.Errorf("%v -> exit %d", s, got)
+		}
+		if !IsCorrupt(err) {
+			t.Errorf("%v not classified corrupt", s)
+		}
+	}
+	for _, s := range []error{ErrCancelled, ErrOutput} {
+		if got := ExitCode(New(StageVerify, s)); got != 3 {
+			t.Errorf("%v -> exit %d", s, got)
+		}
+	}
+}

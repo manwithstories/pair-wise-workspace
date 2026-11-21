@@ -5,7 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	"archivecheck.local/archivecheck/internal/ebml"
 	"archivecheck.local/archivecheck/internal/fault"
 	"archivecheck.local/archivecheck/internal/fixture"
 )
@@ -115,8 +114,7 @@ func TestScanOversizedIsFatalEvenInRecovery(t *testing.T) {
 	if len(res.Recovery) != 0 {
 		t.Fatalf("ambiguous boundary produced skips: %+v", res.Recovery)
 	}
-	if !errors.Is(err, fault.ErrOversized) && !errors.Is(err, fault.ErrBoundary) &&
-		!errors.Is(err, ebml.ErrBoundary) {
+	if !errors.Is(err, fault.ErrOversized) && !errors.Is(err, fault.ErrBoundary) {
 		t.Fatalf("got %v", err)
 	}
 }

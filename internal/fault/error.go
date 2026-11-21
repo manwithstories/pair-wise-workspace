@@ -145,9 +145,7 @@ func (e *Error) Class() Class {
 	switch {
 	case errors.Is(e.Err, ErrUnsupportedCodec):
 		return ClassUnsupported
-	case errors.Is(e.Err, ErrCancelled):
-		return ClassCancelled
-	case errors.Is(e.Err, ErrOutput):
+	case errors.Is(e.Err, ErrOutput), errors.Is(e.Err, ErrCancelled):
 		return ClassRuntime
 	case errors.Is(e.Err, ErrTruncated), errors.Is(e.Err, ErrOversized),
 		errors.Is(e.Err, ErrMalformed), errors.Is(e.Err, ErrUnknownTrack),
