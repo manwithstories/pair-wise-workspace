@@ -77,6 +77,66 @@ func TestLossRecoveryPropagatesIntoReport(t *testing.T) {
 	}
 }
 
+func TestLossRecoveryPropagatesToFrameHashAndSync(t *testing.T) {
+	cfg := smallConfig()
+
+	// Baseline clean run.
+	gb := fixture.NewGenerator(cfg)
+	gb.BuildTracks()
+	base, err := Run(context.Background(), Params{
+		Fixture: cfg, QueueBytes: 262144, WindowPkts: 32, Out: io.Discard,
+	}, gb.Normal())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Same seed and waveform, but with a real 3-packet burst removed.
+	gl := fixture.NewGenerator(cfg)
+	gl.BuildTracks()
+	lossPkts, _ := gl.LossBurst()
+	lossy, err := Run(context.Background(), Params{
+		Fixture: cfg, QueueBytes: 262144, WindowPkts: 32, Out: io.Discard,
+	}, lossPkts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Interpolated samples replace originals -> the frame hash must change,
+	// proving recovery actually propagated into the rendered timeline.
+	if lossy.Report.FrameHash == base.Report.FrameHash {
+		t.Fatal("recovered stream hash equals the clean baseline; loss did not propagate")
+	}
+	// Yet the reconstructed timeline stays aligned within the sync tolerance.
+	if lossy.Report.SyncErrorSamples > 1 {
+		t.Fatalf("sync error %d after recovery exceeds 1 sample", lossy.Report.SyncErrorSamples)
+	}
+	if lossy.Report.FrameCount != base.Report.FrameCount {
+		t.Fatalf("frame count changed %d -> %d; recovery altered total output",
+			base.Report.FrameCount, lossy.Report.FrameCount)
+	}
+}
+
+func TestReorderDuplicateStaysDeterministicAndAligned(t *testing.T) {
+	cfg := smallConfig()
+	run := func() uint64 {
+		g := fixture.NewGenerator(cfg)
+		g.BuildTracks()
+		res, err := Run(context.Background(), Params{
+			Fixture: cfg, QueueBytes: 262144, WindowPkts: 32, Out: io.Discard,
+		}, g.ReorderAndDuplicate())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Report.SyncErrorSamples > 1 {
+			t.Fatalf("sync drift %d after reorder/dedup", res.Report.SyncErrorSamples)
+		}
+		return res.Report.FrameHash
+	}
+	if run() != run() {
+		t.Fatal("reorder/duplicate run not deterministic")
+	}
+}
+
 func TestQueueFullDrainsWithoutLosingAcceptedBlocks(t *testing.T) {
 	cfg := smallConfig()
 	g := fixture.NewGenerator(cfg)
