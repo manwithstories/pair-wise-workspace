@@ -5,7 +5,7 @@
 // It exists so the command line tools stay thin drivers. Every observable
 // behaviour (progress events, structured faults, metrics) is available here
 // first, and the acceptance output the CLI prints is a direct projection of
-// RunReport.
+// Report.
 package run
 
 import (
