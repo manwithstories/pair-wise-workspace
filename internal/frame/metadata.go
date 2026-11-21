@@ -110,6 +110,7 @@ func (w *MetadataWriter) Close() error {
 // can detect disagreement.
 type Metadata struct {
 	byKey  map[string]MetaEntry
+	byOff  map[int64]MetaEntry
 	list   []MetaEntry
 	faults fault.List
 }
@@ -121,14 +122,16 @@ func metaKey(camera string, seq uint64) string {
 }
 
 // LoadMetadata reads a sidecar table. A malformed line yields a recoverable
-// fault and is skipped; the rest of the table stays usable.
+// fault and is skipped; the rest of the table stays usable. When the same
+// camera+sequence appears on several lines the last entry wins, which lets a
+// rewrite (or a test) patch one record without rebuilding the table.
 func LoadMetadata(path string) (*Metadata, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	md := &Metadata{byKey: map[string]MetaEntry{}}
+	md := &Metadata{byKey: map[string]MetaEntry{}, byOff: map[int64]MetaEntry{}}
 	br := newLineScanner(f)
 	n := 0
 	for br.next() {
@@ -147,6 +150,7 @@ func LoadMetadata(path string) (*Metadata, error) {
 			Offset: w.Offset, SHA256: w.SHA256, Keyframe: w.Keyframe, CapturedA: w.Captured,
 		}
 		md.byKey[metaKey(e.Camera, e.Seq)] = e
+		md.byOff[e.Offset] = e
 		md.list = append(md.list, e)
 	}
 	if err := br.err(); err != nil {
@@ -158,6 +162,14 @@ func LoadMetadata(path string) (*Metadata, error) {
 // Lookup finds the metadata for a camera+sequence pair.
 func (m *Metadata) Lookup(camera string, seq uint64) (MetaEntry, bool) {
 	e, ok := m.byKey[metaKey(camera, seq)]
+	return e, ok
+}
+
+// LookupOffset finds the metadata for the record at a byte offset. Offsets
+// are unique per record, so this is the reliable lookup when sequence numbers
+// repeat (duplicates and batch resets).
+func (m *Metadata) LookupOffset(offset int64) (MetaEntry, bool) {
+	e, ok := m.byOff[offset]
 	return e, ok
 }
 

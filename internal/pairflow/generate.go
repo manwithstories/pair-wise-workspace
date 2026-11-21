@@ -184,6 +184,8 @@ func writeCamera(opts Options, cam Camera, corrupt []uint64) (string, string, fa
 		bad[s] = true
 	}
 	keyEvery := uint64(opts.KeyEvery)
+	// A camera that wraps starts its device clock just before the 32-bit
+	// modulus so the capture genuinely rolls over mid-stream.
 	wrapBase := uint64(0)
 	if cam.WrapAt > 0 {
 		wrapBase = clock.WrapMod - uint64(cam.WrapAt)*cam.FrameStep
@@ -193,7 +195,7 @@ func writeCamera(opts Options, cam Camera, corrupt []uint64) (string, string, fa
 	offset := int64(0)
 	for seq := uint64(0); seq < uint64(cam.Frames); seq++ {
 		deviceTS := seq * cam.FrameStep
-		if cam.WrapAt > 0 && seq >= uint64(cam.WrapAt) {
+		if cam.WrapAt > 0 {
 			deviceTS = (wrapBase + seq*cam.FrameStep) % clock.WrapMod
 		}
 		wireSeq := seq
@@ -222,7 +224,10 @@ func writeCamera(opts Options, cam Camera, corrupt []uint64) (string, string, fa
 			offset = at + int64(len(buf))
 			sum := sha256.Sum256(payload)
 			digest := hex.EncodeToString(sum[:])
-			if bad[wireSeq] {
+			// Corruption is declared against the source sequence, which is
+			// what the manifest reports; the wire sequence may differ after
+			// a batch reset but the frame is still the same one.
+			if bad[seq] {
 				digest = hex.EncodeToString(make([]byte, 32))
 			}
 			fmt.Fprintf(&meta,

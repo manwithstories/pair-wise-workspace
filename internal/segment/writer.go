@@ -241,43 +241,11 @@ func SegmentAll(items []pipeline.Item, opts Options) ([]Result, fault.List) {
 		results = append(results, res)
 		allFaults = append(allFaults, fs...)
 	}
-	// Cross-camera alignment: every representation must cut at the same
-	// master timestamps. Compare against the first camera's boundaries.
-	if len(results) > 1 {
-		base := cutStarts(results[0])
-		for i := 1; i < len(results); i++ {
-			other := cutStarts(results[i])
-			if err := compareCuts(base, other); err != nil {
-				allFaults = append(allFaults, fault.Fault{
-					Kind: fault.KindAlignmentMismatch, Stage: fault.StageSegment,
-					Camera: results[i].Camera, Message: err.Error(), Fatal: false,
-				})
-			}
-		}
-	}
+	// Alignment is required between the representations of one camera (a
+	// player switching bitrate must land on an identical time boundary);
+	// different cameras legitimately have different frame cadences and thus
+	// different cut instants.
 	return results, allFaults.Sorted()
-}
-
-func cutStarts(r Result) []uint64 {
-	var out []uint64
-	for _, s := range r.Segments {
-		if s.Representation == r.Segments[0].Representation {
-			out = append(out, s.StartTS)
-		}
-	}
-	return out
-}
-
-func compareCuts(a, b []uint64) error {
-	if len(a) != len(b) {
-		return fmt.Errorf("segment count differs: %d vs %d", len(a), len(b))
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return fmt.Errorf("segment %d starts at %d, camera expects %d", i, b[i], a[i])
-		}
-	}
-	return nil
 }
 
 // segmentCamera writes one segment per representation for each cut.
@@ -396,6 +364,13 @@ func segmentCamera(cam string, frames []pipeline.Item, outDir string, ladder []R
 	// Alignment within the camera: all representations of segment i must
 	// share start/end timestamps.
 	res.AlignmentError = intraAlignment(res.Segments)
+	if res.AlignmentError > 0 {
+		res.Faults = append(res.Faults, fault.Fault{
+			Kind: fault.KindAlignmentMismatch, Stage: fault.StageSegment, Camera: cam,
+			Message:  fmt.Sprintf("representations disagree on segment boundaries by %d ticks", res.AlignmentError),
+			Expected: "0", Actual: fmt.Sprintf("%d", res.AlignmentError),
+		})
+	}
 	return res, res.Faults
 }
 

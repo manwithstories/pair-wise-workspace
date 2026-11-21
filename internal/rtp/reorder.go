@@ -31,10 +31,6 @@ const WrapDistance = SeqMod / 2
 // DefaultWindow is the reorder depth used when none is configured.
 const DefaultWindow = 64
 
-// ResetThreshold is the smallest backwards jump to sequence zero that is
-// interpreted as a new capture batch rather than reordering.
-const ResetThreshold = 1024
-
 // maxHistory bounds the duplicate-detection history of already-delivered
 // sequence numbers so memory stays flat on long streams.
 const maxHistory = 1 << 14
@@ -176,9 +172,11 @@ func (r *Reorderer) Push(f Frame) {
 		prevRaw := r.prevRaw
 		d := Delta(prevRaw, raw)
 		switch {
-		case raw == 0 && prevRaw >= ResetThreshold && -d >= ResetThreshold:
-			// Capture numbering restarted at zero: open a new epoch after
-			// the last sequence seen so gaps stay well defined.
+		case raw == 0 && prevRaw > 0 && d < 0:
+			// Sequence zero arriving from anywhere except a wrap is a
+			// capture restart. A duplicate zero inside the same epoch is
+			// caught by the delivered/buffered checks below. Open a new
+			// epoch after the last sequence seen so gaps stay well defined.
 			reset = true
 			r.epochBase = r.lastExt + 1
 			ext = r.epochBase + uint64(raw)

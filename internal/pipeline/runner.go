@@ -523,7 +523,11 @@ func (r *Runner) parseSource(ctx context.Context, src Source, out chan<- Item, a
 		sum := sha256.Sum256(rec.Payload)
 		it.Hash = hex.EncodeToString(sum[:])
 		if src.Meta != nil {
-			if e, ok := src.Meta.Lookup(src.Camera, rec.Seq); ok {
+			e, ok := src.Meta.LookupOffset(rec.Offset)
+			if !ok {
+				e, ok = src.Meta.Lookup(src.Camera, rec.Seq)
+			}
+			if ok {
 				it.Expected = e.SHA256
 			} else {
 				it.Faults = append(it.Faults, fault.Fault{
