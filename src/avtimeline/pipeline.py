@@ -119,6 +119,14 @@ class PipelineResult:
         return any(e.severity >= Severity.ERROR for e in self.errors)
 
     @property
+    def stopped_on_invalid_input(self) -> bool:
+        """True when processing stopped because the material/timeline is bad."""
+        failed = [record for record in self.stages if record.status == "failed"]
+        if not failed:
+            return False
+        return failed[-1].stage in (Stage.TIMELINE, Stage.PROBE)
+
+    @property
     def aligned_segments(self) -> int:
         if self.manifest is None:
             return 0

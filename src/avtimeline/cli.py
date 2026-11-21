@@ -177,7 +177,7 @@ def _compare_runs(first: PipelineResult, second: PipelineResult) -> dict[str, An
 
 
 def _exit_code(result: PipelineResult, summary: dict[str, Any], threshold_ok: bool) -> int:
-    if result.has_fatal:
+    if result.has_fatal or result.stopped_on_invalid_input:
         return int(ExitCode.INVALID_INPUT)
     if summary.get("mixed_failure"):
         return int(ExitCode.INVALID_INPUT)
