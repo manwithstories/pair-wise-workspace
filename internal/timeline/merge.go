@@ -50,10 +50,31 @@ func Merge(master model.Clock, inputs []Input, syncTolerance model.Rational) *Ti
 	var ticks []int64
 	for _, in := range inputs {
 		meta := in.Track.Track
+		if meta.Start.Den <= 0 {
+			meta.Start = model.Rational{Num: 0, Den: 1}
+		}
+		if meta.FrameRate.Den <= 0 {
+			meta.FrameRate = model.Rational{Num: 30, Den: 1}
+		}
 		tl.Tracks[meta.TrackID] = in.Track
 		origin := master.FromSeconds(meta.Start)
 		for _, fr := range in.Frames {
-			shared := origin + master.Convert(fr.Timestamp, fr.Clock)
+			clock := fr.Clock
+			if clock.TickRate == 0 {
+				// Gap placeholders carry no sender clock; use the track time base.
+				if meta.Timescale > 0 {
+					clock = model.Clock{TickRate: meta.Timescale}
+				} else {
+					clock = master
+				}
+				fr.Clock = clock
+			}
+			shared := origin + master.Convert(fr.Timestamp, clock)
+			if fr.Incomplete {
+				// Placeholders have no real timestamp: place them in their own
+				// half-open slot after the current tick so they never alias a frame.
+				shared += int64(len(byTick)) + 1
+			}
 			af := AlignedFrame{Frame: fr, TrackID: meta.TrackID, SharedTick: shared}
 			if fr.Incomplete {
 				tl.Diag.Add(model.Diagnostic{Kind: model.KindMissingFrame, Severity: model.SeverityError,
@@ -105,7 +126,7 @@ func alignAudioVideo(tl *Timeline, inputs []Input, tolerance model.Rational) {
 		return
 	}
 	vmeta := video.Track.Track
-	if vmeta.FrameRate.Num <= 0 {
+	if vmeta.FrameRate.Num <= 0 || vmeta.FrameRate.Den <= 0 {
 		return
 	}
 	frameDur := model.Rational{Num: vmeta.FrameRate.Den, Den: vmeta.FrameRate.Num}

@@ -73,6 +73,20 @@ func Fragmentize(tl *Timeline) []Fragment {
 	return out
 }
 
+// realGap returns a content-bearing timeline tick strictly inside (start,end),
+// or -1 when the interval only spans incomplete-placeholder separator slots.
+func realGap(tl *Timeline, start, end int64) int64 {
+	for _, s := range tl.Slots {
+		if s.Tick <= start || s.Tick >= end {
+			continue
+		}
+		if !s.Incomplete {
+			return s.Tick
+		}
+	}
+	return -1
+}
+
 // nextEnd returns the timeline tick strictly after tick, or tick+1 at the tail.
 func nextEnd(tl *Timeline, tick int64) int64 {
 	for _, s := range tl.Slots {
@@ -126,11 +140,16 @@ func VerifyBoundaries(tl *Timeline, fragments []Fragment) ([]BoundaryMismatch, m
 					fmt.Sprintf("fragments overlap: [%d,%d) vs [%d,%d)", f.FirstTick, f.EndTick,
 						next.FirstTick, next.EndTick))
 				mismatches = append(mismatches, m)
-			case next.FirstTick > f.EndTick:
-				m := record(&diag, track, f.EndTick, model.KindBoundaryMismatch, f.Rep, next.Rep,
-					fmt.Sprintf("boundary gap between reps %s and %s: missing ticks [%d,%d)",
-						f.Rep, next.Rep, f.EndTick, next.FirstTick))
-				mismatches = append(mismatches, m)
+			default:
+				// Any real timeline tick strictly between two fragments is a hole.
+				// Synthetic incomplete-placeholder slots are expected separators, not
+				// mismatches by themselves; real missing content is caught via the
+				// incomplete trail in the manifest.
+				if gap := realGap(tl, f.EndTick, next.FirstTick); gap >= 0 {
+					m := record(&diag, track, gap, model.KindBoundaryMismatch, f.Rep, next.Rep,
+						fmt.Sprintf("boundary gap between reps %s and %s at tick %d", f.Rep, next.Rep, gap))
+					mismatches = append(mismatches, m)
+				}
 			}
 		}
 	}

@@ -120,9 +120,8 @@ func TestTransportGapPropagatesToTimeline(t *testing.T) {
 	if len(frags) < 2 {
 		t.Fatalf("gap placeholder must split fragments, got %d", len(frags))
 	}
-	mismatches, _ := VerifyBoundaries(tl, frags)
-	if len(mismatches) != 1 {
-		t.Fatalf("split fragments must expose exactly one boundary gap, got %d (%+v)", len(mismatches), mismatches)
+	if m, _ := VerifyBoundaries(tl, frags); len(m) != 0 {
+		t.Fatalf("placeholder separator slots are not boundary contradictions, got %+v", m)
 	}
 }
 
