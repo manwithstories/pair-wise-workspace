@@ -155,6 +155,53 @@ func TestExportRejectsPathTraversal(t *testing.T) {
 	}
 }
 
+// TestExporterResetsManagedOutputs ensures a re-run removes stale frame files
+// so on-disk frames always match the freshly written manifest.
+func TestExporterResetsManagedOutputs(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "out")
+	tl := buildTimeline(t, false)
+	frags := timeline.Fragmentize(tl)
+	mismatches, _ := timeline.VerifyBoundaries(tl, frags)
+
+	exp, err := NewExporter(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m1, err := exp.Export(tl, mismatches)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Plant a stale frame and a user file that must be preserved.
+	stale := filepath.Join(dir, "frames", "frame_999999_stale.txt")
+	if err := os.WriteFile(stale, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	keep := filepath.Join(dir, "notes.txt")
+	if err := os.WriteFile(keep, []byte("user"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	exp2, err := NewExporter(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := exp2.Export(tl, mismatches); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatal("stale frame file must be removed on re-export")
+	}
+	if _, err := os.Stat(keep); err != nil {
+		t.Fatal("non-managed user file in the root must be preserved")
+	}
+	entries, err := os.ReadDir(filepath.Join(dir, "frames"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != m1.FrameCount {
+		t.Fatalf("frame files %d must equal manifest frames %d", len(entries), m1.FrameCount)
+	}
+}
+
 func TestSanitizeTrackName(t *testing.T) {
 	cases := map[string]string{
 		"cam/1": "cam_1",

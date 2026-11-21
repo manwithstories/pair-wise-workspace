@@ -80,6 +80,18 @@ func NewExporter(root string) (*Exporter, error) {
 		return nil, fmt.Errorf("create output dir: %w", err)
 	}
 	frames := filepath.Join(abs, "frames")
+	// Reset managed outputs so a re-run cannot leave stale frame files that the
+	// new manifest no longer references. Only the exporter's own entries are
+	// removed; any other files in the user-chosen root are preserved.
+	managed := []string{frames, filepath.Join(abs, "manifest.json")}
+	for _, p := range managed {
+		if err := insideRoot(abs, p); err != nil {
+			return nil, err
+		}
+		if err := os.RemoveAll(p); err != nil {
+			return nil, fmt.Errorf("reset managed output %q: %w", p, err)
+		}
+	}
 	if err := os.MkdirAll(frames, 0o755); err != nil {
 		return nil, err
 	}
@@ -89,10 +101,13 @@ func NewExporter(root string) (*Exporter, error) {
 // Root returns the resolved, absolute output directory.
 func (e *Exporter) Root() string { return e.root }
 
-func (e *Exporter) inside(path string) error {
-	rel, err := filepath.Rel(e.root, path)
+func (e *Exporter) inside(path string) error { return insideRoot(e.root, path) }
+
+// insideRoot asserts target stays within the validated root directory.
+func insideRoot(root, target string) error {
+	rel, err := filepath.Rel(root, target)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-		return fmt.Errorf("path %q escapes output root %q", path, e.root)
+		return fmt.Errorf("path %q escapes output root %q", target, root)
 	}
 	return nil
 }
