@@ -522,6 +522,10 @@ func buildManifest(m *manifest.Manifest, opt Options, asset *metadata.Asset,
 			byGap[gi] = append(byGap[gi], f.Index)
 		}
 	}
+	m.GapsByFrame = m.GapsByFrame[:0]
+	for gi := 0; gi < len(stats.Gaps); gi++ {
+		m.GapsByFrame = append(m.GapsByFrame, manifest.GapLinkRecord{Gap: gi, Frames: byGap[gi]})
+	}
 	for i, g := range stats.Gaps {
 		gr := manifest.GapRecord{Index: i, StartExt: g.StartExt, Count: g.Count,
 			Blocked: g.Blocked, TimestampFrom: g.From, TimestampTo: g.To,

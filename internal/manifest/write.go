@@ -42,6 +42,10 @@ type Manifest struct {
 	Nodes []NodeRecord `json:"nodes"`
 	// Failures records isolated corrupted-input failures.
 	Failures []FailureRecord `json:"failures"`
+	// GapsByFrame is the inverse of FrameRecord.Gaps: which blocked frames
+	// each transport gap intersects. It makes cross-gap/timeline blocking
+	// explainable from either direction.
+	GapsByFrame []GapLinkRecord `json:"gap_links"`
 	// Metrics are the acceptance measurements.
 	Metrics Metrics `json:"metrics"`
 	// Artifacts lists files written next to the manifest with hashes.
@@ -107,6 +111,12 @@ type GapRecord struct {
 	TimestampTo   uint32 `json:"timestamp_to,omitempty"`
 	Frames        []int  `json:"frames"`
 	ManifestMs    int64  `json:"manifest_ms"`
+}
+
+// GapLinkRecord relates a gap to the frames it blocks.
+type GapLinkRecord struct {
+	Gap    int   `json:"gap"`
+	Frames []int `json:"frames"`
 }
 
 // NodeRecord is one scheduler node outcome.
