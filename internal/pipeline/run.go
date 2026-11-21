@@ -169,6 +169,8 @@ func dedupedFaults(idx *index.Index, primary, secondary *manifest.Timeline) mode
 	for _, f := range manifestFaults(primary) {
 		add(f)
 	}
+	// DASH names the same media as HLS; its absent-media faults dedupe against
+	// the HLS ones by (kind, segment, range), so the timeline is reported once.
 	if secondary != nil {
 		for _, f := range manifestFaults(secondary) {
 			add(f)
