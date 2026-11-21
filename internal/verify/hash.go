@@ -98,13 +98,14 @@ func Check(out io.ReaderAt, outSize int64, manifest []remux.ManifestEntry, opts 
 	}
 
 	covered := make([]Gap, 0)
-	for _, tr := range probe.Tracks {
+	// probe keeps tracks in file order, which the writer made identical to
+	// ascending Matroska track order.
+	manifestTracks := ManifestTracks(manifest)
+	for ti, tr := range probe.Tracks {
 		var trackNum uint64
-		if n, err := trackNumberFromManifest(manifest, tr.TrackID); err == nil {
-			trackNum = n
+		if ti < len(manifestTracks) {
+			trackNum = manifestTracks[ti]
 		} else {
-			// Fall back to positional matching: probe keeps tracks in file
-			// order, as the writer does.
 			trackNum = manifestTrackAt(manifest, len(res.OutputSegments))
 		}
 		exp := expected[trackNum]
@@ -206,11 +207,22 @@ func sourceHash(opts Options, m remux.ManifestEntry) (string, error) {
 }
 
 // trackNumberFromManifest maps an MP4 track_ID back to a Matroska track
-// number using the lowest manifest track that reported the ID.
+// number using the manifest's track order (ordered by Matroska number).
 func trackNumberFromManifest(manifest []remux.ManifestEntry, trackID uint32) (uint64, error) {
 	if trackID == 0 {
 		return 0, fmt.Errorf("zero track ID")
 	}
+	nums := ManifestTracks(manifest)
+	idx := int(trackID) - 1
+	if idx < 0 || idx >= len(nums) {
+		return 0, fmt.Errorf("track ID %d out of range", trackID)
+	}
+	return nums[idx], nil
+}
+
+// ManifestTracks returns the distinct Matroska track numbers in manifest
+// order.
+func ManifestTracks(manifest []remux.ManifestEntry) []uint64 {
 	seen := map[uint64]bool{}
 	var nums []uint64
 	for _, m := range manifest {
@@ -220,12 +232,7 @@ func trackNumberFromManifest(manifest []remux.ManifestEntry, trackID uint32) (ui
 		}
 	}
 	sort.Slice(nums, func(i, j int) bool { return nums[i] < nums[j] })
-	// DestTrackID is assigned 1..n in sorted Matroska track order.
-	idx := int(trackID) - 1
-	if idx < 0 || idx >= len(nums) {
-		return 0, fmt.Errorf("track ID %d out of range", trackID)
-	}
-	return nums[idx], nil
+	return nums
 }
 
 func manifestTrackAt(manifest []remux.ManifestEntry, i int) uint64 {

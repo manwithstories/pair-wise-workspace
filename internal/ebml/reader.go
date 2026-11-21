@@ -115,6 +115,10 @@ type Element struct {
 	End int64
 	// UnknownSize reports an EBML unknown-size element.
 	UnknownSize bool
+	// Truncated reports that a declared size crossed the enclosing limit and
+	// was clamped to it during a recovery pass. The element's payload is
+	// incomplete and only the bytes up to End are trustworthy.
+	Truncated bool
 }
 
 // Name returns the element name.
@@ -124,6 +128,14 @@ func (e Element) Name() string { return Name(e.ID) }
 type Reader struct {
 	rs  io.ReadSeeker
 	off int64
+	// AllowTruncated clamps elements whose declared end crosses the end of
+	// the input and marks them Truncated. Recovery passes enable it. A size
+	// that crosses an in-file parent limit is never clamped: the boundary
+	// cannot be proven, so it remains a fatal structural error.
+	AllowTruncated bool
+	// srcSize is the total input length, used to tell real end-of-input
+	// truncation from a size that lies inside the file.
+	srcSize int64
 }
 
 // NewReader wraps rs. The reader starts at the source's current offset.
@@ -149,6 +161,10 @@ func (r *Reader) SeekTo(off int64) error {
 	r.off = off
 	return nil
 }
+
+// SetSourceSize records the input length; the caller must set it before
+// relying on AllowTruncated.
+func (r *Reader) SetSourceSize(size int64) { r.srcSize = size }
 
 // SourceSize returns the total source length.
 func (r *Reader) SourceSize() (int64, error) {
@@ -241,8 +257,27 @@ func (r *Reader) Next(limit int64) (Element, error) {
 	e.Size = int64(size)
 	e.End = e.DataOffset + e.Size
 	if e.End > limit || e.End < e.DataOffset {
-		return Element{}, fault.AtElement(fault.StageParse, start, Name(id),
-			fmt.Errorf("%w: element end %d exceeds limit %d", ErrOversized, e.End, limit))
+		if !r.AllowTruncated || r.srcSize <= 0 || limit < r.srcSize {
+			// Only a clamp at the true end of input is provable. A size that
+			// overruns an in-file parent may hide later siblings, so recovery
+			// cannot know where the element ends.
+			// The first illegal byte is the first one beyond the enclosing
+			// limit, i.e. the point where the declared range runs off the
+			// input. Pointing there lets an engineer inspect the tail with a
+			// single seek; the element's own offset is in the message.
+			cause := ErrOversized
+			if r.AllowTruncated && r.srcSize > 0 && limit < r.srcSize {
+				cause = ErrBoundary
+			}
+			return Element{}, fault.AtElement(fault.StageParse, limit, Name(id),
+				fmt.Errorf("%w: element at %d declares end %d beyond limit %d", cause, start, e.End, limit))
+		}
+		e.Truncated = true
+		e.Size = limit - e.DataOffset
+		if e.Size < 0 {
+			e.Size = 0
+		}
+		e.End = limit
 	}
 	return e, nil
 }

@@ -81,7 +81,8 @@ func TestNextRejectsSizeBeyondLimit(t *testing.T) {
 	if !errors.Is(err, ErrOversized) {
 		t.Fatalf("want oversized, got %v", err)
 	}
-	if fault.OffsetOf(err) != 0 {
+	// The reported offset is the first byte beyond the enclosing limit.
+	if fault.OffsetOf(err) != 7 {
 		t.Fatalf("offset=%d", fault.OffsetOf(err))
 	}
 }

@@ -28,6 +28,9 @@ type Info struct {
 	SegmentEnd int64
 	// SegmentUnknown reports an unknown-size Segment.
 	SegmentUnknown bool
+	// SegmentTruncated reports that the input ended inside the Segment's
+	// declared extent.
+	SegmentTruncated bool
 	// HasCues reports whether a Cues element was seen.
 	HasCues bool
 	// CueEntries is the number of CuePoint elements found.
@@ -155,6 +158,7 @@ func ScanReader(r io.ReadSeeker, opts Options, report *Result) error {
 		opts:   opts,
 		result: report,
 	}
+	s.r.AllowTruncated = opts.Recover
 	report.Stats = map[uint64]*TrackStats{}
 	return s.run()
 }
@@ -179,6 +183,7 @@ func (s *scanner) run() error {
 		return fault.AtElement(fault.StageParse, 0, "EBML", fault.ErrTruncated)
 	}
 	s.size = size
+	s.r.SetSourceSize(size)
 
 	// EBML document header.
 	if err := s.readEBMLHeader(); err != nil {
@@ -214,20 +219,18 @@ func (s *scanner) run() error {
 	if seg.UnknownSize {
 		segEnd = size
 	}
+	if seg.Truncated {
+		// The declared Segment size crossed the end of input. Recovery mode
+		// clamps it to the bytes actually present; the precise damaged range
+		// is recorded when a Cluster tail is skipped.
+		s.result.Info.SegmentTruncated = true
+	}
 	s.result.Info.SegmentEnd = segEnd
 	if seg.DataOffset > size {
 		return fault.AtElement(fault.StageParse, seg.Offset, "Segment", fault.ErrTruncated)
 	}
 	if err := s.walkSegment(seg.DataOffset, segEnd); err != nil {
 		return err
-	}
-	if seg.UnknownSize {
-		// Document the implied Boundary for the manifest.
-		s.result.Recovery = append(s.result.Recovery, fault.Skip{
-			Start:  seg.Offset,
-			Length: 0,
-			Reason: "unknown-size Segment bounded by input end",
-		})
 	}
 	return nil
 }

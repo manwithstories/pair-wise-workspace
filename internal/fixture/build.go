@@ -68,50 +68,39 @@ func Build(tracks []TrackSpec, blocks []BlockSpec, layout Layout) Document {
 	}
 	body.Element(0x1654AE6B, tracksEnc.Bytes())
 
-	// Cues need cluster offsets relative to Segment data start; compute the
-	// layout with placeholder cue sizes, then rebuild if needed.
-	clusterBytes := NewEncoder()
-	var clusterOffsets []int64
-	clusterSizeOffsets := [][2]int{} // {offset, width}
-	for _, cl := range clusters {
-		var clusterBlock []BlockSpec
-		clusterBlock = append(clusterBlock, cl...)
-		ce := NewEncoder()
-		ts := clusterBlock[0].Tick
-		ce.UintElement(0xE7, uint64(ts))
-		for _, b := range clusterBlock {
-			ce.Raw(Block(b, b.Tick-ts))
-		}
-		start := int64(len(clusterBytes.Bytes()))
-		if layout.UnknownCluster {
-			clusterBytes.HeaderUnknown(0x1F43B675)
-			clusterBytes.Raw(ce.Bytes())
-			clusterSizeOffsets = append(clusterSizeOffsets, [2]int{-1, 0})
-		} else {
-			before := clusterBytes.Len()
-			clusterBytes.Element(0x1F43B675, ce.Bytes())
-			// size field offset = before + len(ID)
-			clusterSizeOffsets = append(clusterSizeOffsets, [2]int{before + len(EncID(0x1F43B675)), len(EncSize(uint64(len(ce.Bytes()))))})
-		}
-		clusterOffsets = append(clusterOffsets, start)
-	}
+	// Everything written before the Clusters counts toward their
+	// Segment-relative position.
+	prefixLen := body.Len()
 
-	cuesBytes := buildCues(tracks, clusters, clusterOffsets)
+	// Cues need each Cluster's Segment-relative offset, which depends on the
+	// width of that Cluster's own size vint. Assemble the Cluster bytes first
+	// with a placeholder Cues length, then rebuild once the real Cues length
+	// is known. Both passes are deterministic, so the second is final.
+	cuesLen := 0
+	var clusterPlan clustersLayout
+	for pass := 0; pass < 2; pass++ {
+		clusterPlan = assembleClusters(clusters, layout, prefixLen, cuesLen)
+		if layout.NoCues {
+			break
+		}
+		cuesBytes := buildCues(tracks, clusters, clusterPlan.offsets, cuesLen)
+		if len(cuesBytes) == cuesLen {
+			break
+		}
+		cuesLen = len(cuesBytes)
+	}
+	var cuesBytes []byte
+	if !layout.NoCues {
+		cuesBytes = buildCues(tracks, clusters, clusterPlan.offsets, cuesLen)
+	}
 	doc.CueCount = len(clusters)
 
-	if !layout.NoCues {
-		if layout.CuesFirst {
-			body.Raw(cuesBytes)
-		} else {
-			body.Raw(clusterBytes.Bytes())
-			body.Raw(cuesBytes)
-		}
-	}
 	if !layout.NoCues && layout.CuesFirst {
-		body.Raw(clusterBytes.Bytes())
+		body.Raw(cuesBytes)
 	}
-	if layout.NoCues {
-		body.Raw(clusterBytes.Bytes())
+	body.Raw(clusterPlan.bytes)
+	if !layout.NoCues && !layout.CuesFirst {
+		body.Raw(cuesBytes)
 	}
 
 	seg := NewEncoder()
@@ -134,6 +123,7 @@ func Build(tracks []TrackSpec, blocks []BlockSpec, layout Layout) Document {
 		seg.Header(0x18538067, totalSize)
 	}
 	segmentDataStart := seg.Len()
+	doc.SegmentDataOffset = segmentDataStart
 	seg.Raw(body.Bytes())
 
 	doc.Bytes = seg.Bytes()
@@ -142,30 +132,30 @@ func Build(tracks []TrackSpec, blocks []BlockSpec, layout Layout) Document {
 	if !layout.UnknownSegment {
 		doc.SegmentSizeWidth = len(EncSize(uint64(totalSize)))
 	}
-	// Adjust cluster offsets to absolute positions.
+	// Cluster offsets are already Segment-relative; add the Segment payload
+	// start to obtain absolute file offsets.
 	clusterBase := int64(segmentDataStart)
-	cuesLen := 0
+	runLeading := prefixLen
 	if !layout.NoCues && layout.CuesFirst {
-		cuesLen = len(cuesBytes)
+		runLeading += cuesLen
 	}
-	for _, off := range clusterOffsets {
-		doc.ClusterOffsets = append(doc.ClusterOffsets, clusterBase+int64(cuesLen)+off)
+	for _, off := range clusterPlan.offsets {
+		doc.ClusterOffsets = append(doc.ClusterOffsets, clusterBase+off)
 	}
-	for _, cso := range clusterSizeOffsets {
+	for _, cso := range clusterPlan.sizeFields {
 		if cso[0] < 0 {
 			doc.ClusterSizeOffsets = append(doc.ClusterSizeOffsets, [2]int{-1, 0})
 			continue
 		}
 		doc.ClusterSizeOffsets = append(doc.ClusterSizeOffsets,
-			[2]int{int(clusterBase) + cuesLen + cso[0], cso[1]})
+			[2]int{int(clusterBase) + runLeading + cso[0], cso[1]})
 	}
 	doc.CuesOffset = -1
 	if !layout.NoCues {
-		offset := int(clusterBase) + cuesLen
-		if !layout.CuesFirst {
-			offset = int(clusterBase) + len(clusterBytes.Bytes())
+		doc.CuesOffset = clusterBase + int64(prefixLen)
+		if layout.CuesFirst {
+			doc.CuesOffset = clusterBase + int64(prefixLen)
 		}
-		doc.CuesOffset = int64(offset)
 	}
 	return doc
 }
@@ -212,7 +202,51 @@ func EncTrackVint(track uint64) []byte {
 	return EncSize(track)
 }
 
-func buildCues(tracks []TrackSpec, clusters [][]BlockSpec, offsets []int64) []byte {
+// clustersLayout is one assembled Cluster run.
+type clustersLayout struct {
+	bytes []byte
+	// offsets are byte offsets of each Cluster within the run.
+	offsets []int64
+	// sizeFields locates each known-size Cluster's size vint within the run.
+	sizeFields [][2]int
+}
+
+// assembleClusters builds the Cluster bytes with Segment-relative offsets
+// computed as if the Cues payload occupied cuesLen bytes before them.
+func assembleClusters(clusters [][]BlockSpec, layout Layout, prefixLen, cuesLen int) clustersLayout {
+	// Offsets are measured from the start of the Segment payload, so the
+	// Clusters must account for whatever precedes them.
+	leading := prefixLen
+	if !layout.NoCues && layout.CuesFirst {
+		leading += cuesLen
+	}
+	var out clustersLayout
+	for _, cl := range clusters {
+		ce := NewEncoder()
+		ts := cl[0].Tick
+		ce.UintElement(0xE7, uint64(ts))
+		for _, b := range cl {
+			ce.Raw(Block(b, b.Tick-ts))
+		}
+		start := int64(leading + len(out.bytes))
+		out.offsets = append(out.offsets, start)
+		idLen := len(EncID(0x1F43B675))
+		if layout.UnknownCluster {
+			out.bytes = append(out.bytes, EncID(0x1F43B675)...)
+			out.bytes = append(out.bytes, UnknownSize...)
+			out.sizeFields = append(out.sizeFields, [2]int{-1, 0})
+		} else {
+			sizeWidth := len(EncSize(uint64(len(ce.Bytes()))))
+			out.sizeFields = append(out.sizeFields, [2]int{len(out.bytes) + idLen, sizeWidth})
+			out.bytes = append(out.bytes, EncID(0x1F43B675)...)
+			out.bytes = append(out.bytes, EncSize(uint64(len(ce.Bytes())))...)
+		}
+		out.bytes = append(out.bytes, ce.Bytes()...)
+	}
+	return out
+}
+
+func buildCues(tracks []TrackSpec, clusters [][]BlockSpec, offsets []int64, cuesLen int) []byte {
 	cues := NewEncoder()
 	for i, cl := range clusters {
 		if len(cl) == 0 {

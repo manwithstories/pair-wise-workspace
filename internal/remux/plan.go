@@ -35,6 +35,9 @@ type Sample struct {
 	PTS          int64
 	Duration     int64
 	Keyframe     bool
+	// Tick is the sample's presentation timestamp in source Segment ticks,
+	// retained so the keyframe index can answer source-time queries.
+	Tick int64
 	// StaticDuration marks tracks whose samples all share DefaultDuration.
 	StaticDuration bool
 }
@@ -99,6 +102,8 @@ type ManifestEntry struct {
 	SourceOffset int64  `json:"source_offset"`
 	Size         int    `json:"size"`
 	Keyframe     bool   `json:"keyframe"`
+	// Tick is the source timestamp in Segment ticks.
+	Tick int64 `json:"tick"`
 	// SHA256 is filled by the verifier after re-reading the output.
 	SHA256 string `json:"sha256,omitempty"`
 }

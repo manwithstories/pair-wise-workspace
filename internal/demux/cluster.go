@@ -25,15 +25,29 @@ func (s *scanner) readCluster(e ebml.Element, limit int64) error {
 		childStart := s.r.Offset()
 		c, err := s.r.Next(limit)
 		if err != nil {
-			if e.UnknownSize && s.opts.Recover && errors.Is(err, fault.ErrTruncated) {
-				// The Cluster runs to the end of usable input. Stop here; the
-				// caller records the damaged tail during recovery.
-				if serr := s.r.SeekTo(limit); serr != nil {
-					return serr
-				}
-				return err
+			if s.opts.Recover && errors.Is(err, fault.ErrTruncated) {
+				// The input ends inside this Cluster. Every block header that
+				// did parse belongs to a proven boundary, so the incomplete
+				// tail can be skipped and recorded.
+				s.result.Recovery = append(s.result.Recovery, fault.Skip{
+					Start:  childStart,
+					Length: limit - childStart,
+					Reason: "input ends inside Cluster",
+				})
+				return s.r.SeekTo(limit)
 			}
 			return err
+		}
+		if c.Truncated {
+			// A child (usually a SimpleBlock) crosses the end of input. No
+			// frame from this byte onward can be trusted, so the tail is
+			// skipped as one proven range and no index entry is created.
+			s.result.Recovery = append(s.result.Recovery, fault.Skip{
+				Start:  childStart,
+				Length: limit - childStart,
+				Reason: "input ends inside Cluster",
+			})
+			return s.r.SeekTo(limit)
 		}
 		if e.UnknownSize && c.ID != ebml.IDTimestamp && c.ID != ebml.IDSimpleBlock &&
 			c.ID != ebml.IDBlockGroup && c.ID != ebml.IDBlock && c.ID != ebml.IDVoid &&
@@ -96,8 +110,6 @@ func (s *scanner) readBlockGroup(e ebml.Element, buf []byte) ([]byte, error) {
 		haveBlock    bool
 		blockOffset  int64
 		blockData    []byte
-		duration     int64
-		haveDuration bool
 	)
 	for s.r.Offset() < e.End {
 		c, err := s.r.Next(e.End)
@@ -134,13 +146,6 @@ func (s *scanner) readBlockGroup(e ebml.Element, buf []byte) ([]byte, error) {
 				keyframe = false
 				haveKeyframe = true
 			}
-		case ebml.IDBlockDuration:
-			v, err := s.r.ReadInt(c)
-			if err != nil {
-				return buf, err
-			}
-			duration = v
-			haveDuration = true
 		default:
 			if err := s.r.Skip(c); err != nil {
 				return buf, err
@@ -157,8 +162,6 @@ func (s *scanner) readBlockGroup(e ebml.Element, buf []byte) ([]byte, error) {
 		// the final stss membership from this flag.
 		keyframe = false
 	}
-	_ = duration
-	_ = haveDuration
 	b, err := mkv.ParseBlock(blockData, blockOffset, keyframe)
 	if err != nil {
 		return buf, err
@@ -227,11 +230,6 @@ func (s *scanner) emitBlock(b mkv.Block) error {
 			if err := s.opts.OnSample(sample); err != nil {
 				return err
 			}
-		}
-	}
-	if laced {
-		for i := range b.Frames {
-			_ = i
 		}
 	}
 	return nil

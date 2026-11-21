@@ -147,11 +147,11 @@ func (e *Error) Class() Class {
 		return ClassUnsupported
 	case errors.Is(e.Err, ErrCancelled):
 		return ClassCancelled
-	case errors.Is(e.Err, ErrOutput), errors.Is(e.Err, ErrBoundary):
+	case errors.Is(e.Err, ErrOutput):
 		return ClassRuntime
 	case errors.Is(e.Err, ErrTruncated), errors.Is(e.Err, ErrOversized),
 		errors.Is(e.Err, ErrMalformed), errors.Is(e.Err, ErrUnknownTrack),
-		errors.Is(e.Err, ErrCorruptBlock):
+		errors.Is(e.Err, ErrCorruptBlock), errors.Is(e.Err, ErrBoundary):
 		return ClassCorrupt
 	case e.Stage == StageIO, e.Stage == StageOpen:
 		return ClassRuntime

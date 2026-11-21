@@ -92,6 +92,7 @@ func writeMedia(bw *writer, p *Plan, sum *Summary) error {
 					SourceOffset: s.SourceOffset,
 					Size:         int(sampleSize(s)),
 					Keyframe:     s.Keyframe,
+					Tick:         s.Tick,
 				})
 			}
 		}

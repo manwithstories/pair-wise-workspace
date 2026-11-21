@@ -28,7 +28,7 @@ func TestExitCodes(t *testing.T) {
 		{At(StageParse, 10, ErrTruncated), 2},
 		{At(StageMap, -1, ErrUnsupportedCodec), 2},
 		{New(StageIO, ErrOutput), 3},
-		{New(StageVerify, ErrBoundary), 3},
+		{New(StageVerify, ErrBoundary), 2},
 		{errors.New("plain"), 3},
 	}
 	for _, c := range cases {
