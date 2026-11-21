@@ -57,6 +57,22 @@ func unknownElement(id uint32) []byte {
 
 func newReader(b []byte) *Reader { return NewReader(bytes.NewReader(b)) }
 
+func EncIDForTest(id uint32) []byte { return idBytes(id) }
+func EncSizeForTest(size uint64) []byte {
+	length := 1
+	for size >= uint64(1)<<(7*uint(length))-1 && length < 8 {
+		length++
+	}
+	buf := make([]byte, length)
+	v := size
+	for i := length - 1; i >= 0; i-- {
+		buf[i] = byte(v)
+		v >>= 8
+	}
+	buf[0] |= byte(0x80) >> (uint(length) - 1)
+	return buf
+}
+
 func TestNextKnownSize(t *testing.T) {
 	data := element(t, IDTimestampScale, []byte{0x0F, 0x42, 0x40})
 	r := newReader(data)
@@ -239,5 +255,31 @@ func TestFloat64(t *testing.T) {
 	}
 	if _, err := Float64([]byte{1, 2, 3}); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestAllowTruncatedClampsOnlyAtSourceEnd(t *testing.T) {
+	// A 1-byte-size Segment declaring 200 bytes in a 20-byte file.
+	data := append(EncIDForTest(IDSegment), EncSizeForTest(200)...)
+	r := newReader(data)
+	r.AllowTruncated = true
+	r.SetSourceSize(int64(len(data)))
+	// The enclosing limit is the actual input end, as demux passes it.
+	e, err := r.Next(int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !e.Truncated || e.End != int64(len(data)) {
+		t.Fatalf("e=%+v", e)
+	}
+}
+
+func TestAllowTruncatedRefusesInFileOverrun(t *testing.T) {
+	data := append(EncIDForTest(IDSegment), EncSizeForTest(200)...)
+	r := newReader(data)
+	r.AllowTruncated = true
+	r.SetSourceSize(4096) // file is longer than the parsed buffer
+	if _, err := r.Next(int64(len(data))); !errors.Is(err, ErrBoundary) {
+		t.Fatalf("got %v", err)
 	}
 }
