@@ -242,6 +242,9 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 			if err := writePartialStage(opts, st, specs, parsed, cm); err != nil {
 				return res, err
 			}
+			// Leave the staging file and WAL tail in place, but release the
+			// handle so an in-process recovery can clean up.
+			cm.Abandon()
 			res.FailStage = stageName(st)
 			res.Interrupted = true
 			return res, newInterruptedError(st, committedCount)
@@ -446,7 +449,29 @@ func commitAudio(ctx context.Context, opts Options, st journal.StageID,
 		for ji := range jobs {
 			tr := jobs[ji].track
 			plan := plans[ji]
-			err := forEachWindow(opts, tr, func(window []int32, trackOffset int64) error {
+			// residue carries bytes from the previous window so a block is
+			// always exactly ChunkBytes long regardless of how the window
+			// size was chosen. Segment hashes then depend only on the audio
+			// and the configured chunk size, never on the memory budget.
+			var residue []byte
+			var pendingOffset int64
+			emit := func(payload []byte) error {
+				if len(payload) == 0 {
+					return nil
+				}
+				seg++
+				b := &stream.Block{
+					Segment: seg, TrackID: tr.ID, Offset: pendingOffset,
+					Packet: stream.NewPacket(seq, uint32(pendingOffset/4), uint32(tr.ID), payload),
+					Digest: sha256.Sum256(payload),
+				}
+				seq++
+				digests = append(digests, BlockMetric{Segment: seg, TrackID: tr.ID,
+					Offset: pendingOffset, Bytes: len(payload), Digest: b.Digest})
+				pendingOffset += int64(len(payload))
+				return q.Push(pctx, b)
+			}
+			err := forEachWindow(opts, tr, func(window []int32, _ int64) error {
 				loud, clipped := audio.ApplyGain(window, plan.AppliedGainDB)
 				plan.Clipped += clipped
 				if clipped > 0 && plan.LimitReason == "" {
@@ -454,37 +479,29 @@ func commitAudio(ctx context.Context, opts Options, st journal.StageID,
 					plan.Limited = true
 				}
 				plans[ji] = plan
-				raw := make([]byte, len(loud)*4)
+				buf := make([]byte, 0, len(residue)+len(loud)*4)
+				buf = append(buf, residue...)
+				base := len(buf)
+				buf = append(buf, make([]byte, len(loud)*4)...)
 				for i, v := range loud {
-					binary.LittleEndian.PutUint32(raw[i*4:], uint32(v))
+					binary.LittleEndian.PutUint32(buf[base+i*4:], uint32(v))
 				}
-				// Split a multi-frame window into queue-sized blocks; the
-				// window is already bounded by the memory budget.
-				chunk := opts.ChunkBytes
-				for off := 0; off < len(raw); off += chunk {
-					end := off + chunk
-					if end > len(raw) {
-						end = len(raw)
-					}
-					payload := raw[off:end]
-					seg++
-					b := &stream.Block{
-						Segment: seg, TrackID: tr.ID, Offset: trackOffset + int64(off),
-						Packet: stream.NewPacket(seq, uint32((trackOffset+int64(off))/4), uint32(tr.ID), payload),
-						Digest: sha256.Sum256(payload),
-					}
-					seq++
-					digests = append(digests, BlockMetric{Segment: seg, TrackID: tr.ID,
-						Offset: trackOffset + int64(off), Bytes: len(payload), Digest: b.Digest})
-					if err := q.Push(pctx, b); err != nil {
+				for len(buf) >= opts.ChunkBytes {
+					if err := emit(buf[:opts.ChunkBytes]); err != nil {
 						return err
 					}
+					buf = buf[opts.ChunkBytes:]
 				}
+				residue = append(residue[:0], buf...)
 				return nil
 			})
 			if err != nil {
 				return err
 			}
+			if err := emit(residue); err != nil {
+				return err
+			}
+			residue = nil
 		}
 		return nil
 	}
@@ -540,8 +557,10 @@ func commitAudio(ctx context.Context, opts Options, st journal.StageID,
 }
 
 // windowFrames is how many input frames are converted at once. It is chosen
-// from the memory budget so the largest resident buffer stays within it.
-func windowFrames(opts Options, sourceChannels int) int {
+// from the memory budget so the largest resident buffer stays within it, then
+// rounded to a multiple of the source rate's rational ratio to the target so
+// every window resamples to a whole number of output frames.
+func windowFrames(opts Options, sourceChannels, inRate, outRate int) int {
 	if sourceChannels <= 0 {
 		sourceChannels = 2
 	}
@@ -553,7 +572,28 @@ func windowFrames(opts Options, sourceChannels int) int {
 	if n > 48000 {
 		n = 48000
 	}
+	if inRate > 0 && outRate > 0 && inRate != outRate {
+		// Frames are indivisible by inRate/gcd; pick a multiple of it.
+		g := gcdInt(inRate, outRate)
+		unit := inRate / g
+		if unit > 0 {
+			n = (n / unit) * unit
+			if n < unit {
+				n = unit
+			}
+		}
+	}
 	return n
+}
+
+func gcdInt(a, b int) int {
+	for b != 0 {
+		a, b = b, a%b
+	}
+	if a < 0 {
+		return -a
+	}
+	return a
 }
 
 // forEachWindow streams a track's converted audio in bounded windows. The
@@ -583,30 +623,45 @@ func forEachWindow(opts Options, tr *metadata.Track, fn func([]int32, int64) err
 		}
 	}
 	total := int(tr.DurationTicks)
-	win := windowFrames(opts, sourceChannels)
+	win := windowFrames(opts, sourceChannels, tr.SampleRate, opts.TargetSampleRate)
+	// sourceFrame renders frame index f, channel ch. It is a pure function of
+	// the position so a lookahead frame is identical to the same frame in the
+	// next window.
+	sourceFrame := func(f, ch int) int32 {
+		seq := int64(f)*int64(sourceChannels) + int64(ch)
+		v := (seq*7919+int64(ch)*104729+opts.Seed*31)%400000000 - 200000000
+		if sourceChannels == 6 {
+			// The 5.1 bed is quiet with a hot but sub-full-scale transient:
+			// the loudness boost needed to reach the target would break the
+			// true-peak ceiling.
+			v /= 40
+			if seq%997 == 0 {
+				v = 2000000000
+			}
+		}
+		return int32(v)
+	}
 	for start := 0; start < total; start += win {
 		n := win
 		if start+n > total {
 			n = total - start
 		}
-		pcm := make([]int32, n*sourceChannels)
-		for i := range pcm {
-			ch := i % sourceChannels
-			seq := int64(start*sourceChannels + i)
-			// A deterministic bed at about -20 dBFS with one hot
-			// transient per 997 frames on the wide layout, so at least
-			// one track exercises the peak ceiling.
-			v := (seq*7919+int64(ch)*104729+opts.Seed*31)%400000000 - 200000000
-			if sourceChannels == 6 {
-				// The 5.1 bed is quiet with a hot but sub-full-scale
-				// transient: the loudness boost needed to reach the
-				// target would break the true-peak ceiling.
-				v /= 40
-				if seq%997 == 0 {
-					v = 2000000000
-				}
+		// One lookahead frame keeps interpolation at the window's right
+		// edge identical to the same position in a larger window. The last
+		// window reuses its final frame, matching end-of-track clamping.
+		lookahead := 0
+		if start+n < total {
+			lookahead = 1
+		}
+		pcm := make([]int32, (n+lookahead)*sourceChannels)
+		for f := 0; f < n+lookahead; f++ {
+			src := start + f
+			if src >= total {
+				src = total - 1
 			}
-			pcm[i] = int32(v)
+			for ch := 0; ch < sourceChannels; ch++ {
+				pcm[f*sourceChannels+ch] = sourceFrame(src, ch)
+			}
 		}
 		mapped, _, err := audio.MapLayout(tr.ID, pcm, fromLayout, opts.TargetLayout, mapping)
 		if err != nil {
@@ -615,6 +670,12 @@ func forEachWindow(opts Options, tr *metadata.Track, fn func([]int32, int64) err
 		resampled, err := audio.Resample(tr.ID, mapped, channels, tr.SampleRate, opts.TargetSampleRate, tr.Timebase)
 		if err != nil {
 			return err
+		}
+		// Drop the samples that belong to the lookahead span so each frame
+		// is emitted exactly once.
+		want := n * opts.TargetSampleRate / tr.SampleRate
+		if want*channels < len(resampled) {
+			resampled = resampled[:want*channels]
 		}
 		if err := fn(resampled, int64(start)); err != nil {
 			return err
@@ -835,33 +896,56 @@ func regenerateAudioPayloads(opts Options) ([]audioPayload, error) {
 				ID: ts.ID, Kind: ts.Kind, Timebase: ts.Timebase, DurationTicks: ts.Duration,
 				SampleRate: ts.SampleRate, Channels: ts.Channels,
 			}
-			plan, _, err := planTrackAudio(opts, tr)
+			trackPayloads, err := replayTrackPayloads(opts, tr)
 			if err != nil {
 				return nil, err
 			}
-			err = forEachWindow(opts, tr, func(window []int32, trackOffset int64) error {
-				loud, _ := audio.ApplyGain(window, plan.AppliedGainDB)
-				raw := make([]byte, len(loud)*4)
-				for i, v := range loud {
-					binary.LittleEndian.PutUint32(raw[i*4:], uint32(v))
-				}
-				for off := 0; off < len(raw); off += opts.ChunkBytes {
-					end := off + opts.ChunkBytes
-					if end > len(raw) {
-						end = len(raw)
-					}
-					out = append(out, audioPayload{
-						trackID: tr.ID, offset: trackOffset + int64(off),
-						data: append([]byte(nil), raw[off:end]...),
-					})
-				}
-				return nil
-			})
-			if err != nil {
-				return nil, err
-			}
+			out = append(out, trackPayloads...)
 		}
 	}
+	return out, nil
+}
+
+// replayTrackPayloads performs exactly the block splitting the producer does,
+// including the residue carry, so the fragment count matches the journal.
+func replayTrackPayloads(opts Options, tr *metadata.Track) ([]audioPayload, error) {
+	plan, _, err := planTrackAudio(opts, tr)
+	if err != nil {
+		return nil, err
+	}
+	var out []audioPayload
+	var residue []byte
+	var pendingOffset int64
+	emit := func(payload []byte) {
+		if len(payload) == 0 {
+			return
+		}
+		out = append(out, audioPayload{
+			trackID: tr.ID, offset: pendingOffset,
+			data: append([]byte(nil), payload...),
+		})
+		pendingOffset += int64(len(payload))
+	}
+	err = forEachWindow(opts, tr, func(window []int32, _ int64) error {
+		loud, _ := audio.ApplyGain(window, plan.AppliedGainDB)
+		buf := make([]byte, 0, len(residue)+len(loud)*4)
+		buf = append(buf, residue...)
+		base := len(buf)
+		buf = append(buf, make([]byte, len(loud)*4)...)
+		for i, v := range loud {
+			binary.LittleEndian.PutUint32(buf[base+i*4:], uint32(v))
+		}
+		for len(buf) >= opts.ChunkBytes {
+			emit(buf[:opts.ChunkBytes])
+			buf = buf[opts.ChunkBytes:]
+		}
+		residue = append(residue[:0], buf...)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	emit(residue)
 	return out, nil
 }
 

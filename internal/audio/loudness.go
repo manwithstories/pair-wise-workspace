@@ -80,66 +80,38 @@ const (
 	LimitGainBounds  = "GAIN_BOUNDS"
 )
 
-// ApplyLoudness measures samples, computes the gain that reaches the target,
-// then limits it so the true peak stays under the ceiling. Every reduction is
-// recorded with a machine-readable reason. The statistics describe the actual
-// applied gain, not the requested one.
+// ApplyLoudness measures samples, plans a gain and applies it in one call.
+// The statistics describe the actual applied gain, not the requested one.
 func ApplyLoudness(trackID int, samples []int32, target LoudnessTarget) ([]int32, LoudnessStats, error) {
-	stats := LoudnessStats{
-		TargetLUFS:      target.TargetLUFS,
-		PeakCeilingDBTP: target.TruePeakDBTP,
-	}
 	if len(samples) == 0 {
-		return nil, stats, fault.NewTrack(fault.StageAudio, fault.CodeInvalidArgument, trackID, "empty audio buffer")
+		return nil, LoudnessStats{}, fault.NewTrack(fault.StageAudio, fault.CodeInvalidArgument, trackID, "empty audio buffer")
 	}
-	stats.InputLUFS = measureLUFS(samples)
-	stats.InputPeak = peakLinear(samples)
-
-	out := make([]int32, len(samples))
+	lufs, peak := Measure(samples)
+	stats, err := PlanGain(trackID, lufs, peak, target)
+	if err != nil {
+		return append([]int32(nil), samples...), stats, err
+	}
 	if target.TargetLUFS == 0 {
-		copy(out, samples)
-		stats.OutputLUFS = stats.InputLUFS
-		stats.OutputPeak = stats.InputPeak
-		return out, stats, nil
+		return append([]int32(nil), samples...), stats, nil
 	}
-	if math.IsInf(stats.InputLUFS, -1) {
-		copy(out, samples)
+	out, clipped := ApplyGain(samples, stats.AppliedGainDB)
+	stats.Clipped = clipped
+	if clipped > 0 {
 		stats.Limited = true
-		stats.LimitReason = LimitSilence
-		stats.OutputLUFS = stats.InputLUFS
-		stats.OutputPeak = stats.InputPeak
-		return out, stats, fault.NewTrack(fault.StageAudio, fault.CodeLoudnessTarget, trackID,
-			"silent input has no measurable loudness; target cannot be reached")
-	}
-
-	stats.GainDB = target.TargetLUFS - stats.InputLUFS
-	if stats.GainDB > target.MaxGainDB {
-		stats.GainDB = target.MaxGainDB
-		stats.Limited = true
-		stats.LimitReason = LimitGainBounds
-	}
-	if stats.GainDB < target.MinGainDB {
-		stats.GainDB = target.MinGainDB
-		stats.Limited = true
-		stats.LimitReason = LimitGainBounds
-	}
-
-	// Peak ceiling: gain + peak_dB <= ceiling.
-	if target.TruePeakDBTP != 0 && stats.InputPeak > 0 {
-		peakDB := 20 * math.Log10(stats.InputPeak)
-		maxGain := target.TruePeakDBTP - peakDB
-		// Keep a small safety margin so int32 rounding cannot push a
-		// sample over the ceiling.
-		maxGain -= 0.05
-		if maxGain < stats.GainDB {
-			stats.GainDB = maxGain
-			stats.Limited = true
+		if stats.LimitReason == "" {
 			stats.LimitReason = LimitPeakCeiling
 		}
 	}
+	stats.OutputLUFS = measureLUFS(out)
+	stats.OutputPeak = peakLinear(out)
+	return out, stats, nil
+}
 
-	stats.AppliedGainDB = stats.GainDB
-	gain := math.Pow(10, stats.GainDB/20)
+// ApplyGain scales samples by gainDB and clamps to int32. It returns the
+// number of samples that hit the clamp.
+func ApplyGain(samples []int32, gainDB float64) ([]int32, int) {
+	gain := math.Pow(10, gainDB/20)
+	out := make([]int32, len(samples))
 	var clipped int
 	for i, s := range samples {
 		v := math.Round(float64(s) * gain)
@@ -153,16 +125,7 @@ func ApplyLoudness(trackID int, samples []int32, target LoudnessTarget) ([]int32
 		}
 		out[i] = int32(v)
 	}
-	stats.Clipped = clipped
-	if clipped > 0 {
-		stats.Limited = true
-		if stats.LimitReason == "" {
-			stats.LimitReason = LimitPeakCeiling
-		}
-	}
-	stats.OutputLUFS = measureLUFS(out)
-	stats.OutputPeak = peakLinear(out)
-	return out, stats, nil
+	return out, clipped
 }
 
 // Measure returns integrated loudness and linear peak for a buffer. It is
@@ -251,27 +214,6 @@ func PlanGain(trackID int, inputLUFS, inputPeak float64, target LoudnessTarget) 
 	}
 	stats.AppliedGainDB = stats.GainDB
 	return stats, nil
-}
-
-// ApplyGain scales samples by gainDB and clamps to int32. It returns the
-// number of samples that hit the clamp.
-func ApplyGain(samples []int32, gainDB float64) ([]int32, int) {
-	gain := math.Pow(10, gainDB/20)
-	out := make([]int32, len(samples))
-	var clipped int
-	for i, s := range samples {
-		v := math.Round(float64(s) * gain)
-		if v > math.MaxInt32 || v < math.MinInt32 {
-			clipped++
-			if v > 0 {
-				v = math.MaxInt32
-			} else {
-				v = math.MinInt32
-			}
-		}
-		out[i] = int32(v)
-	}
-	return out, clipped
 }
 
 // StatsValid reports whether the applied gain stayed inside the target

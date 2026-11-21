@@ -461,3 +461,56 @@ func TestRecoverIgnoresUncommittedFragments(t *testing.T) {
 		t.Fatalf("resume %v", rec.ResumeFrom)
 	}
 }
+
+func TestRecoverDiscardsUnrenamedStagingFile(t *testing.T) {
+	wal, out := tempWAL(t)
+	writeOutput(t, out, nil)
+	cm := NewCommitManager(wal, out)
+	if _, err := beginStage(t, cm, StageParse, stagedWrite{0, []byte("0123")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := cm.Commit(StageParse, ""); err != nil {
+		t.Fatal(err)
+	}
+	// A second stage dies after writing into staging but before committing.
+	if _, err := beginStage(t, cm, StageAudio, stagedWrite{4, []byte("456789")}); err != nil {
+		t.Fatal(err)
+	}
+	cm.Abandon()
+	wal.Close()
+	if _, err := os.Stat(TempPath(out)); err != nil {
+		t.Fatalf("staging file should survive the crash: %v", err)
+	}
+	rec, err := Recover(wal.Path(), out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.RolledBackBytes != 6 {
+		t.Fatalf("rolled back %d want 6", rec.RolledBackBytes)
+	}
+	if _, err := os.Stat(TempPath(out)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("staging file must be discarded by recovery")
+	}
+	data, _ := os.ReadFile(out)
+	if string(data) != "0123" {
+		t.Fatalf("output %q", data)
+	}
+}
+
+func TestAbandonKeepsCommittedOutput(t *testing.T) {
+	wal, out := tempWAL(t)
+	writeOutput(t, out, nil)
+	cm := NewCommitManager(wal, out)
+	if _, err := beginStage(t, cm, StageParse, stagedWrite{0, []byte("ab")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := cm.Commit(StageParse, ""); err != nil {
+		t.Fatal(err)
+	}
+	cm.Begin(StageAudio, hash("x"), 0)
+	cm.Abandon()
+	data, _ := os.ReadFile(out)
+	if string(data) != "ab" {
+		t.Fatalf("committed data lost: %q", data)
+	}
+}

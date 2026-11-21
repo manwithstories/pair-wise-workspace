@@ -126,6 +126,21 @@ func (c *CommitManager) OpenStage(s StageID, inDigest [32]byte, inBytes int64) (
 	return c.begin(s, inDigest, inBytes)
 }
 
+// Abandon closes the open stage's staging file without removing it, which
+// models a process death: the WAL and the uncommitted staging bytes survive
+// for the next recovery. It does not append a rollback record.
+func (c *CommitManager) Abandon() {
+	if c.staged != nil {
+		c.staged.Close()
+		c.staged = nil
+	}
+	c.pending = nil
+	if c.open != 0 {
+		c.states[c.open] = StateOpen
+	}
+	c.open = 0
+}
+
 // CommittedBoundary returns the output offset of the last commit record.
 func (c *CommitManager) CommittedBoundary() int64 { return c.committedBoundary() }
 

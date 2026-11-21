@@ -350,3 +350,36 @@ func TestJournalRecordCountMatchesStages(t *testing.T) {
 		t.Fatalf("begins %d commits %d", begins, commits)
 	}
 }
+
+func TestSmallWindowResamplingIsExact(t *testing.T) {
+	// A 24 kHz track converted to 48 kHz must produce identical audio no
+	// matter how small the memory budget makes each window, otherwise the
+	// streamed delivery would depend on the machine's memory.
+	results := map[int64][]byte{}
+	for _, budget := range []int64{32 << 10, 128 << 10, 512 << 10} {
+		opts := DefaultOptions()
+		opts.WorkDir = t.TempDir()
+		opts.ConsumerDelayMs = 0
+		opts.ChunkBytes = 4096
+		opts.MemoryLimitBytes = budget
+		res, err := Run(context.Background(), opts)
+		if err != nil {
+			t.Fatalf("budget %d: %v", budget, err)
+		}
+		var all []byte
+		for _, seg := range res.SegmentDigests {
+			all = append(all, seg.Digest[:]...)
+		}
+		results[budget] = all
+	}
+	var want []byte
+	for budget, got := range results {
+		if want == nil {
+			want = got
+			continue
+		}
+		if string(got) != string(want) {
+			t.Fatalf("segment hashes depend on the memory budget (%d)", budget)
+		}
+	}
+}

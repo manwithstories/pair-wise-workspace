@@ -255,6 +255,65 @@ func TestStatsValidReportsUnrecordedLimit(t *testing.T) {
 	}
 }
 
+func TestStreamingLoudnessMatchesBatch(t *testing.T) {
+	// Measuring in windows must equal measuring the whole buffer, otherwise
+	// a streamed delivery would not be reproducible from its parts.
+	const rate = 48000
+	samples := make([]int32, rate)
+	for i := range samples {
+		samples[i] = int32(float64(1<<28) * math.Sin(2*math.Pi*440*float64(i)/rate))
+	}
+	batchLUFS, batchPeak := Measure(samples)
+	acc := &Accumulator{}
+	for start := 0; start < len(samples); start += 1000 {
+		end := start + 1000
+		if end > len(samples) {
+			end = len(samples)
+		}
+		acc.Add(samples[start:end])
+	}
+	if diff := math.Abs(acc.LUFS() - batchLUFS); diff > 1e-9 {
+		t.Fatalf("windowed LUFS %.9f vs batch %.9f", acc.LUFS(), batchLUFS)
+	}
+	if math.Abs(acc.Peak()-batchPeak) > 1e-12 {
+		t.Fatalf("peak %.9f vs %.9f", acc.Peak(), batchPeak)
+	}
+	if acc.Count() != int64(len(samples)) {
+		t.Fatalf("count %d", acc.Count())
+	}
+}
+
+func TestPlanGainMatchesApplyLoudness(t *testing.T) {
+	const rate = 48000
+	in := make([]int32, rate)
+	for i := range in {
+		in[i] = int32(float64(1<<27) * math.Sin(2*math.Pi*1000*float64(i)/rate))
+	}
+	target := DefaultTarget()
+	lufs, peak := Measure(in)
+	plan, err := PlanGain(1, lufs, peak, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, batch, err := ApplyLoudness(1, in, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if math.Abs(plan.AppliedGainDB-batch.AppliedGainDB) > 1e-9 {
+		t.Fatalf("plan %.6f vs batch %.6f", plan.AppliedGainDB, batch.AppliedGainDB)
+	}
+	if plan.Limited != batch.Limited || plan.LimitReason != batch.LimitReason {
+		t.Fatalf("plan %+v vs batch %+v", plan, batch)
+	}
+	out, clipped := ApplyGain(in, plan.AppliedGainDB)
+	if clipped != 0 {
+		t.Fatalf("clipped %d", clipped)
+	}
+	if len(out) != len(in) {
+		t.Fatal("length changed")
+	}
+}
+
 func containsStr(s, sub string) bool {
 	for i := 0; i+len(sub) <= len(s); i++ {
 		if s[i:i+len(sub)] == sub {
