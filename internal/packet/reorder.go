@@ -75,7 +75,14 @@ func (r *Reorderer) Push(p *rtp.Packet) ([]*rtp.Packet, error) {
 			r.stats.Reordered++
 			return []*rtp.Packet{p}, nil
 		}
-		return nil, r.checkDuplicate(ext, p)
+		if _, ok := r.emitted[ext]; ok {
+			return nil, r.checkDuplicate(ext, p)
+		}
+		// Older than the first observed packet (stream-start race):
+		// never emitted, never gapped — emit out of order.
+		r.emitted[ext] = payloadHash(p.Payload)
+		r.stats.Reordered++
+		return []*rtp.Packet{p}, nil
 	}
 	if ext > r.highest {
 		r.highest = ext

@@ -120,7 +120,10 @@ func GenWorld(p Params) *World {
 	for _, pkt := range audio {
 		w.AudioPayloads = append(w.AudioPayloads, pkt.Payload)
 	}
-	for i := 0; i < n; i++ { // parity rides outside any burst at i
+	for i := 0; i < n; i++ { // parity covers seq%16<8, riding outside any burst
+		if i%16 >= 8 {
+			continue
+		}
 		w.Parity = append(w.Parity, recovery.Parity{
 			Protects: uint64(i), Timestamp: videoTS(i), Payload: video[i].Payload})
 	}

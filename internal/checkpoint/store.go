@@ -24,6 +24,7 @@ type Checkpoint struct {
 	Cursors     map[string]uint64 `json:"cursors"` // track -> next expected ext seq
 	Committed   []SegmentRecord   `json:"committed"`
 	FinalSHA256 string            `json:"final_sha256,omitempty"`
+	Extra       map[string]string `json:"extra,omitempty"`
 }
 
 // Save writes the checkpoint atomically (temp file + rename).

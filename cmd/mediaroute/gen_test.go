@@ -39,7 +39,7 @@ func TestGenWorldCorruptions(t *testing.T) {
 			t.Fatalf("dropped seq %d present", s)
 		}
 	}
-	if len(w.Parity) != n {
+	if len(w.Parity) != n/2 {
 		t.Fatalf("parity count %d", len(w.Parity))
 	}
 	if len(w.AudioArrival) != n {
