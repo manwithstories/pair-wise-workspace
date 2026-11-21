@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from fractions import Fraction
-from typing import Sequence
+from typing import Any, Sequence
 
 import av
 import numpy as np
@@ -79,41 +79,30 @@ class EncodedSegment:
         }
 
 
-class Program:
-    """Composed timeline media used as encoder input."""
-
-    def __init__(
-        self,
-        video_frames: Sequence[np.ndarray],
-        audio: np.ndarray,
-        rate: Rate,
-        audio_rate: int = AUDIO_SAMPLE_RATE,
-    ) -> None:
-        self.video_frames = video_frames
-        self.audio = audio
-        self.rate = rate
-        self.audio_rate = audio_rate
-
-    @property
-    def audio_samples(self) -> int:
-        return int(self.audio.shape[1])
+def _slice_video(program, segment: Segment) -> list[np.ndarray]:
+    frames: list[np.ndarray] = []
+    for offset in range(segment.video_frames):
+        frame = program.frame(segment.video_start_frame + offset)
+        if frame is None:
+            height, width = (
+                frames[0].shape[:2] if frames else (program.height, program.width)
+            )
+            frame = np.zeros((height, width, 3), dtype=np.uint8)
+        frames.append(frame)
+    return frames
 
 
-def _video_frame_at(program: Program, index: int) -> np.ndarray | None:
-    if 0 <= index < len(program.video_frames):
-        return program.video_frames[index]
-    return None
-
-
-def _slice_audio(program: Program, start: int, count: int) -> np.ndarray:
+def _slice_audio(program, start: int, count: int) -> np.ndarray:
     end = min(start + count, program.audio_samples)
     if start >= end:
         return np.zeros((2, 0), dtype=np.float32)
     return np.ascontiguousarray(program.audio[:, start:end])
 
 
+
+
 def encode_segment(
-    program: Program,
+    program: Any,
     segment: Segment,
     rendition: Rendition,
     out_dir: str,
@@ -224,19 +213,6 @@ def encode_segment(
     return encoded, None
 
 
-def _slice_video(program: Program, segment: Segment) -> list[np.ndarray]:
-    frames: list[np.ndarray] = []
-    for offset in range(segment.video_frames):
-        frame = _video_frame_at(program, segment.video_start_frame + offset)
-        if frame is None:
-            black = np.zeros((program.video_frames[0].shape if program.video_frames else (1, 1, 1)),
-                             dtype=np.uint8)
-            frames.append(black)
-        else:
-            frames.append(frame)
-    return frames
-
-
 def inspect_segment(path: str) -> tuple[int, int] | None:
     """Return (video frames, audio samples) as recorded in the container."""
     try:
@@ -275,7 +251,7 @@ def _stream_frame_duration(stream: av.stream.Stream) -> Fraction | None:
 
 
 def encode_all(
-    program: Program,
+    program: Any,
     segments: Sequence[Segment],
     renditions: Sequence[Rendition],
     out_dir: str,

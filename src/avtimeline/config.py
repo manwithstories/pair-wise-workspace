@@ -17,7 +17,7 @@ from .encode import Rendition
 from .model import Rate
 from .segment import DEFAULT_SEGMENT_DURATION
 
-DEFAULT_WINDOW_SECONDS = Fraction(2)
+DEFAULT_WINDOW_SECONDS = Fraction(101, 50)
 DEFAULT_RENDITIONS = (
     Rendition("360p", 320, 180, 300_000, 64_000),
     Rendition("180p", 160, 90, 140_000, 48_000),
@@ -90,6 +90,8 @@ class ProjectConfig:
     def from_mapping(cls, raw: Mapping[str, Any]) -> "ProjectConfig":
         renditions: list[Rendition] = []
         for entry in raw.get("renditions", []) or []:
+            if isinstance(entry, str):
+                continue
             renditions.append(
                 Rendition(
                     name=str(entry["name"]),
@@ -102,9 +104,14 @@ class ProjectConfig:
                 )
             )
         window = raw.get("window", {})
+        if isinstance(window, (list, tuple)):
+            window_start, window_end = window[0], window[1]
+        else:
+            window_start = window.get("start", 0)
+            window_end = window.get("end", DEFAULT_WINDOW_SECONDS)
         config = cls(
-            window_start=Fraction(window.get("start", 0)),
-            window_end=Fraction(window.get("end", DEFAULT_WINDOW_SECONDS)),
+            window_start=Fraction(window_start),
+            window_end=Fraction(window_end),
             video_rate=Rate.parse(str(raw.get("video_rate", "25"))),
             segment_duration=Fraction(raw.get("segment_duration", DEFAULT_SEGMENT_DURATION)),
             renditions=tuple(renditions) if renditions else DEFAULT_RENDITIONS,

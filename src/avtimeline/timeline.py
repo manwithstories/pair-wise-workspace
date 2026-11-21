@@ -76,6 +76,7 @@ class Track:
     kind: str = "video"
     clips: list[Clip] = field(default_factory=list)
     transitions: list[Transition] = field(default_factory=list)
+    coverage_mode: str = "window"
 
     @property
     def span(self) -> Span | None:
@@ -85,6 +86,10 @@ class Track:
 
     def coverage(self) -> list[Span]:
         return merge_spans(c.span for c in self.clips)
+
+    @property
+    def requires_full_coverage(self) -> bool:
+        return self.coverage_mode == "window"
 
 
 @dataclass
@@ -170,7 +175,12 @@ def parse_timeline(document: Mapping[str, Any]) -> Timeline:
         if not track_id:
             raise TimelineParseError("track without id")
         kind = str(raw_track.get("kind", "video"))
-        track = Track(id=track_id, kind=kind)
+        coverage_mode = str(raw_track.get("coverage", "window"))
+        if coverage_mode not in ("window", "clips"):
+            raise TimelineParseError(
+                f"track {track_id}: coverage must be 'window' or 'clips'"
+            )
+        track = Track(id=track_id, kind=kind, coverage_mode=coverage_mode)
         for raw_clip in raw_track.get("clips", []) or []:
             if not isinstance(raw_clip, Mapping):
                 raise TimelineParseError(f"track {track_id}: clip must be an object")
@@ -263,6 +273,8 @@ def validate_coverage(timeline: Timeline, window: Span | None = None) -> list[Is
                     location=MediaLocation(track=track.id, pts=target.start),
                 )
             )
+            continue
+        if not track.requires_full_coverage:
             continue
         coverage = track.coverage()
         for gap in gaps_within(coverage, target):
@@ -465,6 +477,7 @@ def timeline_to_json(timeline: Timeline) -> dict[str, Any]:
             {
                 "id": track.id,
                 "kind": track.kind,
+                "coverage": track.coverage_mode,
                 "clips": [
                     {
                         "id": c.id,
