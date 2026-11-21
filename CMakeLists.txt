@@ -29,6 +29,7 @@ add_library(media_core STATIC
   src/manifest.cpp
   src/transcoder.cpp
   src/fixture.cpp
+  src/pipeline.cpp
 )
 target_include_directories(media_core PUBLIC include)
 target_link_libraries(media_core PUBLIC PkgConfig::FFMPEG)
