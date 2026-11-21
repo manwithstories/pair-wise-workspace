@@ -9,9 +9,9 @@
    "3cd6f1cc9588f82d639a63bc14d5f1c383be4a3aa24127768d204431fdd4780e"
   ]
  },
- "stage": "mux",
- "committed_packets": 1408,
- "committed_bytes": 1300026,
- "output_sha256": null,
+ "stage": "done",
+ "committed_packets": 1422,
+ "committed_bytes": 1307064,
+ "output_sha256": "38062f71931d869b2dec59b36633982dd1d1be39351d60d4e44165e357ab2128",
  "version": 1
 }

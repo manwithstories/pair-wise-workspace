@@ -11,7 +11,7 @@
  },
  "stage": "mux",
  "committed_packets": 512,
- "committed_bytes": 554984,
+ "committed_bytes": 566796,
  "output_sha256": null,
  "version": 1
 }

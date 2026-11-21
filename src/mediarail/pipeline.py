@@ -129,9 +129,9 @@ def mux_journal(journal_path: Path, input_path: Path, output_path: Path) -> None
     try:
         for s in src.streams:
             if s.type in ("video", "audio"):
-                out_s = out.add_stream(template=s)
-                out_s.time_base = s.time_base
-                stream_map[s.index] = (s, out_s)
+                # Packet.time_base carries the input base; PyAV rescales
+                # into the muxer's stream base at mux time.
+                stream_map[s.index] = (s, out.add_stream(template=s))
         for item in read_journal(journal_path):
             if isinstance(item, dict):
                 continue
