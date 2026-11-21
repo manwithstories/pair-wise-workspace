@@ -71,3 +71,11 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 构建与临时工作目录 ----
+build/
+tmp/
+out/
+*.o
+*.a
+*.dylib
