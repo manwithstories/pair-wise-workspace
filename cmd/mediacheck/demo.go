@@ -150,7 +150,7 @@ func mapRunError(err error) int {
 func printMetrics(m *pipeline.Metrics) {
 	fmt.Printf("av_sync_max_ms=%d\n", m.AVSyncMaxMillis)
 	fmt.Printf("packet_recovery_pct=%.2f\n", m.PacketRecoveryPct)
-	fmt.Printf("p95_segment_latency_ms=%d\n", m.P95SegmentLatencyMs)
+	fmt.Printf("p95_segment_latency_ms=%.3f\n", m.P95SegmentLatencyMs)
 	fmt.Printf("segments=%d\n", m.Segments)
 	fmt.Printf("aligned_representations=%d\n", m.AlignedRepresentations)
 	fmt.Printf("checkpoint_resumes=%d\n", m.CheckpointResumes)
@@ -172,7 +172,7 @@ func assertAcceptance(m *pipeline.Metrics, d DemoArgs) error {
 		return fmt.Errorf("packet_recovery_pct %.2f below 85", m.PacketRecoveryPct)
 	}
 	if m.P95SegmentLatencyMs > 500 {
-		return fmt.Errorf("p95_segment_latency_ms %d exceeds 500", m.P95SegmentLatencyMs)
+		return fmt.Errorf("p95_segment_latency_ms %.3f exceeds 500", m.P95SegmentLatencyMs)
 	}
 	if d.TruncateTail == 1 && m.QuarantinedRanges < 1 {
 		return errors.New("truncated tail produced no quarantined range")

@@ -42,7 +42,7 @@ type Config struct {
 type Metrics struct {
 	AVSyncMaxMillis       int64
 	PacketRecoveryPct     float64
-	P95SegmentLatencyMs   int64
+	P95SegmentLatencyMs   float64
 	Segments              int
 	AlignedRepresentations int
 	CheckpointResumes     int
@@ -147,7 +147,7 @@ func (r *Runner) Run(ctx context.Context, inputs []Input, rtpStats *rtp.Stats) (
 		AlignedRepresentations: len(aligned.Representations),
 		CheckpointResumes:      resumes,
 		QuarantinedRanges:      len(manifest.QuarantinedRanges),
-		P95SegmentLatencyMs:    percentile95(segLatency),
+		P95SegmentLatencyMs:    percentile95Micros(segLatency),
 		ManifestSHA256:         manifestDigest(manifest),
 	}
 	if rtpStats != nil {
