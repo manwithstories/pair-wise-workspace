@@ -5,7 +5,6 @@ package verify
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -14,6 +13,7 @@ import (
 	"mediamerge/internal/journal"
 	"mediamerge/internal/mapping"
 	"mediamerge/internal/model"
+	"mediamerge/internal/safepath"
 	"mediamerge/internal/txn"
 )
 
@@ -145,21 +145,8 @@ func within(root, path string) bool {
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return false
 	}
-	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		return false
-	}
-	return true
+	return safepath.EnsureFile(path) == nil
 }
 
 // EnsureDir creates dir and rejects symlinked work directories.
-func EnsureDir(dir string) error {
-	info, err := os.Lstat(dir)
-	if err == nil && info.Mode()&os.ModeSymlink != 0 {
-		return model.NewError(model.StageVerify, model.CodePath, 0, 0, false,
-			"work directory is a symlink: %s", dir)
-	}
-	if os.IsNotExist(err) {
-		return os.MkdirAll(dir, 0o755)
-	}
-	return err
-}
+func EnsureDir(dir string) error { return safepath.EnsureDir(dir) }
