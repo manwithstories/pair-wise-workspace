@@ -68,21 +68,32 @@ func reduce(num, den *big.Int) (Ticks, error) {
 	return Ticks{num: num.Int64(), den: den.Int64()}, nil
 }
 
+// norm makes the zero value behave as 0/1.  Go zero values are common in
+// accumulators, and a denominator of zero would otherwise poison every
+// later comparison.
+func (t Ticks) norm() Ticks {
+	if t.den == 0 {
+		return Ticks{num: t.num, den: 1}
+	}
+	return t
+}
+
 // Num returns the reduced numerator.
-func (t Ticks) Num() int64 { return t.num }
+func (t Ticks) Num() int64 { return t.norm().num }
 
 // Den returns the reduced, positive denominator.
-func (t Ticks) Den() int64 { return t.den }
+func (t Ticks) Den() int64 { return t.norm().den }
 
 // IsZero reports whether the value is exactly zero.
-func (t Ticks) IsZero() bool { return t.num == 0 }
+func (t Ticks) IsZero() bool { return t.norm().num == 0 }
 
 // Sign returns -1, 0 or +1.
 func (t Ticks) Sign() int {
+	n := t.norm().num
 	switch {
-	case t.num < 0:
+	case n < 0:
 		return -1
-	case t.num > 0:
+	case n > 0:
 		return 1
 	default:
 		return 0
@@ -90,18 +101,22 @@ func (t Ticks) Sign() int {
 }
 
 // Neg returns -t.
-func (t Ticks) Neg() Ticks { return Ticks{num: -t.num, den: t.den} }
+func (t Ticks) Neg() Ticks {
+	t = t.norm()
+	return Ticks{num: -t.num, den: t.den}
+}
 
 // Abs returns |t|.
 func (t Ticks) Abs() Ticks {
-	if t.num < 0 {
+	if t.norm().num < 0 {
 		return t.Neg()
 	}
-	return t
+	return t.norm()
 }
 
 // String renders the reduced fraction, for example "3/2".
 func (t Ticks) String() string {
+	t = t.norm()
 	if t.den == 1 {
 		return fmt.Sprintf("%d", t.num)
 	}
@@ -109,10 +124,14 @@ func (t Ticks) String() string {
 }
 
 // Float64 is a lossy convenience for reporting only; comparisons must use Cmp.
-func (t Ticks) Float64() float64 { return float64(t.num) / float64(t.den) }
+func (t Ticks) Float64() float64 {
+	t = t.norm()
+	return float64(t.num) / float64(t.den)
+}
 
 func (t Ticks) cmp(o Ticks) int {
 	// Cross products fit in 128 bits; big.Int keeps this exact and overflow free.
+	t, o = t.norm(), o.norm()
 	l := new(big.Int).Mul(big.NewInt(t.num), big.NewInt(o.den))
 	r := new(big.Int).Mul(big.NewInt(o.num), big.NewInt(t.den))
 	return l.Cmp(r)
@@ -126,6 +145,7 @@ func (t Ticks) Equal(o Ticks) bool { return t.cmp(o) == 0 }
 
 // Add returns t + o, rejecting overflow.
 func (t Ticks) Add(o Ticks) (Ticks, error) {
+	t, o = t.norm(), o.norm()
 	n := new(big.Int).Mul(big.NewInt(t.num), big.NewInt(o.den))
 	n.Add(n, new(big.Int).Mul(big.NewInt(o.num), big.NewInt(t.den)))
 	d := new(big.Int).Mul(big.NewInt(t.den), big.NewInt(o.den))
@@ -139,6 +159,7 @@ func (t Ticks) Sub(o Ticks) (Ticks, error) {
 
 // Mul returns t * o, rejecting overflow.
 func (t Ticks) Mul(o Ticks) (Ticks, error) {
+	t, o = t.norm(), o.norm()
 	return reduce(
 		new(big.Int).Mul(big.NewInt(t.num), big.NewInt(o.num)),
 		new(big.Int).Mul(big.NewInt(t.den), big.NewInt(o.den)),
@@ -147,6 +168,7 @@ func (t Ticks) Mul(o Ticks) (Ticks, error) {
 
 // Div returns t / o, rejecting division by zero and overflow.
 func (t Ticks) Div(o Ticks) (Ticks, error) {
+	t, o = t.norm(), o.norm()
 	if o.IsZero() {
 		return Ticks{}, ErrZeroDenominator
 	}
@@ -158,6 +180,7 @@ func (t Ticks) Div(o Ticks) (Ticks, error) {
 
 // ToIntExact returns the integer value or ErrInexact if t is fractional.
 func (t Ticks) ToIntExact() (int64, error) {
+	t = t.norm()
 	if t.den != 1 {
 		return 0, fmt.Errorf("%w: %s", ErrInexact, t)
 	}
