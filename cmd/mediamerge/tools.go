@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"mediamerge/internal/checksum"
 	"mediamerge/internal/demux"
 	"mediamerge/internal/mapping"
 	"mediamerge/internal/model"
+	"mediamerge/internal/summarize"
 	"mediamerge/internal/txn"
 )
 
@@ -69,62 +69,12 @@ func runSummarize(args []string) error {
 	}
 	defer base.reader.Close()
 	output, _ := txn.Paths(*dir)
-	rules := mapping.DefaultRules(base.reader.Tracks)
-	plan, err := mapping.Apply(base.reader.Tracks, rules)
-	if err != nil {
-		return err
-	}
 	out, err := demux.Open(ctx, output)
 	if err != nil {
 		return err
 	}
 	defer out.Close()
-	var inputs []txn.TrackSummaryInput
-	for _, t := range plan.Tracks {
-		inputs = append(inputs, txn.TrackSummaryInput{
-			InputID: t.InputID, TargetID: t.TargetID, Media: t.MediaType, Codec: t.Codec,
-			Timescale: t.Timescale, Samples: len(t.Samples), FirstDTS: t.FirstDTS, LastDTS: t.LastDTS,
-		})
-	}
-	inSHA, inSize, err := checksum.File(base.reader.Path)
-	if err != nil {
-		return err
-	}
-	outSHA, outSize, err := checksum.File(output)
-	if err != nil {
-		return err
-	}
-	_ = inSize
-	digests := make([]txn.TrackDigest, 0, len(plan.Tracks))
-	match := true
-	for i, t := range plan.Tracks {
-		a := checksum.NewSampleHasher()
-		for _, ref := range t.Samples {
-			data, err := base.reader.ReadSample(ref)
-			if err != nil {
-				return err
-			}
-			a.Add(data)
-		}
-		b := checksum.NewSampleHasher()
-		for _, ref := range out.Tracks[i].Samples {
-			data, err := out.ReadSample(ref)
-			if err != nil {
-				return err
-			}
-			b.Add(data)
-		}
-		d := txn.TrackDigest{TargetID: t.TargetID, Samples: len(t.Samples),
-			InputHash: a.Sum(), OutputHash: b.Sum(), Match: a.Sum() == b.Sum()}
-		match = match && d.Match
-		digests = append(digests, d)
-	}
-	res := &txn.Result{InputSHA: inSHA, OutputSHA: outSHA, Samples: 0, Tracks: len(plan.Tracks),
-		SampleMatch: match, Digests: digests, OutputLen: outSize}
-	for _, t := range out.Tracks {
-		res.Samples += len(t.Samples)
-	}
-	summary, err := txn.NewSummary(res, inputs)
+	summary, err := summarize.Run(ctx, base.reader, out, *dir)
 	if err != nil {
 		return err
 	}
