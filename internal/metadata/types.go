@@ -299,10 +299,15 @@ func ResolveColor(tracks []Track) Color {
 	chosen := cands[0].color
 	chosen.Conflicts = append([]string(nil), chosen.Conflicts...)
 	for _, c := range cands[1:] {
-		if c.color.Key() != chosen.Key() || c.color.Source != chosen.Source {
-			chosen.Conflicts = append(chosen.Conflicts,
-				fmt.Sprintf("%s: %s not chosen (priority %d < %d)", c.key, c.color.Key(), c.color.Priority, chosen.Priority))
+		if c.color.Key() == chosen.Key() && c.color.Source == chosen.Source {
+			continue
 		}
+		reason := fmt.Sprintf("priority %d < %d", c.color.Priority, chosen.Priority)
+		if c.color.Priority == chosen.Priority {
+			reason = fmt.Sprintf("tie on priority %d, track key %s > %s loses", chosen.Priority, c.key, cands[0].key)
+		}
+		chosen.Conflicts = append(chosen.Conflicts,
+			fmt.Sprintf("%s: %s not chosen (%s)", c.key, c.color.Key(), reason))
 	}
 	return chosen
 }

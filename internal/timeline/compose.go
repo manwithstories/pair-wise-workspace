@@ -53,6 +53,9 @@ type Layer struct {
 	Crop        *metadata.Crop
 	Color       metadata.Color
 	X, Y, W, H  int
+	// CodedW/CodedH are the pre-crop source dimensions, needed to sample the
+	// source independently of the forward compositor.
+	CodedW, CodedH int
 	// Boundary marks a source sample that covers less than the full output
 	// frame; the deterministic rule keeps it because it covers the start.
 	Boundary bool
@@ -264,7 +267,11 @@ func Compose(asset *metadata.Asset, gaps []Gap, cfg Config) (*Timeline, error) {
 				Rotation: tf.track.Rotation,
 				Color:    tf.track.Color,
 				W:        tf.track.OutputWidth(), H: tf.track.OutputHeight(),
+				CodedW: tf.track.CodedWidth, CodedH: tf.track.CodedHeight,
 			}
+			// The layer carries the model's full-resolution crop and coded
+			// size. Scaling is expressed only through W/H (the output raster),
+			// so verification renders remain geometrically faithful.
 			if tf.track.Crop != nil {
 				c := *tf.track.Crop
 				layer.Crop = &c
@@ -272,6 +279,7 @@ func Compose(asset *metadata.Asset, gaps []Gap, cfg Config) (*Timeline, error) {
 			if cfg.Scale > 1 {
 				layer.W = maxInt(layer.W/cfg.Scale, 1)
 				layer.H = maxInt(layer.H/cfg.Scale, 1)
+
 			}
 			layer.X = (tl.Width - layer.W) / 2
 			layer.Y = (tl.Height - layer.H) / 2

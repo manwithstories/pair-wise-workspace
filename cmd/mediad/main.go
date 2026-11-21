@@ -139,6 +139,10 @@ func runDemo(args []string, stdout, stderr io.Writer) int {
 					me.Category, orNone(me.Track), orNone(firstNonEmpty(me.BlockingDep, res.BlockedNode)))
 			}
 		}
+		// State the contract explicitly: some launchers (including `go run`)
+		// collapse a child's exit status 2 into 1, so the terminal also prints
+		// the intended code.
+		fmt.Fprintf(stderr, "exit_code=%d\n", code)
 		return code
 	}
 	return exitOK
@@ -160,6 +164,19 @@ func printResult(w io.Writer, res *pipeline.Result) {
 	fmt.Fprintf(w, "lost_packets=%d\n", m.LostPackets)
 	fmt.Fprintf(w, "blocked_node=%s\n", orNone(firstNonEmpty(m.BlockedNode, res.BlockedNode)))
 	fmt.Fprintf(w, "wrapped=%t\n", res.Transport.Wrapped)
+	for _, g := range res.GapFrameLinks {
+		if !g.Blocked || len(g.FrameIdxs) == 0 {
+			continue
+		}
+		fmt.Fprintf(w, "gap_blocked=%d:%d-%d frames=", g.Index, g.StartExt, g.StartExt+g.Count-1)
+		for i, f := range g.FrameIdxs {
+			if i > 0 {
+				fmt.Fprint(w, ",")
+			}
+			fmt.Fprint(w, f)
+		}
+		fmt.Fprintln(w)
+	}
 	fmt.Fprintf(w, "out=%s\n", res.OutDir)
 }
 

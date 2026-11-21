@@ -325,11 +325,11 @@ func writeVisualChildren(w *mp4.Writer, t MP4TrackSpec, ctx mp4.Context) error {
 		}
 	}
 	if t.CorruptClap {
-		// Rational but out of frame, so ValidateCrop (not the rational check)
-		// is what rejects it.
+		// Rational but out of frame: a full-size aperture offset 400px right
+		// pushes it past the coded width, so ValidateCrop rejects it.
 		bad := &Clap{CleanApertureWidthN: int32(t.Width), CleanApertureWidthD: 1,
 			CleanApertureHeightN: int32(t.Height), CleanApertureHeightD: 1,
-			HorizOffN: 400, HorizOffD: 1, VertOffN: 0, VertOffD: 1}
+			HorizOffN: 800, HorizOffD: 2, VertOffN: 0, VertOffD: 1}
 		if err := writeBox(w, boxType("clap"), bad, ctx); err != nil {
 			return err
 		}

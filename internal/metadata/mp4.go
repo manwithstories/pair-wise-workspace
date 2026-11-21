@@ -221,10 +221,16 @@ func parseVisual(rs io.ReadSeeker, track *Track, read func(mp4.BoxPath) ([]*mp4.
 				}
 			}
 		}
+		// Encrypted sample entries are explicitly out of scope; refuse them
+		// rather than silently mis-parsing ciphertext as a video frame.
+		enc, _ := read(mp4.BoxPath{mp4.BoxTypeMdia(), mp4.BoxTypeMinf(), mp4.BoxTypeStbl(), mp4.BoxTypeStsd(), boxType("encv")})
+		if len(enc) > 0 {
+			track.Notes = append(track.Notes, "encrypted sample entry (encv) is out of scope")
+		}
 		claps, _ := read(mp4.BoxPath{mp4.BoxTypeMdia(), mp4.BoxTypeMinf(), mp4.BoxTypeStbl(), mp4.BoxTypeStsd(), entryType, boxType("clap")})
 		if len(claps) > 0 {
 			if cp, ok := claps[0].Payload.(*Clap); ok {
-				if crop, ok := cropFromClap(cp, track.Key, track.Interval()); ok {
+				if crop, ok := cropFromClap(cp, w, h); ok {
 					track.Crop = crop
 				} else {
 					track.Notes = append(track.Notes, "clap has invalid rational components")
@@ -236,16 +242,25 @@ func parseVisual(rs io.ReadSeeker, track *Track, read func(mp4.BoxPath) ([]*mp4.
 	return codec, w, h
 }
 
-func cropFromClap(cp *Clap, key string, iv model.Interval) (*Crop, bool) {
+// cropFromClap converts a clean aperture to a top-left rectangle. ISO/IEC
+// 14496-12 defines the offsets relative to the frame centre:
+//
+//	x = (codedWidth - cropWidth)/2 + horizOff
+//	y = (codedHeight - cropHeight)/2 + vertOff
+func cropFromClap(cp *Clap, codedW, codedH int) (*Crop, bool) {
 	if cp.CleanApertureWidthD <= 0 || cp.CleanApertureHeightD <= 0 ||
 		cp.HorizOffD == 0 || cp.VertOffD == 0 {
 		return nil, false
 	}
 	w := int(cp.CleanApertureWidthN / cp.CleanApertureWidthD)
 	h := int(cp.CleanApertureHeightN / cp.CleanApertureHeightD)
-	// Offsets are (left+right)/2 and (top+bottom)/2; the origin is the crop
-	// centre subtracted from the frame centre.
-	return &Crop{X: int(cp.HorizOffN / cp.HorizOffD), Y: int(cp.VertOffN / cp.VertOffD), W: w, H: h}, true
+	hOff := int(cp.HorizOffN / cp.HorizOffD)
+	vOff := int(cp.VertOffN / cp.VertOffD)
+	return &Crop{
+		X: (codedW-w)/2 + hOff,
+		Y: (codedH-h)/2 + vOff,
+		W: w, H: h,
+	}, true
 }
 
 func parseAudio(rs io.ReadSeeker, track *Track, read func(mp4.BoxPath) ([]*mp4.BoxInfoWithPayload, error)) {

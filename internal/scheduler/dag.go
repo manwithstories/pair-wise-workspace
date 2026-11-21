@@ -252,6 +252,11 @@ func (s *Scheduler) Resume(prior map[string]NodeState) *Report {
 			}
 			depHashes = append(depHashes, ds.Result.Hash)
 		}
+		if prev, ok := prior[name]; ok && prev.Status == StatusDone && blocked != "" {
+			// A prior "done" record is only trustworthy if its dependencies are
+			// also healthy now; otherwise replay the node so state is rebuilt.
+			delete(prior, name)
+		}
 		if blocked != "" {
 			root := report.rootCause(blocked)
 			st.Status = StatusBlocked

@@ -64,6 +64,18 @@ type Result struct {
 	FirstError *model.Error
 	// OutDir is the output directory that received the manifest.
 	OutDir string
+	// GapFrameLinks lists, per blocked gap, the frames it blocked. It makes
+	// the manifest linkage visible in the terminal.
+	GapFrameLinks []GapLink
+}
+
+// GapLink ties a transport gap to blocked frame indices.
+type GapLink struct {
+	Index     int
+	StartExt  int64
+	Count     int64
+	Blocked   bool
+	FrameIdxs []int
 }
 
 // Run executes the full pipeline. It returns a Result even when isolated
@@ -217,11 +229,15 @@ func Run(opt Options) (*Result, error) {
 						return scheduler.Result{}, rerr
 					}
 					rendered = append(rendered, rf)
-					// Verification reference: re-render the same plan and
-					// compare pixels; a deterministic engine must score 100 dB.
-					ref, _ := engine.RenderFrame(f)
-					psnrSum += render.PSNR(rf.Image, ref.Image)
-					ssimSum += render.SSIM(rf.Image, ref.Image)
+					// Fidelity gate: compare the color-transformed output with
+					// an independently composed reference that skips the color
+					// stage. Geometry and sources are identical, so the score
+					// isolates color handling.
+					// Independent structural reference: inverse-mapped geometry
+					// with the exact (unquantized) color transform.
+					ref := engine.InverseSample(f)
+					psnrSum += render.PSNR(rf.Image, ref)
+					ssimSum += render.SSIM(rf.Image, ref)
 					n++
 				}
 				if n > 0 {
@@ -271,7 +287,6 @@ func Run(opt Options) (*Result, error) {
 				if werr := m.Write(path); werr != nil {
 					return scheduler.Result{}, werr
 				}
-				_ = path
 				if aerr := m.AddArtifact(path); aerr != nil {
 					return scheduler.Result{}, aerr
 				}
@@ -359,6 +374,13 @@ func finalizeManifest(res *Result, opt Options) error {
 	}
 	m.Transport = res.Transport
 	m.Bandwidth = bandwidthRecordsOf(m)
+	res.GapFrameLinks = res.GapFrameLinks[:0]
+	for _, g := range m.Gaps {
+		res.GapFrameLinks = append(res.GapFrameLinks, GapLink{
+			Index: g.Index, StartExt: g.StartExt, Count: g.Count,
+			Blocked: g.Blocked, FrameIdxs: g.Frames,
+		})
+	}
 	if res.FirstError != nil {
 		m.Failures = append(m.Failures, manifest.FailureRecord{
 			Track: res.FirstError.Track, Category: string(res.FirstError.Category),
@@ -484,8 +506,9 @@ func buildManifest(m *manifest.Manifest, opt Options, asset *metadata.Asset,
 		if gr.Dep == "" && i < len(gaps) {
 			gr.Dep = gaps[i].Dep
 		}
-		if i < len(m.Frames) {
-			gr.ManifestMs = tl.Timebase.ToMillis(tl.Frames[0].Start)
+		// Report the gap's position on the output timeline, not a constant.
+		if i < len(gaps) && tl != nil {
+			gr.ManifestMs = tl.Timebase.ToMillis(gaps[i].Start)
 		}
 		m.Gaps = append(m.Gaps, gr)
 	}
