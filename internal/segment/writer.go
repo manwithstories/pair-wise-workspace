@@ -44,6 +44,15 @@ var DefaultLadder = []Representation{
 	{Name: "1080p", Width: 1920, Height: 1080, Bitrate: 5_000_000},
 }
 
+// FormatLadderNames renders a ladder as a comma-separated name list.
+func FormatLadderNames(l []Representation) string {
+	names := make([]string, len(l))
+	for i, r := range l {
+		names[i] = r.Name
+	}
+	return strings.Join(names, ",")
+}
+
 // ParseLadder turns a "360p,720p,1080p" list into representations.
 func ParseLadder(spec string) ([]Representation, error) {
 	if strings.TrimSpace(spec) == "" {

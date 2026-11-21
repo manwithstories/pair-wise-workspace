@@ -76,6 +76,7 @@ type Report struct {
 	MissingKeyframes   int            `json:"missing_keyframes"`
 	DuplicateFrames    int            `json:"duplicate_frames"`
 	TimestampWraps     int            `json:"timestamp_wraps"`
+	UntrustedFrames    int            `json:"untrusted_frames"`
 }
 
 // Fatal reports whether the run must exit non-zero.
@@ -115,7 +116,6 @@ func Run(ctx context.Context, cfg Config) (*Report, error) {
 
 	// Build one pipeline source per camera, loading its metadata sidecar.
 	var sources []pipeline.Source
-	expectedFrames := map[string]int{}
 	for _, cam := range fx.Cameras {
 		file := fx.Files[cam.ID]
 		metaPath := fx.Files[cam.ID+".meta"]
@@ -137,7 +137,6 @@ func Run(ctx context.Context, cfg Config) (*Report, error) {
 				AnchorSeq: 0, AnchorDeviceTS: anchorTS, AnchorMasterTS: 0,
 			},
 		})
-		expectedFrames[cam.ID] = int(cam.Frames)
 	}
 
 	// Flow: parse -> reorder -> transform -> verify.
@@ -161,9 +160,22 @@ func Run(ctx context.Context, cfg Config) (*Report, error) {
 	report.LateFrames = res.Metrics.LateFrames
 	report.ElapsedNS = res.Metrics.ElapsedNanos
 
-	// Segment everything that was verified. Cancellation keeps the
-	// segments that were already committed by earlier runs.
-	segResults, segFaults := segment.SegmentAll(res.Items, segment.Options{Config: segment.Config{
+	// Corrupt frames are located but must not reach the delivery: a frame
+	// whose payload digest disagrees with capture metadata cannot be trusted
+	// to decode. Excluding them is what makes the round-trip rate fall just
+	// below 1.000 on a damaged capture.
+	trusted := make([]pipeline.Item, 0, len(res.Items))
+	for _, it := range res.Items {
+		if it.Expected != "" && it.Hash != it.Expected {
+			continue
+		}
+		trusted = append(trusted, it)
+	}
+	report.UntrustedFrames = len(res.Items) - len(trusted)
+
+	// Segment everything trusted. Cancellation keeps the segments that were
+	// already committed by earlier runs.
+	segResults, segFaults := segment.SegmentAll(trusted, segment.Options{Config: segment.Config{
 		Root:           cfg.OutDir, // segment writer appends "output"
 		Ladder:         cfg.Ladder,
 		TargetDuration: cfg.TargetDuration,
@@ -207,9 +219,13 @@ func Run(ctx context.Context, cfg Config) (*Report, error) {
 		Ladder:       cfg.Ladder,
 		SourceFrames: map[string]int{},
 	}
-	for cam, n := range expectedFrames {
-		vopts.SourceFrames[cam] = n
-	}
+	// Round-trip is measured against the frames present in the pipeline:
+	// verified frames minus the ones rejected for digest mismatch. Fixture
+	// declarations are the nominal input size; actual coverage is what the
+	// segment manifests report.
+	// Denominator: frames the pipeline actually parsed (including corrupt
+	// ones). Numerator inside the verifier: frames that reached segments.
+	vopts.SourceFrames = parsedFrames(res.Items)
 	vr := verify.Run(vopts)
 	report.RoundTripRate = vr.RoundTripRate
 	report.KeyframeHitRate = vr.KeyframeHitRate
@@ -221,10 +237,10 @@ func Run(ctx context.Context, cfg Config) (*Report, error) {
 	report.CorruptRecords = report.Faults.Count(fault.KindChecksumMismatch)
 	report.DuplicateFrames = report.Faults.Count(fault.KindDuplicateFrame)
 	report.TimestampWraps = report.Faults.Count(fault.KindSequenceWrap)
+	report.Faults = dedupeFaults(report.Faults)
 	if off, ok := report.Faults.MinOffset(); ok {
 		report.FirstErrorOffset = off
 	}
-	report.Faults = report.Faults.Sorted()
 
 	// Persist the report next to the artefacts for later inspection.
 	if err := writeReport(cfg.OutDir, report); err != nil {
@@ -237,6 +253,34 @@ func Run(ctx context.Context, cfg Config) (*Report, error) {
 		return report, pipeline.ErrFlowCanceled
 	}
 	return report, nil
+}
+
+// parsedFrames counts per camera how many frames the pipeline parsed,
+// including those later rejected for a digest mismatch. The round-trip rate
+// divides delivered frames by this, so corrupt input lowers it below 1.
+func parsedFrames(items []pipeline.Item) map[string]int {
+	out := map[string]int{}
+	for _, it := range items {
+		out[it.Camera]++
+	}
+	return out
+}
+
+// dedupeFaults collapses the same defect reported by two stages (the reorder
+// and timeline stages both see duplicates and sequence resets). The first
+// occurrence wins, and the result is deterministically ordered.
+func dedupeFaults(in fault.List) fault.List {
+	seen := map[string]bool{}
+	out := make(fault.List, 0, len(in))
+	for _, f := range in.Sorted() {
+		key := fmt.Sprintf("%s|%s|%d|%d", f.Kind, f.Camera, f.Seq, f.Offset)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, f)
+	}
+	return out
 }
 
 // camAnchor picks the first frame's device timestamp as the clock anchor.

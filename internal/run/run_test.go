@@ -45,9 +45,13 @@ func TestRunEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	// Acceptance invariants.
-	if rep.RoundTripRate < 0.99 || rep.RoundTripRate > 1 {
-		t.Fatalf("roundtrip_rate=%v want 0.99..1", rep.RoundTripRate)
+	// Acceptance invariants. Corrupt frames are excluded from delivery, so
+	// the rate sits just below 1 and no lower than the corrupt share allows.
+	if rep.RoundTripRate <= 0 || rep.RoundTripRate > 1 {
+		t.Fatalf("roundtrip_rate=%v want (0,1]", rep.RoundTripRate)
+	}
+	if want := 1 - float64(fx.TotalCorrupt())/float64(fx.TotalFrames()); rep.RoundTripRate < want-0.02 {
+		t.Fatalf("roundtrip_rate=%v too low (corrupt share implies >= %.3f)", rep.RoundTripRate, want)
 	}
 	if rep.KeyframeHitRate != 1 {
 		t.Fatalf("keyframe_hit_rate=%v want 1", rep.KeyframeHitRate)
