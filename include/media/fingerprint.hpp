@@ -43,6 +43,25 @@ class Fingerprinter {
 
   const std::vector<SegmentFingerprint>& known() const { return known_; }
 
+  // 流式构建：逐块喂入，仅保留一个窗口的样本，内存与素材时长无关。
+  class StreamingBuilder {
+   public:
+    StreamingBuilder(int segmentId, SampleRange range,
+                     FingerprintConfig cfg, int channels);
+    void add(const int32_t* interleaved, size_t frames);
+    SegmentFingerprint finish();
+
+   private:
+    int segmentId_;
+    SampleRange range_;
+    FingerprintConfig cfg_;
+    int channels_;
+    std::vector<int32_t> pending_;  // 不足一个窗口的残余样本
+    std::vector<uint64_t> hashes_;
+    FnvHash combo_;
+    void emitWindow(const int32_t* data, SampleTick frames);
+  };
+
  private:
   FingerprintConfig cfg_;
   std::vector<SegmentFingerprint> known_;

@@ -73,4 +73,56 @@ bool Fingerprinter::findOrRegister(const SegmentFingerprint& fp,
   return false;
 }
 
+Fingerprinter::StreamingBuilder::StreamingBuilder(
+    int segmentId, SampleRange range, FingerprintConfig cfg, int channels)
+    : segmentId_(segmentId),
+      range_(range),
+      cfg_(cfg),
+      channels_(channels) {
+  if (cfg_.windowTicks <= 0) cfg_.windowTicks = 1024;
+  pending_.reserve(static_cast<size_t>(cfg_.windowTicks) * channels_);
+}
+
+void Fingerprinter::StreamingBuilder::emitWindow(const int32_t* data,
+                                                  SampleTick frames) {
+  FnvHash window;
+  for (SampleTick i = 0; i < frames; ++i) {
+    int32_t mono = downmixFrame(data + i * channels_, channels_);
+    window.update(&mono, sizeof(mono));
+  }
+  uint64_t h = window.value();
+  hashes_.push_back(h);
+  combo_.update(&h, sizeof(h));
+}
+
+void Fingerprinter::StreamingBuilder::add(const int32_t* interleaved,
+                                          size_t frames) {
+  pending_.insert(pending_.end(), interleaved,
+                  interleaved + frames * channels_);
+  size_t windowSamples =
+      static_cast<size_t>(cfg_.windowTicks) * channels_;
+  size_t consumed = 0;
+  while (pending_.size() - consumed >= windowSamples) {
+    emitWindow(pending_.data() + consumed, cfg_.windowTicks);
+    consumed += windowSamples;
+  }
+  if (consumed > 0)
+    pending_.erase(pending_.begin(),
+                   pending_.begin() + static_cast<ptrdiff_t>(consumed));
+}
+
+SegmentFingerprint Fingerprinter::StreamingBuilder::finish() {
+  if (!pending_.empty()) {
+    SampleTick rest =
+        static_cast<SampleTick>(pending_.size() / channels_);
+    if (rest > 0) emitWindow(pending_.data(), rest);
+  }
+  SegmentFingerprint fp;
+  fp.segmentId = segmentId_;
+  fp.range = range_;
+  fp.windowHashes = std::move(hashes_);
+  fp.signature = combo_.value();
+  return fp;
+}
+
 }  // namespace media

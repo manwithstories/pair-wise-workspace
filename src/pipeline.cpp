@@ -141,41 +141,62 @@ PipelineResult Pipeline::run() {
     return r;
   }
 
-  std::vector<int32_t> segSamples;
-  SampleTick outCursor = 0;
+  // 每段流式指纹状态：仅缓存一个窗口，内存与素材时长无关。
+  struct SegState {
+    std::unique_ptr<Fingerprinter::StreamingBuilder> hasher;
+    SampleTick received = 0;
+    SampleTick outStart = 0;
+    bool outStartSet = false;
+  };
+  std::vector<SegState> states(segments.size());
   MediaError stageErr;
-  WavReader second(cfg_.inputPath, CorruptionPolicy::Skip);
-  (void)second.read([&](const AudioBlock& block) {
+
+  // ---- 阶段 3a：第二遍读取，仅做有界流式指纹与判重，不转码 ----
+  WavReader scan(cfg_.inputPath, CorruptionPolicy::Skip);
+  (void)scan.read([&](const AudioBlock& block) {
     segmenter.dispatch(block, [&](const Segment& seg, const AudioBlock& sub) {
-      segSamples.insert(segSamples.end(), sub.samples,
-                        sub.samples + sub.frames * sub.channels);
-      bool full = segSamples.size() ==
-                  static_cast<size_t>(seg.range.length() * sum.format.channels);
-      if (!full) return;
-      auto fp = finger.build(seg, segSamples, sum.format.channels);
-      DuplicateMatch dm;
-      bool dup = finger.findOrRegister(fp, &dm);
-      mSegs[seg.id].fingerprint = fp.signature;
-      if (dup) {
-        duplicateIds.insert(seg.id);
-        mSegs[seg.id].duplicate = true;
-        mSegs[seg.id].duplicateOf = dm.firstSourceId;
-      } else {
-        TranscodeInput ti{segSamples.data(),
-                          static_cast<size_t>(seg.range.length()),
-                          sum.format.channels, sum.format.sampleRate};
-        SampleTick before = transcoder.encodedFrames();
-        MediaError te = transcoder.push(ti);
-        if (!te.ok()) {
-          stageErr = te;
-          return;
+      SegState& st = states[seg.id];
+      if (!st.hasher)
+        st.hasher = std::make_unique<Fingerprinter::StreamingBuilder>(
+            seg.id, seg.range, cfg_.fingerprint, sum.format.channels);
+      st.hasher->add(sub.samples, sub.frames);
+      st.received += static_cast<SampleTick>(sub.frames);
+      if (st.received >= seg.range.length()) {
+        SegmentFingerprint fp = st.hasher->finish();
+        mSegs[seg.id].fingerprint = fp.signature;
+        DuplicateMatch dm;
+        if (finger.findOrRegister(fp, &dm)) {
+          duplicateIds.insert(seg.id);
+          mSegs[seg.id].duplicate = true;
+          mSegs[seg.id].duplicateOf = dm.firstSourceId;
         }
-        // 输出区间使用输出采样率刻度，由编码器实际帧数记账，杜绝浮点漂移。
-        SampleTick after = transcoder.encodedFrames();
-        mSegs[seg.id].outputRange = SampleRange{before, after};
-        outCursor = after;
       }
-      segSamples.clear();
+    });
+    return true;
+  });
+
+  // ---- 阶段 3b：第三遍读取，仅转码非重复段，按块直推编码器 ----
+  SampleTick outCursor = 0;
+  WavReader third(cfg_.inputPath, CorruptionPolicy::Skip);
+  (void)third.read([&](const AudioBlock& block) {
+    segmenter.dispatch(block, [&](const Segment& seg, const AudioBlock& sub) {
+      if (mSegs[seg.id].duplicate) return;
+      SegState& st = states[seg.id];
+      if (!st.outStartSet) {
+        st.outStart = transcoder.encodedFrames();
+        st.outStartSet = true;
+      }
+      TranscodeInput ti{sub.samples, sub.frames, sub.channels,
+                        sum.format.sampleRate};
+      MediaError te = transcoder.push(ti);
+      if (!te.ok()) {
+        stageErr = te;
+        return;
+      }
+      SampleTick after = transcoder.encodedFrames();
+      mSegs[seg.id].outputRange.start = st.outStart;
+      mSegs[seg.id].outputRange.end = after;
+      outCursor = after;
     });
     return stageErr.ok();
   });
