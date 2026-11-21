@@ -436,7 +436,9 @@ func writeAtomic(path string, frames []pipeline.Item, rep Representation) (int64
 	h := sha256.New()
 	w := io.MultiWriter(tmp, h)
 
-	header := fmt.Sprintf("PAIRFLOWSEG1 rep=%s %dx%d %dbps frames=%d\n",
+	// The header records the master-clock timescale so a reader can rescale
+	// every frame line's timestamp unambiguously.
+	header := fmt.Sprintf("PAIRFLOWSEG1 rep=%s %dx%d %dbps frames=%d timescale=90000\n",
 		rep.Name, rep.Width, rep.Height, rep.Bitrate, len(frames))
 	if _, err := io.WriteString(w, header); err != nil {
 		tmp.Close()
@@ -445,8 +447,13 @@ func writeAtomic(path string, frames []pipeline.Item, rep Representation) (int64
 	buf := make([]byte, 0, 64)
 	for _, f := range frames {
 		buf = buf[:0]
+		// Field order: master timestamp (90 kHz, the canonical timing domain),
+		// RTP sequence, source frame sequence, source byte offset. The
+		// representation timestamp is derived from the master one by any
+		// consumer that needs the 10 MHz output scale, so the file never
+		// carries two competing notions of "the time".
 		buf = append(buf, fmt.Sprintf("%016x %08x %d %d\n",
-			f.TransformTS, f.RTPSeq, f.Seq, f.Offset)...)
+			f.MasterTS, f.RTPSeq, f.Seq, f.Offset)...)
 		if _, err := w.Write(buf); err != nil {
 			tmp.Close()
 			return 0, "", err

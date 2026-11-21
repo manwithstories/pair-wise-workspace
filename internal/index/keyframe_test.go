@@ -160,3 +160,28 @@ func TestKeyframeLoadRejectsGarbage(t *testing.T) {
 		t.Fatal("empty index accepted")
 	}
 }
+
+func TestRebuildMatchesBuildTimestamps(t *testing.T) {
+	dir := t.TempDir()
+	var refs []SegmentRef
+	for i := 0; i < 5; i++ {
+		name := fmt.Sprintf("cam1-360p-%05d.seg", i)
+		refs = append(refs, writeSegment(t, dir, name, "360p", uint64(i)*90000, uint64(i*30), 30))
+	}
+	built, _ := BuildKeyframe("cam1", refs, dir)
+	rebuilt, faults := Rebuild("cam1", dir)
+	if len(faults) != 0 {
+		t.Fatalf("faults=%v", faults)
+	}
+	if len(built.Entries) != len(rebuilt.Entries) {
+		t.Fatalf("entries %d vs %d", len(built.Entries), len(rebuilt.Entries))
+	}
+	for i := range built.Entries {
+		if built.Entries[i].MasterTS != rebuilt.Entries[i].MasterTS ||
+			built.Entries[i].Segment != rebuilt.Entries[i].Segment ||
+			built.Entries[i].FrameSeq != rebuilt.Entries[i].FrameSeq {
+			t.Fatalf("entry %d differs: built=%+v rebuilt=%+v",
+				i, built.Entries[i], rebuilt.Entries[i])
+		}
+	}
+}
