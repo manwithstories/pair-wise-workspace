@@ -51,14 +51,46 @@ func ExpectedTracks(sp spec) ([]*metadata.Track, error) {
 		if _, err := tr.Normalize(&report, sp.ContainerColor, nil); err != nil {
 			return nil, err
 		}
-		// Keyframe count and timing are derived from the fixture spec.
-		keys := ts.Keyframes
+		// Keyframe count and timing are derived from the sample grid the
+		// container actually stores.
+		samples := int(ts.Duration) / 1000
+		if samples < 2 {
+			samples = 2
+		}
+		delta := ts.Duration / int64(samples)
+		if delta < 1 {
+			delta = 1
+		}
+		var keys []int
+		for _, k := range ts.Keyframes {
+			if k <= samples {
+				keys = append(keys, k)
+			}
+		}
 		if len(keys) == 0 {
 			keys = []int{1}
 		}
-		deltas := make([]int64, ts.Duration)
+		deltas := make([]int64, samples)
 		for i := range deltas {
-			deltas[i] = 1
+			deltas[i] = delta
+		}
+		// MXF timestamps advance one tick per edit unit, so its keyframe
+		// grid differs from the MP4 sample grid: edit units, one tick each.
+		if sp.Container == "mxf" {
+			units := sp.EditUnits
+			deltas = make([]int64, units)
+			for i := range deltas {
+				deltas[i] = 1
+			}
+			keys = nil
+			for _, k := range ts.Keyframes {
+				if k <= units {
+					keys = append(keys, k)
+				}
+			}
+			if len(keys) == 0 {
+				keys = []int{1}
+			}
 		}
 		idx, err := metadata.BuildKeyframeIndex(deltas, keys, ts.Timebase)
 		if err != nil {

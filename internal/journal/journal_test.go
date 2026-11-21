@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"mediamerge/internal/fault"
@@ -380,4 +381,52 @@ func (s *sliceReader) Read(p []byte) (int, error) {
 	n := copy(p, s.data[s.off:])
 	s.off += n
 	return n, nil
+}
+
+func TestRecoverRejectsTamperedCommittedFragment(t *testing.T) {
+	wal, out := tempWAL(t)
+	writeOutput(t, out, []byte("0123456789"))
+	cm := NewCommitManager(wal, out)
+	cm.Begin(StageParse, hash("in"), 10)
+	cm.AppendOutput(StageParse, frag(0, []byte("0123456789")))
+	if err := cm.Commit(StageParse, ""); err != nil {
+		t.Fatal(err)
+	}
+	wal.Close()
+	// Flip one byte inside the committed range.
+	data, _ := os.ReadFile(out)
+	data[3] ^= 0xff
+	os.WriteFile(out, data, 0o644)
+	_, err := Recover(wal.Path(), out)
+	var fe *fault.Error
+	if !errors.As(err, &fe) || fe.Code != fault.CodeChecksumMismatch {
+		t.Fatalf("bad error %v", err)
+	}
+	if !strings.Contains(fe.Detail, "committed fragment 1") {
+		t.Fatalf("detail %q lacks fragment location", fe.Detail)
+	}
+}
+
+func TestRecoverIgnoresUncommittedFragments(t *testing.T) {
+	wal, out := tempWAL(t)
+	writeOutput(t, out, []byte("0123"))
+	cm := NewCommitManager(wal, out)
+	cm.Begin(StageParse, hash("in1"), 4)
+	cm.AppendOutput(StageParse, frag(0, []byte("0123")))
+	if err := cm.Commit(StageParse, ""); err != nil {
+		t.Fatal(err)
+	}
+	// An uncommitted stage records a fragment that does not match the
+	// bytes on disk; recovery must still succeed and roll it back.
+	cm.Begin(StageAudio, hash("in2"), 6)
+	cm.AppendOutput(StageAudio, frag(0, []byte("xxxxxx")))
+	wal.Close()
+	os.Truncate(out, 4)
+	rec, err := Recover(wal.Path(), out)
+	if err != nil {
+		t.Fatalf("uncommitted fragment must not fail recovery: %v", err)
+	}
+	if rec.ResumeFrom != StageAudio {
+		t.Fatalf("resume %v", rec.ResumeFrom)
+	}
 }

@@ -131,12 +131,18 @@ func (c *CommitManager) Begin(s StageID, inDigest [32]byte, inBytes int64) error
 
 // AppendOutput records one output fragment. It must be called after Begin.
 func (c *CommitManager) AppendOutput(s StageID, frag OutputFragment) error {
+	return c.AppendOutputTrack(s, 0, frag)
+}
+
+// AppendOutputTrack records one output fragment together with the track that
+// produced it. The track lets recovery rebuild per-track segment metrics.
+func (c *CommitManager) AppendOutputTrack(s StageID, trackID int, frag OutputFragment) error {
 	if c.state(s) != StateOpen {
 		return fault.New(fault.StageJournal, fault.CodeWALGap,
 			fmt.Sprintf("output for stage %s before begin", s))
 	}
 	r, err := c.wal.Append(Record{
-		Kind: KindOutput, Stage: uint16(s), Offset: frag.Offset, Digest: frag.Digest,
+		Kind: KindOutput, Stage: uint16(s), TrackID: trackID, Offset: frag.Offset, Digest: frag.Digest,
 		Summary: fmt.Sprintf("len=%d", frag.Length),
 	})
 	if err != nil {
@@ -289,6 +295,79 @@ func (c *CommitManager) committedBoundary() int64 {
 	return boundary
 }
 
+// verifyCommittedPrefix re-hashes every output fragment described by a
+// commit record. Fragments belonging to stages whose commit was rolled back
+// or never written are ignored because they are past the last boundary.
+func verifyCommittedPrefix(outputPath string, records []Record) error {
+	type frag struct {
+		trackID int
+		off     int64
+		length  int64
+		digest  [32]byte
+	}
+	var pending []frag
+	var committed []frag
+	for _, r := range records {
+		switch r.Kind {
+		case KindOutput:
+			pending = append(pending, frag{
+				trackID: r.TrackID, off: r.Offset, length: summaryLength(r.Summary), digest: r.Digest,
+			})
+		case KindCommit:
+			committed = append(committed, pending...)
+			pending = nil
+		case KindRollback:
+			pending = nil
+		}
+	}
+	if len(committed) == 0 {
+		return nil
+	}
+	f, err := os.Open(outputPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fault.New(fault.StageCommit, fault.CodeWALGap,
+				"journal has committed stages but the output file is missing")
+		}
+		return fault.Wrap(fault.StageCommit, fault.CodeWriteFailed, err, "open output")
+	}
+	defer f.Close()
+	for i, fr := range committed {
+		if fr.length <= 0 {
+			continue
+		}
+		h := sha256.New()
+		if _, err := io.Copy(h, io.NewSectionReader(f, fr.off, fr.length)); err != nil {
+			return fault.Wrap(fault.StageCommit, fault.CodeWriteFailed, err,
+				fmt.Sprintf("read committed fragment %d", i+1))
+		}
+		var got [32]byte
+		copy(got[:], h.Sum(nil))
+		if got != fr.digest {
+			return fault.New(fault.StageCommit, fault.CodeChecksumMismatch,
+				fmt.Sprintf("committed fragment %d at %d+%d does not match its journal hash (track %d)",
+					i+1, fr.off, fr.length, fr.trackID))
+		}
+	}
+	return nil
+}
+
+// summaryLength extracts the "len=N" value recorded with an output record.
+func summaryLength(summary string) int64 {
+	const prefix = "len="
+	if len(summary) <= len(prefix) || summary[:len(prefix)] != prefix {
+		return 0
+	}
+	var n int64
+	for _, c := range summary[len(prefix):] {
+		if c < '0' || c > '9' {
+			return 0
+		}
+		n = n*10 + int64(c-'0')
+	}
+	return n
+}
+
 // CommittedDigests returns output fragment digests of all committed stages.
 func (c *CommitManager) CommittedDigests() [][32]byte {
 	out := make([][32]byte, len(c.committedDigests))
@@ -353,6 +432,13 @@ func Recover(walPath, outputPath string) (*Recovery, error) {
 		if open {
 			rec.States[s] = StateOpen
 		}
+	}
+
+	// A commit record promises that every fragment it describes is on disk
+	// with the recorded hash. Re-check the committed prefix so silent
+	// corruption is found during recovery, not after delivery.
+	if err := verifyCommittedPrefix(outputPath, records); err != nil {
+		return nil, err
 	}
 
 	// Resume at the first stage after the committed prefix.

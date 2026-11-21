@@ -63,6 +63,40 @@ func Consume(ctx context.Context, q *Queue, opts ConsumerOptions) (*Sink, error)
 	}
 }
 
+// Drain consumes q until it is closed and empty, invoking onBlock for every
+// block. It mplements the same slow-consumer model as Consume and returns the
+// number of blocks and bytes handled. onBlock returns an error to abort.
+func Drain(ctx context.Context, q *Queue, opts ConsumerOptions, onBlock func(*Block) error) (int, int64, error) {
+	var blocks int
+	var bytes int64
+	for {
+		b, err := q.Pop(ctx)
+		if err != nil {
+			return blocks, bytes, err
+		}
+		if b == nil {
+			return blocks, bytes, nil
+		}
+		if opts.Delay > 0 {
+			select {
+			case <-time.After(opts.Delay):
+			case <-ctx.Done():
+				return blocks, bytes, fault.Wrap(fault.StageStream, fault.CodeCanceled, ctx.Err(),
+					fmt.Sprintf("consumer cancelled during segment %d", b.Segment))
+			}
+		}
+		if opts.FailAfter > 0 && blocks+1 == opts.FailAfter {
+			return blocks, bytes, fault.New(fault.StageStream, fault.CodeWriteFailed,
+				fmt.Sprintf("simulated write failure at segment %d offset %d", b.Segment, b.Offset))
+		}
+		if err := onBlock(b); err != nil {
+			return blocks, bytes, err
+		}
+		blocks++
+		bytes += b.ByteSize()
+	}
+}
+
 // BlockDigest is the digest identity used by tests: segment plus payload
 // hash. Ordering is preserved by Consume.
 type BlockDigest struct {
@@ -87,6 +121,17 @@ func (s *Sink) BlockDigests() []BlockDigest {
 // The producer is responsible for honouring ctx; the consumer is closed out
 // by closing the queue after the producer returns.
 func RunPipe(ctx context.Context, q *Queue, produce func(context.Context) error, opts ConsumerOptions) (*Sink, error) {
+	return RunPipeWith(ctx, q, produce, func(cctx context.Context) (*Sink, error) {
+		return Consume(cctx, q, opts)
+	}, opts)
+}
+
+// RunPipeWith is RunPipe with a caller-supplied consumer, so a pipeline can
+// write blocks to their final location as they arrive instead of buffering
+// them all. The consumer must stop when the context is cancelled.
+func RunPipeWith(ctx context.Context, q *Queue, produce func(context.Context) error,
+	consume func(context.Context) (*Sink, error), opts ConsumerOptions) (*Sink, error) {
+
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -102,7 +147,7 @@ func RunPipe(ctx context.Context, q *Queue, produce func(context.Context) error,
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		sink, consErr = Consume(ctx, q, opts)
+		sink, consErr = consume(ctx)
 	}()
 	wg.Wait()
 	cancel()

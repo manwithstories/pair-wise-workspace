@@ -68,7 +68,7 @@ func standardSpecs() []spec {
 					Keyframes: []int{1, 9, 17},
 				},
 				{
-					ID: 2, Kind: metadata.KindAudio, Timebase: clock.Must(48000, 1), Duration: 4800,
+					ID: 2, Kind: metadata.KindAudio, Timebase: clock.Must(48000, 1), Duration: 48000,
 					SampleRate: 48000, Channels: 6, Keyframes: []int{1},
 				},
 			},
@@ -84,7 +84,7 @@ func standardSpecs() []spec {
 					Keyframes: []int{1, 9, 17},
 				},
 				{
-					ID: 2, Kind: metadata.KindAudio, Timebase: clock.Must(48000, 1), Duration: 4800,
+					ID: 2, Kind: metadata.KindAudio, Timebase: clock.Must(48000, 1), Duration: 48000,
 					SampleRate: 48000, Channels: 2, Keyframes: []int{1},
 				},
 			},
@@ -102,7 +102,7 @@ func standardSpecs() []spec {
 					Keyframes: []int{1, 13},
 				},
 				{
-					ID: 2, Kind: metadata.KindAudio, Timebase: clock.Must(24000, 1), Duration: 2400,
+					ID: 2, Kind: metadata.KindAudio, Timebase: clock.Must(24000, 1), Duration: 24000,
 					SampleRate: 24000, Channels: 2, Keyframes: []int{1},
 				},
 			},
@@ -125,10 +125,14 @@ func BuildFile(sp spec) ([]byte, error) {
 func buildMP4(sp spec) ([]byte, error) {
 	opts := metadata.WriteOptions{ContainerColor: metaColor(sp.ContainerColor)}
 	for _, tr := range sp.Tracks {
-		samples := int(tr.Duration)
-		delta := int64(1)
-		if tr.Kind == metadata.KindAudio {
-			samples = int(tr.Duration)
+		// One sample per second of media: enough timing entries to exercise
+		// the index without embedding a full-size mdat in every fixture.
+		samples := int(tr.Duration) / 1000
+		if samples < 2 {
+			samples = 2
+		}
+		delta := tr.Duration / int64(samples)
+		if delta < 1 {
 			delta = 1
 		}
 		opts.Tracks = append(opts.Tracks, metadata.WriteTrack{
@@ -146,6 +150,9 @@ func buildMP4(sp spec) ([]byte, error) {
 	for i := range doc.Tracks {
 		var keys []uint32
 		for _, k := range sp.Tracks[i].Keyframes {
+			if k > doc.Tracks[i].Track.SampleCount {
+				continue
+			}
 			keys = append(keys, uint32(k))
 		}
 		if len(keys) == 0 {
@@ -237,6 +244,15 @@ func WriteCorruptFixture(dir, kind string) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		// The standard fixtures are sized for streaming, which makes a
+		// damaged copy needlessly large. A compact carrier proves the same
+		// parser rule in a few KiB.
+		if len(data) > 64<<10 {
+			data, err = compactTruncatedBox()
+			if err != nil {
+				return "", err
+			}
+		}
 		path = filepath.Join(dir, "corrupt_truncated_box.mp4")
 		if err := os.WriteFile(path, data, 0o644); err != nil {
 			return "", err
@@ -302,6 +318,27 @@ func WriteCorruptFixture(dir, kind string) (string, error) {
 	}
 	_ = target
 	return path, nil
+}
+
+// compactTruncatedBox builds a small MP4 whose trailing moov size is
+// inflated past EOF.
+func compactTruncatedBox() ([]byte, error) {
+	doc, err := metadata.BuildDocument(metadata.WriteOptions{
+		Tracks: []metadata.WriteTrack{{
+			Kind: metadata.KindVideo, Timescale: 25, Duration: 4, SampleDelta: 1, SampleCount: 4,
+			Width: 320, Height: 240, Matrix: metadata.MatrixForRotation(0),
+			Color: colorDesc(1, 1, 1, false),
+		}},
+	})
+	if err != nil {
+		return nil, err
+	}
+	doc.Tracks[0].KeySamples = []uint32{1}
+	data, err := doc.Write()
+	if err != nil {
+		return nil, err
+	}
+	return truncateBoxSize(data, "moov")
 }
 
 // truncateBoxSize inflates a top-level box's declared length so the parser
