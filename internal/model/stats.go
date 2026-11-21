@@ -4,8 +4,8 @@ import "time"
 
 // LatencySample 是一帧端到端处理时延的采样（纳秒）。
 type LatencySample struct {
-	Seq    uint32
-	LatNS  int64
+	Seq   uint32
+	LatNS int64
 }
 
 // Stats 汇总验收输出的全部量化指标。

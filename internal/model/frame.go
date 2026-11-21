@@ -31,7 +31,7 @@ type CheckResult struct {
 	Seq      uint32
 	OK       bool
 	Fault    FaultCode
-	Repaired bool // 是否经冗余恢复成功
+	Repaired bool  // 是否经冗余恢复成功
 	MediaNS  int64 // 重建后的统一媒体时间（纳秒）
 }
 
@@ -43,15 +43,15 @@ type Gap struct {
 
 // Segment 是清单中的一个分片，全部字段由共享时钟核验后填写。
 type Segment struct {
-	Index         int
-	Rep           string
-	FirstSeq      uint32
-	LastSeq       uint32
-	StartNS       int64
-	EndNS         int64
-	PayloadSHA256 []byte // 分片内全部帧载荷拼接后的摘要
-	TailIncomplete bool  // 尾分片未达到目标时长
-	ToleranceNS   int64 // 边界相对目标时长的容差
+	Index          int
+	Rep            string
+	FirstSeq       uint32
+	LastSeq        uint32
+	StartNS        int64
+	EndNS          int64
+	PayloadSHA256  []byte // 分片内全部帧载荷拼接后的摘要
+	TailIncomplete bool   // 尾分片未达到目标时长
+	ToleranceNS    int64  // 边界相对目标时长的容差
 }
 
 // Manifest 是单个表示层的分片清单。
