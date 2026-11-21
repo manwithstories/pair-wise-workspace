@@ -6,6 +6,7 @@ package video
 import (
 	"encoding/binary"
 	"fmt"
+	"sort"
 )
 
 // ClockRate is the synthetic video RTP clock (90 kHz, per RFC 6184 practice).
@@ -22,6 +23,10 @@ const (
 	flagKeyframe = 0x01
 	flagBad      = 0x02
 )
+
+// maxPendingFrames bounds the frame assembly window so memory stays bounded.
+// It matches the RTP reorder window expressed in frames (10 packets/frame).
+const maxPendingFrames = 64
 
 // PacketInput is the pipeline-neutral view of one ordered RTP packet.
 type PacketInput struct {
@@ -45,55 +50,131 @@ type Frame struct {
 	Packets   []uint16
 }
 
-// Builder accumulates packets per SSRC and emits frames at marker boundaries.
-// Memory is bounded: only the frame currently in flight is held.
+type pending struct {
+	frame  *Frame
+	dts    uint32
+	cto    uint32
+	marked bool // marker observed; late same-frame packets are still absorbed
+}
+
+// Builder accumulates packets keyed by frame ID, tolerating intra-frame
+// reordering, and emits frames in frame-ID order. Memory is bounded by
+// maxPendingFrames; a frame that overflows the window is flushed early.
 type Builder struct {
-	inFlight map[uint32]*Frame
-	curTS    map[uint32]uint32
+	pending map[uint32]map[uint32]*pending // ssrc -> frame ID -> pending
+	order   map[uint32][]uint32            // ssrc -> frame IDs in arrival order
 }
 
 // NewBuilder creates an empty frame builder.
 func NewBuilder() *Builder {
-	return &Builder{inFlight: map[uint32]*Frame{}, curTS: map[uint32]uint32{}}
+	return &Builder{pending: map[uint32]map[uint32]*pending{}, order: map[uint32][]uint32{}}
 }
 
-// Push folds one packet into its frame. It returns a completed frame when the
-// packet carries the RTP marker, otherwise nil. A bad frame is still emitted
-// (with Bad set) so downstream stages can isolate it without losing the
-// following keyframes.
+// Push folds one packet into its frame. A frame is finalized when the next
+// frame ID starts (the previous frame then cannot gain more packets) or when
+// the assembly window overflows, so a marker arriving before its same-frame
+// peers never closes the frame prematurely. It may return one frame.
 func (b *Builder) Push(in PacketInput) (*Frame, error) {
 	if len(in.Payload) < headerLen {
-		return nil, fmt.Errorf("video: %d-byte payload shorter than header", len(in.Payload))
+		return nil, fmt.Errorf("video: %d-byte payload shorter than header tick=%d", len(in.Payload), in.Tick)
 	}
 	id := uint32(binary.BigEndian.Uint16(in.Payload[0:2]))
 	flags := in.Payload[2]
 	cto := binary.BigEndian.Uint32(in.Payload[3:7])
-	f, ok := b.inFlight[in.SSRC]
+	frames, ok := b.pending[in.SSRC]
 	if !ok {
-		f = &Frame{ID: id, SSRC: in.SSRC, FirstTick: in.Tick}
-		b.inFlight[in.SSRC] = f
-		b.curTS[in.SSRC] = in.Timestamp
+		frames = map[uint32]*pending{}
+		b.pending[in.SSRC] = frames
 	}
-	if f.ID != id {
-		return nil, fmt.Errorf("video: frame ID changed without marker ssrc=%d got=%d want=%d tick=%d",
-			in.SSRC, id, f.ID, in.Tick)
+	// A new frame ID finalizes any marked frame for this SSRC: its packet
+	// run is provably complete. Unmarked predecessors are kept pending.
+	var completed *Frame
+	if _, exists := frames[id]; !exists {
+		if prevID, ok := b.markedHead(in.SSRC); ok && prevID != id {
+			completed = b.close(in.SSRC, prevID)
+		}
 	}
-	f.Packets = append(f.Packets, in.Seq)
+	p, ok := frames[id]
+	if !ok {
+		p = &pending{frame: &Frame{ID: id, SSRC: in.SSRC, FirstTick: in.Tick}, dts: in.Timestamp, cto: cto}
+		frames[id] = p
+		b.order[in.SSRC] = append(b.order[in.SSRC], id)
+	}
+	p.frame.Packets = append(p.frame.Packets, in.Seq)
 	if flags&flagBad != 0 {
-		f.Bad = true
+		p.frame.Bad = true
 	}
 	if flags&flagKeyframe != 0 {
-		f.Keyframe = true
+		p.frame.Keyframe = true
 	}
-	if !in.Marker {
-		return nil, nil
+	if in.Marker {
+		p.marked = true
 	}
-	dts := b.curTS[in.SSRC]
-	f.DTSUs = int64(float64(dts) / ClockRate * 1e6)
-	f.PTSUs = int64(float64(uint64(dts)+uint64(cto)) / ClockRate * 1e6)
-	delete(b.inFlight, in.SSRC)
-	delete(b.curTS, in.SSRC)
-	return f, nil
+	// Window overflow: evict the oldest frame so memory stays bounded.
+	if len(frames) > maxPendingFrames {
+		oldest := b.order[in.SSRC][0]
+		if f := b.close(in.SSRC, oldest); completed == nil {
+			completed = f
+		}
+	}
+	return completed, nil
+}
+
+// markedHead returns the oldest frame ID whose marker has been observed.
+func (b *Builder) markedHead(ssrc uint32) (uint32, bool) {
+	for _, id := range b.order[ssrc] {
+		if p, ok := b.pending[ssrc][id]; ok && p.marked {
+			return id, true
+		}
+	}
+	return 0, false
+}
+
+// close finalizes one frame and removes it from the pending window.
+func (b *Builder) close(ssrc uint32, id uint32) *Frame {
+	frames := b.pending[ssrc]
+	p, ok := frames[id]
+	if !ok {
+		return nil
+	}
+	p.frame.DTSUs = int64(float64(p.dts) / ClockRate * 1e6)
+	p.frame.PTSUs = int64(float64(uint64(p.dts)+uint64(p.cto)) / ClockRate * 1e6)
+	delete(frames, id)
+	if ids := b.order[ssrc]; len(ids) > 0 && ids[0] == id {
+		b.order[ssrc] = ids[1:]
+	} else {
+		for i, v := range b.order[ssrc] {
+			if v == id {
+				b.order[ssrc] = append(b.order[ssrc][:i], b.order[ssrc][i+1:]...)
+				break
+			}
+		}
+	}
+	return p.frame
+}
+
+// Flush emits every frame still pending at end of stream in frame-ID order.
+func (b *Builder) Flush() []*Frame {
+	var out []*Frame
+	for ssrc, frames := range b.pending {
+		ids := make([]uint32, 0, len(frames))
+		for id := range frames {
+			ids = append(ids, id)
+		}
+		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+		for _, id := range ids {
+			if f := b.close(ssrc, id); f != nil {
+				out = append(out, f)
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].SSRC != out[j].SSRC {
+			return out[i].SSRC < out[j].SSRC
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
 }
 
 // Axis is one time-ordered view over recovered frames.
@@ -102,24 +183,23 @@ type Axis struct {
 	Frames []*Frame
 }
 
-// Axes builds the decode and presentation axes. The DTS axis follows packet
+// Axes builds the decode and presentation axes. The DTS axis follows frame
 // (decode) order; the PTS axis is sorted by presentation time, which lets B
 // frames and VFR cadence diverge without mutating frame identity.
 func Axes(frames []*Frame) (dts Axis, pts Axis) {
 	dts = Axis{Name: "dts", Frames: append([]*Frame(nil), frames...)}
 	pres := append([]*Frame(nil), frames...)
-	sortFrames(pres, func(a, c *Frame) bool {
-		if a.PTSUs != c.PTSUs {
-			return a.PTSUs < c.PTSUs
+	sort.Slice(pres, func(i, j int) bool {
+		if pres[i].PTSUs != pres[j].PTSUs {
+			return pres[i].PTSUs < pres[j].PTSUs
 		}
-		return a.FirstTick < c.FirstTick
+		return pres[i].FirstTick < pres[j].FirstTick
 	})
 	pts = Axis{Name: "pts", Frames: pres}
 	return dts, pts
 }
 
 // Durations returns per-frame presentation gaps in microseconds in PTS order.
-// Variable gaps are the VFR signal; the first frame reports its own DTS span.
 func Durations(pts Axis) []int64 {
 	out := make([]int64, len(pts.Frames))
 	for i, f := range pts.Frames {
@@ -131,12 +211,4 @@ func Durations(pts Axis) []int64 {
 		}
 	}
 	return out
-}
-
-func sortFrames(frames []*Frame, less func(a, b *Frame) bool) {
-	for i := 1; i < len(frames); i++ {
-		for j := i; j > 0 && less(frames[j], frames[j-1]); j-- {
-			frames[j], frames[j-1] = frames[j-1], frames[j]
-		}
-	}
 }

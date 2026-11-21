@@ -13,7 +13,7 @@ type GapError struct {
 	FirstSeq  uint16 // inclusive
 	LastSeq   uint16 // inclusive
 	Count     int    // number of missing sequence numbers
-	AfterTick int64  // global tick of the packet that revealed the gap
+	AfterTick int64  // tick of the packet that revealed the gap
 	Recovered bool   // a retransmit eventually filled the interval
 }
 
@@ -35,7 +35,6 @@ type OrderedPacket struct {
 type streamOrder struct {
 	ssrc        uint32
 	initialized bool
-	expected    uint16 // next in-order sequence to emit
 	highest     uint16 // highest sequence ever observed
 	buffer      map[uint16]*rtp.Packet
 	seen        map[uint16]bool
@@ -43,7 +42,9 @@ type streamOrder struct {
 	duplicates  int
 }
 
-// Reorderer merges datagrams from several SSRCs into ticked, ordered output.
+// Reorderer merges datagrams from several SSRCs into ticked output. Packets
+// are emitted on arrival (loss never stalls the stream); a bounded window
+// lets late packets arrive before their absence is declared permanent.
 type Reorderer struct {
 	streams    map[uint32]*streamOrder
 	tick       int64
@@ -51,8 +52,7 @@ type Reorderer struct {
 }
 
 // NewReorderer builds a reorderer. maxReorder bounds how late a packet may
-// arrive; beyond it the missing sequences are treated as permanent loss and
-// the window advances over them.
+// arrive relative to the high-water mark before it is rejected.
 func NewReorderer(maxReorder int) *Reorderer {
 	if maxReorder <= 0 {
 		maxReorder = 64
@@ -69,23 +69,22 @@ func (r *Reorderer) stream(ssrc uint32) *streamOrder {
 	return s
 }
 
-// Push accepts one parsed RTP packet and returns every packet that becomes
-// emit-ready in strict sequence order. A jump larger than maxReorder closes
-// the pending gap as permanent loss and advances the window.
+// Push accepts one parsed RTP packet and emits it immediately with a tick.
+// Duplicates return nothing and have no side effects; a packet beyond the
+// reorder window is rejected with its SSRC and sequence attached.
 func (r *Reorderer) Push(p *rtp.Packet) ([]OrderedPacket, error) {
 	s := r.stream(p.SSRC)
 	if !s.initialized {
 		s.initialized = true
-		s.expected, s.highest = p.SequenceNumber, p.SequenceNumber
+		s.highest = p.SequenceNumber
 	}
 	if s.seen[p.SequenceNumber] {
 		s.duplicates++
 		return nil, nil // idempotent: duplicates are dropped without side effects
 	}
-	lag := int16(s.highest - p.SequenceNumber)
-	if lag > int16(r.maxReorder) {
+	if int16(s.highest-p.SequenceNumber) > int16(r.maxReorder) {
 		return nil, fmt.Errorf("%w: ssrc=%d seq=%d arrives %d behind high-water %d",
-			ErrMalformed, p.SSRC, p.SequenceNumber, lag, s.highest)
+			ErrMalformed, p.SSRC, p.SequenceNumber, int16(s.highest-p.SequenceNumber), s.highest)
 	}
 	s.seen[p.SequenceNumber] = true
 	for i := range s.gaps {
@@ -98,28 +97,19 @@ func (r *Reorderer) Push(p *rtp.Packet) ([]OrderedPacket, error) {
 		s.highest = p.SequenceNumber
 	}
 	s.buffer[p.SequenceNumber] = p
-	return r.drain(s), nil
+	op := OrderedPacket{Tick: r.tick, SSRC: p.SSRC, Seq: p.SequenceNumber, Packet: p}
+	r.tick++
+	r.evict(s)
+	return []OrderedPacket{op}, nil
 }
 
-// drain emits contiguous packets from expected onward; when the high-water
-// mark leaves expected behind by more than the window, missing sequences are
-// declared permanent loss and expected jumps to the next buffered packet.
-func (r *Reorderer) drain(s *streamOrder) []OrderedPacket {
-	var out []OrderedPacket
-	for {
-		if p, ok := s.buffer[s.expected]; ok {
-			delete(s.buffer, s.expected)
-			out = append(out, OrderedPacket{Tick: r.tick, SSRC: s.ssrc, Seq: s.expected, Packet: p})
-			r.tick++
-			s.expected++
-			continue
+// evict drops buffered packets beyond the window; their gaps stay recorded as
+// permanent loss. Buffering is only used for gap/late accounting here.
+func (r *Reorderer) evict(s *streamOrder) {
+	for seq := range s.buffer {
+		if int16(s.highest-seq) > int16(r.maxReorder) {
+			delete(s.buffer, seq)
 		}
-		if int16(s.highest-s.expected) > int16(r.maxReorder) {
-			// Permanent loss: skip everything up to the high-water mark.
-			s.expected = s.highest
-			continue
-		}
-		return out
 	}
 }
 
@@ -134,32 +124,18 @@ func (s *streamOrder) recordGap(arrived uint16) {
 	})
 }
 
-// Flush emits any remaining buffered packets (end of stream, no further
-// retransmits possible) and returns the final gap list.
+// Flush reports final gap statistics; all packets were already emitted.
 func (r *Reorderer) Flush() ([]OrderedPacket, []GapError) {
-	var out []OrderedPacket
 	ssrcs := make([]uint32, 0, len(r.streams))
 	for ssrc := range r.streams {
 		ssrcs = append(ssrcs, ssrc)
 	}
 	sort.Slice(ssrcs, func(i, j int) bool { return ssrcs[i] < ssrcs[j] })
-	for _, ssrc := range ssrcs {
-		s := r.streams[ssrc]
-		seqs := make([]uint16, 0, len(s.buffer))
-		for seq := range s.buffer {
-			seqs = append(seqs, seq)
-		}
-		sort.Slice(seqs, func(i, j int) bool { return int16(seqs[i]-seqs[j]) < 0 })
-		for _, seq := range seqs {
-			out = append(out, OrderedPacket{Tick: r.tick, SSRC: ssrc, Seq: seq, Packet: s.buffer[seq]})
-			r.tick++
-		}
-	}
 	var gaps []GapError
 	for _, ssrc := range ssrcs {
 		gaps = append(gaps, r.streams[ssrc].gaps...)
 	}
-	return out, gaps
+	return nil, gaps
 }
 
 // Duplicates reports the total idempotent duplicate count across SSRCs.

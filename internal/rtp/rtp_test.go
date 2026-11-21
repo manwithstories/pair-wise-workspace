@@ -73,12 +73,9 @@ func TestLoss(t *testing.T) {
 			emitted = append(emitted, op.Seq)
 		}
 	}
-	// seq 4 stays in the reorder window until Flush closes the stream.
-	rest, gaps := r.Flush()
-	for _, op := range rest {
-		emitted = append(emitted, op.Seq)
-	}
-	wantEmitted := []uint16{0, 1, 2, 4}
+	// Packets are emitted on arrival; reordering never blocks the stream.
+	_, gaps := r.Flush()
+	wantEmitted := []uint16{0, 1, 4, 2}
 	if len(emitted) != len(wantEmitted) {
 		t.Fatalf("emitted %v want %v", emitted, wantEmitted)
 	}
@@ -118,9 +115,9 @@ func TestUnrecoveredGap(t *testing.T) {
 		}
 		pushed += len(got)
 	}
-	out, gaps := r.Flush()
-	if pushed+len(out) != 3 || len(gaps) != 1 || gaps[0].Recovered {
-		t.Fatalf("pushed=%d flushed=%d gaps=%+v", pushed, len(out), gaps)
+	_, gaps := r.Flush()
+	if pushed != 3 || len(gaps) != 1 || gaps[0].Recovered {
+		t.Fatalf("pushed=%d gaps=%+v", pushed, gaps)
 	}
 	if gaps[0].FirstSeq != 2 || gaps[0].LastSeq != 4 {
 		t.Fatalf("gap range: %+v", gaps[0])
@@ -128,8 +125,8 @@ func TestUnrecoveredGap(t *testing.T) {
 }
 
 func TestPermanentLossAdvancesWindow(t *testing.T) {
-	// A gap wider than the window becomes permanent loss; later in-order
-	// packets must keep flowing instead of stalling forever.
+	// Forward jumps are emitted immediately with a recorded gap; a packet
+	// arriving later beyond the window is rejected as permanent loss.
 	r := NewReorderer(4)
 	var emitted []uint16
 	for _, seq := range []uint16{0, 10, 11} {
@@ -144,6 +141,10 @@ func TestPermanentLossAdvancesWindow(t *testing.T) {
 	want := []uint16{0, 10, 11}
 	if len(emitted) != len(want) {
 		t.Fatalf("emitted %v want %v", emitted, want)
+	}
+	// seq 2 now arrives 9 behind the high-water mark 11, beyond window 4.
+	if _, err := r.Push(mkPacket(5, 2, 0)); err == nil {
+		t.Fatal("beyond-window late packet must be rejected")
 	}
 	_, gaps := r.Flush()
 	if len(gaps) != 1 || gaps[0].Recovered || gaps[0].Count != 9 {

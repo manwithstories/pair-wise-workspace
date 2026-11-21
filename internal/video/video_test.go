@@ -23,7 +23,7 @@ func buildFrames(t *testing.T, in []PacketInput) []*Frame {
 			frames = append(frames, f)
 		}
 	}
-	return frames
+	return append(frames, b.Flush()...)
 }
 
 func TestFrameBoundaries(t *testing.T) {
