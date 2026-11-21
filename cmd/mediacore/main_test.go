@@ -168,6 +168,14 @@ func TestDemoCancelPropagates(t *testing.T) {
 	if !strings.Contains(out, "consumer_cancelled=true") {
 		t.Fatalf("cancellation not demonstrated: %s", out)
 	}
+	// The cancellation must be preserved in the manifest like any other fault.
+	data, err := os.ReadFile("./tmp/manifest.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"class": "cancelled"`) {
+		t.Fatalf("manifest lost the cancellation: %s", data)
+	}
 }
 
 // TestLargeLogicalStreamUsesBoundedMemory asserts the 1 GiB logical stream

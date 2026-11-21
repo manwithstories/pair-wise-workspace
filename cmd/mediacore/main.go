@@ -213,7 +213,10 @@ func runDemo(args []string, stdout, stderr io.Writer) error {
 
 	switch f.corrupt {
 	case "cancel":
-		return runCancelDemo(st, f, stdout)
+		if err := runCancelDemo(st, f, stdout); err != nil {
+			return recordFaultAt(f, "pipeline", err)
+		}
+		return nil
 	case "truncate", "sample_length":
 		// Parsing already diagnosed and recorded the fault; driving the
 		// pipeline proves the streaming stage refuses the same input. The
