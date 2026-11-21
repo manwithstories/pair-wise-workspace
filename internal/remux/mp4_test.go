@@ -52,15 +52,17 @@ func testPlan(t *testing.T) *Plan {
 	t.Helper()
 	vp := &TrackPlan{
 		Track: track.Track{
-			Source:  track.Source{Number: 1, Type: track.TypeVideo, CodecID: "V_VP9"},
-			Mapping: track.Mapping{Kind: track.KindVP9, Entry: "vp09", ConfigBox: "vpcC"},
+			Source:      track.Source{Number: 1, Type: track.TypeVideo, CodecID: "V_VP9"},
+			Mapping:     track.Mapping{Kind: track.KindVP9, Entry: "vp09", ConfigBox: "vpcC"},
+			DestTrackID: 1,
 		},
 		Width: 320, Height: 180, Handler: "vide", Timescale: 1_000_000, TimescaleMovie: 1000,
 	}
 	ap := &TrackPlan{
 		Track: track.Track{
-			Source:  track.Source{Number: 2, Type: track.TypeAudio, CodecID: "A_OPUS"},
-			Mapping: track.Mapping{Kind: track.KindOpus, Entry: "Opus", ConfigBox: "dOps"},
+			Source:      track.Source{Number: 2, Type: track.TypeAudio, CodecID: "A_OPUS"},
+			Mapping:     track.Mapping{Kind: track.KindOpus, Entry: "Opus", ConfigBox: "dOps"},
+			DestTrackID: 2,
 		},
 		SampleRate: 48000, Channels: 2, Handler: "soun", Timescale: 1_000_000, TimescaleMovie: 1000,
 	}
