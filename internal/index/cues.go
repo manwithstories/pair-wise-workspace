@@ -13,13 +13,17 @@ import (
 	"archivecheck.local/archivecheck/internal/fault"
 )
 
-// Entry locates one keyframe.
+// Entry locates one keyframe. Offsets are intentionally not called "source":
+// when the index comes from decoded blocks they point into the Matroska
+// input, and when it comes from a finished archive copy they point into the
+// MP4 output. Callers know which index they hold.
 type Entry struct {
 	// Track is the Matroska track number.
 	Track uint64
 	// Tick is the absolute timestamp in Segment ticks.
 	Tick int64
-	// SourceOffset is the absolute offset of the frame payload in the input.
+	// SourceOffset is the absolute offset of the frame payload, in whichever
+	// file this index describes.
 	SourceOffset int64
 	// ClusterOffset is the absolute offset of the enclosing Cluster.
 	ClusterOffset int64
