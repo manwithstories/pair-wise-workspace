@@ -1,0 +1,2 @@
+3000 3040 structural_corruption
+29960 30400 transport_loss

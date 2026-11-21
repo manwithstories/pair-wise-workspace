@@ -30,7 +30,7 @@ struct AvCtx {
 
 ProbeOutput probe_media(const std::string& path, const ProbeOptions& opts) {
   ProbeOutput out;
-  av_log_set_level(AV_LOG_ERROR);
+  av_log_set_level(AV_LOG_QUIET);
   AvCtx ctx;
   if (avformat_open_input(&ctx.fmt, path.c_str(), nullptr, nullptr) < 0) {
     out.error = "cannot_open_container";
@@ -161,7 +161,7 @@ ProbeOutput probe_media(const std::string& path, const ProbeOptions& opts) {
 
 PacketLocation find_keyframe_near(const std::string& path, int64_t target_ms) {
   PacketLocation best;
-  av_log_set_level(AV_LOG_ERROR);
+  av_log_set_level(AV_LOG_QUIET);
   AvCtx ctx;
   if (avformat_open_input(&ctx.fmt, path.c_str(), nullptr, nullptr) < 0)
     return best;

@@ -23,9 +23,10 @@ Args parse_args(int argc, char** argv, int start) {
   Args a;
   for (int i = start; i < argc; ++i) {
     std::string k = argv[i];
-    if (k.rfind("--", 0) == 0 && i + 1 < argc) {
+    if (k.rfind("--", 0) != 0) continue;
+    if (i + 1 < argc && std::string(argv[i + 1]).rfind("--", 0) != 0) {
       a[k.substr(2)] = argv[++i];
-    } else if (k.rfind("--", 0) == 0) {
+    } else {
       a[k.substr(2)] = "1";  // bare flag
     }
   }

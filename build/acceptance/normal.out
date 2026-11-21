@@ -1,0 +1,11 @@
+status=ok
+damaged_ranges=0
+boundary_error_ms=-1
+resume_ms=0.000
+output_sha256=6aef4bc329e36153a69184a6e9b3b5c8ee9cf76353b74f64f3ec0b908f7b3f0c
+peak_memory_mib=0.320
+duplicate_packets=0
+reordered_packets=0
+burst_losses=0
+lost_packets=0
+est_bandwidth_kbps=167.1

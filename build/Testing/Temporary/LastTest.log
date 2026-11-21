@@ -1,35 +1,22 @@
-Start testing: Nov 21 07:58 CST
+Start testing: Nov 21 08:09 CST
 ----------------------------------------------------------
 1/1 Testing: pipeline_tests
 1/1 Test: pipeline_tests
 Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/14140/build/pipeline_tests"
 Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/14140/build
-"pipeline_tests" start time: Nov 21 07:58 CST
+"pipeline_tests" start time: Nov 21 08:09 CST
 Output:
 ----------------------------------------------------------
-Randomness seeded to: 1150205254
-
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-pipeline_tests is a Catch2 v3.16.1 host application.
-Run with -? for options
-
--------------------------------------------------------------------------------
-fractional frame rate conversion reports error bounds
--------------------------------------------------------------------------------
-/Users/clearliu/WorkSpace/pair-wise-workspace/14140/tests/pipeline_tests.cpp:26
-...............................................................................
-
-/Users/clearliu/WorkSpace/pair-wise-workspace/14140/tests/pipeline_tests.cpp:29: FAILED:
-  REQUIRE( exact.exact )
-with expansion:
-  false
+Randomness seeded to: 418904748
+===============================================================================
+All tests passed (75 assertions in 12 test cases)
 
 <end of output>
-Test time =  60.05 sec
+Test time =   0.19 sec
 ----------------------------------------------------------
-Test Failed.
-"pipeline_tests" end time: Nov 21 07:59 CST
-"pipeline_tests" time elapsed: 00:01:00
+Test Passed.
+"pipeline_tests" end time: Nov 21 08:09 CST
+"pipeline_tests" time elapsed: 00:00:00
 ----------------------------------------------------------
 
-End testing: Nov 21 07:59 CST
+End testing: Nov 21 08:09 CST

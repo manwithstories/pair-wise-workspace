@@ -1,0 +1,11 @@
+relay-checkpoint-v1
+input_sha256 d32b83bd5f05cc86486e17516b8ef24503654e409ffd1d3cb657625a5e22adbb
+analysis_version 1
+cursor 768
+duplicate_packets 19
+reordered_packets 0
+lost_packets 0
+burst_losses 0
+range 1500/1 8300/1 caption_anomaly recoverable overlapping_cues
+range 3000/1 3040/1 structural_corruption recoverable decode_reject
+checksum 0e4200abe9d90ac661b165e146758f8ec741d6d8e1049d7d4b066df69291153d

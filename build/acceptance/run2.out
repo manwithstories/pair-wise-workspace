@@ -1,0 +1,14 @@
+status=ok
+damaged_ranges=3
+range 1500 8300 caption_anomaly recoverable overlapping_cues
+range 3000 3040 structural_corruption recoverable decode_reject
+range 29960 30400 transport_loss recoverable burst_loss
+boundary_error_ms=0
+resume_ms=22.036
+output_sha256=f8e59235dd4d1418982beaea5ce702be35014528006099f23c2f1e4d3abb6036
+peak_memory_mib=0.320
+duplicate_packets=40
+reordered_packets=64
+burst_losses=1
+lost_packets=10
+est_bandwidth_kbps=169.1

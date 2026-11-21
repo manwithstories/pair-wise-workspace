@@ -1,3 +1,2 @@
-pipeline_tests 1 0.016516
+pipeline_tests 2 0.10477
 ---
-pipeline_tests
