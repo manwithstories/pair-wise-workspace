@@ -56,8 +56,9 @@ type Checkpoint struct {
 	Segments         []Segment `json:"segments"`
 	// FinalSHA maps track key to the SHA-256 of that track's output sample
 	// stream once the delivery completed.
-	FinalSHA     map[string]string `json:"final_sha256,omitempty"`
-	TotalSamples int               `json:"total_samples"`
+	FinalSHA      map[string]string `json:"final_sha256,omitempty"`
+	FinalInputSHA map[string]string `json:"final_input_sha256,omitempty"`
+	TotalSamples  int               `json:"total_samples"`
 }
 
 // Manager writes checkpoints atomically and verifies them on load.
@@ -125,6 +126,20 @@ func (m *Manager) AppendSegment(out *os.File, start, end int64, wave int, tracks
 	return m.save()
 }
 
+// RecordFinal stores one track's input and output stream hashes on the
+// in-memory checkpoint. It does not save; Complete persists the whole set.
+func (m *Manager) RecordFinal(key, input, output string) error {
+	if m.cp.FinalSHA == nil {
+		m.cp.FinalSHA = map[string]string{}
+	}
+	if m.cp.FinalInputSHA == nil {
+		m.cp.FinalInputSHA = map[string]string{}
+	}
+	m.cp.FinalSHA[key] = output
+	m.cp.FinalInputSHA[key] = input
+	return nil
+}
+
 // Complete records the final per-track checksums and marks the delivery done.
 func (m *Manager) Complete(final map[string]string) error {
 	m.cp.Complete = true
@@ -153,6 +168,26 @@ func (m *Manager) save() error {
 		return media.NewError(media.ClassIO, "cannot replace checkpoint").WithCause(err)
 	}
 	return nil
+}
+
+// Read returns a checkpoint without verifying it against an output. It is
+// used for complete checkpoints, whose verification needs the output layout
+// and therefore lives in the muxer.
+func Read(path string) (Checkpoint, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Checkpoint{}, media.NewError(media.ClassIO, "cannot read checkpoint %s", path).WithCause(err)
+	}
+	var cp Checkpoint
+	if err := json.Unmarshal(data, &cp); err != nil {
+		return Checkpoint{}, media.NewError(media.ClassCheckpointCorrupt,
+			"checkpoint %s is not valid JSON", path).WithCause(err)
+	}
+	if cp.Version != Version {
+		return Checkpoint{}, media.NewError(media.ClassCheckpointCorrupt,
+			"checkpoint version %d is not supported (want %d)", cp.Version, Version)
+	}
+	return cp, nil
 }
 
 // ResumePlan is the verified starting point for a resumed run.

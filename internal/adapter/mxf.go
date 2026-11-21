@@ -17,7 +17,9 @@ func (*MXFAdapter) Format() string  { return "mxf" }
 func (*MXFAdapter) Version() string { return "1.0.0" }
 
 func (*MXFAdapter) Detect(head []byte, size int64) bool {
-	return len(head) >= 16 && head[0] == 0x06 && head[1] == 0x0e &&
+	// Detection survives a header truncated inside its partition pack, so
+	// only the first eight bytes of the UL are required.
+	return len(head) >= 8 && head[0] == 0x06 && head[1] == 0x0e &&
 		head[2] == 0x2b && head[3] == 0x34 &&
 		head[4] == 0x02 && head[5] == 0x05 && head[6] == 0x01 && head[7] == 0x01
 }
@@ -86,7 +88,7 @@ func (w *mxfWalker) scan(ctx context.Context) error {
 		if w.size-off < 16 {
 			return media.NewError(media.ClassTruncated,
 				"%d trailing bytes cannot hold a KLV key", w.size-off).
-				WithContainer("mxf").WithOffset(off).WithTolerance(0)
+				WithContainer("mxf").WithOffset(w.size).WithTolerance(0)
 		}
 		// Read a full 16-byte key plus the longest BER length (5 bytes) in
 		// one bounded call; a short read is only legal at the very end.
@@ -108,9 +110,11 @@ func (w *mxfWalker) scan(ctx context.Context) error {
 		}
 		payload := off + 16 + int64(lenBytes)
 		if length < 0 || payload+length > w.size {
+			// The fault is that the input ended, so report the first missing
+			// byte rather than the KLV header that declared the overrun.
 			return media.NewError(media.ClassTruncated,
-				"KLV declares %d payload bytes but only %d remain", length, w.size-payload).
-				WithContainer("mxf").WithOffset(off).WithTolerance(0)
+				"KLV declares %d payload bytes but the input ends after %d", length, w.size-payload).
+				WithContainer("mxf").WithOffset(w.size).WithTolerance(0)
 		}
 		switch {
 		case key == ulHeaderPartition, key == ulBodyPartition, key == ulFooterPartition:

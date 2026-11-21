@@ -240,12 +240,15 @@ func BuildMXF(g MXFGenerator) (*MXFLayout, error) {
 			clock = 0xFFFFFF00
 		}
 		for i := 0; i < g.Samples; i++ {
-			if g.AmbiguousWrap && i == g.Samples/2 {
-				clock += 1 << 31
-			}
 			idx.u32(clock)
 			idx.u32(0)
-			clock += 1001 // arbitrary but monotonic at a 30k clock
+			step := uint32(1001)
+			if g.AmbiguousWrap && i == g.Samples/2 {
+				// A step of exactly half the range cannot be resolved from
+				// continuity: it is equally a small forward or backward move.
+				step = 1 << 31
+			}
+			clock += step
 		}
 		putKey(b, ulIndexSegment)
 		putBER(b, int64(len(idx.b)))

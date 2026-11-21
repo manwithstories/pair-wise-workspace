@@ -18,8 +18,12 @@ import (
 // is reported with the exact byte offset instead of a generic parse error.
 type MP4Adapter struct{}
 
-func (*MP4Adapter) Format() string  { return "mp4" }
-func (*MP4Adapter) Version() string { return "1.0.0" }
+func (*MP4Adapter) Format() string { return "mp4" }
+
+// unknown counts a skipped box on the walker so the container reports how
+// much structure it did not interpret.
+func (a *MP4Adapter) unknown(w *mp4Walker) { w.unknown++ }
+func (*MP4Adapter) Version() string        { return "1.0.0" }
 
 func (*MP4Adapter) Detect(head []byte, size int64) bool {
 	return len(head) >= 12 && string(head[4:8]) == "ftyp"
@@ -40,10 +44,11 @@ func (a *MP4Adapter) Parse(ctx context.Context, src media.Source) (*media.Contai
 	if moov == nil {
 		return nil, media.NewError(media.ClassMalformed, "no moov box found").WithContainer("mp4")
 	}
-	c := &media.Container{Format: "mp4", Path: src.Name(), Size: w.size, UnknownBoxes: w.unknown}
+	c := &media.Container{Format: "mp4", Path: src.Name(), Size: w.size}
 	if err := a.parseMovie(w, moov, c); err != nil {
 		return nil, err
 	}
+	c.UnknownBoxes = w.unknown
 	c.Fingerprint, err = fingerprint(src, c)
 	if err != nil {
 		return nil, err
@@ -60,6 +65,18 @@ func (a *MP4Adapter) parseMovie(w *mp4Walker, moov *boxNode, c *media.Container)
 	mvhd := firstBox(kids, "mvhd")
 	if mvhd == nil {
 		return media.NewError(media.ClassMalformed, "moov has no mvhd").WithContainer("mp4").WithOffset(moov.off)
+	}
+	// Unknown boxes inside moov are counted, not interpreted. The set of
+	// types this adapter understands is explicit so an unexpected box is
+	// never silently treated as known.
+	known := map[string]bool{
+		"mvhd": true, "trak": true, "udta": true, "meta": true,
+		"mvex": true, "iods": true, "free": true, "skip": true, "wide": true,
+	}
+	for _, k := range kids {
+		if !known[k.typ] {
+			a.unknown(w)
+		}
 	}
 	traks := allBoxes(kids, "trak")
 	if len(traks) == 0 {

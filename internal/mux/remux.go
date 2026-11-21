@@ -12,8 +12,10 @@ import (
 	"errors"
 	"fmt"
 	"hash"
+	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"mediacore/internal/media"
 	"mediacore/internal/pipeline"
@@ -64,13 +66,27 @@ type Options struct {
 	Chunk          int
 	// WaveSize is the number of samples between checkpoints within a track.
 	WaveSize int
+	// ShouldStop is called after every written sample. It returns true when
+	// the run must stop at this checkpoint boundary.
+	ShouldStop func(produced int) bool
+	// Queue, when set, receives every sample through its bounded buffer
+	// before the bytes are copied. The remuxer then reads the bytes from the
+	// queued copy, so a slow queue applies backpressure to the whole run.
+	Queue *pipeline.Queue
+	// QueueLimits is used when Queue is nil and a bounded path is wanted.
+	QueueLimits *pipeline.Limits
+	// ConsumerDelay simulates a slow consumer, which exercises backpressure.
+	ConsumerDelay time.Duration
+	// QueuePeak receives the observed peak in-flight bytes.
+	QueuePeak *int64
 }
 
 // Remuxer copies the samples of ordered tracks into a fresh MP4.
 type Remuxer struct {
-	Tracks []*media.Track
-	Plan   map[string]uint32
-	Source media.Source
+	Tracks   []*media.Track
+	Plan     map[string]uint32
+	Resolved map[string]ResolvedMeta
+	Source   media.Source
 }
 
 // Run performs the remux.
@@ -86,7 +102,7 @@ func (r *Remuxer) Run(ctx context.Context, opts Options) (*Result, error) {
 		opts.Chunk = 64 << 10
 	}
 
-	tracks, start, err := planOutput(r.Tracks, r.Plan)
+	tracks, start, err := planOutput(r.Tracks, r.Plan, r.Resolved)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +152,30 @@ func (r *Remuxer) Run(ctx context.Context, opts Options) (*Result, error) {
 		mgr.Adopt(opts.Fingerprint, opts.MappingSign, opts.OutputPath, opts.TotalSamples, resume)
 	}
 
-	buf := make([]byte, opts.Chunk)
+	if opts.InterruptAfter > 0 && opts.ShouldStop == nil {
+		limit := opts.InterruptAfter
+		opts.ShouldStop = func(produced int) bool { return produced >= limit }
+	}
+	waveSize := opts.WaveSize
+	if waveSize <= 0 {
+		waveSize = 1
+	}
+
+	// Output is laid out track-major, so the payload is a concatenation of
+	// per-track sample streams and every checkpoint boundary is a contiguous
+	// output prefix. Resume therefore continues at the first unwritten
+	// sample of the first incomplete track, with no replay.
+	producerNext := make(map[string]int, len(tracks))
+	for _, t := range tracks {
+		from := next[t.key]
+		if from > len(t.sizes) {
+			return nil, media.NewError(media.ClassCheckpointCorrupt,
+				"checkpoint claims %d samples for %s but only %d exist",
+				from, t.key, len(t.sizes))
+		}
+		producerNext[t.key] = from
+	}
+
 	pos := start
 	if resume != nil {
 		pos = resume.Offset
@@ -146,56 +185,94 @@ func (r *Remuxer) Run(ctx context.Context, opts Options) (*Result, error) {
 	if resume != nil {
 		wave = resume.Wave
 	}
+	waveStart := pos
+	buf := make([]byte, opts.Chunk)
 
-	// Output is laid out track-major, so the payload is a concatenation of
-	// per-track sample streams and any checkpoint boundary is a contiguous
-	// output prefix. Resume therefore continues at the first unwritten
-	// sample of the first incomplete track, with no replay.
-	waveSize := opts.WaveSize
-	if waveSize <= 0 {
-		waveSize = 1
-	}
-	for _, t := range tracks {
-		from := next[t.key]
-		if from > len(t.sizes) {
-			return nil, media.NewError(media.ClassCheckpointCorrupt,
-				"checkpoint claims %d samples for %s but only %d exist",
-				from, t.key, len(t.sizes))
+	// The producer reads ahead into the bounded queue; the consumer writes,
+	// hashes and checkpoints. A slow consumer therefore blocks the producer,
+	// and peak queue occupancy is bounded by the configured limits.
+	prodCtx, prodCancel := context.WithCancel(ctx)
+	defer prodCancel()
+	queue := opts.Queue
+	if queue == nil {
+		limits := pipeline.Limits{MaxSamples: 64, MaxBytes: 64 << 20}
+		if opts.QueueLimits != nil {
+			limits = *opts.QueueLimits
 		}
-		waveStart := pos
-		for i := from; i < len(t.sizes); i++ {
-			if err := ctx.Err(); err != nil {
-				return nil, media.NewError(media.ClassCancelled, "remux cancelled").WithCause(err)
+		queue = pipeline.NewQueue(r.Source, limits)
+	}
+	prodErr := make(chan error, 1)
+	go func() {
+		err := r.produce(prodCtx, queue, tracks, producerNext)
+		queue.Close()
+		prodErr <- err
+	}()
+
+	consumerErr := error(nil)
+	for {
+		err := queue.Next(ctx, func(qs *pipeline.Sample) error {
+			if opts.ConsumerDelay > 0 {
+				time.Sleep(opts.ConsumerDelay)
 			}
-			meta, err := r.Tracks[trackOrdinal(r.Tracks, t.key)].Index.At(i)
-			if err != nil {
-				return nil, err
+			if err := r.writeQueued(ctx, out, qs, pos, hashes[qs.Track.ID.String()]); err != nil {
+				return err
 			}
-			if opts.InterruptAfter > 0 && produced == opts.InterruptAfter {
-				return r.finishInterrupt(out, mgr, res, tracks, hashes, next, i, wave, pos, waveStart, produced)
-			}
-			if err := r.copySample(ctx, out, buf, meta, pos, hashes[t.key]); err != nil {
-				return nil, media.WithTrackContext(err, r.Tracks[trackOrdinal(r.Tracks, t.key)].ID.Container, r.Tracks[trackOrdinal(r.Tracks, t.key)].ID.Value)
-			}
-			pos += meta.Size
-			next[t.key] = i + 1
+			pos += qs.Meta.Size
+			next[qs.Track.ID.String()] = qs.Index + 1
 			produced++
-			if (i+1-from)%waveSize == 0 {
+			if opts.stopRequested(produced) {
+				return errStopAfter
+			}
+			if produced%waveSize == 0 {
+				wave++
+				if err := mgr.AppendSegment(out, waveStart, pos, wave, r.snapshot(tracks, hashes, next)); err != nil {
+					return err
+				}
+				waveStart = pos
+			}
+			return nil
+		})
+		if err == nil {
+			continue
+		}
+		if err == io.EOF {
+			break
+		}
+		if err == errStopAfter || errors.Is(err, errStopAfter) {
+			prodCancel()
+			<-prodErr
+			if pos > waveStart {
 				wave++
 				if err := mgr.AppendSegment(out, waveStart, pos, wave, r.snapshot(tracks, hashes, next)); err != nil {
 					return nil, err
 				}
-				waveStart = pos
 			}
-			if opts.InterruptAfter > 0 && produced == opts.InterruptAfter {
-				return r.finishInterrupt(out, mgr, res, tracks, hashes, next, i+1, wave+1, pos, waveStart, produced)
+			if err := out.Sync(); err != nil {
+				return nil, media.NewError(media.ClassIO, "cannot flush output").WithCause(err)
 			}
+			res.Interrupted = true
+			res.Samples = produced
+			return res, &InterruptError{After: produced}
 		}
-		if pos > waveStart {
-			wave++
-			if err := mgr.AppendSegment(out, waveStart, pos, wave, r.snapshot(tracks, hashes, next)); err != nil {
-				return nil, err
-			}
+		consumerErr = err
+		break
+	}
+	prodCancel()
+	if perr := <-prodErr; perr != nil && consumerErr == nil {
+		consumerErr = perr
+	}
+	if opts.QueuePeak != nil {
+		if peak := queue.Stats().MaxQueueBytes; peak > *opts.QueuePeak {
+			*opts.QueuePeak = peak
+		}
+	}
+	if consumerErr != nil {
+		return nil, consumerErr
+	}
+	if pos > waveStart {
+		wave++
+		if err := mgr.AppendSegment(out, waveStart, pos, wave, r.snapshot(tracks, hashes, next)); err != nil {
+			return nil, err
 		}
 	}
 	if err := out.Truncate(pos); err != nil {
@@ -218,7 +295,13 @@ func (r *Remuxer) Run(ctx context.Context, opts Options) (*Result, error) {
 		if err != nil {
 			return nil, err
 		}
-		inSum := hex.EncodeToString(hashes[t.key].Sum(nil))
+		inSum, err := hashInput(r.Source, t.key, r.Tracks, buf)
+		if err != nil {
+			return nil, err
+		}
+		if err := mgr.RecordFinal(t.key, inSum, outSum); err != nil {
+			return nil, err
+		}
 		final[t.key] = outSum
 		res.Tracks = append(res.Tracks, TrackResult{
 			Key:          t.key,
@@ -240,6 +323,26 @@ func (r *Remuxer) Run(ctx context.Context, opts Options) (*Result, error) {
 	return res, nil
 }
 
+var errStopAfter = errors.New("stop after the requested sample count")
+
+// produce pushes samples in output order into the bounded queue. It stops as
+// soon as the queue reports cancellation or a fault, which is how a slow or
+// failed consumer applies backpressure.
+func (r *Remuxer) produce(ctx context.Context, q *pipeline.Queue, tracks []*outTrack, next map[string]int) error {
+	for _, t := range tracks {
+		src := r.Tracks[trackOrdinal(r.Tracks, t.key)]
+		if src == nil {
+			return media.NewError(media.ClassMalformed, "no source track for %s", t.key)
+		}
+		for i := next[t.key]; i < len(t.sizes); i++ {
+			if err := q.Push(ctx, src, i); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // finishInterrupt commits the checkpoint and returns the interrupt signal.
 func (r *Remuxer) finishInterrupt(out *os.File, mgr *pipeline.Manager, res *Result,
 	tracks []*outTrack, hashes map[string]hash.Hash, next map[string]int,
@@ -255,6 +358,13 @@ func (r *Remuxer) finishInterrupt(out *os.File, mgr *pipeline.Manager, res *Resu
 	res.Interrupted = true
 	res.Samples = produced
 	return res, &InterruptError{After: produced}
+}
+
+func (o *Options) stopRequested(produced int) bool {
+	if o.ShouldStop == nil {
+		return false
+	}
+	return o.ShouldStop(produced)
 }
 
 func (r *Remuxer) snapshot(tracks []*outTrack, hashes map[string]hash.Hash, next map[string]int) []pipeline.TrackState {
@@ -295,6 +405,38 @@ func restoreHash(h hash.Hash, encoded string) error {
 		return errors.New("hash does not support state restoration")
 	}
 	return u.UnmarshalBinary(b)
+}
+
+// writeQueued copies an already-buffered sample to its planned offset and
+// feeds the running hash. The queued copy is the authority for the bytes
+// written, so the remuxer never re-reads the input for a queued sample.
+func (r *Remuxer) writeQueued(ctx context.Context, dst *os.File, qs *pipeline.Sample, dstOff int64, h hash.Hash) error {
+	if int64(len(qs.Data)) != qs.Meta.Size {
+		return media.NewError(media.ClassCheckpointCorrupt,
+			"queued sample %d has %d bytes, expected %d", qs.Index, len(qs.Data), qs.Meta.Size)
+	}
+	remaining := qs.Data
+	off := dstOff
+	for len(remaining) > 0 {
+		if err := ctx.Err(); err != nil {
+			return media.NewError(media.ClassCancelled, "cancelled while writing a queued sample").WithCause(err)
+		}
+		n, err := dst.WriteAt(remaining, off)
+		if n > 0 {
+			h.Write(remaining[:n])
+			off += int64(n)
+			remaining = remaining[n:]
+		}
+		if err != nil {
+			return media.NewError(media.ClassIO, "cannot write queued sample bytes").
+				WithOffset(off).WithCause(err)
+		}
+		if n == 0 {
+			return media.NewError(media.ClassIO, "output accepted no bytes").
+				WithOffset(off)
+		}
+	}
+	return nil
 }
 
 // copySample copies exactly meta.Size bytes from the input to dstOff. It
@@ -346,6 +488,45 @@ func samePath(a, b string) bool {
 		return aa == bb
 	}
 	return a == b
+}
+
+// hashInput hashes the source bytes of one track in sample order.
+func hashInput(src media.Source, key string, tracks []*media.Track, buf []byte) (string, error) {
+	ord := trackOrdinal(tracks, key)
+	if ord < 0 {
+		return "", media.NewError(media.ClassMalformed, "no source track for %s", key)
+	}
+	t := tracks[ord]
+	h := sha256.New()
+	for i := 0; i < t.SampleCount(); i++ {
+		s, err := t.Index.At(i)
+		if err != nil {
+			return "", media.WithTrackContext(err, t.ID.Container, t.ID.Value)
+		}
+		remaining := s.Size
+		off := s.Offset
+		for remaining > 0 {
+			chunk := int64(len(buf))
+			if chunk > remaining {
+				chunk = remaining
+			}
+			n, rerr := src.ReadAt(buf[:chunk], off)
+			if n > 0 {
+				h.Write(buf[:n])
+				off += int64(n)
+				remaining -= int64(n)
+			}
+			if remaining == 0 {
+				break
+			}
+			if rerr != nil {
+				return "", media.NewError(media.ClassTruncated,
+					"input ends inside sample %d of track %s", i, key).
+					WithOffset(off).WithCause(rerr)
+			}
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // hashOutput hashes the sample stream as it now exists in the output file.

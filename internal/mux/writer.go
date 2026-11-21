@@ -35,10 +35,69 @@ func (o *outBuf) full(version uint8, flags uint32) {
 	o.u8(uint8(flags))
 }
 
-func (o *outBuf) identityMatrix() {
-	for _, v := range []int32{0x10000, 0, 0, 0, 0x10000, 0, 0, 0, 0x40000000} {
+func (o *outBuf) identityMatrix() { o.matrix(0) }
+
+// matrix writes a quarter-turn display matrix.
+func (o *outBuf) matrix(rotation int) {
+	vals := [9]int32{0x10000, 0, 0, 0, 0x10000, 0, 0, 0, 0x40000000}
+	switch ((rotation % 4) + 4) % 4 {
+	case 1:
+		vals[0], vals[1], vals[3], vals[4] = 0, 0x10000, -0x10000, 0
+	case 2:
+		vals[0], vals[4] = -0x10000, -0x10000
+	case 3:
+		vals[0], vals[1], vals[3], vals[4] = 0, -0x10000, 0x10000, 0
+	}
+	for _, v := range vals {
 		o.u32(uint32(v))
 	}
+}
+
+// decorateEntry returns the copied input sample entry with the resolved
+// colour and crop appended as child boxes. The original entry's bytes are
+// preserved; the resolved description is added, never substituted.
+func decorateEntry(t *outTrack) []byte {
+	entry := append([]byte(nil), t.entry...)
+	if len(entry) < 8 {
+		return entry
+	}
+	var extra []byte
+	if t.color.Present || t.color.Source == "default" {
+		b := &outBuf{}
+		b.box("colr", func() {
+			b.tag("nclx")
+			b.u16(t.color.Primaries)
+			b.u16(t.color.Transfer)
+			b.u16(t.color.Matrix)
+			if t.color.FullRange {
+				b.u8(0x80)
+			} else {
+				b.u8(0)
+			}
+		})
+		extra = append(extra, b.b...)
+	}
+	if t.crop != nil && t.width > 0 && t.height > 0 &&
+		t.crop.Width > 0 && t.crop.Height > 0 &&
+		(t.crop.X != 0 || t.crop.Y != 0 ||
+			t.crop.Width != t.width || t.crop.Height != t.height) {
+		b := &outBuf{}
+		b.box("clap", func() {
+			b.u32(uint32(t.crop.Width) << 16)
+			b.u32(uint32(t.crop.Height) << 16)
+			hoff := t.crop.X - (t.width-t.crop.Width)/2
+			voff := t.crop.Y - (t.height-t.crop.Height)/2
+			b.u32(uint32(int32(hoff)) << 16)
+			b.u32(uint32(int32(voff)) << 16)
+		})
+		extra = append(extra, b.b...)
+	}
+	if len(extra) == 0 {
+		return entry
+	}
+	out := append(entry, extra...)
+	binary.BigEndian.PutUint32(out[0:], uint32(len(out)))
+	return out
 }
 
 // run is a run-length encoded stts/ctts entry.
@@ -62,6 +121,14 @@ type outTrack struct {
 	stts      []run
 	ctts      []run
 	hasCTTS   bool
+	// rotation is the resolved counter-clockwise quarter-turn display
+	// rotation, written into the output display matrix.
+	rotation int
+	// color is the resolved colour description, written as an nclx colr box.
+	color media.Color
+	// crop is the resolved clean aperture, written as a clap box when it is
+	// not the full frame.
+	crop *media.Crop
 }
 
 func (t *outTrack) duration() uint64 {
@@ -75,7 +142,16 @@ func (t *outTrack) duration() uint64 {
 	return uint64(ticks)
 }
 
-func planOutput(tracks []*media.Track, plan map[string]uint32) ([]*outTrack, int64, error) {
+// ResolvedMeta is the resolved geometry and colour for one track. It is the
+// only source of those values in the output, so container/track/override
+// priority is applied exactly once.
+type ResolvedMeta struct {
+	Rotation int
+	Crop     *media.Crop
+	Color    media.Color
+}
+
+func planOutput(tracks []*media.Track, plan map[string]uint32, resolved map[string]ResolvedMeta) ([]*outTrack, int64, error) {
 	out := make([]*outTrack, 0, len(tracks))
 	for _, t := range tracks {
 		key := t.ID.String()
@@ -90,6 +166,11 @@ func planOutput(tracks []*media.Track, plan map[string]uint32) ([]*outTrack, int
 		}
 		if ot.timescale == 0 {
 			ot.timescale = 1000
+		}
+		if r, ok := resolved[key]; ok {
+			ot.rotation = r.Rotation
+			ot.crop = r.Crop
+			ot.color = r.Color
 		}
 		if len(ot.entry) == 0 {
 			ot.entry = fallbackEntry(t)
@@ -218,7 +299,7 @@ func buildHeader(tracks []*outTrack, co64 bool) []byte {
 						o.u16(0x0100)
 					}
 					o.u16(0)
-					o.identityMatrix()
+					o.matrix(t.rotation)
 					o.u32(uint32(t.width) << 16)
 					o.u32(uint32(t.height) << 16)
 				})
@@ -248,7 +329,7 @@ func buildHeader(tracks []*outTrack, co64 bool) []byte {
 							o.box("stsd", func() {
 								o.full(0, 0)
 								o.u32(1)
-								o.b = append(o.b, t.entry...)
+								o.b = append(o.b, decorateEntry(t)...)
 							})
 							o.box("stts", func() {
 								o.full(0, 0)

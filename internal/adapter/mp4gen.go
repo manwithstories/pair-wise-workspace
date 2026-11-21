@@ -19,8 +19,15 @@ type MP4Spec struct {
 	CTTS         bool
 	// Corrupt selects a structural fault: "", "truncate" or "sample_length".
 	Corrupt string
-	// Offset is used by "truncate" and by "sample_length" (sample ordinal).
+	// Offset is used by "truncate" (byte offset) and "sample_length" (sample
+	// ordinal).
 	Offset int64
+	// CorruptTrack selects the 1-based track for sample_length, defaulting to
+	// the first track.
+	CorruptTrack int
+	// Codec overrides the video sample entry fourcc. Unsupported values let
+	// tests prove the adapter fails closed.
+	Codec string
 }
 
 // MediaCrop describes a clean aperture in coded pixels.
@@ -170,7 +177,8 @@ func BuildMP4(spec MP4Spec) (*MP4Layout, error) {
 			writeTrak(b, spec, t, sizes[t], &stcoPatches)
 		}
 		for i := 0; i < spec.UnknownBoxes; i++ {
-			b.box("skip", func() {
+			// A box type outside the ISO set the adapter interprets.
+			b.box("uunk", func() {
 				b.u32(uint32(i))
 				b.zeros(12)
 			})
@@ -198,7 +206,11 @@ func BuildMP4(spec MP4Spec) (*MP4Layout, error) {
 	}
 
 	if spec.Corrupt == "sample_length" {
-		if err := patchSampleLength(b.b, moovStart, spec); err != nil {
+		track := 0
+		if spec.CorruptTrack > 0 {
+			track = spec.CorruptTrack - 1
+		}
+		if err := patchTrackSampleLength(b.b, moovStart, track, int(spec.Offset)); err != nil {
 			return nil, err
 		}
 	}
@@ -286,7 +298,7 @@ func writeTrak(b *byteBuf, spec MP4Spec, t int, sizes []int, patches *[]stcoPatc
 			})
 			b.box("minf", func() {
 				b.box("stbl", func() {
-					writeStsd(b, spec, video)
+					writeStsd(b, spec, video, t)
 					b.box("stts", func() {
 						b.fullbox(0, 0)
 						b.u32(1)
@@ -336,12 +348,16 @@ func writeTrak(b *byteBuf, spec MP4Spec, t int, sizes []int, patches *[]stcoPatc
 	})
 }
 
-func writeStsd(b *byteBuf, spec MP4Spec, video bool) {
+func writeStsd(b *byteBuf, spec MP4Spec, video bool, track int) {
 	b.box("stsd", func() {
 		b.fullbox(0, 0)
 		b.u32(1)
 		if video {
-			b.box("avc1", func() {
+			fourcc := "avc1"
+			if spec.Codec != "" {
+				fourcc = spec.Codec
+			}
+			b.box(fourcc, func() {
 				b.zeros(6)
 				b.u16(1)
 				b.u16(0)
@@ -407,34 +423,30 @@ func writeStsd(b *byteBuf, spec MP4Spec, video bool) {
 	})
 }
 
-func patchSampleLength(prefix []byte, moovStart int, spec MP4Spec) error {
-	// Locate the stsz entry for the requested sample by scanning the prefix
-	// for the stsz box and computing its absolute entry offset.
-	want := int64(spec.Offset)
-	var found int
-	idx := moovStart
-	for {
-		i := indexBox(prefix, idx, "stsz")
-		if i < 0 {
-			break
+// patchTrackSampleLength corrupts one stsz entry by scanning the moov for the
+// Nth stsz box, which keeps the fault unambiguous for multi-track fixtures.
+// The scan is a byte-wise tag search because moov is a nested container.
+func patchTrackSampleLength(prefix []byte, moovStart, track, sample int) error {
+	seen := 0
+	for i := moovStart; i+8 <= len(prefix); i++ {
+		if string(prefix[i+4:i+8]) != "stsz" {
+			continue
 		}
 		payload := i + 8
 		if payload+12 > len(prefix) {
 			break
 		}
-		count := int(binary.BigEndian.Uint32(prefix[payload+8:]))
-		entryAt := payload + 12 + int(want)*4
-		if want < int64(count) && entryAt+4 <= len(prefix) {
+		if seen == track {
+			entryAt := payload + 12 + sample*4
+			if entryAt+4 > len(prefix) {
+				return fmt.Errorf("stsz entry is outside the fixture prefix")
+			}
 			binary.BigEndian.PutUint32(prefix[entryAt:], uint32(96<<20))
-			found++
 			return nil
 		}
-		idx = i + 8
+		seen++
 	}
-	if found == 0 {
-		return fmt.Errorf("could not locate stsz entry to corrupt")
-	}
-	return nil
+	return fmt.Errorf("track %d has no stsz table", track)
 }
 
 func indexBox(prefix []byte, from int, typ string) int {

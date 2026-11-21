@@ -71,3 +71,6 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# Local demo output and fixtures
+tmp/

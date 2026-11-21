@@ -188,6 +188,15 @@ func BuildPlan(containers []*media.Container, adapters map[string]Adapter) (*Pla
 	return plan, nil
 }
 
+// Outputs returns key to output-ID for the muxer.
+func (p *Plan) Outputs() map[string]uint32 {
+	out := make(map[string]uint32, len(p.Entries))
+	for _, e := range p.Entries {
+		out[e.TrackKey] = e.OutputID
+	}
+	return out
+}
+
 // Sign returns a stable textual signature of a plan for checkpointing.
 func (p *Plan) Sign() string {
 	var b strings.Builder

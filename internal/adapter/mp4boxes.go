@@ -86,7 +86,7 @@ func (w *mp4Walker) walk(start, end int64, depth int) ([]*boxNode, error) {
 			}
 			return nil, media.NewError(media.ClassTruncated,
 				"%d trailing bytes cannot hold a box header", end-off).
-				WithContainer(w.format).WithOffset(off).WithTolerance(0)
+				WithContainer(w.format).WithOffset(end).WithTolerance(0)
 		}
 		hdr := make([]byte, 8)
 		if _, err := w.src.ReadAt(hdr, off); err != nil {
@@ -122,12 +122,17 @@ func (w *mp4Walker) walk(start, end int64, depth int) ([]*boxNode, error) {
 				WithContainer(w.format).WithOffset(off).WithTolerance(0)
 		}
 		if off+boxSize > end {
-			cause := "box %q declares size %d but only %d bytes remain"
-			if len(hdr) < 8 {
-				cause = "box %q is truncated"
+			// Report the first byte the input could not supply, clamped to
+			// the real end of file rather than the box header that declared
+			// the overrun.
+			limit := end
+			if w.size < limit {
+				limit = w.size
 			}
-			return nil, media.NewError(media.ClassTruncated, cause, typ, boxSize, end-off).
-				WithContainer(w.format).WithOffset(off).WithTolerance(0)
+			return nil, media.NewError(media.ClassTruncated,
+				"box %q declares size %d but the input ends after %d bytes",
+				typ, boxSize, limit-off).
+				WithContainer(w.format).WithOffset(limit).WithTolerance(0)
 		}
 		node := &boxNode{typ: typ, off: off, payload: off + header, size: boxSize, header: header}
 		nodes = append(nodes, node)

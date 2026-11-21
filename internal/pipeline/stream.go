@@ -16,8 +16,10 @@ import (
 )
 
 // byteUnit is the granularity of the byte budget semaphore. A 64 MiB budget
-// becomes 16384 tokens, which is cheap to allocate once per queue.
-const byteUnit = int64(4 << 10)
+// becomes 65536 tokens, which is cheap to allocate once per queue. The unit
+// is deliberately small so the observed peak stays close to the configured
+// budget without ever exceeding it.
+const byteUnit = int64(1 << 10)
 
 // Limits bound the queue.
 type Limits struct {
