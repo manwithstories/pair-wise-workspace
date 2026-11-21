@@ -130,7 +130,8 @@ func probeTrak(r io.ReadSeeker, trak *mp4.BoxInfo, limits Limits) (model.Track, 
 		return tr, err
 	}
 
-	if err := rotationAndCrop(r, trak, th, stsd, &tr); err != nil {
+	var cropErr error
+	if err := rotationAndCrop(r, trak, th, stsd, &tr, &cropErr); err != nil {
 		return tr, err
 	}
 	if err := colorFromMP4(r, stsd, &tr); err != nil {
@@ -224,6 +225,16 @@ func probeTrak(r io.ReadSeeker, trak *mp4.BoxInfo, limits Limits) (model.Track, 
 			}
 		}
 	}
+	if cropErr != nil {
+		span := "empty"
+		if tr.Duration.Sign() > 0 {
+			end, _ := tr.End()
+			span = fmt.Sprintf("[%s, %s]", tr.Start.String(), end.String())
+		}
+		return tr, model.Wrap(model.KindInvalidMedia, "probe.mp4",
+			fmt.Sprintf("crop out of range on %dx%d frame over time range %s: %v",
+				tr.CodedWidth, tr.CodedHeight, span, cropErr), cropErr).WithTrack(tr.ID)
+	}
 	if err := tr.Validate(); err != nil {
 		return tr, err
 	}
@@ -293,7 +304,7 @@ func sampleEntry(r io.ReadSeeker, trak *mp4.BoxInfo, tr *model.Track, limits Lim
 	return stds[0], nil
 }
 
-func rotationAndCrop(r io.ReadSeeker, trak *mp4.BoxInfo, th *mp4.Tkhd, stsd *mp4.BoxInfo, tr *model.Track) error {
+func rotationAndCrop(r io.ReadSeeker, trak *mp4.BoxInfo, th *mp4.Tkhd, stsd *mp4.BoxInfo, tr *model.Track, pendingCropErr *error) error {
 	rot, err := rotationFromMatrix(th.Matrix)
 	if err != nil {
 		return model.Wrap(model.KindInvalidMedia, "probe.mp4", "rotation", err).WithTrack(tr.ID)
@@ -321,10 +332,14 @@ func rotationAndCrop(r io.ReadSeeker, trak *mp4.BoxInfo, th *mp4.Tkhd, stsd *mp4
 		if tr.CodedWidth == 0 || tr.CodedHeight == 0 {
 			return model.New(model.KindInvalidMedia, "probe.mp4", "clap on track without visual dimensions").WithTrack(tr.ID)
 		}
-		tr.Crop, err = clap.crop(tr.CodedWidth, tr.CodedHeight)
+		// Range validation happens once samples exist, so the error can name
+		// the track's time range as well as its ID.
+		crop, err := clap.crop(tr.CodedWidth, tr.CodedHeight)
 		if err != nil {
-			return model.Wrap(model.KindInvalidMedia, "probe.mp4", "clap crop", err).WithTrack(tr.ID)
+			*pendingCropErr = err
+			return nil
 		}
+		tr.Crop = crop
 	}
 
 	pasps, err := mp4.ExtractBoxWithPayload(r, stsd, mp4.BoxPath{mp4.BoxTypeAny(), mp4.BoxTypePasp()})

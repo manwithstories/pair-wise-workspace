@@ -45,6 +45,9 @@ type ColorSpec struct {
 // MP4Spec describes an MP4 fixture file.
 type MP4Spec struct {
 	Tracks []TrackSpec
+	// EditMediaTime, when non-zero, is written as an elst media_time, so the
+	// track's timeline starts that many ticks into the media.
+	EditMediaTime int32
 }
 
 // WriteMP4 writes spec to path, returning the file size.
@@ -150,7 +153,7 @@ func buildMP4(out io.WriteSeeker, spec MP4Spec, seed int64) error {
 		return err
 	}
 	for ti, t := range spec.Tracks {
-		if err := buildTrak(st.w, t, chunkOffsets[ti]); err != nil {
+		if err := buildTrak(st.w, t, chunkOffsets[ti], spec.EditMediaTime); err != nil {
 			return err
 		}
 	}
@@ -190,7 +193,7 @@ func marshalBox(w *mp4.Writer, box mp4.IImmutableBox) error {
 	return err
 }
 
-func buildTrak(w *mp4.Writer, t TrackSpec, offsets []uint32) error {
+func buildTrak(w *mp4.Writer, t TrackSpec, offsets []uint32, editMediaTime int32) error {
 	start := func(typ mp4.BoxType) error {
 		_, err := w.StartBox(&mp4.BoxInfo{Type: typ})
 		return err
@@ -201,6 +204,24 @@ func buildTrak(w *mp4.Writer, t TrackSpec, offsets []uint32) error {
 		return err
 	}
 	dur := uint32(t.Frames) * t.FrameDelta
+	if editMediaTime > 0 {
+		if _, err := w.StartBox(&mp4.BoxInfo{Type: mp4.BoxTypeEdts()}); err != nil {
+			return err
+		}
+		if err := marshalBox(w, &mp4.Elst{
+			EntryCount: 1,
+			Entries: []mp4.ElstEntry{{
+				SegmentDurationV0: dur,
+				MediaTimeV0:       editMediaTime,
+				MediaRateInteger:  1,
+			}},
+		}); err != nil {
+			return err
+		}
+		if _, err := w.EndBox(); err != nil {
+			return err
+		}
+	}
 	if err := marshalBox(w, &mp4.Tkhd{
 		TrackID:    t.ID,
 		DurationV0: dur,

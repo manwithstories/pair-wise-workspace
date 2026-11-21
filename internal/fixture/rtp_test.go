@@ -85,3 +85,33 @@ func TestPayloadIndependentOfOrder(t *testing.T) {
 		t.Fatal("different seeds produced the same payload")
 	}
 }
+
+func TestTimestampWrapFixtureSurvivesReceiver(t *testing.T) {
+	// Start the 90kHz clock just before its 32-bit modulus so the stream
+	// wraps once mid-run.
+	const clockRate = 90000
+	const startTS = uint32(0xFFFFFFFF - 60*3000)
+	pkts := Packetise(17, 1, 120, 64, clockRate, clockRate/30, 0, startTS)
+	got, faults := ApplyFaults(pkts, nil, FaultParams{})
+	if faults != 0 {
+		t.Fatalf("unexpected faults=%d", faults)
+	}
+	r, _ := rtp.NewReceiver(rtp.Config{InitialWindow: 16, MinWindow: 8, MaxWindow: 64, ClockRate: clockRate})
+	var delivered []rtp.Packet
+	for _, p := range got {
+		d, err := r.Push(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		delivered = append(delivered, d...)
+	}
+	delivered = append(delivered, r.Flush()...)
+	if len(delivered) != 120 {
+		t.Fatalf("delivered=%d", len(delivered))
+	}
+	// The receiver preserves the wrap by design; the last packet's
+	// timestamp is numerically smaller than the first's.
+	if delivered[len(delivered)-1].Timestamp >= delivered[0].Timestamp {
+		t.Fatal("expected the raw timestamps to wrap")
+	}
+}

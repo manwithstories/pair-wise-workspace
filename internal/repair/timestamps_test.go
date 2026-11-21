@@ -174,3 +174,44 @@ func TestTrackRepairsDuration(t *testing.T) {
 		}
 	}
 }
+
+func TestDriftCorrectionRemovesAccumulatedError(t *testing.T) {
+	// A clock that runs 0.1% fast produces frames 1001/30000 s apart where
+	// 1/30 s is intended.
+	const n = 300
+	samples := make([]model.Sample, n)
+	for i := range samples {
+		r := at(int64(i)*1001, 30000)
+		samples[i] = model.Sample{Index: i, DTS: r, PTS: r, Duration: at(1001, 30000)}
+	}
+	opts := Options{NominalFrameRate: at(30, 1), CorrectDrift: true}
+	out, rep, err := Timestamps(1, samples, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.DriftCorrected {
+		t.Fatal("drift was not corrected")
+	}
+	// After correction, the last sample sits exactly at (n-1)/30 s.
+	want := at(int64(n-1), 30)
+	if !out[n-1].DTS.Equal(want) {
+		t.Fatalf("last DTS=%v want %v", out[n-1].DTS, want)
+	}
+	// Every sample must still be strictly increasing.
+	for i := 1; i < n; i++ {
+		if !out[i-1].DTS.Less(out[i].DTS) {
+			t.Fatalf("not monotonic at %d", i)
+		}
+	}
+}
+
+func TestDriftCorrectionLeavesCleanStreamAlone(t *testing.T) {
+	samples := makeSamples([]int64{0, 3000, 6000, 9000}, 90000)
+	_, rep, err := Timestamps(1, samples, Options{NominalFrameRate: at(30, 1), CorrectDrift: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.DriftCorrected {
+		t.Fatalf("clean stream was re-timed: %+v", rep)
+	}
+}

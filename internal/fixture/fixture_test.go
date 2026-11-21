@@ -157,3 +157,50 @@ func TestMXFMatchesMP4(t *testing.T) {
 func readAll(path string) ([]byte, error) {
 	return os.ReadFile(path)
 }
+
+func TestEditListOffsetsTimeline(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/elst.mp4"
+	spec := MP4Spec{
+		EditMediaTime: 30000, // one second into the media
+		Tracks: []TrackSpec{{
+			ID: 1, Kind: "video", Codec: "avc1", Timescale: 30000,
+			Frames: 10, FrameDelta: 1000, Width: 64, Height: 64, SampleBytes: 16,
+		}},
+	}
+	if _, err := WriteMP4(path, spec, 3); err != nil {
+		t.Fatal(err)
+	}
+	c, err := probe.MP4(path, probe.DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := c.Tracks[0]
+	if !tr.EditOffset.Equal(clock.FromInt(1)) {
+		t.Fatalf("edit offset=%v want 1s", tr.EditOffset)
+	}
+}
+
+func TestEditListClampsSamplesToTimeline(t *testing.T) {
+	// With media_time > 0, samples whose media time precedes the edit must be
+	// trimmed: the first presented sample is the one the edit starts at.
+	dir := t.TempDir()
+	path := dir + "/elst.mp4"
+	spec := MP4Spec{
+		EditMediaTime: 5000,
+		Tracks: []TrackSpec{{
+			ID: 1, Kind: "video", Codec: "avc1", Timescale: 30000,
+			Frames: 10, FrameDelta: 1000, Width: 64, Height: 64, SampleBytes: 16,
+		}},
+	}
+	if _, err := WriteMP4(path, spec, 3); err != nil {
+		t.Fatal(err)
+	}
+	c, err := probe.MP4(path, probe.DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Tracks[0].EditOffset; !got.Equal(clock.MustNew(1, 6)) {
+		t.Fatalf("edit offset=%v want 1/6 s", got)
+	}
+}

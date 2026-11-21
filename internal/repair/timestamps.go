@@ -24,6 +24,9 @@ type Options struct {
 	// MaxDriftPPM bounds how far the observed rate may deviate before it is
 	// rejected as unusable metadata. Zero disables the check.
 	MaxDriftPPM float64
+	// CorrectDrift re-times a constant-frame-rate track onto its nominal
+	// grid, removing accumulated clock drift. It requires NominalFrameRate.
+	CorrectDrift bool
 }
 
 // Report describes one track's repair.
@@ -37,7 +40,10 @@ type Report struct {
 	AppliedOffset clock.Rational `json:"applied_offset"`
 	// DriftPPM is the observed rate error before repair, in parts per
 	// million. Positive means the media clock ran fast.
-	DriftPPM float64 `json:"drift_ppm"`
+	DriftPPM float64
+	// DriftCorrected reports that samples were re-timed onto the nominal
+	// grid.
+	DriftCorrected bool `json:"drift_ppm"`
 	// Wraps counts detected timestamp wraparounds.
 	Wraps int `json:"wraps"`
 	// Duplicates counts timestamps that repeated the previous sample.
@@ -122,7 +128,34 @@ func Timestamps(trackID uint32, samples []model.Sample, opts Options) ([]model.S
 		}
 	}
 
-	// 3. Enforce strictly increasing DTS. A duplicate or backward step is
+	// 3. Optional drift correction: a constant-frame-rate track belongs on an
+	// exact nominal grid, so each sample is placed at start + i/frameRate.
+	// This removes accumulated drift without touching the first sample.
+	if opts.CorrectDrift && !opts.NominalFrameRate.IsZero() && math.Abs(rep.DriftPPM) > 0.5 {
+		frame, err := clock.FromInt(1).Div(opts.NominalFrameRate)
+		if err != nil {
+			return nil, rep, model.Wrap(model.KindInvalidInput, "repair.timestamps", "frame duration", err).WithTrack(trackID)
+		}
+		for i := 1; i < len(dts); i++ {
+			off, err := frame.MulInt(int64(i))
+			if err != nil {
+				return nil, rep, model.Wrap(model.KindInvalidMedia, "repair.timestamps",
+					fmt.Sprintf("sample %d drift correction overflow", i), err).WithTrack(trackID)
+			}
+			next, err := dts[0].Add(off)
+			if err != nil {
+				return nil, rep, model.Wrap(model.KindInvalidMedia, "repair.timestamps",
+					fmt.Sprintf("sample %d drift correction overflow", i), err).WithTrack(trackID)
+			}
+			dts[i] = next
+		}
+		rep.DriftCorrected = true
+		rep.Notes = append(rep.Notes, fmt.Sprintf(
+			"re-timed %d samples onto the nominal %s fps grid, removing %.1f ppm of drift",
+			len(dts)-1, opts.NominalFrameRate.String(), rep.DriftPPM))
+	}
+
+	// 4. Enforce strictly increasing DTS. A duplicate or backward step is
 	// advanced by exactly one tick of the track's own time base, so the
 	// original spacing is preserved everywhere else.
 	tick := oneTick(dts[0])
@@ -144,7 +177,7 @@ func Timestamps(trackID uint32, samples []model.Sample, opts Options) ([]model.S
 		}
 	}
 
-	// 4. Rebuild samples, keeping each PTS offset relative to its original
+	// 5. Rebuild samples, keeping each PTS offset relative to its original
 	// DTS so presentation order is not silently changed.
 	for i := range out {
 		off, err := out[i].PTS.Sub(samples[i].DTS)
