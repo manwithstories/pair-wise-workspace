@@ -597,6 +597,7 @@ func (r *Runner) reorderStage(ctx context.Context, in <-chan Item, out chan<- It
 			return
 		}
 		atomic.AddInt64(&r.countReordered, 1)
+		r.emit(StageReorder, it.Camera, it.Seq, "reordered", "")
 	}
 
 	for {
