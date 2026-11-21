@@ -21,6 +21,10 @@ type MP4Spec struct {
 	Delta     int64 // sample duration in timescale units, e.g. 3003
 }
 
+// SampleBytes is the per-sample payload size; 120 samples ≈ 3.75 MiB
+// so the default fixture spans several 1 MiB pipeline chunks.
+const SampleBytes = 32 * 1024
+
 // DefaultMP4Spec is 30000/1001 fps on a 90 kHz timescale.
 func DefaultMP4Spec() MP4Spec {
 	return MP4Spec{Samples: 120, GOP: 30, Timescale: 90000, Delta: 3003}
@@ -68,7 +72,7 @@ func WriteMP4(path string, s MP4Spec) ([]int64, error) {
 		return nil, err
 	}
 	payloadOff := int64(mdat.Offset) + int64(mdat.HeaderSize)
-	sample := make([]byte, 100)
+	sample := make([]byte, SampleBytes)
 	for i := 0; i < s.Samples; i++ {
 		binary.BigEndian.PutUint32(sample, uint32(i))
 		if _, err := w.Write(sample); err != nil {
@@ -119,7 +123,7 @@ func WriteMP4(path string, s MP4Spec) ([]int64, error) {
 		{mp4.BoxTypeStss(), &mp4.Stss{EntryCount: uint32(len(syncs)), SampleNumber: syncs}},
 		{mp4.BoxTypeStsc(), &mp4.Stsc{EntryCount: 1, Entries: []mp4.StscEntry{
 			{FirstChunk: 1, SamplesPerChunk: uint32(s.Samples), SampleDescriptionIndex: 1}}}},
-		{mp4.BoxTypeStsz(), &mp4.Stsz{SampleSize: 100, SampleCount: uint32(s.Samples)}},
+		{mp4.BoxTypeStsz(), &mp4.Stsz{SampleSize: SampleBytes, SampleCount: uint32(s.Samples)}},
 		{mp4.BoxTypeStco(), &mp4.Stco{EntryCount: 1, ChunkOffset: []uint32{uint32(payloadOff)}}},
 	}
 	for _, l := range leaves {

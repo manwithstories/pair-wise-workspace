@@ -71,3 +71,7 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# generated fixtures and checkpoints
+/tmp/
+tmp/
