@@ -7,10 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"mediad/internal/fixture"
-	"mediad/internal/manifest"
 	"mediad/internal/model"
-	"mediad/internal/report"
 	"mediad/internal/txn"
 )
 
@@ -38,29 +35,6 @@ const (
 	mxfEssenceBytes  = 100000
 	headroomFraction = 0.02
 )
-
-// DemoOptions configures the demo run.
-type DemoOptions struct {
-	Seed           int64
-	Faults         []fixture.FaultKind
-	BandwidthMbps  []float64
-	InterruptAfter txn.Stage
-	Resume         bool
-	Dir            string
-	SeeksPerTrack  int
-	MaxBurst       int
-}
-
-// Result is everything the CLI prints and gates on.
-type Result struct {
-	Summary        report.Summary
-	Manifest       manifest.Manifest
-	RollbackStage  string
-	ResumeStage    string
-	InjectedFaults int
-	Notes          []string
-	ReusedStages   []string
-}
 
 // Run executes the complete demo pipeline. For a given seed and fault list it
 // is deterministic: repeated runs produce the same manifest digest.
