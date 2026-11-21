@@ -144,9 +144,19 @@ func runDemo(args []string, corrupt bool) error {
 		return err
 	}
 
-	// 6. Metrics: injected loss is the real denominator.
+	// 6. Metrics: the denominator is actual injected loss; recovered is what the
+	// receiver actually healed, so unrecoverable gaps subtract from the numerator.
+	account := fixture.AccountRecovery(logicalEvents)
+	unrecovered := gapTotal(fan)
+	injectedRecovered := account.Recovered - unrecovered
+	if injectedRecovered < 0 {
+		injectedRecovered = 0
+	}
+	if injectedRecovered > lossInjected {
+		injectedRecovered = lossInjected
+	}
 	metrics := report.Build(tl, fan.RepStats(), latencies, len(mismatches),
-		manifest.HashCount, lossInjected)
+		manifest.HashCount, lossInjected, injectedRecovered)
 
 	printAcceptance(metrics, fan, manifest, exporter.Root())
 	return nil

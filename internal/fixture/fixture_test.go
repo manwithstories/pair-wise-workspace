@@ -189,6 +189,26 @@ func TestFixtureExtremeBandwidthCliff(t *testing.T) {
 	}
 }
 
+// TestAccountRecovery verifies the injected-loss recovery denominator/numerator
+// are derived from actual (rep, original-seq) retransmissions.
+func TestAccountRecovery(t *testing.T) {
+	events := []StreamEvent{
+		{Packet: transport.SimPacket{RepIndex: 0, Seq: 1}, Dropped: true},
+		{Packet: transport.SimPacket{RepIndex: 0, Seq: 2}, Dropped: false},
+		{Packet: transport.SimPacket{RepIndex: 0, Seq: 1}, Dropped: false}, // retransmit heals seq 1
+	}
+	acc := AccountRecovery(events)
+	if acc.Injected != 1 || acc.Recovered != 1 {
+		t.Fatalf("want 1 injected/1 recovered, got %+v", acc)
+	}
+	// A loss with no retransmission stays unrecovered.
+	unhealed := AccountRecovery(append(events,
+		StreamEvent{Packet: transport.SimPacket{RepIndex: 1, Seq: 9}, Dropped: true}))
+	if unhealed.Injected != 2 || unhealed.Recovered != 1 {
+		t.Fatalf("want 2 injected/1 recovered, got %+v", unhealed)
+	}
+}
+
 // TestFixtureDeterministic proves repeated generation with the same seed is
 // bit-for-bit identical, supporting idempotent re-runs.
 func TestFixtureDeterministic(t *testing.T) {

@@ -17,7 +17,7 @@ func emptyTimeline() *timeline.Timeline {
 // TestRecoveryRateNAOnZeroLoss enforces the no-false-signal rule.
 func TestRecoveryRateNAOnZeroLoss(t *testing.T) {
 	tl := emptyTimeline()
-	m := Build(tl, nil, nil, 0, 10, 0)
+	m := Build(tl, nil, nil, 0, 10, 0, 0)
 	if m.LossRecoveryRate != "n/a" {
 		t.Fatalf("zero injected loss must report n/a, got %q", m.LossRecoveryRate)
 	}
@@ -35,7 +35,8 @@ func TestRecoveryRateAndP95(t *testing.T) {
 	for i := 1; i <= 10; i++ {
 		samples = append(samples, LatencySample{Track: "v", Ticks: int64(i * 10), Clock: model.Clock{TickRate: 1000}})
 	}
-	m := Build(tl, stats, samples, 1, 42, 12)
+	// 12 injected losses, 9 healed by retransmission -> 0.750 recovery rate.
+	m := Build(tl, stats, samples, 1, 42, 12, 9)
 	if m.LossRecoveryRate != "0.750" {
 		t.Fatalf("want 0.750 (9 recovered / 12 injected), got %q", m.LossRecoveryRate)
 	}
@@ -63,7 +64,7 @@ func TestRecoveryRateAndP95(t *testing.T) {
 func TestP95EmptyAndIncompleteTracks(t *testing.T) {
 	tl := emptyTimeline()
 	tl.Incomplete = []string{"b", "a"}
-	m := Build(tl, nil, nil, 0, 0, 0)
+	m := Build(tl, nil, nil, 0, 0, 0, 0)
 	if m.P95LatencyMs != 0 || m.LossRecoveryRate != "n/a" {
 		t.Fatalf("empty inputs must yield zero latency and n/a rate: %+v", m)
 	}

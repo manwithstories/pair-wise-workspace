@@ -209,6 +209,42 @@ func Perturb(rng *rand.Rand, events []StreamEvent, duplicateEvery, reorderWindow
 	return out
 }
 
+// RecoveryAccount reports, for the synthetic burst, how many injected packet
+// losses were healed by an in-window retransmission. It works on the actual
+// delivered (non-dropped) events: an injected loss counts as recovered when a
+// later event carries the same (rep, original sequence) pair.
+type RecoveryAccount struct {
+	Injected  int
+	Recovered int
+}
+
+// AccountRecovery derives injected-loss recovery from the generated events.
+func AccountRecovery(events []StreamEvent) RecoveryAccount {
+	type key struct {
+		rep int
+		seq uint16
+	}
+	// Collect every sequence that had a dropped original, and whether any
+	// subsequent delivered event reuses that exact (rep, seq).
+	dropped := map[key]bool{}
+	delivered := map[key]bool{}
+	for _, ev := range events {
+		k := key{ev.Packet.RepIndex, ev.Packet.Seq}
+		if ev.Dropped {
+			dropped[k] = true
+			continue
+		}
+		delivered[k] = true
+	}
+	rec := RecoveryAccount{Injected: len(dropped)}
+	for k := range dropped {
+		if delivered[k] {
+			rec.Recovered++
+		}
+	}
+	return rec
+}
+
 // RTPPacket converts a SimPacket to a pion RTP packet for external verification.
 func RTPPacket(p transport.SimPacket) *rtp.Packet {
 	return &rtp.Packet{Header: rtp.Header{Version: 2, PayloadType: 96,

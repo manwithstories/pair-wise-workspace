@@ -35,10 +35,11 @@ type LatencySample struct {
 }
 
 // Build collects metrics from the pipeline stages. lossInjected is the number
-// of packets the synthetic network actually dropped.
+// of packets the synthetic network actually dropped; injectedRecovered is how
+// many of those were healed by in-window retransmission (the rest became gaps).
 func Build(tl *timeline.Timeline, repStats []transport.Stats,
 	latencies []LatencySample, boundaryMismatches int, frameHashCount int,
-	lossInjected int) Metrics {
+	lossInjected, injectedRecovered int) Metrics {
 
 	m := Metrics{
 		AVSyncMaxMs:      tl.SyncMaxMs,
@@ -48,16 +49,16 @@ func Build(tl *timeline.Timeline, repStats []transport.Stats,
 		PerRepRecovery:   map[string]int{},
 	}
 	for _, s := range repStats {
-		m.LossRecovered += s.Recovered
 		m.LossGaps += s.Gaps
 		m.PerRepRecovery[s.Rep] = s.Recovered
 	}
 	m.LossInjected = lossInjected
+	m.LossRecovered = injectedRecovered
 	switch {
 	case lossInjected == 0:
 		m.LossRecoveryRate = "n/a" // no losses: a numeric rate would be a false signal
 	default:
-		rate := float64(m.LossRecovered) / float64(lossInjected)
+		rate := float64(injectedRecovered) / float64(lossInjected)
 		m.LossRecoveryRate = fmt.Sprintf("%.3f", rate)
 	}
 	m.P95LatencyMs = percentileLatency(latencies, 95)
