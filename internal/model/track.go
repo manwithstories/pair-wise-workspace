@@ -152,7 +152,7 @@ type Track struct {
 	// FrameRate is the nominal sample rate in samples/second, when known.
 	FrameRate clock.Rational `json:"frame_rate"`
 
-	Samples []Sample `json:"-"`
+	Samples []Sample `json:"samples,omitempty"`
 }
 
 // DisplayWidth returns the width after rotation and cropping. Rotation by 90
@@ -200,11 +200,20 @@ func (t Track) Validate() error {
 	if t.Duration.Sign() < 0 {
 		return New(KindInvalidMedia, "model", "negative duration").WithTrack(t.ID)
 	}
-	if _, err := t.Crop.Width(t.CodedWidth); err != nil {
-		return New(KindInvalidMedia, "model", err.Error()).WithTrack(t.ID)
-	}
-	if _, err := t.Crop.Height(t.CodedHeight); err != nil {
-		return New(KindInvalidMedia, "model", err.Error()).WithTrack(t.ID)
+	// Crop only applies to picture tracks; audio and data tracks carry no
+	// clean aperture and legitimately have zero coded dimensions.
+	if t.Kind == Video {
+		if t.CodedWidth == 0 || t.CodedHeight == 0 {
+			return New(KindInvalidMedia, "model", "video track has zero coded dimensions").WithTrack(t.ID)
+		}
+		if _, err := t.Crop.Width(t.CodedWidth); err != nil {
+			return New(KindInvalidMedia, "model", err.Error()).WithTrack(t.ID)
+		}
+		if _, err := t.Crop.Height(t.CodedHeight); err != nil {
+			return New(KindInvalidMedia, "model", err.Error()).WithTrack(t.ID)
+		}
+	} else if !t.Crop.IsZero() {
+		return New(KindInvalidMedia, "model", "crop on a non-video track").WithTrack(t.ID)
 	}
 	for i := 1; i < len(t.Samples); i++ {
 		if !t.Samples[i-1].DTS.Less(t.Samples[i].DTS) {

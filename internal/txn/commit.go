@@ -75,6 +75,8 @@ type Manager struct {
 	maxStageBytes int64
 	// corrupt lists stages whose committed artifact failed verification.
 	corrupt []Stage
+	// rolledBack is the stage the last Recover rolled back to.
+	rolledBack Stage
 }
 
 // Open prepares a manager rooted at dir, creating the directory and its WAL.
@@ -95,6 +97,30 @@ func Open(dir string, maxStageBytes int64) (*Manager, error) {
 
 // Close closes the WAL.
 func (m *Manager) Close() error { return m.wal.Close() }
+
+// WAL exposes the underlying log for callers that need to append their own
+// records, such as fault-injection tests.
+func (m *Manager) WAL() *WAL { return m.wal }
+
+// AppendTornTail simulates a crash in the middle of a record write.
+func (m *Manager) AppendTornTail() error { return m.wal.AppendTornTail() }
+
+// Rescan refreshes the manager's view of the log after this process appended
+// records, so Recover can evaluate the current contents rather than the
+// snapshot taken at Open.
+func (m *Manager) Rescan() error {
+	res, err := m.wal.Rescan()
+	if err != nil {
+		return err
+	}
+	m.scan = res
+	m.corrupt = nil
+	return nil
+}
+
+// RollbackStage returns the stage that was kept by the last recovery rollback,
+// or the empty string when no rollback occurred.
+func (m *Manager) RollbackStage() string { return string(m.rolledBack) }
 
 // Scan exposes the WAL scan performed at open.
 func (m *Manager) Scan() ScanResult { return m.scan }
@@ -260,6 +286,7 @@ func (m *Manager) Recover() (resume Stage, err error) {
 			if err := m.RollbackTo(prev, fmt.Sprintf("artifact for %s failed verification", s)); err != nil {
 				return "", model.Wrap(model.KindRecovery, "txn.recover", "rollback", err)
 			}
+			m.rolledBack = prev
 			return firstMissing(m.Committed()), nil
 		}
 		return s, nil

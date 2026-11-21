@@ -7,7 +7,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"math/rand"
 	"os"
 	"path/filepath"
 
@@ -75,7 +74,6 @@ type mp4State struct {
 
 func buildMP4(out io.WriteSeeker, spec MP4Spec, seed int64) error {
 	st := &mp4State{w: mp4.NewWriter(out)}
-	rng := rand.New(rand.NewSource(seed))
 
 	if _, err := st.w.StartBox(&mp4.BoxInfo{Type: mp4.BoxTypeFtyp()}); err != nil {
 		return err
@@ -124,9 +122,7 @@ func buildMP4(out io.WriteSeeker, spec MP4Spec, seed int64) error {
 		buf := make([]byte, t.SampleBytes)
 		for i := 0; i < t.Frames; i++ {
 			chunkOffsets[ti][i] = uint32(cur)
-			for j := range buf {
-				buf[j] = byte(rng.Intn(256))
-			}
+			buf = Payload(seed, t.ID, i, t.SampleBytes, buf)
 			if _, err := out.Write(buf); err != nil {
 				return err
 			}
@@ -321,8 +317,14 @@ func buildStsd(w *mp4.Writer, t TrackSpec) error {
 		if _, err := w.StartBox(&mp4.BoxInfo{Type: mp4.BoxTypeMp4a()}); err != nil {
 			return err
 		}
-		// Marshal a plain audio entry without the dynamic QuickTime fields.
-		if _, err := mp4.Marshal(w, &audioEntry{SampleRate: t.Timescale << 16, ChannelCount: 2, SampleSize: 16}, mp4.Context{}); err != nil {
+		// A plain ISO audio entry: the QuickTime dynamic fields stay disabled
+		// because the writer context is not QuickTime-compatible.
+		if _, err := mp4.Marshal(w, &mp4.AudioSampleEntry{
+			SampleEntry:  mp4.SampleEntry{AnyTypeBox: mp4.AnyTypeBox{Type: mp4.BoxTypeMp4a()}, DataReferenceIndex: 1},
+			ChannelCount: 2,
+			SampleSize:   16,
+			SampleRate:   t.Timescale << 16,
+		}, mp4.Context{}); err != nil {
 			return err
 		}
 		if _, err := w.EndBox(); err != nil {
@@ -377,22 +379,6 @@ func buildStsd(w *mp4.Writer, t TrackSpec) error {
 	}
 	return nil
 }
-
-// audioEntry is a minimal audio sample entry that avoids the dynamic
-// QuickTime fields of mp4.AudioSampleEntry.
-type audioEntry struct {
-	mp4.Box
-	Reserved           [6]uint8 `mp4:"0,size=8,const=0"`
-	DataReferenceIndex uint16   `mp4:"1,size=16"`
-	Reserved2          [8]uint8 `mp4:"2,size=8,const=0"`
-	ChannelCount       uint16   `mp4:"3,size=16"`
-	SampleSize         uint16   `mp4:"4,size=16"`
-	PreDefined         uint16   `mp4:"5,size=16"`
-	Reserved3          uint16   `mp4:"6,size=16,const=0"`
-	SampleRate         uint32   `mp4:"7,size=32"`
-}
-
-func (*audioEntry) GetType() mp4.BoxType { return mp4.BoxTypeMp4a() }
 
 // writeClap writes a clean-aperture box from the track spec.
 func writeClap(w *mp4.Writer, t TrackSpec) error {

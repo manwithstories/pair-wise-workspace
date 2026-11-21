@@ -247,14 +247,16 @@ func buildMXF(spec MXFSpec, seed int64) ([]byte, error) {
 	// Essence: one element per track, seeded bytes. Elements are contiguous
 	// so a reader can attribute every byte to its track.
 	var essences [][]byte
+	unit := make([]byte, 0, 8192)
 	for _, t := range spec.Tracks {
 		size := int(t.EditUnits) * t.EssenceBytes
-		if size <= 0 || size > 64<<20 {
+		if t.EssenceBytes <= 0 || size <= 0 || size > 64<<20 {
 			return nil, fmt.Errorf("track %d essence size %d out of range", t.TrackID, size)
 		}
-		buf := make([]byte, size)
-		for i := range buf {
-			buf[i] = byte(rng.Intn(256))
+		buf := make([]byte, 0, size)
+		for i := 0; i < int(t.EditUnits); i++ {
+			unit = Payload(seed, t.TrackID, i, t.EssenceBytes, unit)
+			buf = append(buf, unit...)
 		}
 		essences = append(essences, klv(probe.EssenceKey(t.Video, t.TrackID), buf))
 	}

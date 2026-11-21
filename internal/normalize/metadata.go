@@ -78,20 +78,19 @@ func Track(t *model.Track) (Result, error) {
 		if t.CodedWidth == 0 || t.CodedHeight == 0 {
 			return res, model.New(model.KindInvalidMedia, "normalize", "video track has zero coded dimensions").WithTrack(t.ID)
 		}
+		cleanW, err := t.Crop.Width(t.CodedWidth)
+		if err != nil {
+			return res, cropError(t, err)
+		}
+		cleanH, err := t.Crop.Height(t.CodedHeight)
+		if err != nil {
+			return res, cropError(t, err)
+		}
+		if cleanW == 0 || cleanH == 0 {
+			return res, cropError(t, fmt.Errorf("crop leaves an empty %dx%d frame", cleanW, cleanH))
+		}
 	} else if !t.Crop.IsZero() {
 		return res, model.New(model.KindInvalidMedia, "normalize", "crop on a non-video track").WithTrack(t.ID)
-	}
-
-	cleanW, err := t.Crop.Width(t.CodedWidth)
-	if err != nil {
-		return res, cropError(t, err)
-	}
-	cleanH, err := t.Crop.Height(t.CodedHeight)
-	if err != nil {
-		return res, cropError(t, err)
-	}
-	if t.Kind == model.Video && (cleanW == 0 || cleanH == 0) {
-		return res, cropError(t, fmt.Errorf("crop leaves an empty %dx%d frame", cleanW, cleanH))
 	}
 
 	dec := ResolveColor(t.ColorCandidates)

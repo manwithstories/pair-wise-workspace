@@ -50,9 +50,11 @@ type Summary struct {
 
 	ManifestSHA256 string `json:"manifest_sha256"`
 
-	// RollbackStage and ResumeStage are empty when no interruption occurred.
-	RollbackStage string `json:"rollback_stage,omitempty"`
-	ResumeStage   string `json:"resume_stage,omitempty"`
+	// RollbackStage and ResumeStage are always emitted, as empty strings
+	// when no interruption or rollback occurred, so consumers can rely on
+	// the field being present.
+	RollbackStage string `json:"rollback_stage"`
+	ResumeStage   string `json:"resume_stage"`
 	// InjectedFaults counts every fault the run injected.
 	InjectedFaults int `json:"injected_faults"`
 
@@ -126,22 +128,32 @@ func (b Builder) Build() Summary {
 	if digest, err := b.Manifest.Digest(); err == nil {
 		s.ManifestSHA256 = digest
 	}
+	// Tracks run in parallel over one timeline, so the aggregate bitrate is
+	// all delivered bytes divided by the timeline span, not by the sum of
+	// per-track durations.
 	var totalBytes int64
-	var totalSeconds float64
+	var spanUS int64 = -1
+	var firstUS, lastUS int64
 	for _, t := range b.Manifest.Tracks {
 		sec := float64(t.ActualEndUS-t.ActualStartUS) / 1e6
 		if sec <= 0 {
 			continue
 		}
 		totalBytes += int64(t.ActualBitrateKbps * 1000 / 8 * sec)
-		totalSeconds += sec
+		if spanUS < 0 || t.ActualStartUS < firstUS {
+			firstUS = t.ActualStartUS
+		}
+		if spanUS < 0 || t.ActualEndUS > lastUS {
+			lastUS = t.ActualEndUS
+		}
+		spanUS = lastUS - firstUS
 		s.TrackBitrates = append(s.TrackBitrates, TrackBitrate{
 			TrackID: t.TrackID, TargetBitrateKbps: t.TargetBitrateKbps,
 			ActualBitrateKbps: t.ActualBitrateKbps, DeltaPct: t.BitrateDeltaPct,
 		})
 	}
-	if totalSeconds > 0 {
-		s.ActualBitrateKbps = float64(totalBytes*8) / 1000 / totalSeconds
+	if spanUS > 0 {
+		s.ActualBitrateKbps = float64(totalBytes*8) / 1000 / (float64(spanUS) / 1e6)
 	}
 	if b.TargetBitrateKbps > 0 {
 		s.BitrateDeltaPct = (s.ActualBitrateKbps - b.TargetBitrateKbps) / b.TargetBitrateKbps * 100

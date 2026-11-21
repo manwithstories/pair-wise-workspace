@@ -275,5 +275,40 @@ func (w *WAL) TruncateTo(off int64) error {
 	return nil
 }
 
+// Rescan re-reads the log from the start, refreshing the valid prefix and
+// sequence counter. It is needed after this process itself has appended
+// records and a caller wants to run recovery over the current contents.
+func (w *WAL) Rescan() (ScanResult, error) {
+	res, err := w.scan()
+	if err != nil {
+		return res, err
+	}
+	if _, err := w.f.Seek(res.ValidBytes, io.SeekStart); err != nil {
+		return res, err
+	}
+	w.size = res.ValidBytes
+	w.seq = 0
+	if n := len(res.Records); n > 0 {
+		w.seq = res.Records[n-1].Seq
+	}
+	return res, nil
+}
+
+// AppendTornTail writes a partial frame header and fsyncs, reproducing a
+// process that died mid-record. The prefix stays valid; the tail will be
+// discarded on the next open.
+func (w *WAL) AppendTornTail() error {
+	// A length prefix with no body and no checksum: unambiguously torn.
+	frame := []byte{0, 0, 0, 64}
+	if _, err := w.f.Write(frame); err != nil {
+		return err
+	}
+	if err := w.f.Sync(); err != nil {
+		return err
+	}
+	w.size += int64(len(frame))
+	return nil
+}
+
 // Close closes the log.
 func (w *WAL) Close() error { return w.f.Close() }
