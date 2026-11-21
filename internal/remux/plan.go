@@ -41,8 +41,6 @@ type Sample struct {
 	// DurationTick is the source-declared duration in Segment ticks, or 0 when
 	// the muxer must derive it from decode deltas.
 	DurationTick int64
-	// StaticDuration marks tracks whose samples all share DefaultDuration.
-	StaticDuration bool
 }
 
 // TrackPlan is a validated track plus its side data.
