@@ -139,6 +139,23 @@ class PipelineTests(TempDirMixin, unittest.TestCase):
         self.assertEqual(statuses[Stage.PROBE], "reused")
         self.assertEqual([e.code for e in resumed.errors], [])
 
+    def test_resume_after_segment_corruption_redoes_encode(self) -> None:
+        from avtimeline.errors import Stage as _Stage
+
+        result = run_pipeline(
+            self.path("run"), force_samples=True, break_at=_Stage.ENCODE
+        )
+        target = result.encoded[3].path
+        with open(target, "r+b") as handle:
+            handle.truncate(64)
+        resumed = run_pipeline(self.path("run"), resume=True)
+        statuses = {record.stage: record.status for record in resumed.stages}
+        self.assertEqual(resumed.checkpoint_status, "broken_artifact")
+        self.assertEqual(statuses[_Stage.ENCODE], "done")
+        self.assertEqual(statuses[_Stage.NORMALIZE], "reused")
+        self.assertEqual([e.code for e in resumed.errors], [])
+        self.assertGreaterEqual(resumed.aligned_segments, 6)
+
     def test_corrupt_sample_stop_policy_fails(self) -> None:
         config = make_config(policy="stop")
         result = run_pipeline(
