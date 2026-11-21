@@ -38,7 +38,7 @@ recovered_stage=2 resume_ms=<ms> rollback_bytes=<bytes> output_sha256=<64 hex>
 | `plan --input I [--map ...]` | 只打印校验后的映射，不写媒体 |
 | `summarize --dir D [--json]` | 打印轨道映射、样本数、时间范围与双 SHA-256 |
 
-损坏类型：`truncated-box`、`corrupt-sample-table`、`tail-truncation`、`corrupt-sample`、`journal-mismatch`。
+损坏类型：`truncated-box`、`corrupt-sample-table`、`tail-truncation`、`corrupt-sample`、`unknown-required-box`、`zero-timescale`、`journal-mismatch`。
 
 ## 退出码
 
@@ -68,7 +68,7 @@ demux/validate → mapping → stream(有界背压) → mux/摘要
 - `internal/journal`：每阶段 begin/commit 记录，commit 带输入指纹、输出长度与前缀摘要。
 - `internal/txn`：阶段提交、幂等恢复、未提交尾部回滚、断点续跑。
 - `internal/fixture`：确定性 MP4 夹具与四类单点损坏生成器。
-- `internal/verify`、`internal/safepath`：产物核对与工作目录约束。
+- `internal/verify`、`internal/summarize`、`internal/safepath`：产物核对、输出摘要与工作目录约束。
 
 ## 约束
 
