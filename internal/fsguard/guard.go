@@ -161,6 +161,11 @@ func CreateOutput(target string) (*AtomicFile, error) {
 // Write implements io.Writer.
 func (a *AtomicFile) Write(p []byte) (int, error) { return a.tmp.Write(p) }
 
+// Seek implements io.Seeker, which the MP4 writer needs to patch box sizes.
+func (a *AtomicFile) Seek(offset int64, whence int) (int64, error) {
+	return a.tmp.Seek(offset, whence)
+}
+
 // Sync flushes to stable storage.
 func (a *AtomicFile) Sync() error { return a.tmp.Sync() }
 
