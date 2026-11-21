@@ -70,13 +70,21 @@ func TestFinalize_RerunsHaveIdenticalSHA256(t *testing.T) {
 	if h1 == "" || h1 != h2 {
 		t.Fatalf("reproducible digest required, got %q vs %q", h1, h2)
 	}
-	// A content change must move the digest.
+	// A stable-content change must move the digest; timing fields are
+	// deliberately excluded so reruns stay bit-identical.
 	in := sampleInputs()
-	in.ResumeMS = 9999
+	in.Cuts = append(in.Cuts, segment.Cut{Track: model.TrackVoice, Index: 9})
 	r3 := Build(in)
 	h3, _ := r3.Finalize()
 	if h3 == h1 {
-		t.Fatal("changed input must change sha256")
+		t.Fatal("changed stable content must change sha256")
+	}
+	// Changing only volatile timing must keep the digest stable.
+	timed := sampleInputs()
+	timed.ElapsedMS = 98765
+	timed.ResumeMS = 4321
+	if h, _ := Build(timed).Finalize(); h != h1 {
+		t.Fatalf("timing-only change must not move sha256, got %s want %s", h, h1)
 	}
 }
 
@@ -106,10 +114,10 @@ func TestRecheck_DetectsTampering(t *testing.T) {
 	if err := r.WriteTo(path); err != nil {
 		t.Fatal(err)
 	}
-	// Tamper with content but keep the old digest field: marshal directly,
-	// bypassing Finalize which would recompute sha256.
+	// Tamper with stable content but keep the old digest field: marshal
+	// directly, bypassing Finalize which would recompute sha256.
 	loaded, _ := Read(path)
-	loaded.ResumeMS = 777
+	loaded.Segments = loaded.Segments + 1
 	data, err := json.MarshalIndent(loaded, "", "  ")
 	if err != nil {
 		t.Fatal(err)

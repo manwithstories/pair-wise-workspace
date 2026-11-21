@@ -103,12 +103,30 @@ func Build(in Inputs) *Report {
 	return r
 }
 
-// canonical serializes the report without the self-referential sha256 field,
-// using a fixed key order (encoding/json sorts map and struct fields).
+// canonicalReport contains only the stable content fields. Volatile timing
+// metadata (ElapsedMS, ResumeMS) is deliberately excluded so the digest is
+// identical across reruns even though wall-clock timings differ.
+type canonicalReport struct {
+	Segments       int                          `json:"segments"`
+	Cuts           []CutCount                   `json:"cuts"`
+	SilenceMS      []audio.Interval             `json:"silence_ms"`
+	Duplicates     []fingerprint.DuplicateGroup `json:"duplicates"`
+	FirstBadOffset *BadOffset                   `json:"first_bad_offset"`
+	BlockedNode    string                       `json:"blocked_node"`
+}
+
+// canonical serializes the stable subset of the report, using a fixed field
+// order (encoding/json emits struct fields in declaration order).
 func (r *Report) canonical() ([]byte, error) {
-	cp := *r
-	cp.SHA256 = ""
-	data, err := json.MarshalIndent(&cp, "", "  ")
+	c := canonicalReport{
+		Segments:       r.Segments,
+		Cuts:           r.Cuts,
+		SilenceMS:      r.SilenceMS,
+		Duplicates:     r.Duplicates,
+		FirstBadOffset: r.FirstBadOffset,
+		BlockedNode:    r.BlockedNode,
+	}
+	data, err := json.MarshalIndent(&c, "", "  ")
 	if err != nil {
 		return nil, err
 	}
