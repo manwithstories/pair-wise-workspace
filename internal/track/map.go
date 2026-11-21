@@ -61,11 +61,8 @@ const (
 	KindAV1
 	KindAAC
 	KindOpus
-	KindVorbis
 	KindFLAC
-	KindPCM
-	KindWebVTT
-	KindSRT
+	KindText
 )
 
 // Mapping describes how one Matroska codec is represented in MP4.
@@ -86,13 +83,8 @@ var codecs = map[string]Mapping{
 	"V_AV1":            {Kind: KindAV1, Entry: "av01", ConfigBox: "av1C"},
 	"A_AAC":            {Kind: KindAAC, Entry: "mp4a", ConfigBox: "esds"},
 	"A_OPUS":           {Kind: KindOpus, Entry: "Opus", ConfigBox: "dOps"},
-	"A_VORBIS":         {Kind: KindVorbis, Entry: "mp4a", ConfigBox: "esds"},
 	"A_FLAC":           {Kind: KindFLAC, Entry: "fLaC", ConfigBox: "dfLa"},
-	"A_PCM/INT/LIT":    {Kind: KindPCM, Entry: "ipcm", ConfigBox: ""},
-	"S_TEXT/UTF8":      {Kind: KindSRT, Entry: "tx3g", ConfigBox: ""},
-	"S_TEXT/WEBVTT":    {Kind: KindWebVTT, Entry: "wvtt", ConfigBox: ""},
-	"S_TEXT/ASS":       {Kind: KindSRT, Entry: "tx3g", ConfigBox: ""},
-	"S_TEXT/SSA":       {Kind: KindSRT, Entry: "tx3g", ConfigBox: ""},
+	"S_TEXT/UTF8":      {Kind: KindText, Entry: "sbtt", ConfigBox: ""},
 }
 
 // CodecFor resolves a Matroska CodecID. Codec IDs with a suffix such as
@@ -219,7 +211,7 @@ func validate(s Source, m Mapping) error {
 			return fault.New(fault.StageMap,
 				fmt.Errorf("%w: video track has zero dimensions", fault.ErrMalformed)).OnTrack(s.Number)
 		}
-	case KindAAC, KindOpus, KindVorbis, KindFLAC, KindPCM:
+	case KindAAC, KindOpus, KindFLAC:
 		if s.Type != TypeAudio {
 			return fault.New(fault.StageMap, fmt.Errorf("%w: audio codec on %s track", errUnsupportedShape, s.Type)).OnTrack(s.Number)
 		}
@@ -231,7 +223,7 @@ func validate(s Source, m Mapping) error {
 			return fault.New(fault.StageMap,
 				fmt.Errorf("%w: audio track has zero channels", fault.ErrMalformed)).OnTrack(s.Number)
 		}
-	case KindSRT, KindWebVTT:
+	case KindText:
 		if s.Type != TypeSubtitle {
 			return fault.New(fault.StageMap, fmt.Errorf("%w: subtitle codec on %s track", errUnsupportedShape, s.Type)).OnTrack(s.Number)
 		}
@@ -247,7 +239,7 @@ func configMode(k PayloadKind) ConfigMode {
 		return ConfigAVCC
 	case KindHEVC:
 		return ConfigHVCC
-	case KindAAC, KindVorbis:
+	case KindAAC:
 		return ConfigESDS
 	case KindOpus:
 		return ConfigDOps
