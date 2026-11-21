@@ -40,22 +40,6 @@ const (
 	KindRollback Kind = 4
 )
 
-// String returns the record kind's name.
-func (k Kind) String() string {
-	switch k {
-	case KindBegin:
-		return "begin"
-	case KindData:
-		return "data"
-	case KindCommit:
-		return "commit"
-	case KindRollback:
-		return "rollback"
-	default:
-		return fmt.Sprintf("kind(%d)", k)
-	}
-}
-
 // Record is one scanned WAL entry.
 type Record struct {
 	Seq     uint64
@@ -90,7 +74,22 @@ type WAL struct {
 	size int64
 }
 
-// OpenWAL opens (or creates) the log at path and scans its valid prefix.
+// String returns the record kind's name.
+func (k Kind) String() string {
+	switch k {
+	case KindBegin:
+		return "begin"
+	case KindData:
+		return "data"
+	case KindCommit:
+		return "commit"
+	case KindRollback:
+		return "rollback"
+	default:
+		return fmt.Sprintf("kind(%d)", k)
+	}
+}
+
 func OpenWAL(path string) (*WAL, ScanResult, error) {
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o644)
 	if err != nil {
@@ -113,7 +112,6 @@ func OpenWAL(path string) (*WAL, ScanResult, error) {
 	return w, res, nil
 }
 
-// Path returns the log's file path.
 func (w *WAL) Path() string { return w.path }
 
 // LastSeq returns the sequence number of the last valid record.
@@ -170,63 +168,6 @@ func (w *WAL) scan() (ScanResult, error) {
 	return res, nil
 }
 
-func (w *WAL) fileSize() int64 {
-	st, err := w.f.Stat()
-	if err != nil {
-		return w.size
-	}
-	return st.Size()
-}
-
-// readRecord reads one frame at off. A nil record with no reason means clean
-// EOF; a reason means the frame is torn or checksum-invalid.
-func (w *WAL) readRecord(off int64) (*Record, int64, string) {
-	if _, err := w.f.Seek(off, io.SeekStart); err != nil {
-		return nil, off, err.Error()
-	}
-	var lenBuf [4]byte
-	if _, err := io.ReadFull(w.f, lenBuf[:]); err != nil {
-		if err == io.EOF {
-			return nil, off, ""
-		}
-		return nil, off, "torn frame length: " + err.Error()
-	}
-	bodyLen := binary.BigEndian.Uint32(lenBuf[:])
-	if bodyLen == 0 || bodyLen > maxRecord {
-		return nil, off, fmt.Sprintf("frame at %d declares implausible body length %d", off, bodyLen)
-	}
-	body := make([]byte, bodyLen)
-	if _, err := io.ReadFull(w.f, body); err != nil {
-		return nil, off, "torn frame body: " + err.Error()
-	}
-	var crcBuf [4]byte
-	if _, err := io.ReadFull(w.f, crcBuf[:]); err != nil {
-		return nil, off, "torn frame checksum: " + err.Error()
-	}
-	want := binary.BigEndian.Uint32(crcBuf[:])
-	if got := crc32.ChecksumIEEE(body); got != want {
-		return nil, off, fmt.Sprintf("frame at %d checksum %08x, want %08x", off, got, want)
-	}
-	if len(body) < 11 {
-		return nil, off, fmt.Sprintf("frame at %d is too short", off)
-	}
-	kind := Kind(body[0])
-	if kind < KindBegin || kind > KindRollback {
-		return nil, off, fmt.Sprintf("frame at %d has unknown kind %d", off, kind)
-	}
-	stageLen := int(binary.BigEndian.Uint16(body[1:3]))
-	if 3+stageLen+8 > len(body) {
-		return nil, off, fmt.Sprintf("frame at %d stage length overruns body", off)
-	}
-	stage := string(body[3 : 3+stageLen])
-	seq := binary.BigEndian.Uint64(body[3+stageLen : 11+stageLen])
-	payload := append([]byte(nil), body[11+stageLen:]...)
-	return &Record{
-		Seq: seq, Kind: kind, Stage: stage, Payload: payload, Offset: off,
-	}, off + int64(frameHead+int(bodyLen)+frameTail), ""
-}
-
-// Append writes and fsyncs one record.
 func (w *WAL) Append(kind Kind, stage string, payload []byte) (Record, error) {
 	if kind < KindBegin || kind > KindRollback {
 		return Record{}, fmt.Errorf("txn: invalid record kind %d", kind)
@@ -260,7 +201,6 @@ func (w *WAL) Append(kind Kind, stage string, payload []byte) (Record, error) {
 	return rec, nil
 }
 
-// TruncateTo discards bytes past off. It is used to drop a corrupt tail.
 func (w *WAL) TruncateTo(off int64) error {
 	if err := w.f.Truncate(off); err != nil {
 		return err
@@ -275,9 +215,6 @@ func (w *WAL) TruncateTo(off int64) error {
 	return nil
 }
 
-// Rescan re-reads the log from the start, refreshing the valid prefix and
-// sequence counter. It is needed after this process itself has appended
-// records and a caller wants to run recovery over the current contents.
 func (w *WAL) Rescan() (ScanResult, error) {
 	res, err := w.scan()
 	if err != nil {
@@ -294,9 +231,6 @@ func (w *WAL) Rescan() (ScanResult, error) {
 	return res, nil
 }
 
-// AppendTornTail writes a partial frame header and fsyncs, reproducing a
-// process that died mid-record. The prefix stays valid; the tail will be
-// discarded on the next open.
 func (w *WAL) AppendTornTail() error {
 	// A length prefix with no body and no checksum: unambiguously torn.
 	frame := []byte{0, 0, 0, 64}
@@ -310,5 +244,4 @@ func (w *WAL) AppendTornTail() error {
 	return nil
 }
 
-// Close closes the log.
 func (w *WAL) Close() error { return w.f.Close() }

@@ -10,7 +10,6 @@ import (
 
 	pionrtp "github.com/pion/rtp"
 
-	"mediad/internal/clock"
 	"mediad/internal/model"
 )
 
@@ -212,8 +211,7 @@ func (r *Receiver) Push(p *pionrtp.Packet) ([]Packet, error) {
 		r.stats.Duplicates++
 		return nil, nil
 	}
-	if existing, ok := r.buffer[seq]; ok {
-		_ = existing
+	if _, ok := r.buffer[seq]; ok {
 		r.stats.Duplicates++
 		return nil, nil
 	}
@@ -242,66 +240,6 @@ func (r *Receiver) Flush() []Packet {
 	return r.drain(true)
 }
 
-func (r *Receiver) drain(force bool) []Packet {
-	var out []Packet
-	for {
-		if p, ok := r.buffer[r.next]; ok {
-			delete(r.buffer, r.next)
-			r.delivered[p.Seq] = true
-			if p.Reordered {
-				r.stats.Reordered++
-			}
-			r.stats.Delivered++
-			out = append(out, *p)
-			r.next++
-			continue
-		}
-		if len(r.buffer) == 0 {
-			return out
-		}
-		limit := r.maxSeen
-		if !force {
-			w := uint64(r.window)
-			if r.maxSeen < r.next+w {
-				return out
-			}
-			limit = r.maxSeen - w
-		}
-		minSeq := r.lowestBuffered()
-		skipTo := minSeq
-		if !force && skipTo > limit+1 {
-			skipTo = limit + 1
-		}
-		if skipTo <= r.next {
-			// Cannot make progress without exceeding the window.
-			return out
-		}
-		r.markLost(r.next, skipTo)
-		r.next = skipTo
-	}
-}
-
-func (r *Receiver) lowestBuffered() uint64 {
-	min := ^uint64(0)
-	for s := range r.buffer {
-		if s < min {
-			min = s
-		}
-	}
-	return min
-}
-
-func (r *Receiver) markLost(from, to uint64) {
-	for s := from; s < to; s++ {
-		if r.delivered[s] {
-			continue
-		}
-		r.lostSet[s] = true
-		r.stats.Lost++
-		r.stats.MissingSeqs = append(r.stats.MissingSeqs, s)
-	}
-}
-
 // Stats returns a snapshot of the receiver's counters.
 func (r *Receiver) Stats() Stats {
 	s := r.stats
@@ -310,38 +248,4 @@ func (r *Receiver) Stats() Stats {
 	s.WindowShifts = append([]WindowShift(nil), r.stats.WindowShifts...)
 	sort.Slice(s.MissingSeqs, func(i, j int) bool { return s.MissingSeqs[i] < s.MissingSeqs[j] })
 	return s
-}
-
-// Track converts delivered packets into a track for the repair stage. DTS is
-// derived from the raw 32-bit RTP timestamp, so a timestamp wrap is handed to
-// repair intact instead of being hidden here. Missing packets become Damaged
-// samples.
-func (r *Receiver) Track(id uint32, packets []Packet) (model.Track, error) {
-	tr := model.Track{ID: id, Kind: model.Video, Codec: "rtp", Source: "rtp", Timescale: r.cfg.ClockRate}
-	frameDur := clock.Zero()
-	if r.cfg.ClockRate == 0 {
-		return tr, model.New(model.KindInvalidInput, "rtp.reorder", "zero RTP clock rate")
-	}
-	prevTick := int64(-1)
-	for _, p := range packets {
-		dts, err := clock.New(int64(p.Timestamp), int64(r.cfg.ClockRate))
-		if err != nil {
-			return tr, model.Wrap(model.KindInvalidMedia, "rtp.reorder", "packet timestamp", err)
-		}
-		if prevTick >= 0 {
-			if d, err := clock.New(int64(p.Timestamp)-prevTick, int64(r.cfg.ClockRate)); err == nil && d.Sign() > 0 {
-				frameDur = d
-			}
-		}
-		if frameDur.IsZero() {
-			frameDur, _ = clock.New(1, int64(r.cfg.ClockRate))
-		}
-		tr.Samples = append(tr.Samples, model.Sample{
-			Index: len(tr.Samples), Offset: 0, Size: uint32(p.PayloadBytes),
-			DTS: dts, PTS: dts, Duration: frameDur,
-			Keyframe: true,
-		})
-		prevTick = int64(p.Timestamp)
-	}
-	return tr, nil
 }

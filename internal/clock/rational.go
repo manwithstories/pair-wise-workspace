@@ -11,8 +11,6 @@ import (
 	"fmt"
 	"math"
 	"math/big"
-	"strconv"
-	"strings"
 )
 
 // Errors returned by the rational time base.
@@ -33,7 +31,6 @@ func New(num, den int64) (Rational, error) {
 	return canon(num, den)
 }
 
-// MustNew is New for constants known to be valid.
 func MustNew(num, den int64) Rational {
 	r, err := New(num, den)
 	if err != nil {
@@ -42,7 +39,6 @@ func MustNew(num, den int64) Rational {
 	return r
 }
 
-// Zero is the additive identity, 0 seconds.
 func Zero() Rational { return Rational{Num: 0, Den: 1} }
 
 // FromInt is the whole number n in seconds.
@@ -62,32 +58,6 @@ func FromTicks(ticks, timescale int64) (Rational, error) {
 	return New(ticks, timescale)
 }
 
-// Parse accepts "n/d", a plain integer or a decimal such as "23.976".
-func Parse(s string) (Rational, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return Rational{}, errors.New("clock: empty rational")
-	}
-	if strings.Contains(s, "/") {
-		parts := strings.Split(s, "/")
-		if len(parts) != 2 {
-			return Rational{}, fmt.Errorf("clock: malformed rational %q", s)
-		}
-		n, err1 := strconv.ParseInt(strings.TrimSpace(parts[0]), 10, 64)
-		d, err2 := strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64)
-		if err1 != nil || err2 != nil {
-			return Rational{}, fmt.Errorf("clock: malformed rational %q", s)
-		}
-		return New(n, d)
-	}
-	x, ok := new(big.Rat).SetString(s)
-	if !ok {
-		return Rational{}, fmt.Errorf("clock: malformed decimal %q", s)
-	}
-	return fromBig(x)
-}
-
-// IsZero reports whether r is exactly zero.
 func (r Rational) IsZero() bool { return r.Num == 0 }
 
 // Sign returns -1, 0 or +1.
@@ -102,7 +72,6 @@ func (r Rational) Sign() int {
 	}
 }
 
-// Neg returns -r.
 func (r Rational) Neg() Rational {
 	c := r.canonical()
 	if c.Num == math.MinInt64 {
@@ -115,7 +84,6 @@ func (r Rational) Neg() Rational {
 	return Rational{Num: -c.Num, Den: c.Den}
 }
 
-// Abs returns |r|.
 func (r Rational) Abs() Rational {
 	if r.Sign() < 0 {
 		return r.Neg()
@@ -123,22 +91,18 @@ func (r Rational) Abs() Rational {
 	return r.canonical()
 }
 
-// Add returns r+o, reporting overflow of the int64 representation.
 func (r Rational) Add(o Rational) (Rational, error) {
 	return fromBig(new(big.Rat).Add(r.big(), o.big()))
 }
 
-// Sub returns r-o.
 func (r Rational) Sub(o Rational) (Rational, error) {
 	return fromBig(new(big.Rat).Sub(r.big(), o.big()))
 }
 
-// Mul returns r*o.
 func (r Rational) Mul(o Rational) (Rational, error) {
 	return fromBig(new(big.Rat).Mul(r.big(), o.big()))
 }
 
-// Div returns r/o.
 func (r Rational) Div(o Rational) (Rational, error) {
 	if o.IsZero() {
 		return Rational{}, ErrZeroDenominator
@@ -146,12 +110,10 @@ func (r Rational) Div(o Rational) (Rational, error) {
 	return fromBig(new(big.Rat).Quo(r.big(), o.big()))
 }
 
-// MulInt multiplies by an integer.
 func (r Rational) MulInt(n int64) (Rational, error) {
 	return fromBig(new(big.Rat).Mul(r.big(), new(big.Rat).SetInt64(n)))
 }
 
-// Cmp compares r and o, returning -1, 0 or +1.
 func (r Rational) Cmp(o Rational) int { return r.big().Cmp(o.big()) }
 
 // Equal reports exact equality.
@@ -164,88 +126,6 @@ func (r Rational) Less(o Rational) bool { return r.Cmp(o) < 0 }
 func (r Rational) Float64() float64 {
 	c := r.canonical()
 	return float64(c.Num) / float64(c.Den)
-}
-
-// Milliseconds returns r in milliseconds as a float for reporting.
-func (r Rational) Milliseconds() float64 { return r.Float64() * 1000 }
-
-// Trunc returns the value truncated toward zero.
-func (r Rational) Trunc() int64 {
-	c := r.canonical()
-	return c.Num / c.Den
-}
-
-// Round returns the nearest integer, halves away from zero.
-func (r Rational) Round() int64 {
-	c := r.canonical()
-	q := c.Num / c.Den
-	rem := c.Num % c.Den
-	if rem == 0 {
-		return q
-	}
-	absRem := rem
-	if absRem < 0 {
-		absRem = -absRem
-	}
-	// absRem*2 >= c.Den, written to avoid overflow.
-	if absRem >= c.Den-absRem {
-		if c.Num > 0 {
-			q++
-		} else {
-			q--
-		}
-	}
-	return q
-}
-
-// Rescale converts seconds into some unit U where one U is 1/unitsPerSecond
-// seconds, rounding to nearest.
-func (r Rational) Rescale(unitsPerSecond int64) (int64, error) {
-	if unitsPerSecond <= 0 {
-		return 0, fmt.Errorf("clock: invalid rescale base %d", unitsPerSecond)
-	}
-	x := new(big.Rat).Mul(r.big(), new(big.Rat).SetInt64(unitsPerSecond))
-	num, den := x.Num(), x.Denom()
-	q, rem := new(big.Int).QuoRem(num, den, new(big.Int))
-	if new(big.Int).Lsh(new(big.Int).Abs(rem), 1).Cmp(den) >= 0 {
-		if num.Sign() < 0 {
-			q.Sub(q, big.NewInt(1))
-		} else {
-			q.Add(q, big.NewInt(1))
-		}
-	}
-	if !q.IsInt64() {
-		return 0, ErrOverflow
-	}
-	return q.Int64(), nil
-}
-
-// String renders the exact fraction, or a plain integer when integral.
-func (r Rational) String() string {
-	c := r.canonical()
-	if c.Den == 1 {
-		return strconv.FormatInt(c.Num, 10)
-	}
-	return strconv.FormatInt(c.Num, 10) + "/" + strconv.FormatInt(c.Den, 10)
-}
-
-// UnmarshalJSON decodes the exact string form written by MarshalJSON.
-func (r *Rational) UnmarshalJSON(data []byte) error {
-	s := strings.TrimSpace(string(data))
-	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
-		s = s[1 : len(s)-1]
-	}
-	v, err := Parse(s)
-	if err != nil {
-		return err
-	}
-	*r = v
-	return nil
-}
-
-// MarshalJSON encodes the value as its exact string form.
-func (r Rational) MarshalJSON() ([]byte, error) {
-	return []byte(strconv.Quote(r.String())), nil
 }
 
 func (r Rational) canonical() Rational {
