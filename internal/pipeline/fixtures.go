@@ -4,35 +4,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 
 	"mediad/internal/fixture"
 	"mediad/internal/model"
 	"mediad/internal/report"
 )
-
-func WriteBadCropFixture(seed int64, path string) error {
-	spec := fixture.MP4Spec{Tracks: []fixture.TrackSpec{{
-		ID: 9, Kind: "video", Codec: "avc1", Timescale: 30000,
-		Frames: 60, FrameDelta: 1000, Width: 1920, Height: 1080,
-		SampleBytes: 1024, CropLeft: 1000, CropRight: 1000,
-	}}}
-	_, err := fixture.WriteMP4(path, spec, seed)
-	if err != nil {
-		return model.Wrap(model.KindInternal, "pipeline", "write bad-crop fixture", err)
-	}
-	return nil
-}
-
-// WriteFixtures writes the demo's media samples into dir using the demo
-// seed and track layout. It exists so the probe can be demonstrated on real
-// files without running the whole pipeline.
-func WriteFixtures(seed int64, dir string) error {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return model.Wrap(model.KindInternal, "pipeline", "create fixture directory", err)
-	}
-	return writeFixtures(seed, filepath.Join(dir, MP4Name), filepath.Join(dir, MXFName))
-}
 
 func writeFixtures(seed int64, mp4Path, mxfPath string) error {
 	mp4 := fixture.MP4Spec{Tracks: []fixture.TrackSpec{

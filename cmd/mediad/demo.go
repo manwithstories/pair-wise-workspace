@@ -4,13 +4,15 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
-
+	"mediad/internal/fixture"
 	"mediad/internal/model"
 	"mediad/internal/pipeline"
 	"mediad/internal/report"
 	"mediad/internal/txn"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 )
 
 func runDemo(args []string, stdout, stderr io.Writer) int {
@@ -111,37 +113,44 @@ func runDemo(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-// runFixtures writes the same MP4 and MXF samples the demo uses, so the
-// probe can be exercised on a file outside a pipeline run. With --bad-crop it
-// also writes a sample whose clean aperture exceeds the frame, which the
-// probe must reject.
-func runFixtures(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("fixtures", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	seed := fs.Int64("seed", 17, "fixture seed")
-	badCrop := fs.Bool("bad-crop", false, "also write an out-of-range crop sample")
-	if err := fs.Parse(args); err != nil {
-		return exitInvalid
+func parseFaults(s string) ([]fixture.FaultKind, error) {
+	if strings.TrimSpace(s) == "" {
+		return nil, nil
 	}
-	if fs.NArg() != 1 {
-		fmt.Fprintln(stderr, "mediad: fixtures takes exactly one directory")
-		return exitInvalid
-	}
-	dir := fs.Arg(0)
-	if err := pipeline.WriteFixtures(*seed, dir); err != nil {
-		fmt.Fprintf(stderr, "mediad: %v\n", err)
-		return model.ExitCodeOf(err)
-	}
-	fmt.Fprintf(stdout, "wrote %s and %s\n", filepath.Join(dir, pipeline.MP4Name), filepath.Join(dir, pipeline.MXFName))
-	if *badCrop {
-		path := filepath.Join(dir, "bad-crop.mp4")
-		if err := pipeline.WriteBadCropFixture(*seed, path); err != nil {
-			fmt.Fprintf(stderr, "mediad: %v\n", err)
-			return model.ExitCodeOf(err)
+	var out []fixture.FaultKind
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
 		}
-		fmt.Fprintf(stdout, "wrote %s\n", path)
+		k := fixture.FaultKind(part)
+		switch k {
+		case fixture.FaultDuplicate, fixture.FaultReorder, fixture.FaultBurstLoss, fixture.FaultCorruptLog:
+			out = append(out, k)
+		default:
+			return nil, fmt.Errorf("unknown fault %q (want duplicate, reorder, burst-loss or corrupt-log)", part)
+		}
 	}
-	return exitOK
+	return out, nil
+}
+
+func parseFloats(s string) ([]float64, error) {
+	if strings.TrimSpace(s) == "" {
+		return nil, nil
+	}
+	var out []float64
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		v, err := strconv.ParseFloat(part, 64)
+		if err != nil || v <= 0 {
+			return nil, fmt.Errorf("%q is not a positive number", part)
+		}
+		out = append(out, v)
+	}
+	return out, nil
 }
 
 func orNone(s string) string {
