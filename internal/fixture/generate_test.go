@@ -18,10 +18,10 @@ func TestGenerateLayout(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "hls/media.m3u8")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "media/video/seg-06.m4s")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, "media/seg-07.m4s")); !os.IsNotExist(err) {
 		t.Fatalf("missing segment should be absent: %v", err)
 	}
-	info, err := os.Stat(filepath.Join(dir, "media/video/seg-01.m4s"))
+	info, err := os.Stat(filepath.Join(dir, "media/seg-02.m4s"))
 	if err != nil || info.Size() <= 0 {
 		t.Fatalf("video seg1: %v", err)
 	}

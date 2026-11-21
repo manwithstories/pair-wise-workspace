@@ -13,37 +13,42 @@ type Layout struct {
 	DASH           string
 	VideoInit      string
 	AudioInit      string
-	VideoDir       string
-	AudioDir       string
-	RTPDir         string
+	MediaDir       string
 	RTPFile        string
-	MissingIdx     int
-	CorruptIdx     int
-	JumpIdx        int
-	OffsetIdx      int
-	KeyframeGapIdx int
-	WarnSegs       int
+	MissingIdx     int // zero-based segment index deliberately absent
+	CorruptIdx     int // zero-based segment with an impossible trun size
+	TruncatedIdx   int // zero-based segment with a shortened mdat
+	OffsetIdx      int // audio clock offset starts here
+	JumpIdx        int // extra audio jump on this segment only
+	KeyframeGapIdx int // video has no keyframe at this segment
 }
 
-// Video and audio track constants for the generated fixtures.
+// Track and timing constants for the generated fixtures.
 const (
 	VideoTimescale = 90000
 	AudioTimescale = 48000
 	SegmentCount   = 12
 	SegmentSeconds = 2
 	VideoRate      = 30
-	AudioRate      = 48000
-	AudioFrame     = 1024
-	// AudioBaseOffset is a deliberate constant 10 ms A/V clock offset applied
-	// from OffsetIdx onward.
+	// AudioFrame is 1/30 s at 48 kHz, so audio sample boundaries coincide
+	// exactly with video frames and alignment measures clock offset only.
+	AudioFrame             = AudioTimescale / VideoRate
+	SamplesPerVideoSegment = SegmentSeconds * VideoRate
+	SamplesPerAudioSegment = SegmentSeconds * AudioTimescale / AudioFrame
+	// AudioBaseOffset is a constant 10 ms audio clock offset applied from
+	// OffsetIdx onward.
 	AudioBaseOffset = AudioTimescale / 100
-	// AudioJumpOffset is an extra 20 ms on JumpIdx only, yielding a 30 ms
-	// maximum sync error that stays within the 40 ms demo budget.
+	// AudioJumpOffset is an extra 20 ms on JumpIdx, yielding a 30 ms peak
+	// sync error that stays inside the 40 ms demo budget.
 	AudioJumpOffset = AudioTimescale / 50
 )
 
-func videoSeg(idx int) string { return fmt.Sprintf("media/video/seg-%02d.m4s", idx) }
-func audioSeg(idx int) string { return fmt.Sprintf("media/audio/seg-%02d.m4s", idx) }
+// SegmentURI is the manifest-relative URI for a segment, 1-based as DASH
+// $Number$ expansion produces.
+func SegmentURI(idx int) string { return fmt.Sprintf("media/seg-%02d.m4s", idx+1) }
+
+// SegmentPath is the absolute path for a segment.
+func SegmentPath(work string, idx int) string { return filepath.Join(work, SegmentURI(idx)) }
 
 // NewLayout returns the canonical demo layout under work.
 func NewLayout(work string) Layout {
@@ -53,73 +58,65 @@ func NewLayout(work string) Layout {
 		DASH:           filepath.Join(work, "dash", "manifest.mpd"),
 		VideoInit:      filepath.Join(work, "media", "init-v.mp4"),
 		AudioInit:      filepath.Join(work, "media", "init-a.mp4"),
-		VideoDir:       filepath.Join(work, "media", "video"),
-		AudioDir:       filepath.Join(work, "media", "audio"),
-		RTPDir:         filepath.Join(work, "rtp"),
+		MediaDir:       filepath.Join(work, "media"),
 		RTPFile:        filepath.Join(work, "rtp", "capture.rtp"),
 		MissingIdx:     6,
 		CorruptIdx:     2,
-		JumpIdx:        7,
+		TruncatedIdx:   3,
 		OffsetIdx:      4,
+		JumpIdx:        7,
 		KeyframeGapIdx: 8,
-		WarnSegs:       4,
 	}
 }
 
-// Generate writes all demo inputs and returns the layout. It is deterministic:
-// running it twice produces byte-identical files.
+// Generate writes all demo inputs and returns the layout. Output is
+// deterministic: running it twice produces byte-identical media.
 func Generate(work string) (Layout, error) {
 	l := NewLayout(work)
-	for _, dir := range []string{l.VideoDir, l.AudioDir, l.HLS, l.DASH, l.RTPDir} {
-		if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+	for _, dir := range []string{l.MediaDir, filepath.Dir(l.HLS), filepath.Dir(l.DASH), filepath.Dir(l.RTPFile)} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return l, err
 		}
 	}
-	videoSamples := SegmentSeconds * VideoRate
-	audioSamples := SegmentSeconds * AudioRate / AudioFrame
-	if err := writeFile(l.VideoInit, initFile(VideoTimescale, AudioTimescale, SegmentCount*SegmentSeconds*1000)); err != nil {
+	const totalMS = SegmentCount * SegmentSeconds * 1000
+	if err := writeFile(l.VideoInit, initFile(VideoTimescale, AudioTimescale, totalMS)); err != nil {
 		return l, err
 	}
-	if err := writeFile(l.AudioInit, initFile(VideoTimescale, AudioTimescale, SegmentCount*SegmentSeconds*1000)); err != nil {
+	if err := writeFile(l.AudioInit, initFile(VideoTimescale, AudioTimescale, totalMS)); err != nil {
 		return l, err
 	}
 	for i := 0; i < SegmentCount; i++ {
 		if i == l.MissingIdx {
-			continue // referenced by the manifest, deliberately absent on disk
+			continue // referenced by both manifests, deliberately absent
 		}
 		video := SegmentSpec{
 			TrackID: 1, BaseTime: uint64(i * SegmentSeconds * VideoTimescale),
-			SampleDur: VideoTimescale / VideoRate, SampleCount: videoSamples,
-			SampleSize: 700, Keyframe: i != l.KeyframeGapIdx,
+			SampleDur: VideoTimescale / VideoRate, SampleCount: SamplesPerVideoSegment,
+			SampleSize: 700, Keyframes: i != l.KeyframeGapIdx,
 		}
-		switch i {
-		case l.CorruptIdx:
-			video.CorruptBox = true // impossible trun size -> undecodable range
-		case l.CorruptIdx + 1:
-			video.Truncate = 37 // truncated trailing mdat
-		}
-		if err := writeFile(filepath.Join(work, videoSeg(i)), segmentFile(video, uint32(i+1))); err != nil {
-			return l, err
-		}
-	}
-	for i := 0; i < SegmentCount; i++ {
-		offset := uint64(0)
+		audioOffset := uint64(0)
 		if i >= l.OffsetIdx {
-			offset = AudioBaseOffset
+			audioOffset = AudioBaseOffset
 		}
 		if i == l.JumpIdx {
-			offset += AudioJumpOffset
+			audioOffset += AudioJumpOffset
 		}
 		audio := SegmentSpec{
-			TrackID: 2, BaseTime: uint64(i*SegmentSeconds*AudioTimescale) + offset,
-			SampleDur: AudioFrame, SampleCount: audioSamples,
-			SampleSize: 180, Keyframe: true,
+			TrackID: 2, BaseTime: uint64(i*SegmentSeconds*AudioTimescale) + audioOffset,
+			SampleDur: AudioFrame, SampleCount: SamplesPerAudioSegment,
+			SampleSize: 180, AllSync: true,
 		}
-		if err := writeFile(filepath.Join(work, audioSeg(i)), segmentFile(audio, uint32(i+1))); err != nil {
+		specs := []SegmentSpec{video, audio}
+		switch i {
+		case l.CorruptIdx:
+			specs[0].CorruptBox = true
+		case l.TruncatedIdx:
+			specs[len(specs)-1].Truncate = 37
+		}
+		if err := writeFile(SegmentPath(work, i), segmentFile(specs, uint32(i+1))); err != nil {
 			return l, err
 		}
 	}
-	// The missing segment is simply never written; its timeline slot remains.
 	if err := writeFile(l.HLS, hlsPlaylist(l)); err != nil {
 		return l, err
 	}
