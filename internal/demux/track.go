@@ -34,6 +34,9 @@ type rawTrack struct {
 	sync       []uint32
 	stblBase   int64
 	tableBoxes map[string]Table
+	sizeBase   int64 // payload offset of the first stsz/stz2 entry
+	sizeFixed  bool
+	chunkBase  int64 // payload offset of the first stco/co64 entry
 }
 
 type sttsRun struct{ count, delta uint32 }
@@ -130,12 +133,23 @@ func (f *File) parseMinf(rt *rawTrack, minf Table) error {
 				rt.stsc, err = parseSTSC(b)
 			case "stsz":
 				rt.sizes, err = parseSTSZ(b)
+				rt.sizeBase = b.PayloadOffset() + 12
+				rt.sizeFixed = len(b.Payload) >= 12 && binary.BigEndian.Uint32(b.Payload[4:8]) != 0
+				if rt.sizeFixed {
+					rt.sizeBase = b.PayloadOffset() + 4
+				}
 			case "stz2":
 				rt.sizes, err = parseSTZ2(b)
+				rt.sizeBase = b.PayloadOffset() + 12
+				if len(b.Payload) > 7 && b.Payload[7] == 16 {
+					rt.sizeBase = b.PayloadOffset() + 12
+				}
 			case "stco":
 				rt.offsets, err = parseSTCO(b)
+				rt.chunkBase = b.PayloadOffset() + 8
 			case "co64":
 				rt.offsets, err = parseCO64(b)
+				rt.chunkBase = b.PayloadOffset() + 8
 			case "stss":
 				rt.sync, err = parseSTSS(b)
 			case "sdtp", "sbgp", "sgpd", "padb", "stsh", "subs", "saiz", "saio", "senc":

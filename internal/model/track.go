@@ -34,6 +34,12 @@ type Track struct {
 	FirstDTS       uint64
 	LastDTS        uint64
 	TrackDuration  uint64
+
+	// Byte offsets of the first sample-size entry and first chunk-offset
+	// entry. They let validation report the exact table byte that is invalid.
+	SizeTableOffset  int64
+	SizeTableFixed   bool
+	ChunkTableOffset int64
 }
 
 // SampleRef is a zero-copy reference to a sample inside the input file.

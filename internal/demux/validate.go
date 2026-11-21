@@ -95,9 +95,16 @@ func (f *File) buildSamples() error {
 				if end > f.Mdat.PayloadEnd {
 					off = f.Mdat.PayloadEnd
 				}
+				tableOff := t.SizeTableOffset
+				if tableOff > 0 {
+					off = tableOff + int64(i)*4
+					if t.SizeTableFixed {
+						off = t.SizeTableOffset
+					}
+				}
 				return derr(model.StageDemux, model.CodeSampleTable, off, t.InputID, false,
-					"track %d sample %d range [%d,%d) outside mdat payload [%d,%d)",
-					t.InputID, i, s.Offset, end, f.Mdat.PayloadStart, f.Mdat.PayloadEnd)
+					"track %d sample %d size %d range [%d,%d) outside mdat payload [%d,%d)",
+					t.InputID, i, s.Size, s.Offset, end, f.Mdat.PayloadStart, f.Mdat.PayloadEnd)
 			}
 			if end > f.Size {
 				return derr(model.StageDemux, model.CodeTruncated, f.Size, t.InputID, false,

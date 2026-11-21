@@ -165,6 +165,9 @@ func (f *File) toTrack(rt *rawTrack) *Track {
 		}
 	}
 	t.Samples = samples
+	t.SizeTableOffset = rt.sizeBase
+	t.SizeTableFixed = rt.sizeFixed
+	t.ChunkTableOffset = rt.chunkBase
 	return t
 }
 
