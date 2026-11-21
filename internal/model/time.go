@@ -202,6 +202,18 @@ func (r Rational) Less(o Rational) bool { return r.Cmp(o) < 0 }
 // Equal reports r == o after normalization.
 func (r Rational) Equal(o Rational) bool { return r.Cmp(o) == 0 }
 
+// Sign returns -1, 0 or 1 for the sign of the fraction.
+func (r Rational) Sign() int {
+	switch {
+	case r.Num < 0:
+		return -1
+	case r.Num > 0:
+		return 1
+	default:
+		return 0
+	}
+}
+
 // IsZero reports whether r is the zero clock value.
 func (r Rational) IsZero() bool { return r.Num == 0 }
 
