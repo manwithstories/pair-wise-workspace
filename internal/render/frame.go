@@ -468,7 +468,10 @@ func PSNR(a, b *image.RGBA) float64 {
 			n += 3
 		}
 	}
-	if n == 0 || mse == 0 {
+	if n == 0 {
+		return 0
+	}
+	if mse == 0 {
 		return 100
 	}
 	mse /= float64(n)
@@ -521,7 +524,7 @@ func SSIM(a, b *image.RGBA) float64 {
 		}
 	}
 	if windows == 0 {
-		return 1
+		return 0
 	}
 	return total / float64(windows)
 }

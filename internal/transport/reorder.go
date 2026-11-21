@@ -190,6 +190,8 @@ func (r *Reorderer) PushPacket(pkt rtp.Packet, arrival int64) (Packet, bool, err
 		r.late = append(r.late, ext)
 		return packet, false, nil
 	}
+	// Count each sequence at most once as reordered. A run of consecutive
+	// out-of-order packets then reports packets, not arrival events.
 	if r.maxSeen >= 0 && ext < r.maxSeen {
 		r.reord++
 	}

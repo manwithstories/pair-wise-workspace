@@ -39,7 +39,11 @@ type PacketPlan struct {
 	BurstStart, BurstLen int
 	// Duplicate indices are emitted twice.
 	Duplicate map[int]bool
-	// Reorder swaps the arrival order of selected adjacent pairs.
+	// Reorder lists arrival positions whose packet is swapped with the next
+	// arrival position. Swapping only the nominal order would be undone by the
+	// dedupe map (which would see a contiguous prefix and never mark the
+	// second packet as displaced), so the swap moves a packet below the
+	// highest sequence already delivered.
 	Reorder []int
 	// StartSeq is the first 16-bit sequence number; wrap scenarios set it near
 	// 65535 so the extension rule is exercised.
@@ -96,10 +100,13 @@ func BuildPackets(plan PacketPlan) ([]Packet, []int) {
 			withDups = append(withDups, d)
 		}
 	}
-	// Apply reordering by swapping the arrival order of the listed pairs.
+	// Apply reordering by delaying one packet behind its successor. A plain
+	// adjacent swap is invisible to a reorder buffer that sees the delayed
+	// packet's successor first only if the successor is delivered; moving the
+	// later packet earlier is exactly that displacement.
 	for _, i := range plan.Reorder {
-		if i+1 < len(withDups) {
-			withDups[i], withDups[i+1] = withDups[i+1], withDups[i]
+		if i+2 < len(withDups) {
+			withDups[i], withDups[i+1], withDups[i+2] = withDups[i+1], withDups[i+2], withDups[i]
 		}
 	}
 	return withDups, lost

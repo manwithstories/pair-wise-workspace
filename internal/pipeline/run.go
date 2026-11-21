@@ -133,9 +133,15 @@ func Run(opt Options) (*Result, error) {
 			Name: "metadata",
 			Run: func() (scheduler.Result, error) {
 				dir := filepath.Join(opt.Out, "input")
-				mp4Path, _, werr := fixtures.WriteMetadataPair(dir, corrupt)
+				mp4Path, mxfPath, werr := fixtures.WriteMetadataPair(dir, corrupt)
 				if werr != nil {
 					return scheduler.Result{}, werr
+				}
+				// Cross-container check: the same logical tracks must normalize
+				// to the same timebase, geometry and rotation in both
+				// containers. A mismatch is a metadata error, not a silent pass.
+				if cerr := crossContainerCheck(mp4Path, mxfPath); cerr != nil {
+					return scheduler.Result{}, cerr
 				}
 				parsed, perr := metadata.ParseMP4(mp4Path)
 				asset = parsed
@@ -168,6 +174,8 @@ func Run(opt Options) (*Result, error) {
 				if serr != nil {
 					return scheduler.Result{}, serr
 				}
+				// The reorder window must exceed the fixture's reorder distance,
+				// which the scenario builder spaces at 5 packets.
 				checker := transport.NewReorderer(transport.ReorderConfig{
 					Window: 64, StartupHold: 8, BurstGapThreshold: maxInt(opt.LossBurst, 1),
 				})
@@ -236,6 +244,11 @@ func Run(opt Options) (*Result, error) {
 					// Independent structural reference: inverse-mapped geometry
 					// with the exact (unquantized) color transform.
 					ref := engine.InverseSample(f)
+					if rf.Blocked {
+						// A blocked frame is a black placeholder; scoring it as
+						// a perfect match would overstate quality.
+						continue
+					}
 					psnrSum += render.PSNR(rf.Image, ref)
 					ssimSum += render.SSIM(rf.Image, ref)
 					n++
@@ -243,6 +256,10 @@ func Run(opt Options) (*Result, error) {
 				if n > 0 {
 					psnrMean = psnrSum / float64(n)
 					ssimMean = ssimSum / float64(n)
+				} else {
+					// Every frame was blocked: quality is undefined, not
+					// perfect. Keep zero so the gate cannot pass vacuously.
+					psnrMean, ssimMean = 0, 0
 				}
 				return scheduler.Result{Hash: hashFrames(rendered)}, nil
 			},
@@ -623,6 +640,36 @@ func metadataHash(a *metadata.Asset) string {
 		fmt.Fprintf(h, "%s:%s:%s:%d:%d:%d;", t.Key, t.Timebase, t.Color.Key(), t.Start, t.Duration, t.Rotation)
 	}
 	return h.Hex()
+}
+
+// crossContainerCheck verifies that MP4 and MXF normalize identically for
+// every track they share. Corrupt fixtures are expected to disagree (their
+// failures are reported by the parsers), so only healthy tracks are compared.
+func crossContainerCheck(mp4Path, mxfPath string) error {
+	mp4Asset, mp4Err := metadata.ParseMP4(mp4Path)
+	mxfAsset, mxfErr := metadata.ParseMXF(mxfPath)
+	if mp4Asset == nil || mxfAsset == nil {
+		return nil // parser errors are surfaced by the caller
+	}
+	for _, a := range mp4Asset.Tracks {
+		b, ok := mxfAsset.Track(a.Key)
+		if !ok {
+			continue
+		}
+		// Skip tracks that either parser reported as corrupt.
+		if mp4Asset.Failure(a.Key) != nil || mxfAsset.Failure(a.Key) != nil {
+			continue
+		}
+		if a.Timebase != b.Timebase || a.Duration != b.Duration || a.Rotation != b.Rotation ||
+			a.CodedWidth != b.CodedWidth || a.CodedHeight != b.CodedHeight {
+			_ = mp4Err
+			_ = mxfErr
+			return model.New(model.CategoryMetadata, "cross-container",
+				fmt.Sprintf("track %s differs between MP4 and MXF", a.Key)).
+				WithTrack(a.Key).WithBlockingDep("metadata:" + a.Key)
+		}
+	}
+	return nil
 }
 
 func hasVideo(a *metadata.Asset) bool {
