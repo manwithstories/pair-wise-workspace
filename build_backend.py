@@ -30,6 +30,9 @@ METADATA = (
     f"Version: {VERSION}\n"
     "Summary: Deterministic multi-track media timeline segmentation\n"
     "Requires-Python: >=3.12\n"
+    "Requires-Dist: av>=12,<13\n"
+    "Requires-Dist: numpy>=2,<3\n"
+    "Requires-Dist: soundfile>=0.12,<0.13\n"
     "Provides-Extra: test\n"
     "\n"
 )
