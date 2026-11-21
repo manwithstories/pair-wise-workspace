@@ -48,6 +48,10 @@ Sha256 record_checksum(const FrameRecord& rec);
 bool checksum_matches(const FrameRecord& rec);
 std::string hex(const Sha256& digest);
 
+// Parses one serialized record (including the 4-byte length prefix).
+// Used by the container reader and by segment roundtrip verification.
+ParseResult parse_record(const uint8_t* buf, size_t len, FrameRecord& out);
+
 // Writes the .frames container format (fixture generator, tests).
 class FrameContainerWriter {
 public:

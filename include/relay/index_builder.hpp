@@ -46,6 +46,7 @@ public:
   double keyframe_hit_rate() const;
 
   const std::vector<TimelineGap>& gaps() const { return gaps_; }
+  const std::vector<IndexEntry>& entries() const { return entries_; }
   uint64_t duplicate_count() const { return duplicates_; }
   size_t size() const { return entries_.size(); }
 

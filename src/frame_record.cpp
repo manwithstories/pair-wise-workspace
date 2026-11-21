@@ -96,6 +96,28 @@ const char* to_string(ParseError e) {
   return "unknown";
 }
 
+ParseResult parse_record(const uint8_t* buf, size_t len, FrameRecord& out) {
+  if (len < 4) return {ParseError::TruncatedField, 0, "record prefix short"};
+  const uint32_t record_len = get_u32(buf);
+  if (record_len < kRecordFixedLen || record_len > kMaxRecordLen)
+    return {ParseError::InvalidLength, 0, "record length out of range"};
+  if (len < record_len)
+    return {ParseError::TruncatedField, 0, "record body truncated"};
+  const uint8_t* p = buf + 4;
+  out = {};
+  out.frame_seq = get_u64(p);
+  out.node_clock = static_cast<int64_t>(get_u64(p + 8));
+  out.time_base.num = static_cast<int32_t>(get_u32(p + 16));
+  out.time_base.den = static_cast<int32_t>(get_u32(p + 20));
+  out.keyframe = (p[24] & 1) != 0;
+  const uint32_t payload_len = get_u32(p + 28);
+  if (kRecordFixedLen + payload_len != record_len)
+    return {ParseError::InvalidLength, 0, "payload length mismatch"};
+  out.payload.assign(p + 32, p + 32 + payload_len);
+  std::memcpy(out.checksum.data(), p + 32 + payload_len, kSha256Len);
+  return {};
+}
+
 // ---- Writer ----
 
 FrameContainerWriter::FrameContainerWriter(const std::string& path)
@@ -195,26 +217,19 @@ bool FrameContainerReader::next(FrameRecord& out) {
     err_ = {ParseError::InvalidLength, rec_off, "record length out of range"};
     return false;
   }
-  std::vector<uint8_t> body(record_len - 4);
-  if (std::fread(body.data(), 1, body.size(), f_) != body.size()) {
+  std::vector<uint8_t> raw(record_len);
+  std::memcpy(raw.data(), first4, 4);
+  if (std::fread(raw.data() + 4, 1, record_len - 4, f_) != record_len - 4) {
     err_ = {ParseError::TruncatedField, rec_off, "record body truncated"};
     return false;
   }
-  const uint8_t* p = body.data();
-  out = {};
-  out.record_offset = rec_off;
-  out.frame_seq = get_u64(p);
-  out.node_clock = static_cast<int64_t>(get_u64(p + 8));
-  out.time_base.num = static_cast<int32_t>(get_u32(p + 16));
-  out.time_base.den = static_cast<int32_t>(get_u32(p + 20));
-  out.keyframe = (p[24] & 1) != 0;
-  uint32_t payload_len = get_u32(p + 28);
-  if (kRecordFixedLen + payload_len != record_len) {
-    err_ = {ParseError::InvalidLength, rec_off, "payload length mismatch"};
+  ParseResult res = parse_record(raw.data(), raw.size(), out);
+  if (!res.ok()) {
+    res.error_offset = rec_off;
+    err_ = res;
     return false;
   }
-  out.payload.assign(p + 32, p + 32 + payload_len);
-  std::memcpy(out.checksum.data(), p + 32 + payload_len, kSha256Len);
+  out.record_offset = rec_off;
   offset_ += record_len;
   if (!is_known_time_base(out.time_base)) {
     err_ = {ParseError::UnknownTimeBase, rec_off, "unknown time base"};
