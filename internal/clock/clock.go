@@ -37,6 +37,7 @@ type Block struct {
 	Channels  int     // interleaved channels per sample frame
 	Samples   []int32 // interleaved PCM, length = Frames*Channels
 	Source    Source  // provenance of the payload
+	ArrivalMS int64   // virtual receive time in milliseconds (latency bookkeeping)
 }
 
 // Frames returns the number of sample frames (one frame = Channels samples).
