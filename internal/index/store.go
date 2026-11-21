@@ -31,6 +31,7 @@ type Entry struct {
 	SHA256    string         `json:"sha256"`
 	Start     model.Rational `json:"start"`
 	Duration  model.Rational `json:"duration"`
+	Timescale uint32         `json:"timescale"`
 	Present   bool           `json:"present"`
 	Truncated bool           `json:"truncated,omitempty"`
 }

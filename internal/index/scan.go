@@ -55,6 +55,7 @@ func Scan(res *manifest.Resolver, tl *manifest.Timeline, opts Options) (*Index, 
 				ByteEnd:   seg.ByteEnd,
 				Start:     seg.Start,
 				Duration:  seg.Duration,
+				Timescale: stream.Timescale,
 			}
 			full, err := res.Resolve(seg.URI)
 			if err != nil {
