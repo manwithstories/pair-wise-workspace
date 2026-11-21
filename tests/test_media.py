@@ -78,7 +78,8 @@ class ProbeTests(TempDirMixin, unittest.TestCase):
 
     def test_empty_file_is_fatal(self) -> None:
         path = self.path("empty.mp4")
-        open(path, "wb").close()
+        with open(path, "wb"):
+            pass
         probe = probe_media(path, track_id="empty")
         self.assertTrue(probe.errors)
         self.assertEqual(probe.errors[0].code, "empty_file")
