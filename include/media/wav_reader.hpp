@@ -55,8 +55,9 @@ class WavReader {
   bool readU32(uint32_t* v);
   bool parseFmt(uint64_t chunkSize, MediaError* err);
   void mapEncoding();
+  // *eofReached 在读取触达文件末尾时置位，调用方据此停止块扫描。
   bool readDataChunk(uint64_t chunkSize, const FrameCallback& cb,
-                     MediaError* err);
+                     MediaError* err, bool* eofReached);
   void decodeFrame(const unsigned char* raw, int32_t* out) const;
   MediaError makeError(ErrorCode code, int64_t byteOff, int64_t sample,
                        const std::string& msg, bool recoverable) const;

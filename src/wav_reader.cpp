@@ -159,7 +159,8 @@ void WavReader::decodeFrame(const unsigned char* raw, int32_t* out) const {
 }
 
 bool WavReader::readDataChunk(uint64_t chunkSize, const FrameCallback& cb,
-                              MediaError* err) {
+                              MediaError* err, bool* eofReached) {
+  *eofReached = false;
   const auto& f = summary_.format;
   const int frameSize = f.frameSize();
   std::vector<unsigned char> raw(static_cast<size_t>(blockFrames_) *
@@ -173,13 +174,14 @@ bool WavReader::readDataChunk(uint64_t chunkSize, const FrameCallback& cb,
         std::min<uint64_t>(blockFrames_, remaining / frameSize));
     size_t wantBytes = wantFrames * frameSize;
     if (!readExact(raw.data(), wantBytes, err)) {
-      // 文件在帧中途截断：记录可恢复错误，已解析帧保留。
+      // 文件在帧中途截断：记录可恢复错误（含真实字节偏移），已解析帧保留。
       MediaError e = makeError(
           ErrorCode::TruncatedChunk,
           static_cast<int64_t>(chunkStart + chunkSize - remaining),
           frameCursor_, "data chunk truncated mid-frame", true);
       if (!handleCorruption(err, e)) return false;
-      return true;
+      *eofReached = true;
+      return true;  // 已触达 EOF，调用方停止块扫描
     }
     for (size_t i = 0; i < wantFrames; ++i)
       decodeFrame(raw.data() + i * frameSize,
@@ -199,6 +201,7 @@ bool WavReader::readDataChunk(uint64_t chunkSize, const FrameCallback& cb,
       MediaError e = makeError(ErrorCode::TruncatedChunk, tailOff,
                                frameCursor_, "tail bytes missing", true);
       if (!handleCorruption(err, e)) return false;
+      *eofReached = true;
     } else {
       MediaError e = makeError(ErrorCode::NonIntegerFrameTail, tailOff,
                                frameCursor_,
@@ -207,6 +210,7 @@ bool WavReader::readDataChunk(uint64_t chunkSize, const FrameCallback& cb,
                                true);
       if (!handleCorruption(err, e)) return false;
       summary_.tailBytes += remaining;
+      // 尾块通常位于文件末尾；下一读取若 EOF 由主循环正常收敛。
     }
   }
   summary_.totalFrames = frameCursor_;
@@ -234,9 +238,11 @@ MediaError WavReader::read(const FrameCallback& onFrame) {
     char head[8];
     if (!in_.read(head, 8)) {
       if (in_.eof() && in_.gcount() == 0) break;  // 正常结束
-      MediaError e = makeError(ErrorCode::TruncatedChunk,
-                               static_cast<int64_t>(in_.tellg()),
-                               frameCursor_, "chunk header truncated", true);
+      auto pos = in_.tellg();
+      int64_t off = pos >= 0 ? static_cast<int64_t>(pos)
+                             : static_cast<int64_t>(summary_.fileSize);
+      MediaError e = makeError(ErrorCode::TruncatedChunk, off, frameCursor_,
+                               "chunk header truncated", true);
       if (!handleCorruption(&err, e)) return err;
       break;
     }
@@ -251,7 +257,9 @@ MediaError WavReader::read(const FrameCallback& onFrame) {
         return makeError(ErrorCode::BadChunkLength, dataPos, -1,
                          "data chunk precedes fmt chunk", false);
       summary_.dataBytes += size;
-      if (!readDataChunk(size, onFrame, &err)) return err;
+      bool eofReached = false;
+      if (!readDataChunk(size, onFrame, &err, &eofReached)) return err;
+      if (eofReached) break;
     } else {
       // 未知块：按声明长度安全跳过。
       if (!in_.seekg(static_cast<std::streamoff>(size), std::ios::cur)) {
