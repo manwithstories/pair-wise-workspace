@@ -78,7 +78,9 @@ func Resume(ctx context.Context, dir string, r *demux.Reader, plan *mapping.Plan
 					return nil, err
 				}
 			}
-			if err := resumeTrack(ctx, w, r, plan, ti); err != nil {
+			tr := plan.Tracks[ti]
+			if _, err := streamRange(ctx, w, r, tr, ti, w.NextSample(ti), queue,
+				checksum.NewSampleHasher()); err != nil {
 				return nil, err
 			}
 			if err := w.Sync(); err != nil {
@@ -148,29 +150,6 @@ func verifyResume(dir string, in *demux.Reader, plan *mapping.Plan, res *ResumeR
 	if !res.SampleMatch {
 		return model.NewError(model.StageVerify, model.CodeIntegrity, 0, 0, false,
 			"per-track sample digests do not match the input")
-	}
-	return nil
-}
-
-func resumeTrack(ctx context.Context, w *mux.Writer, r *demux.Reader, plan *mapping.Plan, ti int) error {
-	tr := plan.Tracks[ti]
-	in := r.Tracks[ti]
-	for si := w.NextSample(ti); si < len(tr.Samples); si++ {
-		if err := ctx.Err(); err != nil {
-			return model.NewError(model.StageRecovery, model.CodeCanceled, in.Samples[si].Offset,
-				tr.InputID, true, "resume canceled")
-		}
-		data, err := r.ReadSample(in.Samples[si])
-		if err != nil {
-			return err
-		}
-		if err := w.WriteSample(ti, model.Sample{
-			TrackIndex: ti, TrackID: tr.TargetID, Index: si, Offset: in.Samples[si].Offset,
-			DTS: in.Samples[si].DTS, Duration: in.Samples[si].Duration,
-			CTS: in.Samples[si].CTSOffset, Sync: in.Samples[si].Sync, Data: data,
-		}); err != nil {
-			return err
-		}
 	}
 	return nil
 }

@@ -181,6 +181,19 @@ func injectCrash(m *Manager, w *mux.Writer, r *demux.Reader, plan *mapping.Plan,
 // a full queue (backpressure); the consumer writes samples in order. Any write
 // or cancellation error fails the pipe so the producer cannot run ahead.
 func streamTrack(ctx context.Context, w *mux.Writer, r *demux.Reader, tr *demux.Track, ti, queue int, hasher *checksum.SampleHasher) (int, error) {
+	return streamRange(ctx, w, r, tr, ti, 0, queue, hasher)
+}
+
+// streamRange is streamTrack bounded to samples [start, end). Resume uses it
+// so the queue capacity and backpressure guarantees hold on the recovery path
+// too.
+func streamRange(ctx context.Context, w *mux.Writer, r *demux.Reader, tr *demux.Track, ti, start, queue int, hasher *checksum.SampleHasher) (int, error) {
+	if start < 0 {
+		start = 0
+	}
+	if start > len(tr.Samples) {
+		start = len(tr.Samples)
+	}
 	p := stream.New(ctx, queue)
 	defer p.Close()
 	var wg sync.WaitGroup
@@ -188,10 +201,11 @@ func streamTrack(ctx context.Context, w *mux.Writer, r *demux.Reader, tr *demux.
 	go func() {
 		defer wg.Done()
 		defer p.CloseSend()
-		for _, ref := range tr.Samples {
+		for _, ref := range tr.Samples[start:] {
 			if err := ctx.Err(); err != nil {
-				p.Fail(model.NewError(model.StageStream, model.CodeCanceled, ref.Offset, tr.InputID, true,
-					"producer canceled: %v", err))
+				e := model.NewError(model.StageStream, model.CodeCanceled, ref.Offset, tr.InputID, true,
+					"producer canceled: %v", err)
+				p.Fail(e)
 				return
 			}
 			data, err := r.ReadSample(ref)
