@@ -85,7 +85,7 @@ def _cmd_remux(args: argparse.Namespace) -> int:
     payload["queue_peak_bytes"] = result.queue["queue_peak_bytes"]
     if result.verification:
         payload["packet_sha256_match"] = result.verification[
-            "all_packet_sha256_match"
+            "packet_sha256_match"
         ]
     if result.resumed:
         payload["resume"] = {

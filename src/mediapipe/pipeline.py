@@ -146,6 +146,11 @@ class Pipeline:
             committed = skip_to
             try:
                 remuxer.open()
+                # 续跑：fragmented 输出不可追加，重建容器后先重写已提交包，
+                # 使最终输出与一次跑成等价；新包紧随其后，全局序号连续。
+                for prior in prior_records:
+                    remuxer.write(prior)
+                    self._update_stream_state(stream_states, prior)
                 while True:
                     record = self.queue.get(timeout=0.5)
                     if record is None:
