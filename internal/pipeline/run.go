@@ -1047,6 +1047,3 @@ func asAudioFault(trackID int, err error) error {
 	}
 	return fault.Locate(err, fault.StageAudio, trackID, clock.Span{})
 }
-
-// Clock is exposed for callers that want the track span of a parsed file.
-func Clock(tr *metadata.Track) clock.Timebase { return tr.Timebase }

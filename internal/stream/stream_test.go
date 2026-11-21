@@ -252,3 +252,24 @@ func contains(s, sub string) bool {
 	}
 	return false
 }
+
+func TestSinkBlockDigestsPreserveOrder(t *testing.T) {
+	q, _ := NewQueue(1 << 16)
+	for i := 1; i <= 4; i++ {
+		q.Push(context.Background(), block(i, 1, 50))
+	}
+	q.Close()
+	sink, err := Consume(context.Background(), q, ConsumerOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	digests := sink.BlockDigests()
+	if len(digests) != 4 {
+		t.Fatalf("digests %d", len(digests))
+	}
+	for i, d := range digests {
+		if d.Segment != i+1 || d.Digest != block(i+1, 1, 50).Digest {
+			t.Fatalf("digest %d: %+v", i, d)
+		}
+	}
+}

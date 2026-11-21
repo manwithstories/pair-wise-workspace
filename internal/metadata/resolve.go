@@ -2,7 +2,6 @@ package metadata
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -101,25 +100,4 @@ func requireColorFields(f *File, fields []string) error {
 		}
 	}
 	return nil
-}
-
-// FindFiles returns generated fixture paths of the given extensions in dir,
-// sorted for deterministic iteration.
-func FindFiles(dir string) ([]string, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-	var out []string
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		switch strings.ToLower(filepath.Ext(e.Name())) {
-		case ".mxf", ".mp4":
-			out = append(out, filepath.Join(dir, e.Name()))
-		}
-	}
-	sort.Strings(out)
-	return out, nil
 }
