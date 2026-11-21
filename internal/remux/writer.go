@@ -18,6 +18,15 @@ type writer struct {
 	pos int64
 }
 
+// Write implements io.Writer for sample streaming.
+func (b *writer) Write(p []byte) (int, error) {
+	before := b.pos
+	if err := b.write(p); err != nil {
+		return int(b.pos - before), err
+	}
+	return len(p), nil
+}
+
 func (b *writer) write(p []byte) error {
 	n, err := b.w.Write(p)
 	b.pos += int64(n)

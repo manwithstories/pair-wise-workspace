@@ -16,12 +16,20 @@ import (
 )
 
 // Sample is one frame to write, already mapped to output timestamps.
+//
+// Exactly one payload source is used: Data when it is non-nil, otherwise
+// Reader with Offset and Size. The latter lets the pipeline stream frames
+// from a spool file so no stage ever holds the whole media in memory.
 type Sample struct {
 	TrackNumber uint64
 	// Data is the exact source bytes for this frame.
 	Data []byte
-	// SourceOffset is where Data came from; it is recorded in the manifest
-	// so a reviewer can re-read the master at the same place.
+	// Reader, Offset and Size describe the payload when Data is nil.
+	Reader io.ReaderAt
+	Offset int64
+	Size   int64
+	// SourceOffset is where the frame came from in the Matroska input; it is
+	// recorded in the manifest so a reviewer can re-read the master.
 	SourceOffset int64
 	DTS          int64
 	PTS          int64
@@ -133,7 +141,7 @@ func (p *Plan) Validate() error {
 					fmt.Errorf("%w: samples not in decode order", fault.ErrMalformed)).OnTrack(t.Track.Number)
 			}
 			prev = s.DTS
-			if len(s.Data) == 0 {
+			if sampleSize(s) <= 0 {
 				return fault.New(fault.StageRemux, fault.ErrCorruptBlock).OnTrack(t.Track.Number)
 			}
 		}
@@ -182,15 +190,38 @@ func planChunks(n int, chunkSize int) []chunkPlan {
 	return out
 }
 
+// sampleSize returns the payload length.
+func sampleSize(s Sample) int64 {
+	if s.Data != nil {
+		return int64(len(s.Data))
+	}
+	return s.Size
+}
+
 // copySample writes a sample's bytes to w, refusing short writes.
 func copySample(w io.Writer, s Sample) (int64, error) {
-	n, err := w.Write(s.Data)
+	if s.Data != nil {
+		n, err := w.Write(s.Data)
+		if err != nil {
+			return int64(n), fault.New(fault.StageRemux, fmt.Errorf("%w: %v", fault.ErrOutput, err))
+		}
+		if n != len(s.Data) {
+			return int64(n), fault.New(fault.StageRemux,
+				fmt.Errorf("%w: short write %d of %d", fault.ErrOutput, n, len(s.Data)))
+		}
+		return int64(n), nil
+	}
+	if s.Reader == nil {
+		return 0, fault.New(fault.StageRemux, fmt.Errorf("%w: no payload source", fault.ErrOutput))
+	}
+	sr := io.NewSectionReader(s.Reader, s.Offset, s.Size)
+	n, err := io.Copy(w, sr)
 	if err != nil {
-		return int64(n), fault.New(fault.StageRemux, fmt.Errorf("%w: %v", fault.ErrOutput, err))
+		return n, fault.New(fault.StageRemux, fmt.Errorf("%w: %v", fault.ErrOutput, err))
 	}
-	if n != len(s.Data) {
-		return int64(n), fault.New(fault.StageRemux,
-			fmt.Errorf("%w: short write %d of %d", fault.ErrOutput, n, len(s.Data)))
+	if n != s.Size {
+		return n, fault.New(fault.StageRemux,
+			fmt.Errorf("%w: short copy %d of %d", fault.ErrOutput, n, s.Size))
 	}
-	return int64(n), nil
+	return n, nil
 }

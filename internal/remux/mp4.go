@@ -76,12 +76,12 @@ func writeMedia(bw *writer, p *Plan, sum *Summary) error {
 			for i := 0; i < ch.count; i++ {
 				s := t.Samples[ch.firstSample+i]
 				off := bw.pos
-				if err := bw.write(s.Data); err != nil {
+				if _, err := copySample(bw, s); err != nil {
 					return err
 				}
 				n := uint32(ch.firstSample + i + 1)
 				sum.SampleOffsets[t.Track.Number] = append(sum.SampleOffsets[t.Track.Number], off)
-				sum.SampleSizes[t.Track.Number] = append(sum.SampleSizes[t.Track.Number], int32(len(s.Data)))
+				sum.SampleSizes[t.Track.Number] = append(sum.SampleSizes[t.Track.Number], int32(sampleSize(s)))
 				sum.TrackSamples[t.Track.Number] = int64(n)
 				if s.Keyframe {
 					sum.Keyframes[t.Track.Number] = append(sum.Keyframes[t.Track.Number], n)
@@ -90,7 +90,7 @@ func writeMedia(bw *writer, p *Plan, sum *Summary) error {
 					Track:        t.Track.Number,
 					OutputSample: n,
 					SourceOffset: s.SourceOffset,
-					Size:         len(s.Data),
+					Size:         int(sampleSize(s)),
 					Keyframe:     s.Keyframe,
 				})
 			}
@@ -529,7 +529,7 @@ func writeStsz(bw *writer, t *TrackPlan) error {
 		body = binary.BigEndian.AppendUint32(body, 0) // variable sizes
 		body = binary.BigEndian.AppendUint32(body, uint32(len(t.Samples)))
 		for _, s := range t.Samples {
-			body = binary.BigEndian.AppendUint32(body, uint32(len(s.Data)))
+			body = binary.BigEndian.AppendUint32(body, uint32(sampleSize(s)))
 		}
 		return bw.write(body)
 	})
