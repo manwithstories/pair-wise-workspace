@@ -46,9 +46,7 @@ PipelineStatus StreamPipeline::run(const std::string& input_path) {
   ParseResult open_res = reader.open();
   if (!open_res.ok()) {
     structural_err_ = open_res;
-    return open_res.error_offset == 0 && open_res.error == ParseError::BadMagic
-               ? PipelineStatus::InputError
-               : PipelineStatus::MediaError;
+    return PipelineStatus::MediaError;
   }
 
   bool eof = false;

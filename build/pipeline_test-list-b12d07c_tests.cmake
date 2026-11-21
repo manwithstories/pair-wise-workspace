@@ -1,1 +1,1 @@
-set(pipeline_tests_TESTS [==[skeleton compiles and links]==])
+set(pipeline_tests_TESTS [==[clock repair: wrap, duplicate, backward, drift]==] [==[decoder: valid png passes, garbage is isolated]==] [==[frame_record: container roundtrip preserves fields]==] [==[frame_record: rejects truncation, bad length, unknown time base]==] [==[index: VFR gaps, duplicates, keyframe hits]==] [==[pipeline: bounded queue, isolation, structural failure]==] [==[segment writer: crash recovery keeps only verified segments]==])

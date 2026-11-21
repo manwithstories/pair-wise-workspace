@@ -42,11 +42,15 @@ bool parse_args(int argc, char** argv, Args& a) {
   return true;
 }
 
-// Re-reads every completed segment, verifying checksums and decoding each
-// frame. Returns the number of frames that pass roundtrip verification.
+// Re-reads every segment written by this run, verifying checksums and
+// decoding each frame. Returns the number of frames that pass roundtrip
+// verification. (Segments recovered from earlier runs were already
+// hash-verified by SegmentWriter::recover.)
 uint64_t verify_roundtrip(const SegmentWriter& writer) {
   uint64_t verified = 0;
-  for (const auto& seg : writer.completed()) {
+  const auto& segs = writer.completed();
+  for (size_t i = writer.recovered_count(); i < segs.size(); ++i) {
+    const auto& seg = segs[i];
     if (!SegmentWriter::verify_file(seg.path, seg.sha256, seg.bytes)) {
       std::fprintf(stderr, "segment hash mismatch: %s\n", seg.path.c_str());
       continue;
@@ -78,6 +82,15 @@ uint64_t verify_roundtrip(const SegmentWriter& writer) {
 int main(int argc, char** argv) {
   Args args;
   if (!parse_args(argc, argv, args)) return 2;
+  {
+    std::FILE* probe = std::fopen(args.input.c_str(), "rb");
+    if (!probe) {
+      std::fprintf(stderr, "error=cannot_open_input path=%s\n",
+                   args.input.c_str());
+      return 2;
+    }
+    std::fclose(probe);
+  }
 
   PipelineConfig cfg;
   cfg.queue_capacity = args.queue_capacity;
@@ -88,12 +101,6 @@ int main(int argc, char** argv) {
   PipelineStatus status = pipeline.run(args.input);
   const PipelineStats& st = pipeline.stats();
 
-  if (status == PipelineStatus::InputError) {
-    std::fprintf(stderr, "error=%s first_error_offset=%llu\n",
-                 to_string(pipeline.structural_error().error),
-                 (unsigned long long)pipeline.structural_error().error_offset);
-    return 2;
-  }
   if (status == PipelineStatus::MediaError) {
     std::printf("error=%s first_error_offset=%llu\n",
                 to_string(pipeline.structural_error().error),

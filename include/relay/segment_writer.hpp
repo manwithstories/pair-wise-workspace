@@ -23,6 +23,9 @@ struct SegmentInfo {
 class SegmentWriter {
 public:
   SegmentWriter(std::string out_dir, uint32_t frames_per_segment);
+  // Closes any open temp file WITHOUT sealing it: an unsealed segment is
+  // never completed, mirroring a crash mid-segment.
+  ~SegmentWriter();
 
   // Scans out_dir: verifies completed segments against the manifest,
   // drops incomplete temp files, resumes after the last verified id.
@@ -37,6 +40,9 @@ public:
   bool finalize();
 
   const std::vector<SegmentInfo>& completed() const { return completed_; }
+  // Segments that already existed (verified) when recover() ran; entries
+  // at or beyond this index were written by the current run.
+  size_t recovered_count() const { return recovered_count_; }
   uint32_t current_segment_id() const { return current_id_; }
   bool failed() const { return failed_; }
   const std::string& out_dir() const { return out_dir_; }
@@ -55,6 +61,7 @@ private:
   std::string out_dir_;
   uint32_t frames_per_segment_;
   std::vector<SegmentInfo> completed_;
+  size_t recovered_count_ = 0;
   uint32_t current_id_ = 0;
   std::FILE* cur_ = nullptr;
   uint64_t cur_frames_ = 0;

@@ -47,6 +47,10 @@ SegmentWriter::SegmentWriter(std::string out_dir, uint32_t frames_per_segment)
   if (ec) failed_ = true;
 }
 
+SegmentWriter::~SegmentWriter() {
+  if (cur_) std::fclose(cur_); // drop unsealed temp segment
+}
+
 std::string SegmentWriter::tmp_path(uint32_t id) const {
   return out_dir_ + "/" + segment_name(id, "bin.tmp");
 }
@@ -96,6 +100,7 @@ bool SegmentWriter::recover() {
     std::fclose(m);
   }
   current_id_ = completed_.empty() ? 0 : completed_.back().id + 1;
+  recovered_count_ = completed_.size();
   return !failed_;
 }
 

@@ -1,0 +1,3 @@
+4:frame_record: rejects truncation, bad length, unknown time base
+5:index: VFR gaps, duplicates, keyframe hits
+6:pipeline: bounded queue, isolation, structural failure

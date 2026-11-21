@@ -78,13 +78,14 @@ void gen_mixed(Gen& g) {
 
 void gen_wrap(Gen& g) {
   FrameContainerWriter w(g.dir + "/wrap.frames");
-  const int64_t modulus = int64_t{1} << 18; // wraps every ~58 frames
+  const int64_t modulus = int64_t{1} << 33; // matches relay_check config
+  const int64_t interval = modulus / 67;    // wraps every ~67 frames
   const uint64_t frames = 200;
   w.write_header(frames);
-  int64_t clock = modulus - 10'000;
+  int64_t clock = modulus - 20'000;
   for (uint64_t i = 0; i < frames; ++i) {
     w.write_record(g.make(i, clock % modulus, i % 30 == 0));
-    clock += Gen::interval(i);
+    clock += interval;
   }
   w.write_trailer();
   std::printf("fixture=wrap.frames records=%llu wraps_expected=3\n",

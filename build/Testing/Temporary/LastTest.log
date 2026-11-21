@@ -1,0 +1,144 @@
+Start testing: Nov 21 08:30 CST
+----------------------------------------------------------
+7/7 Testing: segment writer: crash recovery keeps only verified segments
+7/7 Test: segment writer: crash recovery keeps only verified segments
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/14142/build/pipeline_tests" "segment writer: crash recovery keeps only verified segments" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/14142/build
+"segment writer: crash recovery keeps only verified segments" start time: Nov 21 08:30 CST
+Output:
+----------------------------------------------------------
+Filters: "segment writer: crash recovery keeps only verified segments"
+Randomness seeded to: 1048391036
+===============================================================================
+All tests passed (19 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"segment writer: crash recovery keeps only verified segments" end time: Nov 21 08:30 CST
+"segment writer: crash recovery keeps only verified segments" time elapsed: 00:00:00
+----------------------------------------------------------
+
+6/7 Testing: pipeline: bounded queue, isolation, structural failure
+6/7 Test: pipeline: bounded queue, isolation, structural failure
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/14142/build/pipeline_tests" "pipeline: bounded queue\, isolation\, structural failure" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/14142/build
+"pipeline: bounded queue, isolation, structural failure" start time: Nov 21 08:30 CST
+Output:
+----------------------------------------------------------
+Filters: "pipeline: bounded queue\, isolation\, structural failure"
+Randomness seeded to: 3573121876
+===============================================================================
+All tests passed (530 assertions in 1 test case)
+
+<end of output>
+Test time =   0.04 sec
+----------------------------------------------------------
+Test Passed.
+"pipeline: bounded queue, isolation, structural failure" end time: Nov 21 08:30 CST
+"pipeline: bounded queue, isolation, structural failure" time elapsed: 00:00:00
+----------------------------------------------------------
+
+4/7 Testing: frame_record: rejects truncation, bad length, unknown time base
+4/7 Test: frame_record: rejects truncation, bad length, unknown time base
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/14142/build/pipeline_tests" "frame_record: rejects truncation\, bad length\, unknown time base" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/14142/build
+"frame_record: rejects truncation, bad length, unknown time base" start time: Nov 21 08:30 CST
+Output:
+----------------------------------------------------------
+Filters: "frame_record: rejects truncation\, bad length\, unknown time base"
+Randomness seeded to: 2086366826
+===============================================================================
+All tests passed (25 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"frame_record: rejects truncation, bad length, unknown time base" end time: Nov 21 08:30 CST
+"frame_record: rejects truncation, bad length, unknown time base" time elapsed: 00:00:00
+----------------------------------------------------------
+
+5/7 Testing: index: VFR gaps, duplicates, keyframe hits
+5/7 Test: index: VFR gaps, duplicates, keyframe hits
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/14142/build/pipeline_tests" "index: VFR gaps\, duplicates\, keyframe hits" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/14142/build
+"index: VFR gaps, duplicates, keyframe hits" start time: Nov 21 08:30 CST
+Output:
+----------------------------------------------------------
+Filters: "index: VFR gaps\, duplicates\, keyframe hits"
+Randomness seeded to: 2729916886
+===============================================================================
+All tests passed (10 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"index: VFR gaps, duplicates, keyframe hits" end time: Nov 21 08:30 CST
+"index: VFR gaps, duplicates, keyframe hits" time elapsed: 00:00:00
+----------------------------------------------------------
+
+2/7 Testing: decoder: valid png passes, garbage is isolated
+2/7 Test: decoder: valid png passes, garbage is isolated
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/14142/build/pipeline_tests" "decoder: valid png passes\, garbage is isolated" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/14142/build
+"decoder: valid png passes, garbage is isolated" start time: Nov 21 08:30 CST
+Output:
+----------------------------------------------------------
+Filters: "decoder: valid png passes\, garbage is isolated"
+Randomness seeded to: 2412630985
+[png @ 0x75c7020000] Invalid PNG signature 0xABABABABABABABAB.
+===============================================================================
+All tests passed (2 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"decoder: valid png passes, garbage is isolated" end time: Nov 21 08:30 CST
+"decoder: valid png passes, garbage is isolated" time elapsed: 00:00:00
+----------------------------------------------------------
+
+1/7 Testing: clock repair: wrap, duplicate, backward, drift
+1/7 Test: clock repair: wrap, duplicate, backward, drift
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/14142/build/pipeline_tests" "clock repair: wrap\, duplicate\, backward\, drift" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/14142/build
+"clock repair: wrap, duplicate, backward, drift" start time: Nov 21 08:30 CST
+Output:
+----------------------------------------------------------
+Filters: "clock repair: wrap\, duplicate\, backward\, drift"
+Randomness seeded to: 2919343677
+===============================================================================
+All tests passed (9 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"clock repair: wrap, duplicate, backward, drift" end time: Nov 21 08:30 CST
+"clock repair: wrap, duplicate, backward, drift" time elapsed: 00:00:00
+----------------------------------------------------------
+
+3/7 Testing: frame_record: container roundtrip preserves fields
+3/7 Test: frame_record: container roundtrip preserves fields
+Command: "/Users/clearliu/WorkSpace/pair-wise-workspace/14142/build/pipeline_tests" "frame_record: container roundtrip preserves fields" "--order decl"
+Directory: /Users/clearliu/WorkSpace/pair-wise-workspace/14142/build
+"frame_record: container roundtrip preserves fields" start time: Nov 21 08:30 CST
+Output:
+----------------------------------------------------------
+Filters: "frame_record: container roundtrip preserves fields"
+Randomness seeded to: 2662181397
+===============================================================================
+All tests passed (16 assertions in 1 test case)
+
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"frame_record: container roundtrip preserves fields" end time: Nov 21 08:30 CST
+"frame_record: container roundtrip preserves fields" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Nov 21 08:30 CST
