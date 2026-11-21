@@ -87,6 +87,13 @@ func resolveTrack(c *media.Container, t *media.Track, ov Override) (Resolved, er
 	}
 	final, finalLabel := 0, "default"
 	if ov.Rotation != nil {
+		// In strict mode an operator-supplied rotation must already be a
+		// quarter turn; silently reducing 450 degrees would hide a mistake.
+		if ov.StrictRotation && (*ov.Rotation < 0 || *ov.Rotation > 3) {
+			return out, media.NewError(media.ClassMetadataConflict,
+				"rotation override %d is not a quarter turn", *ov.Rotation).
+				WithContainer(c.Format).WithTrack(t.ID.Value)
+		}
 		final, finalLabel = normalizeRotation(*ov.Rotation), "override"
 	} else {
 		for _, s := range rotationSources {

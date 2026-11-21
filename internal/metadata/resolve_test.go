@@ -63,6 +63,19 @@ func TestResolveUnknownColorDefaults(t *testing.T) {
 	}
 }
 
+func TestStrictRotationRejectsNonQuarterOverride(t *testing.T) {
+	c := &media.Container{Format: "mp4", Tracks: []*media.Track{{
+		ID: media.TrackID{Container: "mp4", Value: 1}, Width: 10, Height: 10,
+	}}}
+	bad := 5
+	if _, err := Resolve(c, Override{Rotation: &bad, StrictRotation: true}); media.ClassOf(err) != media.ClassMetadataConflict {
+		t.Fatalf("class=%s err=%v", media.ClassOf(err), err)
+	}
+	if _, err := Resolve(c, Override{Rotation: &bad}); err != nil {
+		t.Fatalf("non-strict override should normalize: %v", err)
+	}
+}
+
 func TestNormalizeRotation(t *testing.T) {
 	cases := map[int]int{-1: 3, 0: 0, 1: 1, 3: 3, 4: 0, 5: 1, 450: 2}
 	for in, want := range cases {
