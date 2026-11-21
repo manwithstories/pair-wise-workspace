@@ -587,9 +587,6 @@ func buildVerification(opt Options, tl *timeline.Timeline, frames []render.Rende
 			Blocked: f.Blocked, BlockingDep: f.BlockingDep,
 		})
 	}
-	for _, t := range tl.Frames {
-		_ = t
-	}
 	return m
 }
 
