@@ -77,8 +77,10 @@ func (f *File) finishTrack(rt *rawTrack) error {
 	return nil
 }
 
-// toTrack expands chunk tables into a sample index.
-func (f *File) toTrack(rt *rawTrack) *Track {
+// toTrack expands chunk tables into a sample index. It reports timestamp
+// overflow rather than silently saturating, so downstream time math never sees
+// a wrapped value.
+func (f *File) toTrack(rt *rawTrack) (*Track, error) {
 	t := &Track{}
 	t.InputID = rt.id
 	t.TargetID = rt.id
@@ -115,7 +117,6 @@ func (f *File) toTrack(rt *rawTrack) *Track {
 	hasSync := len(rt.sync) > 0
 
 	sampleNo := 0
-	chunkIdx := 0
 	var dts uint64
 	first := true
 	samples := make([]model.SampleRef, 0, len(rt.sizes))
@@ -129,26 +130,26 @@ func (f *File) toTrack(rt *rawTrack) *Track {
 				sync = syncSet[uint32(sampleNo+1)]
 			}
 			samples = append(samples, model.SampleRef{
-				TrackIndex: chunkIdx,
-				TrackID:    rt.id,
-				Index:      sampleNo,
-				Offset:     int64(pos),
-				Size:       size,
-				DTS:        dts,
-				Duration:   dtss[sampleNo],
-				CTSOffset:  ctss[sampleNo],
-				Sync:       sync,
+				TrackID:   rt.id,
+				Index:     sampleNo,
+				Offset:    int64(pos),
+				Size:      size,
+				DTS:       dts,
+				Duration:  dtss[sampleNo],
+				CTSOffset: ctss[sampleNo],
+				Sync:      sync,
 			})
 			if first {
 				t.FirstDTS = dts
 				first = false
 			}
 			t.LastDTS = dts
-			if dtss[sampleNo] > 0 && dts > ^uint64(0)-uint64(dtss[sampleNo]) {
-				dts = ^uint64(0)
-			} else {
-				dts += uint64(dtss[sampleNo])
+			delta := uint64(dtss[sampleNo])
+			if delta > ^uint64(0)-dts {
+				return nil, derr(model.StageDemux, model.CodeOverflow, rt.stblBase, rt.id, false,
+					"track %d timestamp overflow at sample %d", rt.id, sampleNo)
 			}
+			dts += delta
 			pos += uint64(size)
 			sampleNo++
 			_ = k
@@ -159,7 +160,7 @@ func (f *File) toTrack(rt *rawTrack) *Track {
 		// chunk so validation can still locate the error precisely.
 		for ; sampleNo < len(rt.sizes); sampleNo++ {
 			samples = append(samples, model.SampleRef{
-				TrackIndex: chunkIdx, TrackID: rt.id, Index: sampleNo,
+				TrackID: rt.id, Index: sampleNo,
 				Offset: -1, Size: rt.sizes[sampleNo], DTS: dts, Duration: dtss[sampleNo],
 			})
 		}
@@ -168,14 +169,7 @@ func (f *File) toTrack(rt *rawTrack) *Track {
 	t.SizeTableOffset = rt.sizeBase
 	t.SizeTableFixed = rt.sizeFixed
 	t.ChunkTableOffset = rt.chunkBase
-	return t
-}
-
-// Sparse returns the track without its sample index, for metadata-only views.
-func (t *Track) Sparse() *Track {
-	cp := *t
-	cp.Samples = nil
-	return &cp
+	return t, nil
 }
 
 func expandSTTS(runs []sttsRun, n int) []uint32 {

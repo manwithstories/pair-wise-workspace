@@ -2,7 +2,6 @@ package demux
 
 import (
 	"context"
-	"io"
 	"os"
 
 	"mediamerge/internal/model"
@@ -45,16 +44,6 @@ func (r *Reader) ReadSample(s model.SampleRef) ([]byte, error) {
 			"short read for track %d sample %d at %d: %v", s.TrackID, s.Index, s.Offset, err)
 	}
 	return buf[:n], nil
-}
-
-// WriteSampleTo copies one sample payload to w without buffering it whole.
-func (r *Reader) WriteSampleTo(w io.Writer, s model.SampleRef) (int64, error) {
-	n, err := io.CopyN(w, io.NewSectionReader(r.file, s.Offset, int64(s.Size)), int64(s.Size))
-	if err != nil {
-		return n, derr(model.StageDemux, model.CodeTruncated, s.Offset+n, s.TrackID, false,
-			"short read for track %d sample %d at %d: %v", s.TrackID, s.Index, s.Offset, err)
-	}
-	return n, nil
 }
 
 // buildSamples cross-checks every sample reference against the mdat extent and

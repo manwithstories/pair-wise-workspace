@@ -108,7 +108,7 @@ func (f *File) parseTrak(box Table) (*Track, error) {
 	if err := f.finishTrack(rt); err != nil {
 		return nil, err
 	}
-	return f.toTrack(rt), nil
+	return f.toTrack(rt)
 }
 
 func (f *File) parseMinf(rt *rawTrack, minf Table) error {
