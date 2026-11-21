@@ -9,7 +9,6 @@ import (
 	"mediapack/internal/dag"
 	"mediapack/internal/fault"
 	"mediapack/internal/frames"
-	"mediapack/internal/hash"
 	"mediapack/internal/index"
 	"mediapack/internal/mp4"
 	"mediapack/internal/segments"
@@ -252,5 +251,3 @@ func readFile(path string) ([]byte, error) {
 	}
 	return data, nil
 }
-
-var _ = hash.AllMatch

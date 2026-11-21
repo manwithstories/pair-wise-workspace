@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 
-	"mediapack/internal/clock"
-	"mediapack/internal/fault"
 	"mediapack/internal/hash"
 	"mediapack/internal/segments"
 )
@@ -111,6 +109,3 @@ func (rs *runState) manifestBytes(cfg string) ([]byte, error) {
 func (rs *runState) manifestView(cfg string) (hashArtifact, error) {
 	return readArtifact[hashArtifact](rs, "hash", cfg)
 }
-
-var _ = fault.ExitCode
-var _ = clock.MustNew

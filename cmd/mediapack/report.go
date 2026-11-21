@@ -7,8 +7,6 @@ import (
 	"strings"
 
 	"mediapack/internal/dag"
-	"mediapack/internal/hash"
-	"mediapack/internal/index"
 )
 
 // printer writes the report with a single error check at the boundary, so
@@ -162,6 +160,3 @@ func countDone(state *dag.State) int {
 	}
 	return n
 }
-
-var _ = hash.AllMatch
-var _ = index.Coverage
