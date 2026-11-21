@@ -27,18 +27,18 @@ type Slot struct {
 
 // Input bundles one resolved track's metadata with its recovered frames.
 type Input struct {
-	Track metadata.ResolvedTrack
+	Track  metadata.ResolvedTrack
 	Frames []model.Frame
 }
 
 // Timeline is the merged, ordered result consumed by the renderer and metrics.
 type Timeline struct {
-	Clock        model.Clock
-	Slots        []Slot
-	Tracks       map[string]metadata.ResolvedTrack
-	Diag         model.Bag
-	SyncMaxMs    float64 // worst observed audio-vs-video deviation
-	Incomplete   []string
+	Clock      model.Clock
+	Slots      []Slot
+	Tracks     map[string]metadata.ResolvedTrack
+	Diag       model.Bag
+	SyncMaxMs  float64 // worst observed audio-vs-video deviation
+	Incomplete []string
 }
 
 // Merge aligns every input on master. Alignment is always converted directly
@@ -47,6 +47,7 @@ type Timeline struct {
 func Merge(master model.Clock, inputs []Input, syncTolerance model.Rational) *Timeline {
 	tl := &Timeline{Clock: master, Tracks: map[string]metadata.ResolvedTrack{}}
 	byTick := map[int64][]AlignedFrame{}
+	ownerKey := map[string]string{} // "track:tick" -> owning representation
 	var ticks []int64
 	for _, in := range inputs {
 		meta := in.Track.Track
@@ -82,6 +83,18 @@ func Merge(master model.Clock, inputs []Input, syncTolerance model.Rational) *Ti
 					Message: fmt.Sprintf("rep=%s gap placeholder reaches timeline at seq=%d", fr.Rep, fr.Seq)})
 				tl.Incomplete = appendOnce(tl.Incomplete, meta.TrackID)
 			}
+			// Single-contributor rule at the timeline boundary: one (track,tick)
+			// pair is owned by exactly one representation. A later contributor is a
+			// suppressed duplicate, never a second frame, so ABR switches cannot
+			// manufacture overlapping fragments.
+			if owner, ok := ownerKey[ownerOf(meta.TrackID, shared)]; ok {
+				tl.Diag.Add(model.Diagnostic{Kind: model.KindFrameSuppressed, Severity: model.SeverityWarning,
+					Track: meta.TrackID, AtTicks: shared, Recoverable: true,
+					Message: fmt.Sprintf("rep=%s suppressed at tick %d already owned by rep=%s",
+						fr.Rep, shared, owner)})
+				continue
+			}
+			ownerKey[ownerOf(meta.TrackID, shared)] = fr.Rep
 			byTick[shared] = append(byTick[shared], af)
 			ticks = append(ticks, shared)
 		}
@@ -184,6 +197,11 @@ func nearestIndex(rel, frameDur model.Rational) int64 {
 func FrameGridTick(master model.Clock, start model.Rational, rate model.Rational, index int64) int64 {
 	at := start.Add(model.Rational{Num: rate.Den * index, Den: rate.Num})
 	return master.FromSeconds(at)
+}
+
+// ownerOf builds the per-track-per-tick ownership map key.
+func ownerOf(track string, tick int64) string {
+	return fmt.Sprintf("%s:%d", track, tick)
 }
 
 func dedupTicks(in []int64) []int64 {

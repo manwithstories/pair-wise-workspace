@@ -19,34 +19,34 @@ import (
 
 // FrameRecord is one exported frame entry in the manifest.
 type FrameRecord struct {
-	Index       int    `json:"index"`
-	SharedTick  int64  `json:"shared_tick"`
-	TrackID     string `json:"track_id"`
-	Rep         string `json:"rep"`
-	Seq         int64  `json:"seq"`
-	Incomplete  bool   `json:"incomplete"`
-	Recovered   bool   `json:"recovered"`
-	FrameFile   string `json:"frame_file"`
-	SHA256      string `json:"sha256"`
-	Conclusion  string `json:"conclusion"`
+	Index      int    `json:"index"`
+	SharedTick int64  `json:"shared_tick"`
+	TrackID    string `json:"track_id"`
+	Rep        string `json:"rep"`
+	Seq        int64  `json:"seq"`
+	Incomplete bool   `json:"incomplete"`
+	Recovered  bool   `json:"recovered"`
+	FrameFile  string `json:"frame_file"`
+	SHA256     string `json:"sha256"`
+	Conclusion string `json:"conclusion"`
 }
 
 // Manifest is the machine-readable export summary.
 type Manifest struct {
-	Version     int                    `json:"version"`
-	ClockRate   int64                  `json:"clock_rate"`
-	FrameCount  int                    `json:"frame_count"`
-	HashCount   int                    `json:"frame_hash_count"`
-	Frames      []FrameRecord          `json:"frames"`
-	Diagnostics []model.Diagnostic     `json:"diagnostics"`
+	Version     int                         `json:"version"`
+	ClockRate   int64                       `json:"clock_rate"`
+	FrameCount  int                         `json:"frame_count"`
+	HashCount   int                         `json:"frame_hash_count"`
+	Frames      []FrameRecord               `json:"frames"`
+	Diagnostics []model.Diagnostic          `json:"diagnostics"`
 	Mismatches  []timeline.BoundaryMismatch `json:"boundary_mismatches"`
-	Incomplete  []string               `json:"incomplete_tracks"`
-	Checksum    string                 `json:"manifest_checksum"`
+	Incomplete  []string                    `json:"incomplete_tracks"`
+	Checksum    string                      `json:"manifest_checksum"`
 }
 
 // Exporter writes frames and the manifest inside one validated directory.
 type Exporter struct {
-	root     string
+	root      string
 	framesDir string
 }
 

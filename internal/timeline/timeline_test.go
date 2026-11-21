@@ -134,7 +134,7 @@ func TestCorruptedBoundaryFixture(t *testing.T) {
 		model.Rational{Num: 0, Den: 1}), Frames: vframes}}, model.Rational{Num: 5, Den: 1000})
 	corrupt := []Fragment{
 		{TrackID: "v", Rep: "low", FirstTick: 0, EndTick: 6000, Frames: 2},
-		{TrackID: "v", Rep: "high", FirstTick: 3000, EndTick: 9000, Frames: 2}, // overlap
+		{TrackID: "v", Rep: "high", FirstTick: 3000, EndTick: 9000, Frames: 2},    // overlap
 		{TrackID: "v", Rep: "high", FirstTick: 99999, EndTick: 100000, Frames: 1}, // phantom tick
 	}
 	mismatches, bag := VerifyBoundaries(tl, corrupt)

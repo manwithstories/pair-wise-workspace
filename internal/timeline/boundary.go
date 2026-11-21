@@ -20,17 +20,19 @@ type Fragment struct {
 // BoundaryMismatch describes a contradiction between representation fragments
 // and the merged timeline. It propagates into the export manifest.
 type BoundaryMismatch struct {
-	TrackID  string
-	AtTick   int64
-	Kind     model.Kind
-	RepA     string
-	RepB     string
-	Message  string
+	TrackID string
+	AtTick  int64
+	Kind    model.Kind
+	RepA    string
+	RepB    string
+	Message string
 }
 
-// Fragmentize builds per-track fragments from timeline frames. A representation
-// change, a tick gap larger than one slot, or an incomplete placeholder starts a
-// new fragment. Output is deterministic (sorted by track, then first tick).
+// Fragmentize builds per-track fragments from timeline frames. A new fragment
+// starts when the representation changes or when an incomplete placeholder is
+// reached. Frames sharing a timestamp (retransmitted recovery traffic) stay in
+// the same fragment, so healthy ABR switches never manufacture overlaps.
+// Output is deterministic (sorted by track, then first tick).
 func Fragmentize(tl *Timeline) []Fragment {
 	type acc struct {
 		track  string
@@ -44,17 +46,18 @@ func Fragmentize(tl *Timeline) []Fragment {
 		for _, af := range slot.Frames {
 			track := af.TrackID
 			fr := af.Frame
-			n := len(groups[track])
-			if n == 0 || groups[track][n-1].rep != fr.Rep ||
-				groups[track][n-1].end != af.SharedTick || fr.Incomplete {
-				groups[track] = append(groups[track], acc{
+			list := groups[track]
+			n := len(list)
+			switch {
+			case n == 0 || list[n-1].rep != fr.Rep || fr.Incomplete:
+				groups[track] = append(list, acc{
 					track: track, rep: fr.Rep, first: af.SharedTick,
-					end: af.SharedTick, frames: 0,
+					end: nextEnd(tl, af.SharedTick), frames: 1,
 				})
-				n = len(groups[track])
+			default:
+				groups[track][n-1].end = nextEnd(tl, af.SharedTick)
+				groups[track][n-1].frames++
 			}
-			groups[track][n-1].end = nextEnd(tl, af.SharedTick)
-			groups[track][n-1].frames++
 		}
 	}
 	var out []Fragment
@@ -73,20 +76,6 @@ func Fragmentize(tl *Timeline) []Fragment {
 	return out
 }
 
-// realGap returns a content-bearing timeline tick strictly inside (start,end),
-// or -1 when the interval only spans incomplete-placeholder separator slots.
-func realGap(tl *Timeline, start, end int64) int64 {
-	for _, s := range tl.Slots {
-		if s.Tick <= start || s.Tick >= end {
-			continue
-		}
-		if !s.Incomplete {
-			return s.Tick
-		}
-	}
-	return -1
-}
-
 // nextEnd returns the timeline tick strictly after tick, or tick+1 at the tail.
 func nextEnd(tl *Timeline, tick int64) int64 {
 	for _, s := range tl.Slots {
@@ -97,15 +86,21 @@ func nextEnd(tl *Timeline, tick int64) int64 {
 	return tick + 1
 }
 
-// VerifyBoundaries cross-checks fragments against each other and the timeline:
-// adjacent fragments must meet at one shared boundary without overlap, and every
-// fragment must cover ticks the timeline actually contains.
+// VerifyBoundaries cross-checks fragments against the timeline per track.
+// Adjacent same-track fragments must not overlap and must not skip a tick that
+// the track actually contributed. Sparse tracks (e.g. audio blocks) naturally
+// have empty ticks between their own frames and are not flagged.
 func VerifyBoundaries(tl *Timeline, fragments []Fragment) ([]BoundaryMismatch, model.Bag) {
 	var diag model.Bag
 	var mismatches []BoundaryMismatch
-	knownTicks := map[int64]bool{}
-	for _, s := range tl.Slots {
-		knownTicks[s.Tick] = true
+	trackTicks := map[string]map[int64]bool{}
+	for _, slot := range tl.Slots {
+		for _, af := range slot.Frames {
+			if trackTicks[af.TrackID] == nil {
+				trackTicks[af.TrackID] = map[int64]bool{}
+			}
+			trackTicks[af.TrackID][af.SharedTick] = true
+		}
 	}
 	byTrack := map[string][]Fragment{}
 	for _, f := range fragments {
@@ -119,13 +114,14 @@ func VerifyBoundaries(tl *Timeline, fragments []Fragment) ([]BoundaryMismatch, m
 	for _, track := range tracks {
 		list := byTrack[track]
 		sort.Slice(list, func(i, j int) bool { return list[i].FirstTick < list[j].FirstTick })
+		known := trackTicks[track]
 		for i, f := range list {
 			if f.EndTick <= f.FirstTick {
 				m := record(&diag, track, f.FirstTick, model.KindBoundaryMismatch, f.Rep, "",
 					fmt.Sprintf("fragment has empty/negative range [%d,%d)", f.FirstTick, f.EndTick))
 				mismatches = append(mismatches, m)
 			}
-			if !knownTicks[f.FirstTick] {
+			if !known[f.FirstTick] {
 				m := record(&diag, track, f.FirstTick, model.KindBoundaryMismatch, f.Rep, "",
 					"fragment starts at a tick absent from the timeline")
 				mismatches = append(mismatches, m)
@@ -141,14 +137,15 @@ func VerifyBoundaries(tl *Timeline, fragments []Fragment) ([]BoundaryMismatch, m
 						next.FirstTick, next.EndTick))
 				mismatches = append(mismatches, m)
 			default:
-				// Any real timeline tick strictly between two fragments is a hole.
-				// Synthetic incomplete-placeholder slots are expected separators, not
-				// mismatches by themselves; real missing content is caught via the
-				// incomplete trail in the manifest.
-				if gap := realGap(tl, f.EndTick, next.FirstTick); gap >= 0 {
-					m := record(&diag, track, gap, model.KindBoundaryMismatch, f.Rep, next.Rep,
-						fmt.Sprintf("boundary gap between reps %s and %s at tick %d", f.Rep, next.Rep, gap))
-					mismatches = append(mismatches, m)
+				// Hole only when this track genuinely had a frame between the two
+				// fragments that no fragment now covers.
+				for tick := range known {
+					if tick > f.EndTick && tick < next.FirstTick {
+						m := record(&diag, track, tick, model.KindBoundaryMismatch, f.Rep, next.Rep,
+							fmt.Sprintf("boundary gap between reps %s and %s at tick %d", f.Rep, next.Rep, tick))
+						mismatches = append(mismatches, m)
+						break
+					}
 				}
 			}
 		}

@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/abema/go-mp4"
 
@@ -191,6 +192,13 @@ func decodeTrak(trak *boxNode, source string, diag *model.Bag) *TrackMeta {
 				angle = 0
 			}
 			t.HasRot, t.Rotation = true, angle
+		}
+	}
+	// A udta/name box carries the logical track identity so MXF and MP4 records
+	// of the same track share one TrackID across containers.
+	if name := trak.findOne("name"); name != nil && len(name.payload) > 0 {
+		if id := strings.TrimSpace(string(name.payload)); id != "" {
+			t.TrackID = id
 		}
 	}
 	if mdhd := trak.findOne("mdhd"); mdhd != nil {
@@ -425,6 +433,10 @@ func WriteMP4(wr io.Writer, tracks []TrackMeta) error {
 		writeBox(&minf, "stbl", stbl.Bytes())
 		writeBox(&mdia, "minf", minf.Bytes())
 		writeBox(&trak, "mdia", mdia.Bytes())
+
+		var udta bytes.Buffer
+		writeBox(&udta, "name", []byte(t.TrackID))
+		writeBox(&trak, "udta", udta.Bytes())
 		moov.Write(boxBytes("trak", trak.Bytes()))
 	}
 	root.container("moov", moov.Bytes())

@@ -42,11 +42,11 @@ func (p ConflictPolicy) rank(table map[string]int, source string) int {
 
 // Decision records the outcome of one field adjudication.
 type Decision struct {
-	Field    string // rotation|crop|color
-	Winner   string
-	Loser    string
-	TrackID  string
-	Message  string
+	Field   string // rotation|crop|color
+	Winner  string
+	Loser   string
+	TrackID string
+	Message string
 }
 
 // ResolvedTrack is a TrackMeta plus the adjudication trail and surviving issues.

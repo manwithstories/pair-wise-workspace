@@ -182,8 +182,8 @@ type Frame struct {
 	Clock      Clock
 	Marker     bool
 	Payload    []byte
-	Recovered  bool // arrived late but inside the reorder window
-	Incomplete bool // unrepairable gap placeholder; Payload is nil
+	Recovered  bool  // arrived late but inside the reorder window
+	Incomplete bool  // unrepairable gap placeholder; Payload is nil
 	SendTicks  int64 // shared-clock tick when the packet was injected
 	RecvTicks  int64 // shared-clock tick when it became available
 }

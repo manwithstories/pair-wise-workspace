@@ -71,3 +71,6 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- mediasync 本地演示产物（帧序列与清单，运行时生成）----
+artifacts/

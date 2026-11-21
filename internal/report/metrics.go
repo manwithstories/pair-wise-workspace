@@ -15,23 +15,23 @@ import (
 
 // Metrics is the full acceptance snapshot for one pipeline run.
 type Metrics struct {
-	AVSyncMaxMs       float64
-	LossInjected      int
-	LossRecovered     int
-	LossGaps          int
-	LossRecoveryRate  string // formatted fraction or "n/a"
-	P95LatencyMs      float64
-	BoundaryMismatch  int
-	FrameHashCount    int
-	IncompleteTracks  []string
-	PerRepRecovery    map[string]int
+	AVSyncMaxMs      float64
+	LossInjected     int
+	LossRecovered    int
+	LossGaps         int
+	LossRecoveryRate string // formatted fraction or "n/a"
+	P95LatencyMs     float64
+	BoundaryMismatch int
+	FrameHashCount   int
+	IncompleteTracks []string
+	PerRepRecovery   map[string]int
 }
 
 // LatencySample is one end-to-end latency observation in shared-clock ticks.
 type LatencySample struct {
-	Track    string
-	Ticks    int64
-	Clock    model.Clock
+	Track string
+	Ticks int64
+	Clock model.Clock
 }
 
 // Build collects metrics from the pipeline stages. lossInjected is the number

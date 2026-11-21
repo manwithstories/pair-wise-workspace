@@ -39,18 +39,20 @@ type Fanout struct {
 	seenTS     map[int64]string // extended timestamp -> contributing rep
 	switches   []SwitchEvent
 	suppressed int
+	external   bool // when true, Push never runs the internal selector
 	diag       model.Bag
 }
 
 // FanoutConfig wires the three transport pieces together.
 type FanoutConfig struct {
-	Track          string
-	Clock          model.Clock
-	Reps           []Representation
-	EstimatorAlpha float64
-	TickRate       int64
-	HoldTicks      int64
-	Reorder        ReorderConfig
+	Track             string
+	Clock             model.Clock
+	Reps              []Representation
+	EstimatorAlpha    float64
+	TickRate          int64
+	HoldTicks         int64
+	Reorder           ReorderConfig
+	ExternalSelection bool // adaptation driven via NoteSwitch, not the estimator
 }
 
 // NewFanout validates and constructs the per-track fanout pipeline.
@@ -66,12 +68,32 @@ func NewFanout(cfg FanoutConfig) (*Fanout, error) {
 		estimator: NewEstimator(cfg.EstimatorAlpha, cfg.TickRate),
 		selector:  sel,
 		seenTS:    map[int64]string{},
+		external:  cfg.ExternalSelection,
 	}
 	for i, r := range cfg.Reps {
 		f.buffers = append(f.buffers, NewReorderBuffer(cfg.Track, r.Name, cfg.Clock, cfg.Reorder))
 		_ = i
 	}
 	return f, nil
+}
+
+// NoteSwitch records an externally driven ABR decision at a shared-clock
+// boundary. This is used when adaptation policy lives outside the fanout (the
+// synthetic fixture drives selection); the estimator/selector path remains
+// available for internally driven streams.
+func (f *Fanout) NoteSwitch(repIndex int, atTicks int64) error {
+	if repIndex < 0 || repIndex >= len(f.reps) {
+		return fmt.Errorf("switch rep index %d out of range", repIndex)
+	}
+	current := f.selector.Current()
+	if repIndex == current {
+		return nil
+	}
+	f.switches = append(f.switches, SwitchEvent{
+		AtTicks: atTicks, FromRep: f.reps[current].Name, ToRep: f.reps[repIndex].Name,
+	})
+	f.selector.current = repIndex
+	return nil
 }
 
 // Push feeds one received packet to its representation buffer, updates the
@@ -82,11 +104,13 @@ func (f *Fanout) Push(p SimPacket) ([]model.Frame, error) {
 		return nil, fmt.Errorf("rep index %d out of range 0..%d", p.RepIndex, len(f.buffers)-1)
 	}
 	f.estimator.Observe(p.RecvTicks, len(p.Payload))
-	prev := f.selector.Current()
-	if idx, changed := f.selector.Choose(f.estimator.BitsPerSecond(), p.RecvTicks); changed {
-		f.switches = append(f.switches, SwitchEvent{
-			AtTicks: p.RecvTicks, FromRep: f.reps[prev].Name, ToRep: f.reps[idx].Name,
-		})
+	if !f.external {
+		prev := f.selector.Current()
+		if idx, changed := f.selector.Choose(f.estimator.BitsPerSecond(), p.RecvTicks); changed {
+			f.switches = append(f.switches, SwitchEvent{
+				AtTicks: p.RecvTicks, FromRep: f.reps[prev].Name, ToRep: f.reps[idx].Name,
+			})
+		}
 	}
 	pkt := makeRTPPacket(p)
 	frames := f.buffers[p.RepIndex].Push(pkt, p.SendTicks, p.RecvTicks)
