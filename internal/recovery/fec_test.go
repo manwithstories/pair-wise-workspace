@@ -99,7 +99,8 @@ func TestReconstructionPreservesTotalSampleCount(t *testing.T) {
 		}
 		r.Offer(recvBlockCh(seq, ch, int32(seq)*10))
 	}
-	out := r.Flush(20)
+	r.Flush(20)
+	out := r.Emitted() // full reconstructed stream including streamed blocks
 	var frames int
 	var tick int64
 	for _, b := range out {

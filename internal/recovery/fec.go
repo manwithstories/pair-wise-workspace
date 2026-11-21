@@ -31,6 +31,7 @@ type Reassembler struct {
 	stats     Stats
 	last     *clock.Block // last block emitted (real or synthesized)
 	lastReal *clock.Block // last received block, always a valid interpolation anchor
+	emitted  []*clock.Block // every block produced, in timeline order
 }
 
 // NewReassembler builds a reassembler. framesPkt is the fixed packet duration in
@@ -67,6 +68,7 @@ func (r *Reassembler) Emit() []*clock.Block {
 			// Drain releases the whole contiguous run, not just the head.
 			for _, b := range r.win.Drain() {
 				out = append(out, b)
+				r.emitted = append(r.emitted, b)
 				r.last = b
 				r.lastReal = b
 			}
@@ -77,7 +79,9 @@ func (r *Reassembler) Emit() []*clock.Block {
 			return out // nothing reconstructible yet
 		}
 		burst := jitter.SeqDistance(nextSeq, anchor.Seq)
-		out = append(out, r.fillGap(nextSeq, r.lastReal, anchor, burst)...)
+		filled := r.fillGap(nextSeq, r.lastReal, anchor, burst)
+		out = append(out, filled...)
+		r.emitted = append(r.emitted, filled...)
 		r.win.SlideTo(anchor.Seq) // advance past missing seqs, keep anchor
 	}
 }
@@ -85,24 +89,30 @@ func (r *Reassembler) Emit() []*clock.Block {
 // Flush emits all buffered data and synthesizes trailing missing packets up to
 // the given sequence number (end-of-stream semantics). Trailing gaps have no
 // later anchor, so they are always filled with silence.
+// Flush drains any remaining reconstructible blocks and synthesizes trailing
+// missing packets up to upToSeq. It returns only the blocks not previously
+// returned by Emit (the new tail); the full history is available via Emitted.
 func (r *Reassembler) Flush(upToSeq uint16) []*clock.Block {
-	if _, started := r.win.NextSeq(); !started {
-		return nil
+	had := len(r.emitted)
+	if _, started := r.win.NextSeq(); started {
+		// Emit already appends its output to r.emitted; do not append twice.
+		r.Emit()
+		if r.last != nil {
+			tick := r.last.EndTick()
+			for seq := r.last.Seq + 1; jitter.SeqDistance(seq, upToSeq) > 0; seq++ {
+				b := r.synthBlock(seq, tick, r.lastReal)
+				r.emitted = append(r.emitted, b)
+				tick += int64(r.framesPkt)
+				r.last = b
+			}
+		}
+		r.win.Flush(upToSeq)
 	}
-	out := r.Emit()
-	if r.last == nil {
-		return out
-	}
-	tick := r.last.EndTick()
-	for seq := r.last.Seq + 1; jitter.SeqDistance(seq, upToSeq) > 0; seq++ {
-		b := r.synthBlock(seq, tick, r.lastReal)
-		out = append(out, b)
-		tick += int64(r.framesPkt)
-		r.last = b
-	}
-	r.win.Flush(upToSeq)
-	return out
+	return r.emitted[had:]
 }
+
+// Emitted returns every block produced so far, in timeline order.
+func (r *Reassembler) Emitted() []*clock.Block { return r.emitted }
 
 // fillGap synthesizes burst missing packets starting at firstSeq between two
 // real anchor blocks. The left anchor may be several packets before firstSeq

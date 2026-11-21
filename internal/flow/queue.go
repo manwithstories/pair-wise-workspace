@@ -93,8 +93,65 @@ func (q *Queue) Enqueue(ctx context.Context, b *clock.Block, arrivalMS int64) er
 		q.peakBytes = q.bytes
 	}
 	q.observe(size, arrivalMS)
+	q.cond.Broadcast() // wake any Dequeue waiting on an empty queue
 	q.mu.Unlock()
 	return nil
+}
+
+// TryEnqueue inserts a block if it fits without blocking. It returns
+// (false, nil) when the queue is full so the caller can drain and retry;
+// oversized blocks still produce a classified error.
+func (q *Queue) TryEnqueue(b *clock.Block, arrivalMS int64) (bool, error) {
+	size := b.ByteSize()
+	if size > clock.MaxBlockBytes {
+		return false, clock.NewError(clock.KindBadBlock,
+			"block %d bytes exceeds %d byte cap", size, clock.MaxBlockBytes)
+	}
+	if size > q.maxBytes {
+		return false, clock.NewError(clock.KindQueueFull,
+			"block %d bytes larger than queue ceiling %d", size, q.maxBytes)
+	}
+	q.mu.Lock()
+	if q.bytes+size > q.maxBytes {
+		q.mu.Unlock()
+		return false, nil
+	}
+	q.blocks = append(q.blocks, b)
+	q.bytes += size
+	q.enqueued++
+	if q.bytes > q.peakBytes {
+		q.peakBytes = q.bytes
+	}
+	q.observe(size, arrivalMS)
+	q.cond.Broadcast()
+	q.mu.Unlock()
+	return true, nil
+}
+
+// RecordBackpressure accounts for one blocked-then-retried enqueue cycle.
+func (q *Queue) RecordBackpressure(waitMS int64) {
+	q.mu.Lock()
+	q.events++
+	q.backpressureMS += waitMS
+	q.mu.Unlock()
+}
+
+// Pop removes and returns the head block, or nil when the queue is empty.
+// It never blocks, which keeps offline backpressure fully deterministic.
+func (q *Queue) Pop() *clock.Block {
+	q.mu.Lock()
+	if len(q.blocks) == 0 {
+		q.mu.Unlock()
+		return nil
+	}
+	b := q.blocks[0]
+	q.blocks[0] = nil
+	q.blocks = q.blocks[1:]
+	q.bytes -= b.ByteSize()
+	q.dequeued++
+	q.cond.Broadcast()
+	q.mu.Unlock()
+	return b
 }
 
 // Dequeue removes and returns the head block, blocking until one is available.

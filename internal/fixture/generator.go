@@ -78,8 +78,12 @@ func NewGenerator(cfg Config) *Generator {
 
 // packetsPerTrack derives the total packet count from duration.
 func (g *Generator) packetsPerTrack() int {
-	totalFrames := clock.SampleRate * g.cfg.DurationMS / 1000
-	return totalFrames / g.cfg.FramesPerPkt
+	return g.cfg.SampleCount() / g.cfg.FramesPerPkt
+}
+
+// SampleCount returns the total PCM frames per track for the duration.
+func (c Config) SampleCount() int {
+	return clock.SampleRate * c.DurationMS / 1000
 }
 
 // BuildTracks synthesizes clean per-track RTP packets with PCM payloads.
