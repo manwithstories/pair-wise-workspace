@@ -142,6 +142,7 @@ class PipelineTests(TempDirMixin, unittest.TestCase):
     def test_resume_after_segment_corruption_redoes_encode(self) -> None:
         from avtimeline.errors import Stage as _Stage
 
+        full = run_pipeline(self.path("full"), force_samples=True)
         result = run_pipeline(
             self.path("run"), force_samples=True, break_at=_Stage.ENCODE
         )
@@ -155,6 +156,14 @@ class PipelineTests(TempDirMixin, unittest.TestCase):
         self.assertEqual(statuses[_Stage.NORMALIZE], "reused")
         self.assertEqual([e.code for e in resumed.errors], [])
         self.assertGreaterEqual(resumed.aligned_segments, 6)
+        # Re-encoding the damaged segment must reproduce its original hash.
+        self.assertIsNotNone(full.manifest)
+        self.assertIsNotNone(resumed.manifest)
+        assert full.manifest is not None and resumed.manifest is not None
+        self.assertEqual(
+            [s["renditions"] for s in resumed.manifest.segments],
+            [s["renditions"] for s in full.manifest.segments],
+        )
 
     def test_corrupt_sample_stop_policy_fails(self) -> None:
         config = make_config(policy="stop")
