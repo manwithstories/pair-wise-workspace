@@ -1,8 +1,8 @@
 package pipeline
 
 import (
-	"bytes"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -21,8 +21,6 @@ type aggregateArtifact struct {
 	Duplicates []fingerprint.DuplicateGroup `json:"duplicates"`
 	Bad        []verify.BadOffset           `json:"bad"`
 }
-
-func bytesReader(b []byte) *bytes.Reader { return bytes.NewReader(b) }
 
 // Run executes the pipeline. interruptAfter > 0 stops scheduling new nodes
 // after that many leaves complete, demonstrating resumable interruption.
@@ -134,11 +132,12 @@ func (e *Engine) runLeaf(seg model.SegmentRef) error {
 		}
 		a.Cut = &cut
 	}
-	pcm, err := e.extractPCM(path, ev.Report)
+	pcm, err := e.openPCM(path, ev.Report)
 	if err != nil {
 		return err
 	}
-	ivs, err := e.detector.Detect(bytes.NewReader(pcm), seg.Start)
+	defer pcm.Close()
+	ivs, err := e.detector.Detect(pcm, seg.Start)
 	if err != nil {
 		return err
 	}
@@ -151,7 +150,10 @@ func (e *Engine) runLeaf(seg model.SegmentRef) error {
 	return e.writeArtifact(id, a)
 }
 
-func (e *Engine) extractPCM(path string, rep *segment.WalkReport) ([]byte, error) {
+// openPCM returns a streaming reader over the mdat payload. It never buffers
+// the whole fragment, so peak memory stays bounded for multi-GB inputs; the
+// caller must Close the returned reader.
+func (e *Engine) openPCM(path string, rep *segment.WalkReport) (io.ReadCloser, error) {
 	var mdat *segment.BoxRecord
 	for i := range rep.Boxes {
 		if rep.Boxes[i].Type == "mdat" {
@@ -166,13 +168,14 @@ func (e *Engine) extractPCM(path string, rep *segment.WalkReport) ([]byte, error
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
 	payloadLen := mdat.Size - mdat.HeaderSize
-	buf := make([]byte, payloadLen)
-	if _, err := f.ReadAt(buf, mdat.Offset+mdat.HeaderSize); err != nil {
-		return nil, err
-	}
-	return buf, nil
+	return struct {
+		io.Reader
+		io.Closer
+	}{
+		Reader: io.NewSectionReader(f, mdat.Offset+mdat.HeaderSize, payloadLen),
+		Closer: f,
+	}, nil
 }
 
 func (e *Engine) partialOutcome(results []dag.Result, blockedID string, partial bool) (*Outcome, error) {
