@@ -185,7 +185,12 @@ func IdempotencyKey(node string, depHashes []string) string {
 }
 
 // Run executes all nodes with dependency-ordered retries.
-func (s *Scheduler) Run() *Report {
+func (s *Scheduler) Run() *Report { return s.Resume(nil) }
+
+// Resume executes the DAG, reusing any node already marked done in prior.
+// Reused nodes are not re-run: their recorded result is the idempotent product
+// from the interrupted attempt. Everything else is dependency-ordered as usual.
+func (s *Scheduler) Resume(prior map[string]NodeState) *Report {
 	report := &Report{States: make(map[string]*NodeState, len(s.nodes))}
 	for _, name := range s.order {
 		report.Order = append(report.Order, name)
@@ -194,6 +199,17 @@ func (s *Scheduler) Run() *Report {
 		n := s.nodes[name]
 		st := &NodeState{Name: name}
 		report.States[name] = st
+
+		if prev, ok := prior[name]; ok && prev.Status == StatusDone {
+			// Idempotent resume: trust the completed product rather than
+			// recomputing it, but verify its hash is present.
+			if prev.Result.Hash == "" {
+				return report
+			}
+			st.Status, st.Result, st.Attempts = StatusDone, prev.Result, prev.Attempts
+			report.Succeeded++
+			continue
+		}
 
 		// Resolve dependencies first.
 		var depHashes []string

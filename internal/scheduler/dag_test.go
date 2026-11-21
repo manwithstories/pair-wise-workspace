@@ -230,3 +230,36 @@ func TestCategorizedErrorPreserved(t *testing.T) {
 		t.Fatalf("blocking dep = %q", st.Err.BlockingDep)
 	}
 }
+
+func TestResumeSkipsCompletedNodes(t *testing.T) {
+	runs := map[string]int{}
+	node := func(name string, deps ...string) Node {
+		return Node{Name: name, Deps: deps, Run: func() (Result, error) {
+			runs[name]++
+			return Result{Hash: "hash:" + name}, nil
+		}}
+	}
+	s, _ := New([]Node{node("metadata"), node("transport"), node("compose", "metadata", "transport")})
+	// First attempt: metadata finished, then the run was interrupted.
+	prior := map[string]NodeState{
+		"metadata": {Name: "metadata", Status: StatusDone, Result: Result{Hash: "hash:metadata"}, Attempts: 1},
+	}
+	r := s.Resume(prior)
+	if runs["metadata"] != 0 {
+		t.Fatalf("completed node re-ran %d times", runs["metadata"])
+	}
+	if runs["transport"] != 1 || runs["compose"] != 1 {
+		t.Fatalf("pending nodes not run: %+v", runs)
+	}
+	if r.Succeeded != 3 || r.FirstBlock != "" {
+		t.Fatalf("report = %+v", r)
+	}
+}
+
+func TestResumeRejectsDoneStateWithoutHash(t *testing.T) {
+	s, _ := New([]Node{okNode("a")})
+	r := s.Resume(map[string]NodeState{"a": {Name: "a", Status: StatusDone}})
+	if r.States["a"].Status == StatusDone {
+		t.Fatal("resumed a completed node with no product hash")
+	}
+}
