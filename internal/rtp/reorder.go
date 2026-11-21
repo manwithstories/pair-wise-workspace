@@ -218,11 +218,16 @@ func (r *Reorderer) Process(arrivals []Arrival) ([]*rtp.Packet, Stats) {
 			}
 			continue
 		}
-		// Open a gap record for every sequence number skipped over.
+		// Open a gap record for every skipped sequence number that
+		// has not already arrived (buffered packets are not missing).
 		for s := expect; seqDiff(s, seq) < 0; s++ {
-			if _, ok := gapSince[s]; !ok {
-				gapSince[s] = a.ArrivalMs
+			if _, ok := gapSince[s]; ok {
+				continue
 			}
+			if _, arrived := buf[s]; arrived {
+				continue
+			}
+			gapSince[s] = a.ArrivalMs
 		}
 		// A packet filling its own freshly opened or existing gap is a
 		// recovery when it arrives inside the bounded wait.
