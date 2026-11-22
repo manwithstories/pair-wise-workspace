@@ -133,6 +133,7 @@ func Generate(dir string, o Options) (*Program, error) {
 	hls := "#EXTM3U\n#EXT-X-TARGETDURATION:3\n#EXT-X-MAP:URI=\"init.mp4\"\n"
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	wall := 0.0
+	hls += "#EXT-X-PROGRAM-DATE-TIME:" + base.Format(time.RFC3339Nano) + "\n"
 	for s := 0; s < o.Segments; s++ {
 		if s == 1 || s == 3 {
 			wall += 10 // discontinuity：统一时钟跳变
