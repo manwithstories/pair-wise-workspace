@@ -119,3 +119,12 @@ func (p *Plan) Track(id string) (ingest.TrackDesc, bool) {
 	tr, ok := p.byID[id]
 	return tr, ok
 }
+
+// TrackDescs returns the descriptors of every mapped source in target order.
+func (p *Plan) TrackDescs() []ingest.TrackDesc {
+	out := make([]ingest.TrackDesc, 0, len(p.Targets))
+	for _, t := range p.Targets {
+		out = append(out, t.Source)
+	}
+	return out
+}
