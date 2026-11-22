@@ -71,3 +71,8 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- mediascan 构建产物与本地运行输出 ----
+/mediascan
+/tmp/
+/tmp_*/
