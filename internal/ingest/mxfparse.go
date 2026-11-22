@@ -2,7 +2,6 @@ package ingest
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"io"
 
@@ -54,15 +53,16 @@ func (s *mxfStreamer) parsePartition() error {
 	return nil
 }
 
-// readDescriptor consumes one tagged descriptor item (tag + BER len + body).
+// readDescriptor consumes one tagged descriptor item (1-byte tag + BER len
+// + body).
 func (s *mxfStreamer) readDescriptor() error {
-	tagBuf := make([]byte, 2)
+	tagBuf := make([]byte, 1)
 	if _, err := io.ReadFull(s.file, tagBuf); err != nil {
 		return mediaerr.New(mediaerr.CodeTruncatedKLV, "truncated descriptor tag").
 			At("mxf", "", s.pos).OnPath(s.path)
 	}
-	s.pos += 2
-	tag := binary.BigEndian.Uint16(tagBuf)
+	s.pos++
+	tag := uint16(tagBuf[0])
 	bodyLen, err := s.readBER("descriptor body")
 	if err != nil {
 		return err
@@ -136,6 +136,12 @@ func (s *mxfStreamer) Next() (*SampleEvent, error) {
 	if s.picked >= s.totalN {
 		return nil, io.EOF
 	}
+	// Re-anchor the sequential reader: parsePartition may have left the
+	// descriptor elsewhere, and the SectionReader seeks on its own.
+	if _, err := s.file.Seek(s.pos, io.SeekStart); err != nil {
+		return nil, mediaerr.New(mediaerr.CodeIO, err.Error()).
+			At("mxf", "", s.pos).OnPath(s.path)
+	}
 	ul, err := s.readUL("essence sample")
 	if err != nil {
 		return nil, err
@@ -167,14 +173,9 @@ func (s *mxfStreamer) Next() (*SampleEvent, error) {
 			"essence payload [%d,%d) runs past EOF %d", dataOffset, dataOffset+length, s.size)).
 			At("mxf", trackID, dataOffset).OnPath(s.path)
 	}
-	if tr.hasDTS {
-		// Samples are uniformly one edit unit; detect any regression defensively.
-		if tr.next < 0 {
-			return nil, mediaerr.New(mediaerr.CodeDTSRegression,
-				"negative sample index after wraparound").
-				At("mxf", trackID, dataOffset).OnPath(s.path)
-		}
-	}
+	// Advance the sequential reader past the payload immediately; the
+	// SectionReader seeks independently for the actual bytes.
+	s.pos = dataOffset + length
 	tr.hasDTS = true
 	ev := &SampleEvent{
 		TrackID:    trackID,
@@ -188,7 +189,6 @@ func (s *mxfStreamer) Next() (*SampleEvent, error) {
 		Payload:    io.NewSectionReader(s.file, dataOffset, length),
 	}
 	tr.next++
-	s.pos += length
 	s.picked++
 	return ev, nil
 }

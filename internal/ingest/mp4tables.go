@@ -1,7 +1,6 @@
 package ingest
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 
@@ -20,7 +19,7 @@ func (s *mp4Streamer) parseStsd(stbl *boxHeader) (codec string, w, h uint32, ch 
 			return true, mediaerr.New(mediaerr.CodeUnknownStructure, "empty stsd").
 				At("mp4", "", b.HeaderStart).OnPath(s.path)
 		}
-		ew := &boxWalker{r: bufio.NewReader(s.file), fileSize: b.End, pos: entriesStart}
+		ew := &seekingWalker{r: s.file, fileSize: b.End, pos: entriesStart}
 		entry, err := ew.next()
 		if err != nil {
 			return true, err
@@ -81,8 +80,9 @@ func (t *mp4Track) applyCtts(r io.ReadSeeker, b *boxHeader) error {
 }
 
 // loadChunks resolves stsc/stsz/(stco|co64) into absolute byte ranges and
-// enforces the 4 MiB per-sample ceiling before any payload is allocated.
-func (t *mp4Track) loadChunks(r io.ReadSeeker, stbl *boxHeader) error {
+// enforces the 4 MiB per-sample ceiling and mdat containment before any
+// payload is allocated.
+func (t *mp4Track) loadChunks(r io.ReadSeeker, stbl *boxHeader, mdat []*boxHeader) error {
 	var sizes []int64
 	var fixedSize uint32
 	if err := findChild(r, stbl, mp4.BoxTypeStsz(), func(b *boxHeader) (bool, error) {
@@ -168,6 +168,12 @@ func (t *mp4Track) loadChunks(r io.ReadSeeker, stbl *boxHeader) error {
 					"sample %d size %d exceeds 4 MiB ceiling", sampleIdx, size)).
 					At("mp4", t.desc.ID, cursor)
 			}
+			if !insideAnyBox(cursor, size, mdat) {
+				return mediaerr.New(mediaerr.CodeTruncatedBox, fmt.Sprintf(
+					"sample %d range [%d,%d) is outside every mdat box",
+					sampleIdx, cursor, cursor+size)).
+					At("mp4", t.desc.ID, cursor)
+			}
 			t.samples[sampleIdx].offset = cursor
 			t.samples[sampleIdx].size = size
 			cursor += size
@@ -193,4 +199,15 @@ func samplesPerChunk(runs []mp4.StscEntry, chunk1Based uint32) uint32 {
 		}
 	}
 	return per
+}
+
+// insideAnyBox reports whether [off, off+size) is fully contained in one of
+// the validated mdat boxes.
+func insideAnyBox(off, size int64, boxes []*boxHeader) bool {
+	for _, b := range boxes {
+		if off >= b.PayloadStart && off+size <= b.End {
+			return true
+		}
+	}
+	return false
 }

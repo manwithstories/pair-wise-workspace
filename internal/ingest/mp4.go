@@ -21,8 +21,7 @@ type mp4Streamer struct {
 	size   int64
 	info   ContainerInfo
 	tracks []*mp4Track
-	cursor int // next track index in the merged, file-order queue
-	idx    []int64
+	mdat   []*boxHeader // validated mdat boundaries for offset checks
 }
 
 type mp4Track struct {
@@ -66,9 +65,11 @@ func (s *mp4Streamer) Info() ContainerInfo { return s.info }
 
 func (s *mp4Streamer) Close() error { return s.file.Close() }
 
-// parseMoov locates moov and each trak through boundary-checked walks.
+// parseMoov locates moov and each trak through boundary-checked walks, and
+// records every mdat box so sample offsets can be validated against a real
+// container boundary instead of an unchecked absolute pointer.
 func (s *mp4Streamer) parseMoov() error {
-	w := newBoxWalker(s.file, s.size)
+	w := newSeekingWalker(s.file, s.size)
 	var moov *boxHeader
 	for {
 		b, err := w.next()
@@ -78,9 +79,18 @@ func (s *mp4Streamer) parseMoov() error {
 		if err != nil {
 			return onPath(err, s.path)
 		}
-		if boxTypeEqual(b.Type, mp4.BoxTypeMoov()) {
+		switch {
+		case boxTypeEqual(b.Type, mp4.BoxTypeMoov()):
 			moov = b
-			break
+		case boxTypeEqual(b.Type, mp4.BoxTypeMdat()):
+			// mdat holds opaque sample payload, not nested boxes. Record the
+			// validated boundary for offset checks and jump the walker to
+			// its end so payload bytes are never parsed as box headers.
+			s.mdat = append(s.mdat, b)
+			w.pos = b.End
+			if _, err := s.file.Seek(b.End, io.SeekStart); err != nil {
+				return onPath(err, s.path)
+			}
 		}
 	}
 	if moov == nil {
@@ -181,7 +191,7 @@ func (s *mp4Streamer) parseTrak(trak *boxHeader) (*mp4Track, error) {
 	if perr != nil {
 		return nil, perr
 	}
-	if err := tr.loadChunks(s.file, stbl); err != nil {
+	if err := tr.loadChunks(s.file, stbl, s.mdat); err != nil {
 		return nil, err
 	}
 	tr.desc.SampleCount = int64(len(tr.samples))
