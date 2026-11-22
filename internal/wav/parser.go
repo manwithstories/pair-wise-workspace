@@ -64,6 +64,7 @@ type DataBlock struct {
 // Parser 以增量方式消费 WAV 字节流。
 type Parser struct {
 	r         io.Reader
+	peek      []byte // 单字节前瞻缓冲（最多 1 字节）
 	formatted bool
 	format    Format
 	dataLeft  uint64 // 当前 data 块剩余字节
@@ -76,6 +77,31 @@ type Parser struct {
 // NewParser 基于任意 io.Reader 构造流式解析器。
 func NewParser(r io.Reader) *Parser {
 	return &Parser{r: r}
+}
+
+// readByte 取一个字节，优先消费前瞻缓冲。
+func (p *Parser) readByte() (byte, error) {
+	if len(p.peek) > 0 {
+		b := p.peek[0]
+		p.peek = p.peek[:0]
+		return b, nil
+	}
+	var b [1]byte
+	_, err := io.ReadFull(p.r, b[:])
+	return b[0], err
+}
+
+// hasMoreData 前瞻是否仍有字节可读（不消费数据）。
+func (p *Parser) hasMoreData() bool {
+	if len(p.peek) > 0 {
+		return true
+	}
+	b, err := p.readByte()
+	if err != nil {
+		return false
+	}
+	p.peek = append(p.peek, b)
+	return true
 }
 
 // chunkHeader 是 RIFF 块头：4 字节 FourCC + 32 位小端长度。
@@ -104,8 +130,12 @@ func (p *Parser) ParseHeader() error {
 
 func (p *Parser) readChunkHeader() (chunkHeader, error) {
 	var h [8]byte
-	if _, err := io.ReadFull(p.r, h[:]); err != nil {
-		return chunkHeader{}, err
+	for i := range h {
+		b, err := p.readByte()
+		if err != nil {
+			return chunkHeader{}, err
+		}
+		h[i] = b
 	}
 	ch := chunkHeader{id: [4]byte(h[0:4]), size: uint64(binary.LittleEndian.Uint32(h[4:8]))}
 	if ch.size > MaxChunkBytes {
@@ -270,6 +300,10 @@ func (p *Parser) ReadData(maxBytes uint64) (DataBlock, error) {
 	p.frameIdx += complete
 	if p.dataLeft == 0 {
 		p.inData = false
+		// data 块声明长度之外若仍有悬空字节，必为不完整样本帧。
+		if p.hasMoreData() {
+			return DataBlock{}, errors.New("wav: dangling bytes do not form a complete frame")
+		}
 		return blk, io.EOF
 	}
 	return blk, nil
