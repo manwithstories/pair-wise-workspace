@@ -34,6 +34,9 @@ func checksum(p []byte) uint32 {
 	return h.Sum32()
 }
 
+// Checksum 导出 FNV-1a 摘要，供外部构造可校验的冗余块。
+func Checksum(p []byte) uint32 { return checksum(p) }
+
 // GapRequest 描述一个待裁决的缺块。
 type GapRequest struct {
 	SeqStart uint16

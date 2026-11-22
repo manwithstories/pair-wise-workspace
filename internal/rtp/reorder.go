@@ -72,10 +72,6 @@ func (r *ReorderBuffer) Push(pkt *rtp.Packet) error {
 		return errors.New("rtp: nil packet")
 	}
 	seq := pkt.SequenceNumber
-	if !r.haveBase {
-		r.base = seq
-		r.haveBase = true
-	}
 	// 已在窗口内缓冲：区分一致重复与载荷冲突。
 	if old, ok := r.buf[seq]; ok {
 		if payloadEqual(old, pkt) {
@@ -84,6 +80,21 @@ func (r *ReorderBuffer) Push(pkt *rtp.Packet) error {
 		}
 		r.dupConflict++
 		return ErrConflict
+	}
+	// 基准尚未锚定：缓冲首批包，不因其相对顺序而误判迟到。
+	// 基准在第一次 Pop/Flush 时由缓冲内最小序号确定；若缓冲已排空到空，
+	// 下一个到达的包重新进入未锚定态等待新基准。
+	if !r.haveBase {
+		if len(r.buf) >= r.window {
+			// 缓冲已达窗口上界仍无法锚定，锚定到最小序号以维持有界性。
+			r.anchorBase()
+		} else {
+			r.buf[seq] = pkt
+			if n := len(r.buf); n > r.peak {
+				r.peak = n
+			}
+			return nil
+		}
 	}
 	d := seqDelta(r.base, seq)
 	switch {
@@ -104,6 +115,20 @@ func (r *ReorderBuffer) Push(pkt *rtp.Packet) error {
 		}
 		return nil
 	}
+}
+
+// anchorBase 把基准锚定到当前缓冲内的最小序号。
+func (r *ReorderBuffer) anchorBase() {
+	first := true
+	var minSeq uint16
+	for s := range r.buf {
+		// s 相对当前最小值更“小”（有符号差为负）时更新最小值。
+		if first || seqDelta(minSeq, s) < 0 {
+			minSeq, first = s, false
+		}
+	}
+	r.base = minSeq
+	r.haveBase = true
 }
 
 // advanceBaseTo 把基准推进到 target，路径上的空洞合并为连续缺口。
@@ -145,6 +170,12 @@ func (r *ReorderBuffer) advanceBaseTo(target uint16, nextTS uint32, hasNext bool
 
 // Pop 按序交付下一个连续可用包；基准位置缺失时返回 nil。
 func (r *ReorderBuffer) Pop() *rtp.Packet {
+	if len(r.buf) == 0 {
+		return nil
+	}
+	if !r.haveBase {
+		r.anchorBase()
+	}
 	pkt, ok := r.buf[r.base]
 	if !ok {
 		return nil
@@ -157,9 +188,12 @@ func (r *ReorderBuffer) Pop() *rtp.Packet {
 	return pkt
 }
 
-// PopAll 排空当前所有可按序交付的包。
+// PopAll 排空当前所有可按序交付的包，直到遇到第一个真正的基准空洞。
 func (r *ReorderBuffer) PopAll() []*rtp.Packet {
 	var out []*rtp.Packet
+	if len(r.buf) > 0 && !r.haveBase {
+		r.anchorBase()
+	}
 	for {
 		pkt := r.Pop()
 		if pkt == nil {
@@ -171,6 +205,12 @@ func (r *ReorderBuffer) PopAll() []*rtp.Packet {
 
 // Flush 在流结束时交付剩余包；流尾未补齐的空洞合并为单个无右邻缺口。
 func (r *ReorderBuffer) Flush() []*rtp.Packet {
+	if len(r.buf) == 0 {
+		return nil
+	}
+	if !r.haveBase {
+		r.anchorBase()
+	}
 	// 找缓冲内相对基准最远的序号。
 	var farSeq uint16
 	haveFar := false

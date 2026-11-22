@@ -145,6 +145,9 @@ func (p *Pipeline) NoteTimestampRollback(r model.Range, seq uint16) {
 		"RTP timestamp rolled back").WithSeq(int(seq), int(seq)))
 }
 
+// NoteExternal 登记来自其它阶段（如 WAV 解析）的统一事件。
+func (p *Pipeline) NoteExternal(e model.Event) { p.addEvent(e) }
+
 // Queue 暴露有界队列供消费者读取。
 func (p *Pipeline) Queue() *BoundedQueue { return p.queue }
 

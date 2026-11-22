@@ -128,6 +128,7 @@ func TestLateOutsideWindow(t *testing.T) {
 func TestFarPacketSlidesWindowAndReportsGap(t *testing.T) {
 	rb, _ := NewReorderBuffer(4)
 	_ = rb.Push(pkt(0, 0, 0))
+	rb.PopAll() // 锚定并交付基准序号 0
 	// 远侧包 10：新基准 = 10-4+1 = 7，序号 1..6 滑出窗口定性为缺口。
 	if err := rb.Push(pkt(10, 1600, 10)); err != nil {
 		t.Fatalf("far packet should be retained: %v", err)

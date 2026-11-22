@@ -78,7 +78,12 @@ func Generate(o Options) *Bundle {
 	}
 	b.ExpectFrames = total * FramesPerPacket
 
-	// 2) 注入突发丢失。
+	// 2) 注入时间戳回退（在乱序之前作用于逻辑序号，确保按序核对可见）。
+	if o.TimestampBack && total > 2 {
+		all[1].ts = all[0].ts - PacketSamples
+	}
+
+	// 3) 注入突发丢失。
 	lossStart := o.LossAt
 	if lossStart <= 0 || lossStart >= total {
 		lossStart = total / 2
@@ -113,12 +118,6 @@ func Generate(o Options) *Bundle {
 		if rng.Intn(2) == 0 {
 			arrival[i], arrival[i+1] = arrival[i+1], arrival[i]
 		}
-	}
-	// 时间戳回退：把某个包的时间戳改小。
-	backIdx := -1
-	if o.TimestampBack && len(arrival) > 2 {
-		backIdx = 1
-		arrival[backIdx].ts = arrival[0].ts - PacketSamples
 	}
 	// 重复冲突：复制一个已到达包但更换载荷。
 	conflictSeq := uint16(0xFFFF)

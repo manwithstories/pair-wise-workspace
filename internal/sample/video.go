@@ -155,12 +155,19 @@ func BuildVideoFMP4(frags []VideoFragment) []byte {
 }
 
 // DefaultVideoFragments 生成与音频时长匹配、每 2 秒一个关键帧的视频分片。
+// 每个分片对应 10ms 音频包，因此 200 个分片为 2 秒；短样例下至少保证
+// 多个关键帧，按 min(200, max(5, n/4)) 取间隔以覆盖短时长场景。
 func DefaultVideoFragments(audioPackets int) []VideoFragment {
-	// 音频总时长（90kHz 刻度）：每包 10ms => 900 ticks。
-	const perPacketTicks = uint64(VideoRate / 100) // 900
+	const perPacketTicks = uint64(VideoRate / 100) // 900 ticks = 10ms
+	keyEvery := 200
+	if audioPackets < keyEvery {
+		keyEvery = audioPackets / 4
+		if keyEvery < 5 {
+			keyEvery = 5
+		}
+	}
 	var frags []VideoFragment
 	var t uint64
-	keyEvery := 200 // 每 200 个 10ms 分片 ≈ 2s
 	for i := 0; i < audioPackets; i++ {
 		frags = append(frags, VideoFragment{
 			BaseDecodeTime: t,
