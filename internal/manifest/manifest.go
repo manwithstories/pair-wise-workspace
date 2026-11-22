@@ -6,12 +6,10 @@ package manifest
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 
 	"mediabridge/internal/fault"
-	"mediabridge/internal/media"
 	"mediabridge/internal/safeio"
 )
 
@@ -238,17 +236,3 @@ func (l *Loaded) ResolvePath(p string) (string, error) {
 	}
 	return safeio.Resolve(l.root, p)
 }
-
-// TrackKindFor maps a handler/type string to a kernel track kind.
-func TrackKindFor(handler string) media.TrackKind {
-	switch handler {
-	case "vide":
-		return media.KindVideo
-	case "soun":
-		return media.KindAudio
-	default:
-		return media.KindAux
-	}
-}
-
-var _ = fmt.Sprintf

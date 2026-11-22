@@ -34,7 +34,7 @@ type manifestAsset = manifest.ResolvedAsset
 // ever written twice.
 func runResumable(j *journal.Journal, asset *media.Asset, plan *maptrack.Plan,
 	prov *core.Provenance, ra manifestAsset, ad adapter.Adapter, opts Options,
-	outPath string, interruptAfter int64) (resumeOutcome, int64, error) {
+	outPath string, interruptAfter int64, source core.SampleSource) (resumeOutcome, int64, error) {
 
 	var outcome resumeOutcome
 	stream := core.BuildStream(asset, plan)
@@ -95,12 +95,13 @@ func runResumable(j *journal.Journal, asset *media.Asset, plan *maptrack.Plan,
 		}
 	}
 
-	// Provenance records every output packet, including the resumed prefix, so
-	// the manifest covers the whole asset regardless of where this run started.
-	// The payload digest is computed from the in-memory packet bytes (the asset
-	// was fully demuxed), which are identical to the bytes in the prefix.
+	// Provenance records every output packet. For packets still in memory the
+	// digest is computed here; for packets streamed from the source the digest
+	// is filled as they are written. A resumed prefix's digests are derived
+	// from the output bytes by the verifier, so provenance coverage stays 100%
+	// even though this run never saw those payloads.
 	slotIndex := map[string]int64{}
-	for i, sp := range stream {
+	for _, sp := range stream {
 		cp := sp.Pkt
 		if len(cp.Payload) > 0 {
 			sum := sha256.Sum256(cp.Payload)
@@ -108,16 +109,25 @@ func runResumable(j *journal.Journal, asset *media.Asset, plan *maptrack.Plan,
 		}
 		prov.AddPacket(sp.Slot, slotIndex[sp.Slot], cp)
 		slotIndex[sp.Slot]++
-		_ = i
 	}
 
 	for i := int(committed); i < len(stream); i++ {
 		sp := stream[i]
 		payload := sp.Pkt.Payload
 		if payload == nil {
-			return outcome, 0, fault.New(fault.CodeVerify,
-				fault.Location{AssetID: ra.ID, SourcePath: outPath}.WithTrack(sp.Pkt.SourceTrackID),
-				"packet payload unavailable for streaming").WithOp("pipeline.Resume")
+			if source == nil {
+				return outcome, 0, fault.New(fault.CodeVerify,
+					fault.Location{AssetID: ra.ID, SourcePath: outPath}.WithTrack(sp.Pkt.SourceTrackID),
+					"packet payload unavailable and no source reader").WithOp("pipeline.Resume")
+			}
+			data, err := source.ReadSample(sp.Pkt.SourceTrackID, sp.Pkt.SourceOffset, sp.Pkt.SourceSize)
+			if err != nil || int64(len(data)) != sp.Pkt.SourceSize {
+				return outcome, 0, fault.New(fault.CodeVerify,
+					fault.Location{AssetID: ra.ID, SourcePath: outPath}.
+						WithTrack(sp.Pkt.SourceTrackID).WithOffset(sp.Pkt.SourceOffset),
+					"read source sample failed").Wrap(err).WithOp("pipeline.Resume")
+			}
+			payload = data
 		}
 		if err := w.WritePacket(sp.Slot, sp.Pkt, payload); err != nil {
 			return outcome, 0, err

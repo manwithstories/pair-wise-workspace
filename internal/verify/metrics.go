@@ -14,7 +14,6 @@ import (
 
 	"mediabridge/internal/core"
 	"mediabridge/internal/fault"
-	"mediabridge/internal/media"
 )
 
 // Metrics is the acceptance report printed by the demo.
@@ -252,5 +251,3 @@ func PacketHashMatches(outPath string, prov *core.Provenance) (matched, total in
 	}
 	return matched, total, nil
 }
-
-var _ = media.KindVideo

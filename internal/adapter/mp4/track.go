@@ -265,7 +265,6 @@ func (p *parser) expandSampleTable(td *trakData, trackID uint32, scale clock.Sca
 	// Sync samples: if stss is absent every sample is sync (audio), else the
 	// listed sample numbers (1-based) are sync.
 	if td.stss != nil && len(td.stss.SampleNumber) > 0 {
-		tbl.syncKnown = true
 		for _, sn := range td.stss.SampleNumber {
 			if sn == 0 || int64(sn) > count {
 				return nil, p.errTrack(fault.CodeBadIndex, 0, trackID,

@@ -5,9 +5,6 @@
 package pipeline
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
@@ -88,9 +85,6 @@ func Registry() *adapter.Registry {
 	r.MustRegister(&mp4adapter.Reader{})
 	return r
 }
-
-// MaxInterrupt is the simulated crash sentinel.
-const MaxInterrupt int64 = -1
 
 // Run processes every asset in the manifest. Rejected assets do not abort the
 // run; a fatal run-level error (manifest or checkpoint infrastructure) does.
@@ -203,7 +197,14 @@ func runAsset(reg *adapter.Registry, j *journal.Journal, root string, ra manifes
 
 	outPath := filepath.Join(opts.OutDir, sanitizeAsset(ra.ID)+".mbx")
 	res.OutPath = outPath
-	outcome, consumed, err := runResumable(j, asset, plan, prov, ra, ad, opts, outPath, interruptAfter)
+	// Provide a streaming source so the kernel can copy payloads straight from
+	// the primary container when they were not materialised in memory.
+	var srcReader core.SampleSource
+	if f, err := os.Open(ra.PrimaryPath); err == nil {
+		defer f.Close()
+		srcReader = core.NewFileSampleSource(f)
+	}
+	outcome, consumed, err := runResumable(j, asset, plan, prov, ra, ad, opts, outPath, interruptAfter, srcReader)
 	res.ResumedTracks = outcome.Resumed
 	res.Quarantined = outcome.Quarantined
 	if err != nil {
@@ -358,11 +359,3 @@ func asFault(err error, code fault.Code, assetID, path string, track uint32) *fa
 	}
 	return fault.New(code, loc, "%v", err)
 }
-
-// hashBytes is a small helper kept for provenance determinism checks.
-func hashBytes(b []byte) string {
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:])
-}
-
-var _ = json.Marshal

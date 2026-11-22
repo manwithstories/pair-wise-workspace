@@ -3,7 +3,6 @@ package core
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -223,14 +222,3 @@ func loadPayload(in RemuxInput, pkt media.Packet) ([]byte, error) {
 func sha256New() hashLike { return sha256.New() }
 
 func hexEncode(b []byte) string { return hex.EncodeToString(b) }
-
-var _ io.Writer = (*countingWriter)(nil)
-
-// countingWriter adapts a Writer for callers that only need io.Writer.
-type countingWriter struct {
-	w io.Writer
-}
-
-func (c *countingWriter) Write(p []byte) (int, error) { return c.w.Write(p) }
-
-var _ = media.MaxPacketBytes
