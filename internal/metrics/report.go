@@ -31,6 +31,8 @@ type Report struct {
 	// Desync lists segments whose audio/video start gap exceeds the
 	// tolerance, so a consumer can see where the error comes from.
 	Desync []string
+	// Provenance lists one source summary per verified segment.
+	Provenance []string
 }
 
 // SyncToleranceMs bounds the acceptable audio/video start gap.
@@ -73,9 +75,20 @@ func Build(root string, latencies []time.Duration) (Report, error) {
 		if derr != nil {
 			return rep, fault.Wrap(fault.Fatal, "metrics", e.URI, derr)
 		}
+		prov, perr := pipeline.ReadProvenance(root, e)
+		if perr != nil {
+			return rep, perr
+		}
+		rep.Provenance = append(rep.Provenance, prov.String())
 		sync, table, err := measureSync(tracks)
 		if err != nil {
 			return rep, err
+		}
+		// The segment's own record and the independent measurement must
+		// agree; a divergence means one of them is wrong.
+		if d := prov.SyncMs - sync; d > SyncToleranceMs || d < -SyncToleranceMs {
+			return rep, fault.Newf(fault.Fatal, "metrics", e.URI,
+				"recorded sync %.3fms disagrees with measured %.3fms", prov.SyncMs, sync)
 		}
 		rep.TrackTable = table
 		if sync > SyncToleranceMs {

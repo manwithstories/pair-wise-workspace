@@ -2,7 +2,9 @@
 package metrics
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -132,5 +134,47 @@ func TestBuildMeasuresEverySegment(t *testing.T) {
 	}
 	if len(rep.OutputSHA) != 64 || len(rep.TrackTable) != 2 {
 		t.Fatalf("bad report: sha=%q table=%v", rep.OutputSHA, rep.TrackTable)
+	}
+	if len(rep.Provenance) != len(entries) {
+		t.Fatalf("provenance lines = %d, want %d", len(rep.Provenance), len(entries))
+	}
+	for _, line := range rep.Provenance {
+		if !strings.Contains(line, "<-sha256:") || !strings.Contains(line, "tracks=2") {
+			t.Fatalf("provenance line %q lacks source detail", line)
+		}
+	}
+}
+
+func TestProvenanceDigestMismatchDetected(t *testing.T) {
+	root := t.TempDir()
+	entries, err := seedArchive(t, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := entries[0]
+	path := filepath.Join(root, "work", "provenance", "seg-000000000.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := strings.Replace(string(raw), e.OutputSHA, strings.Repeat("0", 64), 1)
+	if err := os.WriteFile(path, []byte(tampered), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pipeline.ReadProvenance(root, e); err == nil {
+		t.Fatal("provenance/checkpoint digest disagreement must be rejected")
+	}
+}
+
+func TestMissingProvenanceIsFatal(t *testing.T) {
+	root := t.TempDir()
+	if _, err := seedArchive(t, root); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(root, "work", "provenance", "seg-000000000.json")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Build(root, nil); err == nil {
+		t.Fatal("missing provenance for a committed segment must fail verification")
 	}
 }

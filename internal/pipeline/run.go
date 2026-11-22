@@ -149,7 +149,7 @@ func Run(cfg Config) (Result, error) {
 			return res, nil
 		}
 		if cfg.Verbose {
-			fmt.Printf("segment=%s status=%s samples=%d bytes=%d\n",
+			fmt.Printf("segment=%s status=%s tracks=%d bytes=%d\n",
 				seg.URI, status, entry.Tracks, entry.OutputBytes)
 		}
 	}
@@ -254,6 +254,15 @@ func processOne(root string, cas *cache.Store, cp *checkpoint.Store, seg manifes
 		OutputSHA:      obj.Digest,
 		OutputBytes:    obj.Bytes,
 		Tracks:         len(info.Tracks),
+	}
+	prov := Provenance{
+		Index: seg.Index, Segment: seg.URI, ManifestSource: seg.Source,
+		InputSHA256: inputSHA, OutputSHA256: obj.Digest,
+		MappingVersion: track.Version, Tracks: info.Tracks,
+		SyncMs: info.SyncMs, Bytes: obj.Bytes,
+	}
+	if err := writeProvenance(root, prov); err != nil {
+		return checkpoint.Entry{}, statusCommitted, err
 	}
 	if err := cp.Commit(entry); err != nil {
 		return checkpoint.Entry{}, statusCommitted, err
