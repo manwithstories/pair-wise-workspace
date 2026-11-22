@@ -27,12 +27,12 @@ const (
 // Frame is one manifest entry. Payload is held outside the manifest and
 // verified through Verify instead of being embedded in the JSON structure.
 type Frame struct {
-	Index      int    `json:"index"`
-	ID         string `json:"id"`
-	Keyframe   bool   `json:"keyframe"`
-	Timestamp  int64  `json:"timestamp_ms"`
-	Size       int    `json:"size"`
-	SHA256     string `json:"sha256"`
+	Index     int    `json:"index"`
+	ID        string `json:"id"`
+	Keyframe  bool   `json:"keyframe"`
+	Timestamp int64  `json:"timestamp_ms"`
+	Size      int    `json:"size"`
+	SHA256    string `json:"sha256"`
 }
 
 // Manifest is the full ordered frame manifest.
@@ -46,12 +46,12 @@ type Manifest struct {
 
 // Result aggregates validation outcomes on the shared time base.
 type Result struct {
-	Faults       []fault.Fault
-	TotalBytes   int64
-	FirstTick    int64
-	LastTick     int64
-	AlignmentMS  int64 // max |actual tick - expected tick| expressed in ms
-	KeyframeIdx  []int
+	Faults      []fault.Fault
+	TotalBytes  int64
+	FirstTick   int64
+	LastTick    int64
+	AlignmentMS int64 // max |actual tick - expected tick| expressed in ms
+	KeyframeIdx []int
 }
 
 // Validate checks metadata and timestamp rules without touching payloads.
@@ -113,7 +113,7 @@ func (m *Manifest) Validate() (*Result, error) {
 			res.Faults = append(res.Faults, fault.Fault{
 				Cat: fault.CatDupTimestamp, Ref: fmt.Sprintf("%s~%d", fr.ID, dup),
 				Span: fault.Interval{Start: tick, End: tick + step},
-				Msg: fmt.Sprintf("duplicate timestamp %dms", fr.Timestamp),
+				Msg:  fmt.Sprintf("duplicate timestamp %dms", fr.Timestamp),
 			})
 		}
 		seenTS[fr.Timestamp] = i

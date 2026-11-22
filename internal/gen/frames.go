@@ -78,7 +78,7 @@ func Frames(p FrameParams) ([]Generated, error) {
 // without allocating per-byte randomness.
 func FillDeterministic(buf []byte, seed, frameIdx int64) {
 	var word [8]byte
-	binary.LittleEndian.PutUint64(word[:], uint64(seed)*1099511628211 ^ uint64(frameIdx)*1469598103934665603)
+	binary.LittleEndian.PutUint64(word[:], uint64(seed)*1099511628211^uint64(frameIdx)*1469598103934665603)
 	for i := range buf {
 		buf[i] = word[i%8] ^ byte(i) ^ byte(frameIdx)
 	}

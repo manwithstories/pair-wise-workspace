@@ -85,10 +85,10 @@ func (t *Trace) BandwidthAt(tick int64) int {
 
 // Controller walks frame slots and emits per-slot decisions.
 type Controller struct {
-	cfg      Config
-	trace    *Trace
-	clk      clock.Clock
-	target   int
+	cfg    Config
+	trace  *Trace
+	clk    clock.Clock
+	target int
 }
 
 // NewController seeds the controller at the configured starting target.
@@ -146,12 +146,12 @@ func (c *Controller) Step(frameIdx int, deliveredBytes int) (Decision, error) {
 
 // Summary aggregates a decision series into headline bitrate metrics.
 type Summary struct {
-	TargetKbps    int // configured starting target (headline metric)
-	MeanTarget    int
-	MeanActual    int
+	TargetKbps      int // configured starting target (headline metric)
+	MeanTarget      int
+	MeanActual      int
 	MeanErrorPctX10 int
-	LostFrames    int
-	Decisions     []Decision
+	LostFrames      int
+	Decisions       []Decision
 }
 
 // Summarise builds a Summary from a completed decision series.

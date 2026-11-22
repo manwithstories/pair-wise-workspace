@@ -15,33 +15,33 @@ import (
 
 // Entry is one chunk's index record.
 type Entry struct {
-	Chunk      int    `json:"chunk"`
-	FrameFrom  int    `json:"frame_from"`
-	FrameTo    int    `json:"frame_to"`
-	StartTick  int64  `json:"start_tick"`
-	EndTick    int64  `json:"end_tick"`
-	ValidFrames int   `json:"valid_frames"`
-	TotalFrames int   `json:"total_frames"`
-	CorruptRanges int `json:"corrupt_ranges"`
+	Chunk         int   `json:"chunk"`
+	FrameFrom     int   `json:"frame_from"`
+	FrameTo       int   `json:"frame_to"`
+	StartTick     int64 `json:"start_tick"`
+	EndTick       int64 `json:"end_tick"`
+	ValidFrames   int   `json:"valid_frames"`
+	TotalFrames   int   `json:"total_frames"`
+	CorruptRanges int   `json:"corrupt_ranges"`
 }
 
 // Summary is the aggregate index state rebuilt from committed entries.
 type Summary struct {
-	Entries      []Entry
-	Chunks       int
-	TotalFrames  int
-	ValidFrames  int
-	FirstTick    int64
-	LastTick     int64
-	InputDigest  string
+	Entries     []Entry
+	Chunks      int
+	TotalFrames int
+	ValidFrames int
+	FirstTick   int64
+	LastTick    int64
+	InputDigest string
 }
 
 // Store is the file-backed chunk index.
 type Store struct {
-	mu       sync.Mutex
-	dir      string
+	mu        sync.Mutex
+	dir       string
 	committed map[int]Entry
-	digest   string
+	digest    string
 }
 
 const indexDirName = "chunks"

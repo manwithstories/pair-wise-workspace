@@ -10,7 +10,7 @@ func testTrace(t *testing.T, clk clock.Clock) *Trace {
 	t.Helper()
 	tr, err := NewTrace(clk, []Sample{
 		{Tick: 0, Bandwidth: 1000},
-		{Tick: clk.TicksPerFrame() * 4, Bandwidth: 400}, // congestion
+		{Tick: clk.TicksPerFrame() * 4, Bandwidth: 400},  // congestion
 		{Tick: clk.TicksPerFrame() * 8, Bandwidth: 1200}, // recovery
 	})
 	if err != nil {

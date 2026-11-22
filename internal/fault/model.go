@@ -11,16 +11,16 @@ import (
 type Category string
 
 const (
-	CatBadChecksum  Category = "bad_checksum"   // frame SHA-256 mismatch
-	CatTruncatedBox Category = "truncated_box"  // MP4 box payload shorter than declared
-	CatIllegalSize  Category = "illegal_size"   // box/frame size invalid or over limit
-	CatDupTimestamp Category = "duplicate_timestamp"
-	CatNonMonotonic Category = "non_monotonic_ts"
+	CatBadChecksum   Category = "bad_checksum"  // frame SHA-256 mismatch
+	CatTruncatedBox  Category = "truncated_box" // MP4 box payload shorter than declared
+	CatIllegalSize   Category = "illegal_size"  // box/frame size invalid or over limit
+	CatDupTimestamp  Category = "duplicate_timestamp"
+	CatNonMonotonic  Category = "non_monotonic_ts"
 	CatSizeViolation Category = "frame_size_violation"
-	CatRTPDuplicate Category = "rtp_duplicate"  // repeated extended sequence number
-	CatRTPLate      Category = "rtp_late"       // arrived past the reorder window
-	CatBurstLoss    Category = "burst_loss"     // consecutive missing sequence numbers
-	CatGOPAnomaly   Category = "gop_anomaly"    // keyframe interval outside tolerance
+	CatRTPDuplicate  Category = "rtp_duplicate" // repeated extended sequence number
+	CatRTPLate       Category = "rtp_late"      // arrived past the reorder window
+	CatBurstLoss     Category = "burst_loss"    // consecutive missing sequence numbers
+	CatGOPAnomaly    Category = "gop_anomaly"   // keyframe interval outside tolerance
 )
 
 // ErrFatal marks an input/manifest integrity defect (exit code 2).

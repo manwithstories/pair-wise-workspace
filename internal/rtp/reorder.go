@@ -114,7 +114,7 @@ func (r *Reorderer) Push(p *rtp.Packet) error {
 		r.res.Faults = append(r.res.Faults, fault.Fault{
 			Cat: fault.CatRTPLate, Ref: fmt.Sprintf("seq=%d", ext),
 			Span: fault.Interval{Start: tick, End: tick + r.clk.TicksPerFrame()},
-			Msg: fmt.Sprintf("packet %d arrived past window head %d", ext, r.headSeq),
+			Msg:  fmt.Sprintf("packet %d arrived past window head %d", ext, r.headSeq),
 		})
 		return nil
 	}
@@ -267,6 +267,6 @@ func (r *Reorderer) recordMissing(seq uint64) {
 	r.res.Faults = append(r.res.Faults, fault.Fault{
 		Cat: fault.CatBurstLoss, Ref: fmt.Sprintf("seq=%d", seq),
 		Span: fault.Interval{Start: tick, End: tick + r.clk.TicksPerFrame()},
-		Msg: fmt.Sprintf("burst loss starting at seq %d", seq),
+		Msg:  fmt.Sprintf("burst loss starting at seq %d", seq),
 	})
 }

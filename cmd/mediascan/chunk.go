@@ -65,8 +65,8 @@ func commitChunks(o Options, clk clock.Clock, g []gen.Generated, qs *quality.Sta
 		}
 		entry := index.Entry{
 			Chunk: chunk, FrameFrom: from, FrameTo: to,
-			StartTick: int64(from) * clk.TicksPerFrame(),
-			EndTick:   int64(to + 1) * clk.TicksPerFrame(),
+			StartTick:   int64(from) * clk.TicksPerFrame(),
+			EndTick:     int64(to+1) * clk.TicksPerFrame(),
 			TotalFrames: to - from + 1,
 		}
 		for i := from; i <= to; i++ {

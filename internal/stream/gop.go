@@ -9,14 +9,14 @@ import (
 
 // GOPStats summarises keyframe spacing measured in frames.
 type GOPStats struct {
-	Intervals    []int // frame distance between successive keyframes
-	Count        int
-	Min          int
-	Max          int
-	P50          int
-	MeanX100     int // mean interval, fixed point *100
-	Faults       []fault.Fault
-	Unreachable  []int // frame indexes whose nearest preceding keyframe is absent
+	Intervals   []int // frame distance between successive keyframes
+	Count       int
+	Min         int
+	Max         int
+	P50         int
+	MeanX100    int // mean interval, fixed point *100
+	Faults      []fault.Fault
+	Unreachable []int // frame indexes whose nearest preceding keyframe is absent
 }
 
 // AnalyseGOP measures keyframe intervals on the shared frame index axis.
@@ -27,9 +27,9 @@ func AnalyseGOP(keyframeIdx []int, totalFrames, expectedGOP int, tolerance float
 	s := &GOPStats{Min: -1, Max: -1}
 	if len(keyframeIdx) == 0 {
 		s.Faults = append(s.Faults, fault.Fault{
-			Cat:  fault.CatGOPAnomaly,
-			Ref:  "none",
-			Msg:  "stream contains no keyframes",
+			Cat: fault.CatGOPAnomaly,
+			Ref: "none",
+			Msg: "stream contains no keyframes",
 		})
 		for i := 0; i < totalFrames; i++ {
 			s.Unreachable = append(s.Unreachable, i)

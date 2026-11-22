@@ -109,8 +109,8 @@ func independentScan(t *testing.T, dir string, p gen.FrameParams, corrupt bool) 
 		}
 		entry := index.Entry{
 			Chunk: c, FrameFrom: from, FrameTo: to,
-			StartTick: int64(from) * clk.TicksPerFrame(),
-			EndTick:   int64(to + 1) * clk.TicksPerFrame(),
+			StartTick:   int64(from) * clk.TicksPerFrame(),
+			EndTick:     int64(to+1) * clk.TicksPerFrame(),
 			TotalFrames: to - from + 1,
 		}
 		if err := store.Commit(entry); err != nil {

@@ -19,23 +19,23 @@ const rtpWindowCap = 8192
 
 // Report carries every headline metric printed by the CLI.
 type Report struct {
-	Frames            int
-	GOPp50            int
-	Dup               int
-	Reordered         int
-	BurstLoss         int
-	TargetKbps        int
-	ActualKbps        int
-	ErrorPctX10       int
-	ValidPctX100      int
-	AlignmentMS       int64
-	CorruptRanges     int
-	CheckpointChunks  int
-	FatalFaults       int
-	RecoveredChunks   int
-	InputDigest       string
-	FirstTick         int64
-	LastTick          int64
+	Frames           int
+	GOPp50           int
+	Dup              int
+	Reordered        int
+	BurstLoss        int
+	TargetKbps       int
+	ActualKbps       int
+	ErrorPctX10      int
+	ValidPctX100     int
+	AlignmentMS      int64
+	CorruptRanges    int
+	CheckpointChunks int
+	FatalFaults      int
+	RecoveredChunks  int
+	InputDigest      string
+	FirstTick        int64
+	LastTick         int64
 }
 
 // Run executes the full analysis pipeline and returns the report and
