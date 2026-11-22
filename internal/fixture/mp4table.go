@@ -113,12 +113,13 @@ func writeEdts(bw *boxWriter, t *builtTrack, duration uint64, movieTS uint32) er
 		// Deliberately points beyond the track's media duration.
 		mediaTime = int64(duration) + int64(s.SampleDelta)*10
 	}
-	err := bw.box(&mp4.Elst{
+	err := bw.payload(&mp4.Elst{
 		EntryCount: 1,
 		Entries: []mp4.ElstEntry{{
 			SegmentDurationV0: uint32(segDur),
 			MediaTimeV0:       int32(mediaTime),
 			MediaRateInteger:  1,
+			MediaRateFraction: 0,
 		}},
 	})
 	if err != nil {
