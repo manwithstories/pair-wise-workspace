@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"sync"
 )
 
 // Segment is one aligned pipeline segment presented for atomic commit.
@@ -52,6 +53,7 @@ func unmarshalSegment(id uint64, buf []byte) (Segment, error) {
 // Failed validation or a torn log rolls the segment back; committed
 // state is never rewritten.
 type Committer struct {
+	mu        sync.Mutex
 	wal       *WAL
 	committed []Segment
 	rollbacks int
@@ -91,6 +93,8 @@ func NewCommitter(wal *WAL, recovered []Record, torn bool) *Committer {
 // failure the segment is aborted in the WAL and the last valid commit
 // point is preserved.
 func (c *Committer) Submit(seg Segment) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if err := c.wal.Append(Record{Type: RecSegment, SegmentID: seg.ID, Payload: seg.marshal()}); err != nil {
 		return err
 	}
@@ -110,6 +114,8 @@ func (c *Committer) Submit(seg Segment) error {
 // Abort rolls back a segment whose transaction must be abandoned (e.g.
 // on consumer timeout), preserving the last valid commit point.
 func (c *Committer) Abort(id uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	_ = c.wal.Append(Record{Type: RecAbort, SegmentID: id})
 	c.rollbacks++
 }
@@ -133,13 +139,23 @@ func (c *Committer) validate(seg Segment) error {
 
 // RollbackCount returns the number of rolled-back segments, including
 // uncommitted tails discarded during recovery.
-func (c *Committer) RollbackCount() int { return c.rollbacks }
+func (c *Committer) RollbackCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.rollbacks
+}
 
 // Committed returns the committed segments in commit order.
-func (c *Committer) Committed() []Segment { return c.committed }
+func (c *Committer) Committed() []Segment {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]Segment(nil), c.committed...)
+}
 
 // Digest is the deterministic digest over all committed segments.
 func (c *Committer) Digest() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	h := sha256.New()
 	for _, seg := range c.committed {
 		h.Write(seg.Digest[:])
