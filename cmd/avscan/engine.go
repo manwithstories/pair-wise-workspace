@@ -20,7 +20,21 @@ type analysisRun struct {
 	keyReports []scan.KeyFrameReport
 	damage     scan.DamageResult
 	colour     timeline.MetadataReport
+	audio      timeline.MetadataReport
+	alignment  timeline.AlignmentReport
 	blocks     []batch.BlockResult
+}
+
+// demoClips builds clip/transition points, including one mid-grid point that
+// cannot land exactly on a sample block boundary.
+func demoClips(tl *model.Timeline) []model.ClipPoint {
+	clips := []model.ClipPoint{
+		{Label: "opening", AtNS: 0},
+		{Label: "mid-review", AtNS: 123_456_789}, // intentionally non-integral
+	}
+	// A timeline-wide transition near the one-second mark.
+	clips = append(clips, model.ClipPoint{Label: "transition-1s", AtNS: 1_000_000_000})
+	return clips
 }
 
 // analyze parses every demo input, runs scan/timeline analysis and drives the
@@ -61,8 +75,14 @@ func analyze(set fixture.DemoSet, indexPath string, blockSize int, resume bool) 
 	run.keyReports = scan.AnalyzeAllKeyFrames(run.timeline)
 	run.damage = scan.LocateDamage(run.timeline, run.globals)
 	run.colour = timeline.NormalizeColour(run.timeline)
-	audioRep, _ := timeline.NormalizeAudio(run.timeline)
-	_ = audioRep
+	run.audio, _ = timeline.NormalizeAudio(run.timeline)
+
+	// Map operator clip/transition points onto the unified nanosecond axis.
+	// The mid-grid point deliberately lands between samples to prove rounding
+	// is reported rather than silently drifted.
+	clips := demoClips(run.timeline)
+	run.alignment = timeline.AlignClips(run.timeline, clips)
+	run.globals = append(run.globals, run.alignment.Faults...)
 
 	summary := batch.InputSummary{
 		Source:       indexPath,
@@ -127,6 +147,8 @@ func analyze(set fixture.DemoSet, indexPath string, blockSize int, resume bool) 
 		IndexSHA256:      sum,
 		KeyFrames:        run.keyReports,
 		Colour:           run.colour.Colour,
+		Audio:            run.audio.Audio,
+		RoundingReports:  len(run.alignment.NonIntegralRounding()),
 	}
 	return out, nil
 }

@@ -48,11 +48,15 @@ func DamagedSpec() MP4Spec {
 	return spec
 }
 
-// BoundarySpec exercises edit lists and non-integral clip alignment.
+// BoundarySpec exercises edit lists, a missing sync table and non-integral
+// clip alignment.
 func BoundarySpec() MP4Spec {
 	spec := HealthySpec()
 	spec.Name = "boundary"
 	spec.Tracks[0].IncludeEditList = true
+	// Drop the stss table on the video track so the scanner must flag a
+	// missing-sync fault instead of guessing key frames.
+	spec.Tracks[0].IncludeSyncTable = false
 	spec.Tracks[1].IncludeEditList = true
 	// A second audio layout with different channels/rate for metadata checks.
 	spec.Tracks[1].Channels = 1

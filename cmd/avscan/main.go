@@ -18,16 +18,18 @@ import (
 
 // demoOutput is the terminal/JSON contract exercised by the acceptance run.
 type demoOutput struct {
-	Tracks           int                    `json:"tracks"`
-	Samples          int                    `json:"samples"`
-	DamageSegments   int                    `json:"damage_segments"`
-	FirstBadOffset   int64                  `json:"first_bad_offset"`
-	CheckpointBlocks int                    `json:"checkpoint_blocks"`
-	ResumeMS         int64                  `json:"resume_ms"`
-	IndexSHA256      string                 `json:"index_sha256"`
-	KeyFrames        []scan.KeyFrameReport  `json:"key_frames,omitempty"`
-	Colour           []timeline.ColourReport `json:"colour_reports,omitempty"`
-	Validation       map[string]string      `json:"validation,omitempty"`
+	Tracks            int                     `json:"tracks"`
+	Samples           int                     `json:"samples"`
+	DamageSegments    int                     `json:"damage_segments"`
+	FirstBadOffset    int64                   `json:"first_bad_offset"`
+	CheckpointBlocks  int                     `json:"checkpoint_blocks"`
+	ResumeMS          int64                   `json:"resume_ms"`
+	IndexSHA256       string                  `json:"index_sha256"`
+	RoundingReports   int                     `json:"clip_rounding_points"`
+	KeyFrames         []scan.KeyFrameReport   `json:"key_frames,omitempty"`
+	Colour            []timeline.ColourReport `json:"colour_reports,omitempty"`
+	Audio             []timeline.AudioTrackReport `json:"audio_reports,omitempty"`
+	Validation        map[string]string       `json:"validation,omitempty"`
 }
 
 func main() {
