@@ -143,7 +143,7 @@ func verifyRepair(res *timeline.Result) error {
 }
 
 // buildTimeline converts parsed blocks plus transport loss into tracks.
-func buildTimeline(h ebml.Header, blocks []*ebml.Block, res transport.Result, wire *fixture.Wire) *timeline.Timeline {
+func buildTimeline(h ebml.Header, blocks []*ebml.Block, res transport.Result, wire *fixture.Wire) (*timeline.Timeline, int) {
 	tick := clock.MustNew(1, 1)
 	if h.TimestampScale > 0 {
 		if t, err := clock.FromTicks(1, h.TimestampScale); err == nil {
@@ -173,23 +173,27 @@ func buildTimeline(h ebml.Header, blocks []*ebml.Block, res transport.Result, wi
 			Keyframe: b.Keyframe, Bytes: b.FrameBytes, Digest: b.FrameDigest,
 		})
 	}
-	// Explicit transport gaps: mark recovered payload boundaries as missing
-	// slots on the video track so the loss propagates into the timeline.
+	// Explicit transport gaps: mark the affected slots on the video track as
+	// missing so the loss propagates into the timeline without fabricating
+	// frames.
+	missing := 0
 	if len(res.Gaps) > 0 {
-		markGapFrames(byTrack[videoTrack], res, wire)
+		missing = markGapFrames(byTrack[videoTrack], res, wire)
 	}
 	for _, num := range h.TrackOrder {
 		tl.AddTrack(byTrack[num])
 	}
-	return tl
+	return tl, missing
 }
 
-// markGapFrames inserts explicit missing frames for transport gaps.  The count
-// of missing video frames is derived from lost bytes against the measured
-// frame payload size; nothing is fabricated, only flagged.
-func markGapFrames(info *timeline.TrackInfo, res transport.Result, wire *fixture.Wire) {
+// markGapFrames inserts explicit missing frames for transport gaps.  The number
+// of affected video frames comes from lost bytes against the measured frame
+// payload size.  Missing frames are flagged, never emitted with made-up data,
+// and placed one frame duration apart after the last visible frame so they do
+// not disturb the observed extent.  It returns how many slots were marked.
+func markGapFrames(info *timeline.TrackInfo, res transport.Result, wire *fixture.Wire) int {
 	if info == nil || len(info.Frames) == 0 {
-		return
+		return 0
 	}
 	avgLaid := int64(0)
 	for _, f := range info.Frames {
@@ -200,6 +204,12 @@ func markGapFrames(info *timeline.TrackInfo, res transport.Result, wire *fixture
 		avgLaid = int64(wire.PacketBytes)
 	}
 	last := info.Frames[len(info.Frames)-1]
+	step := clock.MustNew(1, 1000) // placeholder; refined below from default duration
+	if info.DefaultNS > 0 {
+		step = clock.MustNew(int64(info.DefaultNS), 1_000_000_000)
+	}
+	t := last.Original
+	marked := 0
 	for i, g := range res.Gaps {
 		missingBytes := int64(g.Len()) * int64(wire.PacketBytes)
 		n := int(missingBytes / avgLaid)
@@ -208,11 +218,16 @@ func markGapFrames(info *timeline.TrackInfo, res transport.Result, wire *fixture
 		}
 		for k := 0; k < n && k < 64; k++ {
 			info.Frames = append(info.Frames, timeline.Frame{
-				Track: info.Number, Offset: last.Offset + int64(i+1)<<20 + int64(k),
-				Original: last.Repaired, Missing: true,
+				Track:    info.Number,
+				Offset:   last.Offset + int64(i+1)<<20 + int64(k),
+				Original: t,
+				Missing:  true,
 			})
+			t = t.Add(step)
+			marked++
 		}
 	}
+	return marked
 }
 
 func writeJSON(path string, v any) error {

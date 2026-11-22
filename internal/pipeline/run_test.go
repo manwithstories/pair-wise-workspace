@@ -76,6 +76,11 @@ func TestCorruptRunDiagnosed(t *testing.T) {
 	if !rep.Truncated {
 		t.Fatal("corrupt sample should be truncated")
 	}
+	// Transport loss leaves explicit missing slots rather than fabricated
+	// frames, and markGapFrames never inflates the visible frame count.
+	if rep.MissingFrames == 0 {
+		t.Fatal("burst loss should mark missing frames")
+	}
 	// Two defects must cross module boundaries: EBML and timeline both report.
 	kinds := map[fault.Module]bool{}
 	for _, f := range rep.Faults {

@@ -53,21 +53,22 @@ type Config struct {
 
 // Report is everything the command prints.
 type Report struct {
-	Stats        verify.Stats         `json:"stats"`
-	Faults       []*fault.Fault       `json:"faults"`
-	ExitCode     int                  `json:"exit_code"`
-	Stages       []string             `json:"committed_stages"`
-	Resumed      []string             `json:"resumed_stages"`
-	Rollbacks    int                  `json:"rollback_count"`
-	IndexPath    string               `json:"index_path"`
-	ManifestPath string               `json:"manifest_path"`
-	SidecarPath  string               `json:"sidecar_path"`
-	Recovered    bool                 `json:"recovered"`
-	Truncated    bool                 `json:"source_truncated"`
-	Blocks       int                  `json:"blocks"`
-	Spill        transport.SpillStats `json:"spill"`
-	Determinism  string               `json:"determinism_signature"`
-	ResumeDigest string               `json:"resume_index_sha256,omitempty"`
+	Stats         verify.Stats         `json:"stats"`
+	Faults        []*fault.Fault       `json:"faults"`
+	ExitCode      int                  `json:"exit_code"`
+	Stages        []string             `json:"committed_stages"`
+	Resumed       []string             `json:"resumed_stages"`
+	Rollbacks     int                  `json:"rollback_count"`
+	IndexPath     string               `json:"index_path"`
+	ManifestPath  string               `json:"manifest_path"`
+	SidecarPath   string               `json:"sidecar_path"`
+	Recovered     bool                 `json:"recovered"`
+	Truncated     bool                 `json:"source_truncated"`
+	Blocks        int                  `json:"blocks"`
+	MissingFrames int                  `json:"missing_frames"`
+	Spill         transport.SpillStats `json:"spill"`
+	Determinism   string               `json:"determinism_signature"`
+	ResumeDigest  string               `json:"resume_index_sha256,omitempty"`
 }
 
 // Tracks are the fixed generated tracks: 25 fps video, 25 fps audio in 48 kHz
@@ -139,7 +140,8 @@ func Run(cfg Config) (*Report, error) {
 	}
 
 	// Timeline repair, carrying transport loss into the frame list.
-	tl := buildTimeline(header, blocks, res, wire)
+	tl, missingFrames := buildTimeline(header, blocks, res, wire)
+	rep.MissingFrames = missingFrames
 	tlResult := tl.Repair()
 
 	// Carry transport and timeline diagnoses into the run's fault set so the

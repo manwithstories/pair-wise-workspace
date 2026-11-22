@@ -68,8 +68,8 @@ journal.
 `quality_samples`, `manifest_alignment_ms`, `lost_packets`,
 `duplicate_packets`, `reordered_packets`, `timestamp_repairs`,
 `index_entries`, `rollback_count`, `index_sha256`, plus `blocks`,
-`spilled_chunks`, `peak_memory_bytes`, `source_truncated` and the committed /
-resumed stage lists.
+`missing_frames`, `spilled_chunks`, `peak_memory_bytes`, `source_truncated`
+and the committed / resumed stage lists.
 
 ## Architecture
 

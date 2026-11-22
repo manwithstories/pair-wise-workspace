@@ -26,6 +26,7 @@ func printReport(name string, r *pipeline.Report) {
 	fmt.Printf("rollback_count=%d\n", s.RollbackCount)
 	fmt.Printf("index_sha256=%s\n", s.IndexSHA256)
 	fmt.Printf("blocks=%d\n", r.Blocks)
+	fmt.Printf("missing_frames=%d\n", r.MissingFrames)
 	fmt.Printf("spilled_chunks=%d\n", r.Spill.Spilled)
 	fmt.Printf("peak_memory_bytes=%d\n", r.Spill.PeakMemory)
 	fmt.Printf("source_truncated=%v\n", r.Truncated)
