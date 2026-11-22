@@ -28,6 +28,15 @@ func TestNormalRunVerifiesAndRepairsNothing(t *testing.T) {
 	if rep.Stats.TimestampRepairs != 0 || rep.Stats.IndexEntries == 0 {
 		t.Fatalf("stats=%+v", rep.Stats)
 	}
+	// The index holds keyframes only: one per GOP on the video track, not one
+	// per block.  With 24 frames and a keyframe every 8, that is 3 video GOPs
+	// plus any audio/subtitle keyframe flags (which the fixture leaves clear).
+	if rep.Stats.IndexEntries >= rep.Blocks {
+		t.Fatalf("index has %d entries for %d blocks; expected keyframes only", rep.Stats.IndexEntries, rep.Blocks)
+	}
+	if want := 24 / 8; rep.Stats.IndexEntries != want {
+		t.Fatalf("index entries=%d want %d keyframes", rep.Stats.IndexEntries, want)
+	}
 	if rep.Stats.ManifestAlignMS > 1 {
 		t.Fatalf("alignment=%.3f", rep.Stats.ManifestAlignMS)
 	}

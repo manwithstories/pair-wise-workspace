@@ -148,8 +148,15 @@ func (e *Encoder) Void(total int) *Encoder {
 }
 
 // EncodeBlockHeader builds a SimpleBlock/Block header: track vint, 16-bit
-// relative timestamp, flags and optional lacing descriptors.
+// relative timestamp, flags and optional lacing descriptors.  The keyframe
+// bit is always set; use EncodeBlockHeaderKey to control it.
 func EncodeBlockHeader(track uint64, rel int16, frames int, lace string, sizes []int64) []byte {
+	return EncodeBlockHeaderKey(track, rel, frames, lace, sizes, true)
+}
+
+// EncodeBlockHeaderKey builds a block header with an explicit SimpleBlock
+// keyframe flag.
+func EncodeBlockHeaderKey(track uint64, rel int16, frames int, lace string, sizes []int64, keyframe bool) []byte {
 	enc := &Encoder{}
 	enc.buf = append(enc.buf, EncodeSize(track, 0)...)
 	var relb [2]byte
@@ -164,7 +171,9 @@ func EncodeBlockHeader(track uint64, rel int16, frames int, lace string, sizes [
 	case "ebml":
 		flags |= 0x06
 	}
-	flags |= 0x80 // keyframe bit (SimpleBlock only)
+	if keyframe {
+		flags |= 0x80 // SimpleBlock keyframe bit
+	}
 	enc.buf = append(enc.buf, flags)
 	switch {
 	case frames > 1 && lace == "xiph":

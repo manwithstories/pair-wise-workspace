@@ -291,7 +291,7 @@ func Build(seed int64, tracks []TrackSpec, frameCount int, d Defect) (*Plan, err
 			currentTick = window * 500
 			haveCluster = true
 		}
-		hdr := ebml.EncodeBlockHeader(f.spec.Number, int16(tick-currentTick), 1, "", nil)
+		hdr := ebml.EncodeBlockHeaderKey(f.spec.Number, int16(tick-currentTick), 1, "", nil, f.key)
 		var payload []byte
 		if f.spec.Kind == ebml.TrackSubtitle {
 			payload = f.raw
