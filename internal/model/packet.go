@@ -98,21 +98,21 @@ func (p PacketID) String() string { return fmt.Sprintf("%s/%d", p.Stream, p.Seq)
 
 // Event is one audio packet event after ingest normalisation.
 type Event struct {
-	ID         PacketID
-	Codec      Codec
-	RTPTime    uint32
-	ExtTimeUS  int64  // unified event time on the first-packet base
-	DurationUS int64  // -1 when the duration cannot be inferred (corrupt)
-	Payload    []byte // may be nil for a declared-only packet
+	ID         PacketID `json:"id"`
+	Codec      Codec    `json:"codec"`
+	RTPTime    uint32   `json:"rtp_time"`
+	ExtTimeUS  int64    `json:"ext_time_us"` // unified event time, first-packet base
+	DurationUS int64    `json:"duration_us"` // -1 when the duration cannot be inferred
+	Payload    []byte   `json:"payload,omitempty"` // bounded by the active window
 	// PayloadSHA caches PayloadHash so the timeline can drop payload bytes
 	// once the duration has been derived.
-	PayloadSHA string
-	Marker     bool
+	PayloadSHA string `json:"payload_sha"`
+	Marker     bool   `json:"marker,omitempty"`
 	// ArrivalUS is the wall-clock arrival offset; it drives the lateness
 	// watermark but never the media timeline.
-	ArrivalUS int64
+	ArrivalUS int64 `json:"arrival_us"`
 	// ExplainedBy links a recovered event to the packet that filled it.
-	ExplainedBy *PacketID
+	ExplainedBy *PacketID `json:"explained_by,omitempty"`
 }
 
 // PayloadHash is the SHA-256 of the payload (empty payload hashes the empty
@@ -176,6 +176,11 @@ type Segment struct {
 	BoundarySkew int64 // |actual source boundary - grid boundary|
 	OutputSHA256 string
 	Version      int
+	// Hole accounting attributed to this window.
+	LossFills         int
+	CorruptFills      int
+	UnrecoverableGaps int
+	SilenceUS         int64
 }
 
 // Quarantine records an event that could not be placed on the stable timeline.

@@ -37,6 +37,21 @@ type Entry struct {
 	OutputSHA256      string                 `json:"output_sha256"`
 	ReplacesVersion   int                    `json:"replaces_version,omitempty"`
 	ReplacesSHA256    string                 `json:"replaces_sha256,omitempty"`
+	// Reason and cause identify a replay: which packet forced recalculation
+	// and at what event time, so the replacement edge is auditable.
+	Reason           string `json:"reason,omitempty"`
+	CauseSeq         uint32 `json:"cause_seq,omitempty"`
+	CauseTimeUS      int64  `json:"cause_time_us,omitempty"`
+	QuarantinedCount int    `json:"quarantined_count,omitempty"`
+	// MediaSize and InitSHA256 describe the written fMP4 artefacts when the
+	// run was asked to materialise them.
+	MediaSize  int64  `json:"media_size,omitempty"`
+	InitSHA256 string `json:"init_sha256,omitempty"`
+	// Hole accounting for this window. Every hole is attributed to the window
+	// containing its start, so totals stay exact across replays.
+	LossFills         int `json:"loss_fills,omitempty"`
+	CorruptFills      int `json:"corrupt_fills,omitempty"`
+	UnrecoverableGaps int `json:"unrecoverable_gaps,omitempty"`
 }
 
 // Key is the uniqueness key of a manifest entry.

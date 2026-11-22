@@ -36,7 +36,11 @@ type State struct {
 	MaxVersion       int               `json:"max_version"`
 	ReplayedSegments int               `json:"replayed_segments"`
 	SourceSHA256     string            `json:"source_sha256"`
-	UpdatedAt        time.Time         `json:"updated_at"`
+	// Pipeline carries subsystem continuation state (parser cursors, watermark,
+	// buffered events, histograms). It is opaque to the store on purpose so the
+	// pipeline can evolve its own schema.
+	Pipeline  json.RawMessage `json:"pipeline,omitempty"`
+	UpdatedAt time.Time       `json:"updated_at"`
 }
 
 // ConfigDigest computes the stable digest of everything that changes output:

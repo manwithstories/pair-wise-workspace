@@ -98,3 +98,26 @@ func readBits(buf []byte, pos, width int) (int, error) {
 	}
 	return v, nil
 }
+
+// AACMediaData validates the RFC 3640 payload and returns the concatenated AU
+// bytes without the AU header section, ready to be stored as MP4 samples.
+func (c AACConfig) AACMediaData(payload []byte) ([]byte, error) {
+	if _, err := c.AACDurationUS(payload); err != nil {
+		return nil, err
+	}
+	bits := int(binary.BigEndian.Uint16(payload[:2]))
+	headerBytes := bits / 8
+	return append([]byte(nil), payload[2+headerBytes:]...), nil
+}
+
+// SilenceAACPayload returns a valid single-AU AAC payload of samples
+// samplesPerAU.
+func (c AACConfig) SilenceAACPayload() ([]byte, error) {
+	if err := c.Validate(); err != nil {
+		return nil, err
+	}
+	au := make([]byte, 1)
+	header := uint16(len(au)) << 3
+	out := []byte{0x00, 0x10, byte(header >> 8), byte(header)}
+	return append(out, au...), nil
+}

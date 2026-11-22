@@ -42,6 +42,34 @@ type Watermark struct {
 	set          bool
 }
 
+// NewWatermark returns a watermark with the given lateness window.
+func NewWatermark(windowUS int64) *Watermark {
+	if windowUS < 0 {
+		windowUS = 0
+	}
+	return &Watermark{lateWindowUS: windowUS}
+}
+
+// WindowUS returns the configured lateness window.
+func (w *Watermark) WindowUS() int64 { return w.lateWindowUS }
+
+// SetLateWindow installs the window (used before events are observed).
+func (w *Watermark) SetLateWindow(windowUS int64) {
+	if windowUS >= 0 {
+		w.lateWindowUS = windowUS
+	}
+}
+
+// State exports the watermark for checkpointing.
+func (w *Watermark) State() (maxEndUS int64, set bool, windowUS int64) {
+	return w.maxEndUS, w.set, w.lateWindowUS
+}
+
+// Restore reloads a checkpointed watermark.
+func (w *Watermark) Restore(maxEndUS int64, set bool, windowUS int64) {
+	w.maxEndUS, w.set, w.lateWindowUS = maxEndUS, set, windowUS
+}
+
 // Observe advances the watermark with one event end.
 func (w *Watermark) Observe(endUS int64) {
 	if !w.set || endUS > w.maxEndUS {
@@ -150,8 +178,12 @@ func Gaps(events []*model.Event, quarantined map[uint32]model.ErrorKind, maxFill
 				Reason:        reason,
 			})
 			if d.Recoverable {
-				stats.RecoveredHoles++
 				stats.EstimatedUS += d.DurationUS
+				if reason == model.KindCorrupt {
+					stats.RecoveredCorrupt++
+				} else {
+					stats.RecoveredLoss++
+				}
 			} else {
 				stats.Unrecoverable++
 			}

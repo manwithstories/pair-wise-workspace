@@ -174,12 +174,20 @@ func NoFaults() Faults {
 }
 
 // BoundaryFaults places one late packet exactly at the watermark (quarantined)
-// and one a millisecond inside it (replay), for both streams.
-func BoundaryFaults(seed int64, count int) Faults {
+// and one a millisecond inside it (forced replay) on every segment boundary,
+// so the window-edge behaviour is exercised for every stream.
+func BoundaryFaults(seed int64, count int, windowUS, packetUS int64) Faults {
 	f := MixedFaults(seed, count)
-	// Clear the generic late sets so the boundary cases are unambiguous.
 	f.Late = map[int]bool{}
 	f.LateBeyond = map[int]bool{}
+	// A packet whose media start is exactly one segment behind becomes late by
+	// windowUS: its end sits exactly on the watermark (quarantined).
+	// A packet one packet later arrives at the watermark minus 1us (replay).
+	f.LateByUS = windowUS
+	for i := 8; i+2 < count; i += 500 {
+		f.Late[i] = true
+		f.LateBeyond[i+1] = true
+	}
 	return f
 }
 
@@ -332,9 +340,9 @@ func marshalRTP(o Opts, seq uint16, ts uint32, payload []byte) ([]byte, error) {
 func SilencePayload(o Opts) ([]byte, error) {
 	switch o.Codec {
 	case model.CodecOpus:
-		return []byte{9 << 3}, nil
+		return codec.SilenceOpusPayload(o.PacketUS)
 	case model.CodecAAC:
-		return aacPayload([]byte{0x00}), nil
+		return o.AAC.SilenceAACPayload()
 	}
 	return nil, fmt.Errorf("sample: unsupported codec %q", o.Codec)
 }

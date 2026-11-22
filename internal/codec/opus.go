@@ -87,3 +87,14 @@ func opusArbitraryDurationUS(frameUS int64, body []byte) (int64, error) {
 	}
 	return int64(n) * frameUS, nil
 }
+
+// SilenceOpusPayload returns a valid one-frame Opus packet whose derived
+// duration is frameUS. It is used for labelled silence fills.
+func SilenceOpusPayload(frameUS int64) ([]byte, error) {
+	for config, us := range opusFrameSizesUS {
+		if us == frameUS {
+			return []byte{byte(config<<3 | 0<<1)}, nil
+		}
+	}
+	return nil, fmt.Errorf("%w: no silence frame for %d us", ErrUnderivable, frameUS)
+}

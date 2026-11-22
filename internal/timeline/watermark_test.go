@@ -73,7 +73,7 @@ func TestGapsSilenceFillAndSeqHole(t *testing.T) {
 	if decisions[0].StartUS != 20000 || decisions[0].DurationUS != 80000 {
 		t.Fatalf("decision = %+v", decisions[0])
 	}
-	if stats.LossHoles != 1 || stats.RecoveredHoles != 1 || stats.EstimatedUS != 80000 {
+	if stats.LossHoles != 1 || stats.RecoveredLoss != 1 || stats.EstimatedUS != 80000 {
 		t.Fatalf("stats = %+v", stats)
 	}
 }
@@ -93,7 +93,7 @@ func TestGapsCorruptSkipped(t *testing.T) {
 	if len(decisions) != 1 || !decisions[0].Recoverable {
 		t.Fatalf("bounded corrupt hole should be silence filled: %+v", decisions)
 	}
-	if stats.CorruptHoles != 1 || stats.LossHoles != 0 {
+	if stats.CorruptHoles != 1 || stats.LossHoles != 0 || stats.RecoveredCorrupt != 1 {
 		t.Fatalf("corrupt hole attributed to loss: %+v", stats)
 	}
 	// Without the quarantine evidence the same hole is ordinary loss.

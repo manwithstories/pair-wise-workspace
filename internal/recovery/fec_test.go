@@ -52,7 +52,7 @@ func TestStatsRate(t *testing.T) {
 	if (Stats{}).Rate() != 1 {
 		t.Fatal("no-loss run must be 1.0")
 	}
-	s := Stats{LossHoles: 10, RecoveredHoles: 9}
+	s := Stats{LossHoles: 10, RecoveredLoss: 9}
 	if s.Rate() != 0.9 {
 		t.Fatalf("rate = %v", s.Rate())
 	}

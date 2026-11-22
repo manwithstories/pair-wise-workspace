@@ -38,6 +38,9 @@ type Decision struct {
 	DurationUS  int64
 	Estimated   bool
 	Detail      string
+	// Reason carries the gap classification (loss vs corruption) so callers
+	// can report each cause separately.
+	Reason model.ErrorKind
 }
 
 // Decide applies the silence-fill policy. It is pure and deterministic so a
@@ -62,6 +65,7 @@ func Decide(e Evidence) Decision {
 			StartUS:   start,
 			Detail:    fmt.Sprintf("non-positive inferred gap %d us", dur),
 			Estimated: false,
+			Reason:    e.Reason,
 		}
 	}
 	if e.MaxFillUS > 0 && dur > e.MaxFillUS {
@@ -70,6 +74,7 @@ func Decide(e Evidence) Decision {
 			StartUS:   start,
 			Detail:    fmt.Sprintf("gap %d us exceeds fill limit %d us", dur, e.MaxFillUS),
 			Estimated: true,
+			Reason:    e.Reason,
 		}
 	}
 	return Decision{
@@ -80,6 +85,7 @@ func Decide(e Evidence) Decision {
 		DurationUS:  dur,
 		Estimated:   true,
 		Detail:      fmt.Sprintf("silence fill for %s gap", reasonLabel(e.Reason)),
+		Reason:      e.Reason,
 	}
 }
 
@@ -90,20 +96,22 @@ func reasonLabel(k model.ErrorKind) string {
 	return string(k)
 }
 
-// Stats aggregates recovery outcomes for reporting and checkpoints.
+// Stats aggregates recovery outcomes for reporting and checkpoints. Loss and
+// corruption are kept apart so the recovery rate measures packet loss only.
 type Stats struct {
-	LossHoles      int64 `json:"loss_holes"`
-	RecoveredHoles int64 `json:"recovered_holes"`
-	CorruptHoles   int64 `json:"corrupt_holes"`
-	Unrecoverable  int64 `json:"unrecoverable"`
-	EstimatedUS    int64 `json:"estimated_us"`
+	LossHoles        int64 `json:"loss_holes"`
+	RecoveredLoss    int64 `json:"recovered_loss_holes"`
+	CorruptHoles     int64 `json:"corrupt_holes"`
+	RecoveredCorrupt int64 `json:"recovered_corrupt_holes"`
+	Unrecoverable    int64 `json:"unrecoverable"`
+	EstimatedUS      int64 `json:"estimated_us"`
 }
 
-// Rate returns recovered/loss. A run without loss is trivially at 100%.
+// Rate returns the share of loss holes that were recoverable. A run without
+// loss is trivially at 100%.
 func (s Stats) Rate() float64 {
-	denom := s.LossHoles
-	if denom == 0 {
+	if s.LossHoles == 0 {
 		return 1
 	}
-	return float64(s.RecoveredHoles) / float64(denom)
+	return float64(s.RecoveredLoss) / float64(s.LossHoles)
 }
