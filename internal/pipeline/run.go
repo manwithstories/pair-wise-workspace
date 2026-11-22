@@ -200,9 +200,9 @@ func Run(cfg Config) (*Report, error) {
 			rep.Rollbacks = mgr.Rollbacks()
 			rep.Faults = fs.Faults()
 			rep.ExitCode = fs.ExitCode()
-			// Reflect what actually committed: parse and repair are committed by
-			// this point; the index was rolled back when the manifest failed.
-			rep.Stages = appendUnique(rep.Stages, string(txn.StageParse), string(txn.StageRepair))
+			// Parse, repair and index all committed before the manifest was
+			// refused; only the manifest stage was rolled back.
+			rep.Stages = appendUnique(rep.Stages, string(txn.StageParse), string(txn.StageRepair), string(txn.StageIndex))
 			return rep, nil
 		}
 		return rep, err
