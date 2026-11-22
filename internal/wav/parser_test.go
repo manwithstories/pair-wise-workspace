@@ -163,6 +163,63 @@ func TestParseFloatAndExtensible(t *testing.T) {
 	}
 }
 
+func TestMultichannelPCMFrameAlignment(t *testing.T) {
+	// 6 声道、24-bit：帧大小 = 6*3 = 18 字节。
+	const ch, bits = uint16(6), uint16(24)
+	frames := 4
+	raw := buildWAV(wavOpt{channels: ch, bits: bits, data: make([]byte, int(ch)*int(bits)/8*frames)})
+	p := NewParser(bytes.NewReader(raw))
+	if err := p.ParseHeader(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.NextChunk(); err != nil {
+		t.Fatal(err)
+	}
+	f, _ := p.Format()
+	fs, err := f.FrameSize()
+	if err != nil || fs != 18 {
+		t.Fatalf("frame size=%d err=%v, want 18", fs, err)
+	}
+	if _, err := p.NextChunk(); err != nil {
+		t.Fatal(err)
+	}
+	var total uint64
+	for {
+		blk, err := p.ReadData(64)
+		total += blk.FrameCount
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			t.Fatalf("read: %v", err)
+		}
+	}
+	if total != uint64(frames) {
+		t.Fatalf("multichannel frames=%d, want %d", total, frames)
+	}
+}
+
+func TestRejectUnsupportedFormat(t *testing.T) {
+	// wFormatTag=2 (ADPCM) 不在 PCM/float 支持范围内。
+	raw := buildWAV(wavOpt{data: pcmData(2)})
+	// fmt 负载起始于 RIFF(12) + chunk header(8)。
+	binary.LittleEndian.PutUint16(raw[12+8:], 2)
+	p := NewParser(bytes.NewReader(raw))
+	_ = p.ParseHeader()
+	if _, err := p.NextChunk(); err == nil {
+		t.Fatal("non-PCM/float format must be rejected")
+	}
+}
+
+func TestRejectUnsupportedBitsPerSample(t *testing.T) {
+	raw := buildWAV(wavOpt{bits: 12, data: make([]byte, 24)})
+	p := NewParser(bytes.NewReader(raw))
+	_ = p.ParseHeader()
+	if _, err := p.NextChunk(); err == nil {
+		t.Fatal("12-bit sample must be rejected")
+	}
+}
+
 func TestRejectBadRIFF(t *testing.T) {
 	raw := buildWAV(wavOpt{badRIFF: true, data: pcmData(2)})
 	if err := NewParser(bytes.NewReader(raw)).ParseHeader(); err == nil {

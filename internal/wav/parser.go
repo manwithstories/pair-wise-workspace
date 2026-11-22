@@ -273,6 +273,11 @@ func (p *Parser) ReadData(maxBytes uint64) (DataBlock, error) {
 	if p.dataLeft < want {
 		want = p.dataLeft
 	}
+	// 按完整帧边界向下对齐读取量，避免把单帧拆到两次读取。
+	want = (want / frame) * frame
+	if want == 0 {
+		return DataBlock{}, fmt.Errorf("wav: read size %d smaller than one frame %d", maxBytes, frame)
+	}
 	buf := make([]byte, want)
 	n, err := io.ReadFull(p.r, buf)
 	p.dataLeft -= uint64(n)
@@ -289,7 +294,7 @@ func (p *Parser) ReadData(maxBytes uint64) (DataBlock, error) {
 	}
 	tail := uint64(n) % frame
 	if tail != 0 {
-		// 任何悬空字节都意味着样本帧不完整，拒绝静默补齐或丢弃。
+		// 仅当 data 块本身长度不是帧整数倍时才会出现悬空字节，拒绝静默补齐。
 		return DataBlock{}, fmt.Errorf("wav: %d dangling bytes do not form a frame", tail)
 	}
 	blk := DataBlock{
