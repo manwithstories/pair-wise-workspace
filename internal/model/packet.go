@@ -104,6 +104,9 @@ type Event struct {
 	ExtTimeUS  int64  // unified event time on the first-packet base
 	DurationUS int64  // -1 when the duration cannot be inferred (corrupt)
 	Payload    []byte // may be nil for a declared-only packet
+	// PayloadSHA caches PayloadHash so the timeline can drop payload bytes
+	// once the duration has been derived.
+	PayloadSHA string
 	Marker     bool
 	// ArrivalUS is the wall-clock arrival offset; it drives the lateness
 	// watermark but never the media timeline.
@@ -115,6 +118,9 @@ type Event struct {
 // PayloadHash is the SHA-256 of the payload (empty payload hashes the empty
 // string). It is used for idempotent duplicate detection.
 func (e Event) PayloadHash() string {
+	if e.PayloadSHA != "" {
+		return e.PayloadSHA
+	}
 	sum := sha256.Sum256(e.Payload)
 	return hex.EncodeToString(sum[:])
 }

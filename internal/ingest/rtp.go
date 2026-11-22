@@ -149,6 +149,7 @@ func (p *Parser) Parse(rec RawRecord) (*model.Event, error) {
 		Marker:     pkt.Marker,
 		ArrivalUS:  rec.ArrivalUS,
 	}
+	ev.PayloadSHA = ev.PayloadHash()
 
 	dur, err := p.duration(pkt.Payload)
 	if err != nil {
