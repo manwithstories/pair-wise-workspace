@@ -27,7 +27,6 @@ const (
 
 	// Time base layer.
 	CodeTimestampRegression Code = "TIMESTAMP_REGRESSION"
-	CodeInvalidTimeBase     Code = "INVALID_TIME_BASE"
 	CodeTimestampOverflow   Code = "TIMESTAMP_OVERFLOW"
 
 	// Codec layer.
@@ -35,12 +34,12 @@ const (
 	CodeInvalidConfig    Code = "INVALID_CODEC_CONFIG"
 
 	// Engine layer.
-	CodeUnalignedPCM    Code = "UNALIGNED_PCM"
-	CodeChannelsInvalid Code = "INVALID_CHANNELS"
-	CodeRateInvalid     Code = "INVALID_SAMPLE_RATE"
-	CodeLoudnessInvalid Code = "INVALID_LOUDNESS"
-	CodeBlockTooLong    Code = "BLOCK_TOO_LONG"
-	CodeMemoryLimit     Code = "MEMORY_LIMIT"
+	CodeUnalignedPCM      Code = "UNALIGNED_PCM"
+	CodeChannelsInvalid   Code = "INVALID_CHANNELS"
+	CodeInvalidSampleRate Code = "INVALID_SAMPLE_RATE"
+	CodeLoudnessInvalid   Code = "INVALID_LOUDNESS"
+	CodeBlockTooLong      Code = "BLOCK_TOO_LONG"
+	CodeMemoryLimit       Code = "MEMORY_LIMIT"
 
 	// Store / lifecycle layer.
 	CodeCheckpointConflict Code = "CHECKPOINT_CONFLICT"
@@ -140,8 +139,8 @@ func (e *Error) Line() string {
 func (e *Error) ExitCode() int {
 	switch e.Code {
 	case CodeUsage, CodeNoAudioTrack, CodeUnsupportedCodec, CodeInvalidConfig,
-		CodeInvalidTimeBase, CodeChannelsInvalid, CodeRateInvalid,
-		CodeLoudnessInvalid, CodeUnsupportedTrack, CodeMissingBox:
+		CodeInvalidSampleRate, CodeChannelsInvalid, CodeLoudnessInvalid,
+		CodeUnsupportedTrack, CodeMissingBox:
 		return ExitInput
 	case CodeCheckpointConflict, CodeCheckpointCorrupt:
 		return ExitCheckpoint
