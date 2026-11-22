@@ -172,6 +172,18 @@ type SegmentRef struct {
 	Sequence         uint64
 }
 
+// Undetermined returns the number of entries whose keyframe status could not
+// be established.
+func (i *Index) Undetermined() int {
+	n := 0
+	for _, e := range i.Entries {
+		if !e.Determined {
+			n++
+		}
+	}
+	return n
+}
+
 // SeekFirst returns the last determined keyframe at or before t.
 func (i *Index) SeekFirst(t int64) (Entry, bool) {
 	var best Entry
