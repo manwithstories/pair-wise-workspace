@@ -74,7 +74,7 @@ func (sc *scanner) srtRecord(ev Event, timing string, prevEnd int64) (Event, err
 		sc.addFault(ev.RawStart, true, "SRT interval not positive: %d -> %d", start, end)
 		return Event{}, errSkipRecord
 	}
-	if prevEnd >= 0 && start < prevEnd {
+	if prevEnd >= 0 && start < prevEnd && !isMidnightWrap(start, prevEnd) {
 		sc.addFault(ev.RawStart, true, "SRT overlap: record starts %dms before previous end %dms", start, prevEnd)
 	}
 	ev.StartMS, ev.EndMS = start, end

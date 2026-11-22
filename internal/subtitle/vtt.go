@@ -98,7 +98,7 @@ func (sc *scanner) vttRecord(ev Event, timingLine string, prevEnd int64) (Event,
 		sc.addFault(ev.RawStart, true, "VTT interval not positive: %d -> %d", start, end)
 		return Event{}, false
 	}
-	if prevEnd >= 0 && start < prevEnd {
+	if prevEnd >= 0 && start < prevEnd && !isMidnightWrap(start, prevEnd) {
 		sc.addFault(ev.RawStart, true, "VTT overlap: cue starts %dms before previous end %dms", start, prevEnd)
 	}
 	ev.StartMS, ev.EndMS = start, end

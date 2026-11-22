@@ -107,3 +107,14 @@ func (s *scanner) addFault(offset int64, recoverable bool, format string, args .
 // errSkipRecord tells the format-specific parser to discard the current
 // record and resume at the next blank-line boundary.
 var errSkipRecord = errors.New("record skipped")
+
+// halfDayMS is the threshold for distinguishing a genuine overlap from a
+// cross-midnight wrap: a cue jumping backwards by 12 hours or more is treated
+// as the next day, not as overlapping the previous cue.
+const halfDayMS int64 = 12 * 60 * 60 * 1000
+
+// isMidnightWrap reports whether start, which precedes prevEnd, should be
+// interpreted as a wrap past midnight rather than an overlap.
+func isMidnightWrap(start, prevEnd int64) bool {
+	return prevEnd >= 0 && start < prevEnd && prevEnd-start >= halfDayMS
+}

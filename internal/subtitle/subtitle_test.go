@@ -140,6 +140,40 @@ func TestParseVTTBadCueRecovers(t *testing.T) {
 	}
 }
 
+func TestSRTMidnightWrapNotAnOverlap(t *testing.T) {
+	// Second cue wraps past midnight; its raw label (00:00:01) is numerically
+	// smaller than the previous end but must not be flagged as an overlap.
+	content := "1\n23:59:59,000 --> 23:59:59,500\nlast of day\n\n" +
+		"2\n00:00:01,000 --> 00:00:02,000\nfirst after midnight\n"
+	res, err := ParseSRT(strings.NewReader(content), "wrap.srt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Events) != 2 {
+		t.Fatalf("wrapped cues must both parse: %d", len(res.Events))
+	}
+	for _, f := range res.Faults {
+		if strings.Contains(f.Message, "overlap") {
+			t.Fatalf("midnight wrap misreported as overlap: %v", f)
+		}
+	}
+	// A small backwards jump that is NOT a midnight wrap stays an overlap.
+	small := "1\n00:00:10,000 --> 00:00:20,000\na\n\n2\n00:00:15,000 --> 00:00:18,000\nb\n"
+	r2, err := ParseSRT(strings.NewReader(small), "ov.srt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sawOverlap := false
+	for _, f := range r2.Faults {
+		if strings.Contains(f.Message, "overlap") {
+			sawOverlap = true
+		}
+	}
+	if !sawOverlap {
+		t.Fatal("genuine small backwards jump must still be an overlap")
+	}
+}
+
 func TestTimeParsersRejectBadFields(t *testing.T) {
 	if _, ok := parseSRTTime("00:00:60,000"); ok {
 		t.Fatal("seconds=60 must be rejected")
