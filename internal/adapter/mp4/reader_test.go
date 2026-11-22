@@ -190,3 +190,37 @@ func TestParseMissingFileIsLocated(t *testing.T) {
 }
 
 func openFile(path string) (*os.File, error) { return os.Open(path) }
+
+func TestDurationCapEnforced(t *testing.T) {
+	dir := t.TempDir()
+	rep, err := fixture.GenerateMP4(dir, "clip.mp4", fixture.DefaultMP4Options(8))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A 1-second asset with a 1-millisecond cap must be rejected as out of range.
+	_, err = (&Reader{}).Parse(adapter.Source{AssetID: "cap", Path: rep.Path},
+		adapter.Options{KeepPayload: false, MaxAssetDurationNS: 1_000_000})
+	if fault.CodeOf(err) != fault.CodeDurationRange {
+		t.Fatalf("code = %v (%v)", fault.CodeOf(err), err)
+	}
+	e, _ := fault.As(err)
+	if !e.Loc.HasTrack && e.Loc.SourcePath == "" {
+		t.Fatal("duration error lacks location")
+	}
+}
+
+func TestPacketCountCapEnforced(t *testing.T) {
+	dir := t.TempDir()
+	rep, err := fixture.GenerateMP4(dir, "clip.mp4", fixture.DefaultMP4Options(8))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = (&Reader{}).Parse(adapter.Source{AssetID: "cap", Path: rep.Path},
+		adapter.Options{KeepPayload: false, MaxPacketsPerTrack: 10})
+	if err == nil {
+		t.Fatal("expected packet-count rejection")
+	}
+	if fault.CodeOf(err) != fault.CodeDurationRange {
+		t.Fatalf("code = %v", fault.CodeOf(err))
+	}
+}

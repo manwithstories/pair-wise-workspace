@@ -188,6 +188,11 @@ func (p *parser) expandSampleTable(td *trakData, trackID uint32, scale clock.Sca
 		return nil, p.errTrack(fault.CodeDurationRange, 0, trackID,
 			"track %d has %d samples exceeding limit", trackID, count)
 	}
+	if count > p.opts.MaxPacketsPerTrack {
+		return nil, p.errTrack(fault.CodeDurationRange, int64(td.stsdOffset()), trackID,
+			"track %d has %d samples exceeding configured limit %d",
+			trackID, count, p.opts.MaxPacketsPerTrack)
+	}
 
 	tbl := &sampleTable{
 		count:   count,
