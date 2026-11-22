@@ -300,7 +300,10 @@ func mergeAux(asset *media.Asset, ra manifest.ResolvedAsset, opts adapter.Option
 	sort.Strings(paths)
 	for _, p := range paths {
 		abs := ra.AuxiliaryPaths[p]
-		aux, err := readAux(abs, opts)
+		// Find the source descriptor to honour its clock rate and track-id
+		// override. AuxiliaryPaths is keyed by manifest-relative path.
+		src := sourceFor(ra, p)
+		aux, err := readAux(abs, src, opts)
 		if err != nil {
 			return nil, totals, err
 		}
@@ -326,15 +329,20 @@ func mergeAux(asset *media.Asset, ra manifest.ResolvedAsset, opts adapter.Option
 	return tracks, totals, nil
 }
 
-func readAux(path string, opts adapter.Options) (*rtpadapter.Result, error) {
+func readAux(path string, src manifest.Source, opts adapter.Options) (*rtpadapter.Result, error) {
 	rd, err := rtpadapter.Open(path)
 	if err != nil {
 		return nil, fault.New(fault.CodeCorruptContainer,
 			fault.Location{SourcePath: path, Adapter: "rtp"}, "open rtp dump failed").
 			Wrap(err).WithOp("pipeline.ReadAux")
 	}
+	rate := src.SampleRate
+	if rate == 0 {
+		rate = 90000
+	}
 	res, err := rtpadapter.Demux(rd, rtpadapter.Options{
-		SampleRate:    90000,
+		SampleRate:    rate,
+		TrackID:       src.TrackID,
 		KeepPayload:   opts.KeepPayload,
 		ReorderWindow: 512,
 	})
@@ -342,6 +350,17 @@ func readAux(path string, opts adapter.Options) (*rtpadapter.Result, error) {
 		return nil, err
 	}
 	return res, nil
+}
+
+// sourceFor returns the manifest Source for an auxiliary path, or a zero Source
+// (which yields defaults) if it is not found.
+func sourceFor(ra manifest.ResolvedAsset, path string) manifest.Source {
+	for _, s := range ra.Auxiliary {
+		if s.Path == path {
+			return s
+		}
+	}
+	return manifest.Source{}
 }
 
 // verifyOutput runs the independent verifier and maps its metrics into the
