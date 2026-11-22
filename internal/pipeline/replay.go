@@ -76,7 +76,14 @@ func RunReplayed(in Input, cfg Config, lateCount int) (*Output, error) {
 	}
 	out.ReplayEqual = eng.ReplayEqual() && timeline.VerifyReplay(evs, tlCfg) && hashesEqual(canon, out.Segments)
 	if !out.ReplayEqual {
-		out.Issues.Add(media.NewFatal(media.ClassPipelineInconsistent, media.Locator{},
+		// Distinguish a hash divergence from a structural inconsistency: if
+		// the segment boundaries agree but digests do not, the canonical
+		// encoding itself is suspect.
+		class := media.ClassPipelineInconsistent
+		if sameBoundaries(canon, out.Segments) && !hashesEqual(canon, out.Segments) {
+			class = media.ClassSegmentHashMismatch
+		}
+		out.Issues.Add(media.NewFatal(class, media.Locator{},
 			"late-event replay diverged from the canonical run"))
 	}
 	if in.SubtitleBytes != nil && out.SubtitleRoundtrip < 1.0 {
@@ -121,6 +128,21 @@ func hashesEqual(a, b []Segment) bool {
 	}
 	for i := range a {
 		if a[i].Index != b[i].Index || a[i].Hash != b[i].Hash {
+			return false
+		}
+	}
+	return true
+}
+
+// sameBoundaries reports whether two segment lists share the same indices and
+// time spans, ignoring digests. It distinguishes a pure hash divergence from
+// a structural one.
+func sameBoundaries(a, b []Segment) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Index != b[i].Index || a[i].StartNs != b[i].StartNs || a[i].EndNs != b[i].EndNs {
 			return false
 		}
 	}

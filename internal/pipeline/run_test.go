@@ -35,9 +35,17 @@ func demoInput(t *testing.T, opts demoShape) Input {
 		SampleSizes: sizes, SyncSamples: declared, KeyframeMarkers: markers,
 		CorruptSizeIdx: corruptIdx,
 	}
+	// Audio: ~4s at 48kHz/1024 samples per frame (188 frames), real payload
+	// sizes, all-sync. This keeps the audio track spanning the whole timeline
+	// and free of the corruption injected into the video track.
+	const audioFrames = 188
+	audioSizes := make([]uint32, audioFrames)
+	for i := range audioSizes {
+		audioSizes[i] = 128
+	}
 	audio := fixture.TrackSpec{
 		Kind: "audio", Timescale: 48000, SampleDelta: 1024,
-		SampleSizes: make([]uint32, 40), NoSTSS: true, CorruptSizeIdx: -1,
+		SampleSizes: audioSizes, NoSTSS: true, CorruptSizeIdx: -1,
 	}
 	mp4, err := fixture.MP4([]fixture.TrackSpec{video, audio})
 	if err != nil {
@@ -194,6 +202,42 @@ func TestRunTruncatedIsolatesDamage(t *testing.T) {
 	}
 	if len(out.Segments) == 0 {
 		t.Error("no segments after truncation")
+	}
+}
+
+// TestDamageDoesNotLeakAcrossTracks asserts the isolation guarantee: with a
+// corrupt sample on the video track, the audio track's own samples remain
+// clean and both tracks are still present in every committed segment's track
+// set is not required, but no corrupt range may be attributed to the audio
+// track.
+func TestDamageDoesNotLeakAcrossTracks(t *testing.T) {
+	in := demoInput(t, demoShape{})
+	out, err := Run(in, Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The baseline fixture corrupts exactly one video sample (track 1).
+	for _, r := range out.Corrupt {
+		if r.TrackID != 1 {
+			t.Errorf("corruption attributed to track %d, want only track 1", r.TrackID)
+		}
+	}
+	// The run still produced segments spanning the full timeline, proving the
+	// audio track and undamaged video GOPs continued to aggregate. The video
+	// track is 120 frames at 29.97 (~4s), so at the default 1s segment size we
+	// expect at least 4 segments.
+	if len(out.Segments) < 4 {
+		t.Errorf("only %d segments; damage was not isolated", len(out.Segments))
+	}
+	// The damaged sample lies in the first segment only; later segments must
+	// be clean.
+	if out.Segments[0].Recovery == "clean" {
+		t.Error("segment 0 holding the corrupt sample reported clean")
+	}
+	for i := 1; i < len(out.Segments); i++ {
+		if out.Segments[i].Recovery != "clean" {
+			t.Errorf("segment %d tainted by damage outside its span", i)
+		}
 	}
 }
 
