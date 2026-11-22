@@ -203,15 +203,16 @@ func processOne(root string, cas *cache.Store, cp *checkpoint.Store, seg manifes
 	}
 
 	tracks, derr := demux.Demux(data, seg.URI)
-	if derr != nil && fault.LevelOf(derr) == fault.Fatal {
-		return checkpoint.Entry{}, statusCommitted, derr
-	}
-	if len(tracks) == 0 {
-		if derr != nil {
-			return checkpoint.Entry{}, statusCommitted, derr
-		}
+	if derr == nil && len(tracks) == 0 {
 		return checkpoint.Entry{}, statusCommitted,
 			fault.Newf(fault.Degraded, "pipeline", seg.URI, "no tracks")
+	}
+	if derr != nil {
+		// Truncated or otherwise damaged: even a parseable prefix is not
+		// a confirmed segment. Stop here without writing CAS output,
+		// provenance or a checkpoint, so nothing partial can be mistaken
+		// for a committed result. Earlier segments stay committed.
+		return checkpoint.Entry{}, statusCommitted, derr
 	}
 
 	order, err := track.Map(tracks)
@@ -266,14 +267,6 @@ func processOne(root string, cas *cache.Store, cp *checkpoint.Store, seg manifes
 	}
 	if err := cp.Commit(entry); err != nil {
 		return checkpoint.Entry{}, statusCommitted, err
-	}
-	if derr != nil {
-		// Damaged tail: the recoverable prefix is committed, but the
-		// segment itself must not be presented as a complete result.
-		if err := cp.Remove(entry.Index); err != nil {
-			return checkpoint.Entry{}, statusCommitted, err
-		}
-		return checkpoint.Entry{}, statusCommitted, derr
 	}
 	return entry, statusCommitted, nil
 }
