@@ -100,10 +100,10 @@ func TestDASHTwoRuns(t *testing.T) {
 
 func TestDASHRejects(t *testing.T) {
 	cases := map[string]string{
-		"negative d": `<MPD><Period><AdaptationSet><SegmentTemplate timescale="1000" media="s$Number$.m4s"><SegmentTimeline><S t="0" d="-5" r="1"/></SegmentTimeline></SegmentTemplate></AdaptationSet></Period></MPD>`,
-		"bad repeat": `<MPD><Period><AdaptationSet><SegmentTemplate timescale="1000" media="s$Number$.m4s"><SegmentTimeline><S t="0" d="5" r="-2"/></SegmentTimeline></SegmentTemplate></AdaptationSet></Period></MPD>`,
-		"overflow":   `<MPD><Period><AdaptationSet><SegmentTemplate timescale="1000" media="s$Number$.m4s"><SegmentTimeline><S t="4611686018427387900" d="4611686018427387900" r="2"/></SegmentTimeline></SegmentTemplate></AdaptationSet></Period></MPD>`,
-		"escape":     `<MPD><Period><AdaptationSet><SegmentTemplate timescale="1000" media="../s$Number$.m4s"><SegmentTimeline><S t="0" d="5" r="1"/></SegmentTimeline></SegmentTemplate></AdaptationSet></Period></MPD>`,
+		"negative d":   `<MPD><Period><AdaptationSet><SegmentTemplate timescale="1000" media="s$Number$.m4s"><SegmentTimeline><S t="0" d="-5" r="1"/></SegmentTimeline></SegmentTemplate></AdaptationSet></Period></MPD>`,
+		"bad repeat":   `<MPD><Period><AdaptationSet><SegmentTemplate timescale="1000" media="s$Number$.m4s"><SegmentTimeline><S t="0" d="5" r="-2"/></SegmentTimeline></SegmentTemplate></AdaptationSet></Period></MPD>`,
+		"overflow":     `<MPD><Period><AdaptationSet><SegmentTemplate timescale="1000" media="s$Number$.m4s"><SegmentTimeline><S t="4611686018427387900" d="4611686018427387900" r="2"/></SegmentTimeline></SegmentTemplate></AdaptationSet></Period></MPD>`,
+		"escape":       `<MPD><Period><AdaptationSet><SegmentTemplate timescale="1000" media="../s$Number$.m4s"><SegmentTimeline><S t="0" d="5" r="1"/></SegmentTimeline></SegmentTemplate></AdaptationSet></Period></MPD>`,
 		"no timescale": `<MPD><Period><AdaptationSet><SegmentTemplate media="s$Number$.m4s"><SegmentTimeline><S t="0" d="5" r="1"/></SegmentTimeline></SegmentTemplate></AdaptationSet></Period></MPD>`,
 		"no timeline":  `<MPD><Period><AdaptationSet><SegmentTemplate timescale="1000" duration="5" media="s$Number$.m4s"/></AdaptationSet></Period></MPD>`,
 	}
