@@ -155,6 +155,8 @@ func Build(pf *probe.File, res *repair.Result, man *fanout.Manifest, exit int) *
 			Damages:         append([]repair.Damage{}, tr.Damages...),
 		}
 		if p := probeTrack(pf, tr.TrackID); p != nil {
+			// Keyframe gaps describe the declared timeline even when a dry run
+			// did not perform payload recovery.
 			ts.Declared = p.Declared
 			ts.Walked = p.Walked
 			ts.KeyframeGapMS = p.MaxKeyframeGapMS

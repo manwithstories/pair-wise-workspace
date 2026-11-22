@@ -116,7 +116,7 @@ func scanTrack(path string, tr *probe.Track, cfg Config) *TrackResult {
 		} else {
 			reason, code := "", fault.Code("")
 			if regressed {
-				reason, code = "decode timestamp regression", fault.CodeTimestamp
+				reason, code = "decode timestamp regression", fault.CodeStructure
 			} else {
 				reason, code = validateRow(reader, row, tr, cfg)
 			}
@@ -203,6 +203,13 @@ func scanTrack(path string, tr *probe.Track, cfg Config) *TrackResult {
 	res.Recovered.Complete = len(res.Damages) == 0
 	if res.Recovered.Samples == 0 {
 		res.Status = StatusUnrecoverable
+		// The whole declared timeline is unconfirmed.
+		if tr.DurationMS > 0 {
+			res.Unrecoverable = append(res.Unrecoverable, Span{
+				StartMS: tr.StartMS,
+				EndMS:   clock.AddMS(tr.StartMS, tr.DurationMS),
+			})
+		}
 		res.addIssue(fault.ForTrack(fault.CodeUnrecoverable, fault.SeverityFatal, "repair", tr.ID,
 			res.FirstUnreadable, "no sample could be recovered"), cfg.MaxIssues)
 		return res

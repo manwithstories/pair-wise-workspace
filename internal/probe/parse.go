@@ -72,6 +72,10 @@ func probeFile(path string, cfg Config) (*File, error) {
 			"no moov box; the sample index is unavailable"))
 		return f, nil
 	}
+	if c.moofCount > 0 {
+		f.Issues = append(f.Issues, fault.At(fault.CodeUnsupported, fault.SeverityWarning, "probe", 0,
+			"fragmented input: only the moov sample index is analyzed, moof fragments are not walked"))
+	}
 	c.parseMoov(f, cfg)
 	if c.truncated {
 		f.FirstUnreadable = c.firstUnread

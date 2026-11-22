@@ -258,6 +258,7 @@ func (c *container) walkTimeline(t *Track, st *sampleTable) {
 		return
 	}
 	cursor := t.Cursor()
+	var prevDTSSeen uint64
 	var prevDTS int64 = -1
 	var prevCTS int64
 	var firstSample = true
@@ -289,20 +290,31 @@ func (c *container) walkTimeline(t *Track, st *sampleTable) {
 			}
 			t.TruncatedSamples++
 		}
+		if !firstSample && row.DTS < prevDTSSeen {
+			// The declared decode order went backwards.
+			t.addIssue(fault.ForTrack(fault.CodeStructure, fault.SeverityPartial, "timeline", t.ID, row.Offset,
+				fmt.Sprintf("decode timestamp regression at sample %d", row.Index+1)))
+		}
+		prevDTSSeen = row.DTS
 		if !firstSample {
+			if row.DTSMS == math.MaxInt64 && !overflow {
+				t.addIssue(fault.ForTrack(fault.CodeStructure, fault.SeverityFatal, "timeline", t.ID, row.Offset,
+					"decode timestamp saturates the 63-bit millisecond clock"))
+				overflow = true
+			}
 			if dtsTotal > uint64(math.MaxInt64) {
 				if !overflow {
-					t.addIssue(fault.ForTrack(fault.CodeTimestamp, fault.SeverityFatal, "timeline", t.ID, row.Offset,
+					t.addIssue(fault.ForTrack(fault.CodeStructure, fault.SeverityFatal, "timeline", t.ID, row.Offset,
 						"decode timestamp exceeds 63 bits"))
 					overflow = true
 				}
 			} else {
 				if row.DTSMS < prevDTS {
-					t.addIssue(fault.ForTrack(fault.CodeTimestamp, fault.SeverityPartial, "timeline", t.ID, row.Offset,
+					t.addIssue(fault.ForTrack(fault.CodeStructure, fault.SeverityPartial, "timeline", t.ID, row.Offset,
 						fmt.Sprintf("timestamp regression at sample %d: %d ms after %d ms", row.Index+1, row.DTSMS, prevDTS)))
 				}
 				if row.CTSMS < prevCTS {
-					t.addIssue(fault.ForTrack(fault.CodeTimestamp, fault.SeverityPartial, "composition", t.ID, row.Offset,
+					t.addIssue(fault.ForTrack(fault.CodeStructure, fault.SeverityPartial, "composition", t.ID, row.Offset,
 						fmt.Sprintf("composition time regression at sample %d", row.Index+1)))
 				}
 			}
