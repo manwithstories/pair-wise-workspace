@@ -144,11 +144,36 @@ func runAsset(reg *adapter.Registry, j *journal.Journal, root string, ra manifes
 		AssetID: ra.ID, Path: ra.PrimaryPath, Format: ra.Primary.Format,
 		Version: ra.Primary.Version, RootDir: root,
 	}
-	ad, err := reg.Resolve(src.Format, src.Version, src)
-	if err != nil {
-		res.Status = "rejected"
-		res.Error = asFault(err, fault.CodeUnknownVersion, ra.ID, ra.Primary.Path, 0)
-		return res, 0
+	var ad adapter.Adapter
+	if src.Format == "" {
+		// The manifest omitted the format: sniff the container. Sniffing is
+		// only allowed when no version pin is present, since a version without
+		// a format is ambiguous.
+		if src.Version != 0 {
+			res.Status = "rejected"
+			res.Error = fault.New(fault.CodeUnknownVersion,
+				fault.Location{AssetID: ra.ID, SourcePath: ra.Primary.Path},
+				"manifest pins adapter version %d without a format", src.Version).
+				WithOp("pipeline.Sniff")
+			return res, 0
+		}
+		ad = sniffAdapter(reg, ra.PrimaryPath)
+		if ad == nil {
+			res.Status = "rejected"
+			res.Error = fault.New(fault.CodeUnknownVersion,
+				fault.Location{AssetID: ra.ID, SourcePath: ra.Primary.Path},
+				"could not identify container format").WithOp("pipeline.Sniff")
+			return res, 0
+		}
+		src.Format = ad.Format()
+	} else {
+		var err error
+		ad, err = reg.Resolve(src.Format, src.Version, src)
+		if err != nil {
+			res.Status = "rejected"
+			res.Error = asFault(err, fault.CodeUnknownVersion, ra.ID, ra.Primary.Path, 0)
+			return res, 0
+		}
 	}
 
 	parseOpts := adapter.Options{
@@ -358,4 +383,18 @@ func asFault(err error, code fault.Code, assetID, path string, track uint32) *fa
 		loc = loc.WithTrack(track)
 	}
 	return fault.New(code, loc, "%v", err)
+}
+
+// sniffAdapter opens path and asks the registry which adapter claims it.
+func sniffAdapter(reg *adapter.Registry, path string) adapter.Adapter {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	a, ok := reg.Sniff(f)
+	if !ok {
+		return nil
+	}
+	return a
 }
