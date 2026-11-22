@@ -33,7 +33,6 @@ func BuildPlan(s Spec) *Plan {
 		if seg == nSeg-1 {
 			idealEnd = s.DurationTicks
 		}
-		segStart := cur
 		for k := 0; k < segLen; k++ {
 			dur := step
 			isLast := k == segLen-1
@@ -59,11 +58,10 @@ func BuildPlan(s Spec) *Plan {
 			cur += dur
 			idx++
 		}
-		_ = segStart
 	}
 
 	// 2. Audio samples at a constant rate in their own timescale.
-	aStep := uint32(1) // one AudioRate-unit per sample => 12 kHz sample rate
+	aStep := uint32(1) // one AudioRate-unit per sample (100 Hz rate)
 	aStart := uint32(0)
 	aIdx := 0
 	for media.Ticks(aStart)*media.Ticks(media.ClockRate)/media.Ticks(s.AudioRate) < s.DurationTicks {
@@ -128,4 +126,3 @@ func audioDuration90k(rate uint32, raw uint32) media.Ticks {
 	return media.Ticks(uint64(raw) * uint64(media.ClockRate) / uint64(rate))
 }
 
-var _ = binary.BigEndian

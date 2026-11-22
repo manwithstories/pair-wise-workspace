@@ -91,3 +91,42 @@ func writeNegativeEditMP4(t *testing.T, path string) {
 	must(bw.End()) // moov
 	_ = binary.BigEndian
 }
+
+// writeZeroDurationEditMP4 builds a track whose elst has a zero-duration
+// (empty) edit segment, which must produce an edit-list diagnostic.
+func writeZeroDurationEditMP4(t *testing.T, path string) {
+	t.Helper()
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	bw := fixture.NewBoxWriter(f)
+	mustStartEnd(bw, "ftyp", []byte("isom\x00\x00\x02\x00isom"))
+	must(bw.Start("moov"))
+	must(bw.Start("trak"))
+	must(bw.Start("tkhd"))
+	must(bw.FullBox(0, 3))
+	_, _ = bw.Write(make([]byte, 84))
+	must(bw.End())
+	must(bw.Start("edts"))
+	must(bw.Start("elst"))
+	must(bw.FullBox(0, 0))
+	buf := fixture.U32(nil, 1)
+	buf = fixture.U32(buf, 0) // zero segment duration => empty edit
+	buf = fixture.U32(buf, 90000)
+	buf = append(buf, 0x00, 0x01, 0x00, 0x00)
+	_, _ = bw.Write(buf)
+	must(bw.End())
+	must(bw.End())
+	must(bw.Start("mdia"))
+	must(bw.Start("mdhd"))
+	must(bw.FullBox(0, 0))
+	mdhdbuf := fixture.U32(fixture.U32(fixture.U32(fixture.U32(nil, 0), 0), 90000), 180000)
+	mdhdbuf = append(mdhdbuf, 0x55, 0xc4, 0, 0)
+	_, _ = bw.Write(mdhdbuf)
+	must(bw.End())
+	must(bw.End()) // mdia
+	must(bw.End()) // trak
+	must(bw.End()) // moov
+}

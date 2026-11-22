@@ -7,14 +7,6 @@ import (
 	"testing"
 )
 
-func runCapture(t *testing.T, args []string) (string, int) {
-	t.Helper()
-	code := run(args)
-	// run() prints directly to stdout; tests instead assert via a temp work
-	// dir inspection and the returned code, keeping output deterministic.
-	return "", code
-}
-
 func TestDemoExitCodeSuccess(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "out")
 	args := []string{"demo", "--seed", "42", "--duration", "12s",

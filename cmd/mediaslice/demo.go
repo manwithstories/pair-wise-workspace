@@ -75,7 +75,6 @@ func runDemo(args []string) int {
 
 	// 2. Optional corruption path: truncate an extra, isolated representation
 	// so healthy ladder boundaries are never polluted.
-	var corruptOffset int64 = -1
 	var locateBytes int
 	wantTruncated := contains(d.inject, fixture.InjectTruncatedBox)
 	if wantTruncated {
@@ -88,12 +87,10 @@ func runDemo(args []string) int {
 			fmt.Fprintf(os.Stderr, "io error: %v\n", err)
 			return exitInternal
 		}
-		off, err := fixture.TruncateBox(badMP4, 64)
-		if err != nil {
+		if _, err := fixture.TruncateBox(badMP4, 64); err != nil {
 			fmt.Fprintf(os.Stderr, "io error: %v\n", err)
 			return exitInternal
 		}
-		corruptOffset = off
 		badIdx, err := scanFileLight(badMP4)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "io error: %v\n", err)
@@ -107,7 +104,6 @@ func runDemo(args []string) int {
 		if locateBytes > media.MaxLocateErrorBytes {
 			return exitCorrupt
 		}
-		_ = corruptOffset
 	}
 
 	// 3. Build the aligned plan from healthy representations only.
