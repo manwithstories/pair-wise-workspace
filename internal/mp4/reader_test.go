@@ -2,6 +2,7 @@ package mp4
 
 import (
 	"context"
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"testing"
@@ -355,5 +356,63 @@ func TestStreamSamplesFaultOffsetIsBytes(t *testing.T) {
 	fe, _ := fault.As(streamErr())
 	if fe == nil || fe.Offset != c.FirstSampleOffset {
 		t.Fatalf("fault should point at byte %d, got %v", c.FirstSampleOffset, fe)
+	}
+}
+
+func TestParseHuge64BitDeclarationRejected(t *testing.T) {
+	c, _ := genClip(t, testkit.DefaultVideoTrack(1, 1_000_000, 15))
+	fh, err := os.OpenFile(c.Path, os.O_RDWR, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hdr [16]byte
+	binary.BigEndian.PutUint32(hdr[:], 1)
+	copy(hdr[4:8], "mdat")
+	binary.BigEndian.PutUint64(hdr[8:], 0xFFFFFFFF00000000)
+	if _, err := fh.WriteAt(hdr[:], c.MdatOffset); err != nil {
+		t.Fatal(err)
+	}
+	fh.Close()
+
+	f, err := Parse(c.Path, Options{})
+	if err != nil {
+		fe, _ := fault.As(err)
+		if fe.Kind != fault.KindInvalidLength {
+			t.Fatalf("expected invalid length, got %v", err)
+		}
+		return
+	}
+	var found bool
+	for _, is := range f.Issues {
+		if is.Kind == fault.KindInvalidLength && is.Offset == c.MdatOffset {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected invalid-length issue at mdat, got %+v", f.Issues)
+	}
+	if len(f.Tracks) == 0 {
+		t.Fatal("recovered tracks should still be available")
+	}
+}
+
+func TestParseSampleMarkerFaultNamesTrack(t *testing.T) {
+	c, _ := genClip(t, testkit.DefaultVideoTrack(1, 1_000_000, 15))
+	if err := testkit.CorruptSampleBytes(c.Path, c.FirstSampleOffset); err != nil {
+		t.Fatal(err)
+	}
+	f, err := Parse(c.Path, Options{CheckSampleMarker: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sr, err := f.OpenSampleReader(1 << 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sr.Close()
+	_, rerr := sr.ReadTrackSample(1, f.Tracks[0].Samples[0])
+	fe, ok := fault.As(rerr)
+	if !ok || fe.TrackID != 1 || fe.Offset != c.FirstSampleOffset {
+		t.Fatalf("expected track/offset attribution, got %v", rerr)
 	}
 }
