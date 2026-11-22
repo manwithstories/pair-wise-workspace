@@ -85,6 +85,16 @@ func TestRepairerAmbiguousGapUnrecoverable(t *testing.T) {
 	}
 }
 
+func TestRepairerSkip(t *testing.T) {
+	r := NewRepairer(TicksPerFrame30)
+	r.Add(0, 0, 180000)
+	r.Skip(180000) // segment 1 lost: grid advances anyway
+	start, st, _ := r.Add(2, 360000, 180000)
+	if st != StatusOK || start != 360000 {
+		t.Fatalf("after skip: start %d status %v", start, st)
+	}
+}
+
 func TestUnwrap33(t *testing.T) {
 	const w = uint64(1) << 33
 	// No wrap.
