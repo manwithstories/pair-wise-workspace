@@ -71,7 +71,7 @@ func NormalizeAudio(reps []RepAudio, target AudioTarget) Report {
 		}
 		if rep.SampleRate != target.SampleRate {
 			r.add(rep.ID, "sample_rate",
-			fmt.Sprintf("%d", rep.SampleRate), fmt.Sprintf("%d", target.SampleRate))
+				fmt.Sprintf("%d", rep.SampleRate), fmt.Sprintf("%d", target.SampleRate))
 		}
 	}
 	return r

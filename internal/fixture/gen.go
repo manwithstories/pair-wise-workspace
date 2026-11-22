@@ -39,7 +39,7 @@ type TrackSpec struct {
 type Spec struct {
 	Tracks        []TrackSpec
 	MdatShortfall int // bytes missing from the end of the mdat payload
-	MoovTruncAt   int   // if >0, file is cut this many bytes into moov
+	MoovTruncAt   int // if >0, file is cut this many bytes into moov
 }
 
 func u16(v uint16) []byte { b := make([]byte, 2); binary.BigEndian.PutUint16(b, v); return b }

@@ -82,13 +82,13 @@ func (r *Result) Track(kind string) *Track {
 var errStop = errors.New("probe: stop walk")
 
 type trackBuilder struct {
-	track                Track
-	stts                 *mp4.Stts
-	ctts                 *mp4.Ctts
-	stsc                 *mp4.Stsc
-	stsz                 *mp4.Stsz
-	stco                 *mp4.Stco
-	stss                 *mp4.Stss
+	track Track
+	stts  *mp4.Stts
+	ctts  *mp4.Ctts
+	stsc  *mp4.Stsc
+	stsz  *mp4.Stsz
+	stco  *mp4.Stco
+	stss  *mp4.Stss
 }
 
 type parser struct {
