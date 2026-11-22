@@ -21,7 +21,8 @@ type KeyFrameReport struct {
 
 // AnalyzeKeyFrames derives inter-key-frame intervals from a video track. It
 // never invents frame boundaries: without an stss table the track is flagged
-// MissingSync instead of being treated as all-intra.
+// MissingSync and emits a model.FaultMissingSync rather than being treated as
+// all-intra.
 func AnalyzeKeyFrames(tr *model.Track) KeyFrameReport {
 	r := KeyFrameReport{TrackID: tr.ID, SampleCount: len(tr.Samples)}
 	if tr.Kind != model.KindVideo {
@@ -29,6 +30,11 @@ func AnalyzeKeyFrames(tr *model.Track) KeyFrameReport {
 	}
 	if tr.SyncSamples == nil {
 		r.MissingSync = true
+		tr.ParseFaults = append(tr.ParseFaults, model.Fault{
+			Kind: model.FaultMissingSync, TrackID: tr.ID,
+			SampleIndex: -1,
+			Message:     "video track has no stss sync sample table",
+		})
 		return r
 	}
 	r.SyncCount = len(tr.SyncSamples)

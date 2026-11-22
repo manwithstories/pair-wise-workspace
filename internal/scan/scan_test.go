@@ -47,6 +47,15 @@ func TestMissingSyncNotGuessed(t *testing.T) {
 	if r.SyncCount != 0 || len(r.GapNS) != 0 {
 		t.Error("must not invent key-frame boundaries")
 	}
+	found := false
+	for _, f := range tr.ParseFaults {
+		if f.Kind == model.FaultMissingSync {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("missing stss must emit a FaultMissingSync")
+	}
 }
 
 func TestLocateDamageSnapsToSamples(t *testing.T) {

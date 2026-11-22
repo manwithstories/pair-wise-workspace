@@ -190,6 +190,14 @@ func (tb *tableState) buildEvents(tr *model.Track, source string, fileSize int64
 			}
 			events = append(events, ev)
 			mediaTick += uint64(delta)
+			// Guard against uint64 wrap when a corrupt size would otherwise
+			// push the next cursor back to a low, seemingly-valid offset.
+			if cursor > ^uint64(0)-uint64(size) {
+				faults = append(faults, model.NewSampleFault(
+					model.FaultInvalidLength, source, tr.ID, sampleIdx, &ev,
+					"offset addition overflows uint64"))
+				break
+			}
 			cursor += uint64(size)
 			sampleIdx++
 		}

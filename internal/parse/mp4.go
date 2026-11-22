@@ -63,6 +63,21 @@ func ParseMP4(path string) (*MP4Result, error) {
 			model.FaultTruncatedBox, path, st.fileSize,
 			"box structure walk ended: "+err.Error()))
 	}
+	// Enforce structural limits before allocating per-sample event slices.
+	if len(st.tracks) > model.MaxTracks {
+		return nil, fmt.Errorf("%w: %d tracks > %d",
+			model.ErrLimitExceeded, len(st.tracks), model.MaxTracks)
+	}
+	var totalSamples uint64
+	for _, tb := range st.tables {
+		if n, ok := tb.sampleCount(); ok {
+			totalSamples += uint64(n)
+		}
+	}
+	if totalSamples > model.MaxSamples {
+		return nil, fmt.Errorf("%w: %d samples > %d",
+			model.ErrLimitExceeded, totalSamples, model.MaxSamples)
+	}
 	// Project each track's tables onto the nanosecond time base.
 	for i, tr := range st.tracks {
 		events, tFaults := st.tables[i].buildEvents(tr, st.source, st.fileSize)
