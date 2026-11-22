@@ -76,9 +76,9 @@ type Fault struct {
 	Module      Module `json:"module"`
 	Kind        Kind   `json:"kind"`
 	Offset      Offset `json:"-"`
-	OffsetValue uint64 `json:"offset,omitempty"`
+	OffsetValue uint64 `json:"offset"`
 	HasOffset   bool   `json:"offset_known"`
-	Track       uint64 `json:"track,omitempty"`
+	Track       uint64 `json:"track"`
 	HasTrack    bool   `json:"track_known"`
 	Message     string `json:"message"`
 	// Recoverable means the pipeline produced a usable, explicitly marked
