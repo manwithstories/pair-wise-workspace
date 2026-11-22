@@ -158,7 +158,7 @@ func TestCorruptOptionsPlaceDamageMidStream(t *testing.T) {
 
 func TestRTPPlanKeepsDrillDeterministic(t *testing.T) {
 	n, inj := rtpPlan(120, 37)
-	if n != 120 || inj.DropEvery != 37 || inj.DuplicateAt != 1 {
+	if n != 120 || inj.DropEvery != 37 || inj.DuplicateAt != 1 || inj.ReorderEvery == 0 {
 		t.Fatalf("plan = %d %+v", n, inj)
 	}
 	n, inj = rtpPlan(5000, 0)

@@ -69,7 +69,7 @@ func cmdDemo(args []string) int {
 	fs.StringVar(&o.root, "root", "", "archive root directory (required)")
 	fs.IntVar(&o.segments, "segments", 120, "number of synthetic segments")
 	fs.IntVar(&o.lossEvery, "loss-every", 0, "drop one RTP packet every N (0 = no loss)")
-	fs.IntVar(&o.interruptAfter, "interrupt-after", -1, "stop after N newly committed segments (default -1 = run to completion; 0 = stop before any)")
+	fs.IntVar(&o.interruptAfter, "interrupt-after", -1, "stop after N newly committed segments; 0 or negative runs to completion")
 	fs.StringVar(&o.corrupt, "corrupt", "", "damage kind: truncated|missing|duplicate|wrap|conflict")
 	if err := fs.Parse(args); err != nil {
 		return pipeline.ExitFailure
@@ -257,7 +257,10 @@ func rtpPlan(segments, lossEvery int) (int, rtp.Inject) {
 	if n < 1 {
 		n = 1
 	}
-	inj := rtp.Inject{DuplicateAt: 1}
+	// All three channel faults are always exercised: one duplicate and
+	// a periodic reorder, plus the requested loss cadence. Losses are
+	// repaired by a late retransmission, so they land inside the window.
+	inj := rtp.Inject{DuplicateAt: 1, ReorderEvery: 7}
 	if lossEvery > 0 && lossEvery < n {
 		inj.DropEvery = lossEvery
 	}
