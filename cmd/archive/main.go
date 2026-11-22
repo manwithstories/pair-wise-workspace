@@ -270,6 +270,9 @@ func rtpPlan(segments, lossEvery int) (int, rtp.Inject) {
 func printPipeline(res pipeline.Result) {
 	fmt.Printf("segments_seen=%d unique=%d committed=%d verified=%d duplicates=%d pending=%d\n",
 		res.ManifestSeen, res.Unique, res.Committed, res.Verified, res.Duplicates, res.Pending)
+	for _, a := range res.Anomalies {
+		fmt.Printf("anomaly %s\n", a)
+	}
 }
 
 func printReport(rep metrics.Report, rr rtp.Result) {

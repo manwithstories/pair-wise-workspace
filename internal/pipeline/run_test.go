@@ -192,3 +192,42 @@ func TestTimelineRejectsEmptyTrack(t *testing.T) {
 		t.Fatalf("empty track should be degraded, got %v", err)
 	}
 }
+
+func TestAnomaliesRecordedForDuplicates(t *testing.T) {
+	root := newArchive(t, fixture.Options{Segments: 4, DuplicateAt: 2})
+	res := run(t, root, -1)
+	if res.Duplicates != 1 || len(res.Anomalies) != 1 {
+		t.Fatalf("result = %+v", res)
+	}
+	if !strings.Contains(res.Anomalies[0], "duplicate") {
+		t.Fatalf("anomaly text = %q", res.Anomalies[0])
+	}
+	if res.Exit != ExitOK {
+		t.Fatalf("recoverable anomaly must not change exit status: %d", res.Exit)
+	}
+}
+
+func TestAnomaliesRecordedForStaleCheckpoint(t *testing.T) {
+	root := newArchive(t, fixture.Options{Segments: 2})
+	if res := run(t, root, -1); res.Exit != ExitOK {
+		t.Fatal(res)
+	}
+	// Change a segment's bytes: its checkpoint no longer matches the
+	// input, so the rerun must rebuild it and say so.
+	name := filepath.Join(root, "media", "seg-00000.m4s")
+	data, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data[len(data)-1] ^= 0xff
+	if err := os.WriteFile(name, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res := run(t, root, -1)
+	if res.Committed != 1 || res.Verified != 1 {
+		t.Fatalf("stale input should be rebuilt: %+v", res)
+	}
+	if len(res.Anomalies) != 1 || !strings.Contains(res.Anomalies[0], "stale") {
+		t.Fatalf("anomalies = %v", res.Anomalies)
+	}
+}

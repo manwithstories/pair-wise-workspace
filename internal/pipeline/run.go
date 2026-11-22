@@ -7,6 +7,7 @@ package pipeline
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -51,9 +52,13 @@ type Result struct {
 	Pending      int // unique segments still uncommitted
 	FirstBad     string
 	FirstBadIdx  int
-	Entries      []checkpoint.Entry
-	Latencies    []time.Duration
-	Exit         int
+	// Anomalies are recoverable faults that were logged and survived:
+	// duplicate references and stale checkpoints. They never change the
+	// result, but archivist staff may want to see them.
+	Anomalies []string
+	Entries   []checkpoint.Entry
+	Latencies []time.Duration
+	Exit      int
 }
 
 // Run executes the pipeline.
@@ -111,6 +116,8 @@ func Run(cfg Config) (Result, error) {
 	for _, s := range segs {
 		if idx, dup := byURI[s.URI]; dup {
 			res.Duplicates++
+			res.Anomalies = append(res.Anomalies, fault.Wrap(fault.Recoverable, "pipeline", s.URI,
+				errors.New("duplicate manifest reference dropped")).Error())
 			if unique[idx].Start.Cmp(s.Start) != 0 {
 				return res, fault.Newf(fault.Fatal, "pipeline", s.URI,
 					"duplicate reference has a conflicting timeline")
@@ -131,7 +138,12 @@ func Run(cfg Config) (Result, error) {
 			break // simulated process exit after an atomic checkpoint
 		}
 		start := time.Now()
-		entry, status, err := processOne(root, cas, cp, seg, &signature)
+		var stale bool
+		entry, status, err := processOne(root, cas, cp, seg, &signature, &stale)
+		if stale {
+			res.Anomalies = append(res.Anomalies, fault.Wrap(fault.Recoverable, "pipeline", seg.URI,
+				errors.New("stale checkpoint rebuilt")).Error())
+		}
 		res.Latencies = append(res.Latencies, time.Since(start))
 		// A fault means nothing from this segment counts: a Degraded
 		// segment has already had its checkpoint withdrawn, and a Fatal
@@ -185,7 +197,7 @@ func (s status) String() string {
 // processOne verifies or (re)builds a single segment. A Degraded fault
 // is returned with its level intact so the caller can stop at the first
 // bad dependency while keeping everything already committed.
-func processOne(root string, cas *cache.Store, cp *checkpoint.Store, seg manifest.Segment, signature *string) (checkpoint.Entry, status, error) {
+func processOne(root string, cas *cache.Store, cp *checkpoint.Store, seg manifest.Segment, signature *string, stale *bool) (checkpoint.Entry, status, error) {
 	rel, err := safeSegmentPath(root, seg.URI)
 	if err != nil {
 		return checkpoint.Entry{}, statusCommitted, err
@@ -205,6 +217,7 @@ func processOne(root string, cas *cache.Store, cp *checkpoint.Store, seg manifes
 		}
 		// Stale checkpoint: the input or cache changed. Fall through and
 		// rebuild; the CAS quarantines any corrupt hit it finds.
+		*stale = true
 	}
 
 	tracks, derr := demux.Demux(data, seg.URI)
