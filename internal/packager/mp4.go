@@ -4,6 +4,7 @@
 package packager
 
 import (
+	"encoding/binary"
 	"io"
 
 	"github.com/abema/go-mp4"
@@ -31,6 +32,7 @@ type Packager struct {
 	mdatPayload  uint64
 	dataBytes    int64
 	totalBytes   int64
+	resumed      bool
 }
 
 var identityMatrix = [9]int32{0x10000, 0, 0, 0, 0x10000, 0, 0, 0, 0x40000000}
@@ -68,6 +70,39 @@ func New(ws io.WriteSeeker, rate, channels, frameSamples int) (*Packager, error)
 	}, nil
 }
 
+// Resume 在中断的输出上继续封装：此前 mdat 未关闭，
+// 帧尺寸表按均匀帧长重建，文件指针定位到已写入数据末尾。
+func Resume(ws io.ReadWriteSeeker, rate, channels, frameSamples int, frames int64) (*Packager, error) {
+	if _, err := ws.Seek(0, io.SeekStart); err != nil {
+		return nil, err
+	}
+	var hdr [8]byte
+	if _, err := io.ReadFull(ws, hdr[:]); err != nil {
+		return nil, fault.New(fault.KindResume, fault.Rescan, "mp4", 0, -1,
+			"cannot read ftyp header: %v", err)
+	}
+	ftypSize := int64(binary.BigEndian.Uint32(hdr[:]))
+	if ftypSize < 8 || string(hdr[4:]) != "ftyp" {
+		return nil, fault.New(fault.KindResume, fault.Rescan, "mp4", 0, -1,
+			"output head is not a valid ftyp box")
+	}
+	p := &Packager{
+		w: mp4.NewWriter(ws), rate: rate, channels: channels,
+		frameSamples: frameSamples, frameBytes: frameSamples * channels * 2,
+		mdatPayload: uint64(ftypSize) + 8,
+		resumed:     true,
+	}
+	p.sizes = make([]uint32, frames)
+	for i := range p.sizes {
+		p.sizes[i] = uint32(p.frameBytes)
+	}
+	p.dataBytes = frames * int64(p.frameBytes)
+	if _, err := ws.Seek(p.dataBytes+int64(p.mdatPayload), io.SeekStart); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
 // WriteFrame 写入一帧交错 s16le PCM；长度必须为整帧，否则返回可定位错误。
 func (p *Packager) WriteFrame(pcm []byte) error {
 	if len(pcm) != p.frameBytes {
@@ -84,7 +119,20 @@ func (p *Packager) WriteFrame(pcm []byte) error {
 
 // Close 结束 mdat 并写出 moov，返回统计。
 func (p *Packager) Close() (*Result, error) {
-	if _, err := p.w.EndBox(); err != nil { // mdat
+	if p.resumed {
+		// mdat 头由前次运行写出：手动回填尺寸
+		if _, err := p.w.Seek(int64(p.mdatPayload)-8, io.SeekStart); err != nil {
+			return nil, err
+		}
+		var sz [4]byte
+		binary.BigEndian.PutUint32(sz[:], uint32(8+p.dataBytes))
+		if _, err := p.w.Write(sz[:]); err != nil {
+			return nil, err
+		}
+		if _, err := p.w.Seek(int64(p.mdatPayload)+p.dataBytes, io.SeekStart); err != nil {
+			return nil, err
+		}
+	} else if _, err := p.w.EndBox(); err != nil { // mdat
 		return nil, err
 	}
 	frames := int64(len(p.sizes))
