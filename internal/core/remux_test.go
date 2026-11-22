@@ -62,9 +62,9 @@ func TestRemuxCopiesVerbatim(t *testing.T) {
 		if !ok {
 			continue
 		}
-		want := bySource[slotKey(ti, p.PacketIndex)]
+		want := bySource[slotKey(ti, p.SourceIndex)]
 		if string(want) != string(p.Payload) {
-			t.Fatalf("slot %s packet %d payload changed", p.Slot, p.PacketIndex)
+			t.Fatalf("slot %s packet %d payload changed", p.Slot, p.SourceIndex)
 		}
 	}
 }

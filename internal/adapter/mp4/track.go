@@ -287,8 +287,10 @@ func (p *parser) expandSampleTable(td *trakData, trackID uint32, scale clock.Sca
 	if int64(len(chunkOffsets)) == 0 && count > 0 {
 		return nil, p.errTrack(fault.CodeBadIndex, 0, trackID, "no chunk offsets")
 	}
-	if err := assignOffsets(td.stsc, chunkOffsets, tbl, fileSize); err != nil {
-		return nil, p.errTrack(fault.CodeBadIndex, 0, trackID, "%v", err)
+	if badOff, err := assignOffsets(td.stsc, chunkOffsets, tbl, fileSize); err != nil {
+		// Report the offending chunk offset so the operator can point at the
+		// exact byte the index claims, not just the track.
+		return nil, p.errTrack(fault.CodeBadIndex, badOff, trackID, "%v", err)
 	}
 
 	// Duration cap per track.
@@ -326,15 +328,15 @@ func chunkOffsets(td *trakData) ([]int64, error) {
 }
 
 // assignOffsets walks stsc runs to map samples to source byte offsets.
-func assignOffsets(stsc *gomp4.Stsc, chunks []int64, tbl *sampleTable, fileSize int64) error {
+func assignOffsets(stsc *gomp4.Stsc, chunks []int64, tbl *sampleTable, fileSize int64) (int64, error) {
 	if len(stsc.Entries) == 0 && tbl.count > 0 {
-		return fmt.Errorf("empty stsc")
+		return 0, fmt.Errorf("empty stsc")
 	}
 	sample := int64(0)
 	for run := 0; run < len(stsc.Entries); run++ {
 		first := int64(stsc.Entries[run].FirstChunk)
 		if first == 0 {
-			return fmt.Errorf("stsc first_chunk 0")
+			return 0, fmt.Errorf("stsc first_chunk 0")
 		}
 		chunkStart := first - 1
 		var chunkEnd int64
@@ -344,20 +346,20 @@ func assignOffsets(stsc *gomp4.Stsc, chunks []int64, tbl *sampleTable, fileSize 
 			chunkEnd = int64(len(chunks))
 		}
 		if chunkStart < 0 || chunkStart > int64(len(chunks)) {
-			return fmt.Errorf("stsc chunk run %d out of range", first)
+			return 0, fmt.Errorf("stsc chunk run %d out of range", first)
 		}
 		if chunkEnd > int64(len(chunks)) {
 			chunkEnd = int64(len(chunks))
 		}
 		spc := int64(stsc.Entries[run].SamplesPerChunk)
 		if spc < 0 {
-			return fmt.Errorf("stsc samples_per_chunk negative")
+			return 0, fmt.Errorf("stsc samples_per_chunk negative")
 		}
 		for c := chunkStart; c < chunkEnd && sample < tbl.count; c++ {
 			off := chunks[c]
 			for k := int64(0); k < spc && sample < tbl.count; k++ {
 				if off < 0 || off+int64(tbl.sizes[sample]) > fileSize {
-					return fmt.Errorf("sample %d byte range [%d,%d) exceeds file size %d",
+					return off, fmt.Errorf("sample %d byte range [%d,%d) exceeds file size %d",
 						sample, off, off+int64(tbl.sizes[sample]), fileSize)
 				}
 				tbl.offsets[sample] = off
@@ -367,9 +369,9 @@ func assignOffsets(stsc *gomp4.Stsc, chunks []int64, tbl *sampleTable, fileSize 
 		}
 	}
 	if sample != tbl.count {
-		return fmt.Errorf("stsc placed %d of %d samples", sample, tbl.count)
+		return 0, fmt.Errorf("stsc placed %d of %d samples", sample, tbl.count)
 	}
-	return nil
+	return 0, nil
 }
 
 // computeOrigin derives the nanosecond offset to subtract so the asset

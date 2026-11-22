@@ -1,42 +1,22 @@
 package core
 
 import (
-	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
-	"hash"
 	"io"
 	"os"
+	"path/filepath"
+	"sort"
 
-	"mediabridge/internal/clock"
 	"mediabridge/internal/fault"
 	"mediabridge/internal/maptrack"
 	"mediabridge/internal/media"
 )
 
-// OutputFormat identifies the delivery container layout. The kernel writes a
-// simple, self-describing stream rather than re-muxing ISO BMFF: the goal is a
-// verifiable copy of encoded packets with a stable hash, not a player-ready
-// file. Verification reads it back and re-hashes every packet.
+// OutputFormat identifies the delivery container layout.
 const OutputFormat = "MBRX1"
 
-// OutputHeader describes the archive stream layout:
-//
-//	magic        [5]byte  "MBRX1"
-//	assetLen     uint32   length of the asset id
-//	asset        [assetLen]
-//	trackCount   uint32
-//	  per track:  slotLen u16, slot, trackID u32, kind u8,
-//	              timescale u32, originNS i64, packetCount u64
-//	packetCount  uint64
-//	  per packet: slotLen u16, slot, trackID u32, packetIndex i64,
-//	              dts i64, pts i64, dur i64, sync u8, size u32, payload
-//
-// All integers big-endian.
-const (
-	outputMagic   = OutputFormat
-	outputVersion = 1
-)
+const outputVersion = 1
 
 // RemuxInput is the fully demuxed, mapped asset ready for output.
 type RemuxInput struct {
@@ -62,7 +42,8 @@ type RemuxResult struct {
 }
 
 // Remux copies every packet named by the plan into the output stream, hashing
-// each payload and recording provenance. It never decodes.
+// each payload and recording provenance. It never decodes. The output is
+// written to a temp file and atomically renamed into place.
 func Remux(in RemuxInput, outPath string) (*RemuxResult, error) {
 	if in.Asset == nil || in.Plan == nil {
 		return nil, fault.New(fault.CodeMapping, fault.Location{}, "remux: missing asset or plan").
@@ -72,137 +53,148 @@ func Remux(in RemuxInput, outPath string) (*RemuxResult, error) {
 	for _, a := range in.Plan.Assignments {
 		byIndex[a.TrackIndex] = a
 	}
-
-	// Expand the plan into a packet stream ordered by (slot order, pts, index).
 	stream := buildStream(in.Asset, byIndex)
 
-	f, err := os.CreateTemp(dirOf(outPath), ".mbx-*")
+	tmp, err := os.CreateTemp(filepath.Dir(outPath), ".mbx-*")
 	if err != nil {
 		return nil, fault.New(fault.CodeCheckpoint, fault.Location{AssetID: in.Asset.ID},
 			"create temp output failed").Wrap(err).WithOp("core.Remux")
 	}
-	tmp := f.Name()
-	defer func() {
-		if tmp != "" {
-			os.Remove(tmp)
-		}
-	}()
+	tmpName := tmp.Name()
+	tmp.Close()
+	os.Remove(tmpName)
+	defer os.Remove(tmpName)
 
-	hasher := sha256.New()
-	mw := io.MultiWriter(f, hasher)
-	bw := bufio.NewWriterSize(mw, 256<<10)
-	w := &countingWriter{w: bw}
-
-	if err := writeOutputHeader(bw, in.Asset, in.Plan, int64(len(stream))); err != nil {
-		f.Close()
+	w, err := NewWriter(tmpName, 0, nil)
+	if err != nil {
+		return nil, fault.New(fault.CodeCheckpoint, fault.Location{AssetID: in.Asset.ID},
+			"open temp output failed").Wrap(err).WithOp("core.Remux")
+	}
+	if err := w.WriteHeader(in.Asset, in.Plan, int64(len(stream))); err != nil {
+		w.Close()
 		return nil, err
 	}
 
 	res := &RemuxResult{PerTrack: map[string]int64{}}
 	outputIndex := map[string]int64{}
 	for _, item := range stream {
-		payload, err := loadPayload(in, item.pkt)
+		payload, err := loadPayload(in, item.Pkt)
 		if err != nil {
-			f.Close()
+			w.Close()
 			return nil, err
 		}
 		sum := sha256.Sum256(payload)
-		digest := hex.EncodeToString(sum[:])
-		item.pkt.SHA256 = digest
-		if err := writePacket(bw, item.slot, item.pkt, payload); err != nil {
-			f.Close()
+		item.Pkt.SHA256 = hex.EncodeToString(sum[:])
+		if err := w.WritePacket(item.Slot, item.Pkt, payload); err != nil {
+			w.Close()
 			return nil, err
 		}
 		if in.Provenance != nil {
-			idx := outputIndex[item.slot]
-			rec := item.pkt
-			rec.SHA256 = digest
-			in.Provenance.AddPacket(item.slot, idx, rec)
-			outputIndex[item.slot]++
+			in.Provenance.AddPacket(item.Slot, outputIndex[item.Slot], item.Pkt)
+			outputIndex[item.Slot]++
 		}
-		res.PerTrack[item.slot]++
+		res.PerTrack[item.Slot]++
 		res.PacketCount++
 	}
-	if err := w.Flush(); err != nil {
-		f.Close()
+	if err := w.Sync(); err != nil {
+		w.Close()
 		return nil, fault.New(fault.CodeVerify, fault.Location{AssetID: in.Asset.ID},
 			"flush output failed").Wrap(err).WithOp("core.Remux")
 	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return nil, fault.New(fault.CodeVerify, fault.Location{AssetID: in.Asset.ID},
-			"sync output failed").Wrap(err).WithOp("core.Remux")
-	}
-	if err := f.Close(); err != nil {
+	size, _ := w.Size()
+	digest := w.Digest()
+	if err := w.Close(); err != nil {
 		return nil, fault.New(fault.CodeVerify, fault.Location{AssetID: in.Asset.ID},
 			"close output failed").Wrap(err).WithOp("core.Remux")
 	}
-
-	// Atomic publish: rename the fully written temp file into place.
-	if err := os.Rename(tmp, outPath); err != nil {
+	if err := os.Rename(tmpName, outPath); err != nil {
 		return nil, fault.New(fault.CodeCheckpoint, fault.Location{AssetID: in.Asset.ID},
 			"publish output failed").Wrap(err).WithOp("core.Remux")
 	}
-	tmp = ""
-
-	res.OutputBytes = w.n
-	res.OutputSHA256 = hex.EncodeToString(hasher.Sum(nil))
+	res.OutputBytes = size
+	res.OutputSHA256 = digest
 	if in.Provenance != nil {
-		in.Provenance.OutputSHA256 = res.OutputSHA256
-		in.Provenance.OutputBytes = res.OutputBytes
+		in.Provenance.OutputSHA256 = digest
+		in.Provenance.OutputBytes = size
 	}
 	return res, nil
 }
 
-// streamItem is one packet destined for the output.
-type streamItem struct {
-	slot string
-	pkt  media.Packet
+// StreamItem is one packet destined for the output.
+type StreamItem struct {
+	Slot string
+	Pkt  media.Packet
 }
 
-// buildStream selects packets for each mapped track and orders them for the
-// output. The order is deterministic: slots in plan order, packets by packet
-// index.
-func buildStream(asset *media.Asset, assignments map[int]maptrack.Assignment) []streamItem {
-	var out []streamItem
-	for _, a := range sortedAssignments(assignments) {
+// BuildStream selects packets for each mapped track and orders them
+// deterministically: slots in delivery order, packets by packet index.
+func BuildStream(asset *media.Asset, plan *maptrack.Plan) []StreamItem {
+	byIndex := map[int]maptrack.Assignment{}
+	for _, a := range plan.Assignments {
+		byIndex[a.TrackIndex] = a
+	}
+	return buildStream(asset, byIndex)
+}
+
+func buildStream(asset *media.Asset, assignments map[int]maptrack.Assignment) []StreamItem {
+	var out []StreamItem
+	for _, a := range assignmentsSlice(assignments) {
 		for _, pkt := range asset.Packets {
 			if pkt.TrackIndex != a.TrackIndex {
 				continue
 			}
 			cp := pkt
 			cp.SourceTrackID = a.TrackID
-			out = append(out, streamItem{slot: a.Slot, pkt: cp})
+			out = append(out, StreamItem{Slot: a.Slot, Pkt: cp})
 		}
 	}
 	return out
 }
 
-func sortedAssignments(m map[int]maptrack.Assignment) []maptrack.Assignment {
+// assignmentsSlice returns assignments in delivery order.
+func assignmentsSlice(m map[int]maptrack.Assignment) []maptrack.Assignment {
 	out := make([]maptrack.Assignment, 0, len(m))
 	for _, a := range m {
 		out = append(out, a)
 	}
-	// Stable plan order: video first, audio second, then aux by slot name.
-	order := map[string]int{"video": 0, "audio": 1}
-	for i := 1; i < len(out); i++ {
-		for j := i; j > 0 && lessAssignment(out[j], out[j-1], order); j-- {
-			out[j], out[j-1] = out[j-1], out[j]
+	sort.Slice(out, func(i, j int) bool {
+		ri, rj := slotRank(out[i].Slot), slotRank(out[j].Slot)
+		if ri != rj {
+			return ri < rj
 		}
-	}
+		if out[i].Slot != out[j].Slot {
+			return out[i].Slot < out[j].Slot
+		}
+		return out[i].TrackIndex < out[j].TrackIndex
+	})
 	return out
 }
 
-func lessAssignment(a, b maptrack.Assignment, order map[string]int) bool {
-	oa, oka := order[a.Slot]
-	ob, okb := order[b.Slot]
-	if oka != okb {
-		return oka // known slots sort before auxiliary
+// OrderedAssignments returns a copy of assignments in delivery order.
+func OrderedAssignments(as []maptrack.Assignment) []maptrack.Assignment {
+	out := append([]maptrack.Assignment(nil), as...)
+	sort.SliceStable(out, func(i, j int) bool {
+		ri, rj := slotRank(out[i].Slot), slotRank(out[j].Slot)
+		if ri != rj {
+			return ri < rj
+		}
+		if out[i].Slot != out[j].Slot {
+			return out[i].Slot < out[j].Slot
+		}
+		return out[i].TrackIndex < out[j].TrackIndex
+	})
+	return out
+}
+
+func slotRank(slot string) int {
+	switch slot {
+	case "video":
+		return 0
+	case "audio":
+		return 1
+	default:
+		return 2
 	}
-	if oka && ob != oa {
-		return oa < ob
-	}
-	return a.Slot < b.Slot
 }
 
 func loadPayload(in RemuxInput, pkt media.Packet) ([]byte, error) {
@@ -228,39 +220,17 @@ func loadPayload(in RemuxInput, pkt media.Packet) ([]byte, error) {
 	return data, nil
 }
 
-func dirOf(path string) string {
-	dir := os.TempDir()
-	if i := lastSlash(path); i >= 0 {
-		dir = path[:i]
-		if dir == "" {
-			dir = "/"
-		}
-	}
-	return dir
-}
+func sha256New() hashLike { return sha256.New() }
 
-func lastSlash(p string) int {
-	for i := len(p) - 1; i >= 0; i-- {
-		if p[i] == '/' {
-			return i
-		}
-	}
-	return -1
-}
+func hexEncode(b []byte) string { return hex.EncodeToString(b) }
 
+var _ io.Writer = (*countingWriter)(nil)
+
+// countingWriter adapts a Writer for callers that only need io.Writer.
 type countingWriter struct {
-	w *bufio.Writer
-	n int64
+	w io.Writer
 }
 
-func (c *countingWriter) Write(p []byte) (int, error) {
-	n, err := c.w.Write(p)
-	c.n += int64(n)
-	return n, err
-}
+func (c *countingWriter) Write(p []byte) (int, error) { return c.w.Write(p) }
 
-// Flush drains the buffered writer into the file and hasher.
-func (c *countingWriter) Flush() error { return c.w.Flush() }
-
-var _ hash.Hash = sha256.New()
-var _ = clock.NSPerSecond
+var _ = media.MaxPacketBytes

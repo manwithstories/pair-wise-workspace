@@ -73,9 +73,19 @@ func Generate(dir, name string, opts Options) (*Report, error) {
 	if step == 0 {
 		step = 1
 	}
+
+	// Choose an exact number of packets to drop rather than flipping a coin per
+	// packet. This makes --loss N yield a predictable recovery rate of 1-N, so
+	// the acceptance threshold is a property of the input, not of RNG luck.
+	dropCount := int(float64(opts.Count)*opts.Loss + 0.5)
+	dropSet := map[int]bool{}
+	for len(dropSet) < dropCount {
+		dropSet[rng.Intn(opts.Count)] = true
+	}
+
 	var dropped, duped, reordered int
 	for i := 0; i < opts.Count; i++ {
-		if rng.Float64() < opts.Loss {
+		if dropSet[i] {
 			dropped++
 			continue
 		}
