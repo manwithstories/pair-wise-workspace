@@ -566,7 +566,9 @@ func Run(opts Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	if cp != nil && opts.Fresh && !cp.Complete {
+	if cp != nil && opts.Fresh {
+		// A demo invocation must always encode from scratch, even over a
+		// finished checkpoint; otherwise a stale output would be reused.
 		if err := clearWork(opts.WorkDir); err != nil {
 			return nil, err
 		}
@@ -606,12 +608,19 @@ func Run(opts Options) (*Result, error) {
 
 	result := &Result{Checkpoint: cp}
 	if cp.Complete {
+		// Nothing to encode: verify what is on disk instead, or rebuild
+		// it only if the caller explicitly asked for a fresh run (handled
+		// above).
 		sha, err := store.Assemble(opts.WorkDir, cp.Blocks, cp.CanonicalSHA256)
 		if err != nil {
 			return nil, err
 		}
+		if err := verifyRTP(cp); err != nil {
+			return nil, err
+		}
 		result.Stats = statsFromCheckpoint(cp, sha)
 		result.Stats.ResumedBlocks = resumed
+		result.Stats.RTPVerified = true
 		result.Stats.RecoveryMS = opts.Now().Sub(started).Milliseconds()
 		return result, nil
 	}

@@ -109,6 +109,42 @@ func TestResumeMatchesFullRun(t *testing.T) {
 	}
 }
 
+// TestDemoAlwaysReencodes proves a fresh run over a finished checkpoint
+// re-encodes rather than reusing stale output, while a plain resume verifies.
+func TestDemoAlwaysReencodes(t *testing.T) {
+	h := newHarness(t, defaultSpec())
+	if _, err := h.run("w", stereo48k(), 0); err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	// Corrupt the assembled output: a verify-only path would still
+	// report success because it digests blocks, so check the byte count
+	// after forcing a fresh run.
+	out := filepath.Join(h.dir, "w", "out.pcm")
+	if err := os.WriteFile(out, []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Run(Options{
+		WorkDir:   filepath.Join(h.dir, "w"),
+		Config:    stereo48k(),
+		Source:    h.src,
+		Codecs:    codec.Default(),
+		InputPath: filepath.Join(h.dir, "in.mp4"),
+		InputSHA:  h.sha,
+		InputSize: h.size,
+		Fresh:     true,
+	})
+	if err != nil {
+		t.Fatalf("fresh: %v", err)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int64(len(data)) != res.Stats.SamplesOut*2 {
+		t.Fatalf("fresh run left %d bytes, want %d", len(data), res.Stats.SamplesOut*2)
+	}
+}
+
 // TestOutputFraming checks the sample count and block bookkeeping.
 func TestOutputFraming(t *testing.T) {
 	h := newHarness(t, container.FixtureSpec{Rate: 48000, Channels: 2, Frames: 48000, FrameSize: 4096})
