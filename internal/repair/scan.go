@@ -170,6 +170,10 @@ func scanTrack(path string, tr *probe.Track, cfg Config) *TrackResult {
 			res.KeyframeGaps = appendGap(res.KeyframeGaps, lastKeyMS, row.DTSMS)
 			lastKeyMS = row.DTSMS
 			res.Recovered.Keyframes++
+			if len(res.KeyframeTimes) < maxKeyframeTimes {
+				res.KeyframeTimes = append(res.KeyframeTimes, row.DTSMS)
+				res.KeyframeSamples = append(res.KeyframeSamples, row.Index)
+			}
 		}
 		if res.Recovered.Samples == 0 {
 			res.Recovered.StartMS = row.DTSMS
@@ -206,6 +210,9 @@ func scanTrack(path string, tr *probe.Track, cfg Config) *TrackResult {
 	}
 	return res
 }
+
+// maxKeyframeTimes bounds retained keyframe boundaries per track.
+const maxKeyframeTimes = 1 << 16
 
 // exclude accounts for one sample kept out of the manifest.
 func exclude(res *TrackResult, row probe.Row) {

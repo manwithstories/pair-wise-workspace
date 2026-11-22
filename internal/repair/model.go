@@ -145,6 +145,10 @@ type TrackResult struct {
 	ExcludedSamples uint64 `json:"excluded_samples"`
 	// KeyframeGaps are consecutive recovered keyframe deltas in ms.
 	KeyframeGaps []int64 `json:"-"`
+	// KeyframeTimes are recovered keyframe DTS values in ms (bounded).
+	KeyframeTimes []int64 `json:"-"`
+	// KeyframeSamples are the recovered sample indices of those keyframes.
+	KeyframeSamples []uint64 `json:"-"`
 
 	Issues []*fault.Fault `json:"-"`
 }
