@@ -64,6 +64,16 @@ func TestParseMP4Healthy(t *testing.T) {
 	if !video.Video.HasColr || video.Video.ColourPrimaries != 1 {
 		t.Errorf("colr metadata lost: %+v", video.Video)
 	}
+	// stss marks samples 1,13,25,... (0-based 0,12,24) as sync.
+	var syncCount int
+	for _, s := range video.Samples {
+		if s.IsSync {
+			syncCount++
+		}
+	}
+	if syncCount != len(video.SyncSamples) || !video.Samples[0].IsSync || video.Samples[1].IsSync {
+		t.Errorf("IsSync flags wrong: count=%d stss=%d", syncCount, len(video.SyncSamples))
+	}
 	audio := res.Timeline.Tracks[1]
 	if audio.Audio.ChannelCount != 2 || audio.Audio.SampleRate != 48_000<<16 {
 		t.Errorf("audio metadata lost: %+v", audio.Audio)

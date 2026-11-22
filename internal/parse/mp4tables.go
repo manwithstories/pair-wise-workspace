@@ -151,6 +151,13 @@ func (tb *tableState) buildEvents(tr *model.Track, source string, fileSize int64
 	if len(perChunk) == 0 {
 		return nil, faults
 	}
+	// Build a 0-based lookup of sync samples so events carry the key flag.
+	syncSet := make(map[uint32]bool, len(tb.sync))
+	for _, oneBased := range tb.sync {
+		if oneBased >= 1 {
+			syncSet[oneBased-1] = true
+		}
+	}
 
 	events := make([]model.SampleEvent, 0, count)
 	var mediaTick uint64 // running presentation time in track timescale
@@ -166,6 +173,7 @@ func (tb *tableState) buildEvents(tr *model.Track, source string, fileSize int64
 			ev := model.SampleEvent{
 				TrackID: tr.ID, Index: sampleIdx,
 				Offset: cursor, Size: size,
+				IsSync: syncSet[sampleIdx],
 			}
 			if !guardOffset(cursor, uint64(size), fileSize) {
 				faults = append(faults, model.NewSampleFault(
