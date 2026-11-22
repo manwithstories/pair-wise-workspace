@@ -15,8 +15,8 @@ import (
 
 // Representation 描述一个输出层。
 type Representation struct {
-	ID         int
-	Bitrate    int         // bps
+	ID          int
+	Bitrate     int         // bps
 	KeyInterval clock.Ticks // 关键帧间隔
 }
 

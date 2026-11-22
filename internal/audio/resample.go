@@ -67,12 +67,12 @@ func ResampleWithBoundaries(in []float32, inRate int, bounds []RateBoundary, out
 
 // RTPSource 从独立音频设备的 RTP 流中解包，检测丢包并按 PT 变化识别采样率切换。
 type RTPSource struct {
-	lastSeq    uint16
-	hasLast    bool
-	RateForPT  map[uint8]int // payload type -> 采样率
-	lastRate   int
-	SwitchPts  []int // 发生切换的 RTP 包序号
-	packetIdx  int
+	lastSeq   uint16
+	hasLast   bool
+	RateForPT map[uint8]int // payload type -> 采样率
+	lastRate  int
+	SwitchPts []int // 发生切换的 RTP 包序号
+	packetIdx int
 }
 
 func NewRTPSource(rateForPT map[uint8]int) *RTPSource {

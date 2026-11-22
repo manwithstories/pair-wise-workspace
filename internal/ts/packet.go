@@ -19,16 +19,16 @@ const (
 // Packet 是一个解析后的 TS 包。Adaptation 与 Payload 保存原始字节切片，
 // 因此 Marshal 可以逐字节重建输入（用于往返一致性核验）。
 type Packet struct {
-	Offset       int64  // 在输入流中的字节偏移
-	PID          uint16 // 13 位 PID
-	PayloadStart bool   // payload_unit_start_indicator
+	Offset        int64  // 在输入流中的字节偏移
+	PID           uint16 // 13 位 PID
+	PayloadStart  bool   // payload_unit_start_indicator
 	HasAdaptation bool
-	HasPayload   bool
-	CC           uint8  // continuity_counter（仅对有适配字段的包有意义）
-	HasPCR       bool
-	PCRBase      int64  // 33 位 PCR 基值（90kHz）
-	Adaptation   []byte // 适配字段原始字节（含长度字节）
-	Payload      []byte // 负载原始字节
+	HasPayload    bool
+	CC            uint8 // continuity_counter（仅对有适配字段的包有意义）
+	HasPCR        bool
+	PCRBase       int64  // 33 位 PCR 基值（90kHz）
+	Adaptation    []byte // 适配字段原始字节（含长度字节）
+	Payload       []byte // 负载原始字节
 }
 
 // IsNull 报告是否为合法填充包。

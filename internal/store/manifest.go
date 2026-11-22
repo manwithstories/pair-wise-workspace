@@ -25,12 +25,12 @@ type SegmentRecord struct {
 
 // Manifest 是一次运行的完整清单。
 type Manifest struct {
-	Version     int             `json:"version"`
-	InputSHA256 string          `json:"input_sha256"`
-	ConfigSHA256 string         `json:"config_sha256"`
-	Segments    []SegmentRecord `json:"segments"`
-	Faults      clock.Faults    `json:"faults"`
-	Color       []video.Record  `json:"color"`
+	Version      int             `json:"version"`
+	InputSHA256  string          `json:"input_sha256"`
+	ConfigSHA256 string          `json:"config_sha256"`
+	Segments     []SegmentRecord `json:"segments"`
+	Faults       clock.Faults    `json:"faults"`
+	Color        []video.Record  `json:"color"`
 }
 
 // HashBytes 计算字节串的 SHA-256 十六进制。

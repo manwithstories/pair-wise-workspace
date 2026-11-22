@@ -81,7 +81,7 @@ func section(tableID byte, version int, body []byte) []byte {
 }
 
 func pmtBody(version int, padTo int) []byte {
-	body := []byte{0xE0 | byte(PIDVideo>>8), byte(PIDVideo&0xFF), 0xF0, 0x00}
+	body := []byte{0xE0 | byte(PIDVideo>>8), byte(PIDVideo & 0xFF), 0xF0, 0x00}
 	body = append(body, 0x1B, 0xE0|byte(PIDVideo>>8), byte(PIDVideo&0xFF), 0xF0, 0x00)
 	body = append(body, 0x0F, 0xE0|byte(PIDAudio>>8), byte(PIDAudio&0xFF), 0xF0, 0x00)
 	if version >= 1 {
@@ -155,7 +155,11 @@ func Generate(seed int64, durationMs int, f FaultSpec) Stream {
 	var out []byte
 	ccPAT, ccPMT, ccVideo, ccAudio := uint8(0), uint8(0), uint8(0), uint8(0)
 
-	emit := func(pkts [][]byte) { for _, p := range pkts { out = append(out, p...) } }
+	emit := func(pkts [][]byte) {
+		for _, p := range pkts {
+			out = append(out, p...)
+		}
+	}
 	emitPSI := func(version int, padTo int, dropTail bool) {
 		pat := section(0x00, 0, []byte{0x00, 0x01, 0xE0 | byte(PIDPMT>>8), byte(PIDPMT & 0xFF)})
 		emit(packetize(0, &ccPAT, true, nil, pat))

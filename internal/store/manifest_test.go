@@ -50,8 +50,8 @@ func TestResume(t *testing.T) {
 	h0, _ := HashFile(f0)
 	m := &Manifest{InputSHA256: "in", ConfigSHA256: "cfg"}
 	m.AddSegment(SegmentRecord{RepID: 0, SegID: 0, File: f0, SHA256: h0, Complete: true})
-	m.AddSegment(SegmentRecord{RepID: 0, SegID: 1, File: f1, SHA256: "deadbeef", Complete: true})  // 哈希不符
-	m.AddSegment(SegmentRecord{RepID: 0, SegID: 2, File: f1, SHA256: h0, Complete: false})          // 未完成
+	m.AddSegment(SegmentRecord{RepID: 0, SegID: 1, File: f1, SHA256: "deadbeef", Complete: true}) // 哈希不符
+	m.AddSegment(SegmentRecord{RepID: 0, SegID: 2, File: f1, SHA256: h0, Complete: false})        // 未完成
 	done, err := m.Resume("in", "cfg")
 	if err != nil {
 		t.Fatal(err)
