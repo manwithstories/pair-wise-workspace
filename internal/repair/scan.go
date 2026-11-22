@@ -251,7 +251,7 @@ func validateRow(r *reader, row probe.Row, tr *probe.Track, cfg Config) (string,
 	if row.Size == 0 {
 		return "zero-length sample", fault.CodeCorrupt
 	}
-	if !cfg.DetectUniformFill || int(row.Size) > int(cfg.CacheBytes) {
+	if !cfg.Recover || !cfg.DetectUniformFill || int(row.Size) > int(cfg.CacheBytes) {
 		return "", ""
 	}
 	buf, err := r.read(row.Offset, int(row.Size))

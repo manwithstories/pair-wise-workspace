@@ -281,12 +281,13 @@ func (c *container) walkTimeline(t *Track, st *sampleTable) {
 				fmt.Sprintf("sample %d violates byte order", row.Index+1)))
 		}
 		if !row.InBounds {
-			if t.UnreadableOffset < 0 || row.Offset < t.UnreadableOffset {
+			first := t.UnreadableOffset < 0 || row.Offset < t.UnreadableOffset
+			if first {
 				t.UnreadableOffset = row.Offset
+				t.addIssue(fault.ForTrack(fault.CodeTruncated, fault.SeverityPartial, "timeline", t.ID, row.Offset,
+					fmt.Sprintf("sample %d [%d,%d) escapes file of %d bytes", row.Index+1, row.Offset, end, t.size)))
 			}
 			t.TruncatedSamples++
-			t.addIssue(fault.ForTrack(fault.CodeTruncated, fault.SeverityPartial, "timeline", t.ID, row.Offset,
-				fmt.Sprintf("sample %d [%d,%d) escapes file of %d bytes", row.Index+1, row.Offset, end, t.size)))
 		}
 		if !firstSample {
 			if dtsTotal > uint64(math.MaxInt64) {

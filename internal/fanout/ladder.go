@@ -127,7 +127,7 @@ type Manifest struct {
 	Keyframes           int               `json:"keyframes"`
 	Reasons             []string          `json:"reasons,omitempty"`
 	Audio               *AudioSummary     `json:"audio,omitempty"`
-	RTP                 rtpsummary        `json:"rtp"`
+	RTP                 *RTPSummary       `json:"rtp,omitempty"`
 	Issues              []*fault.Fault    `json:"-"`
 }
 

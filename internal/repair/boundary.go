@@ -78,3 +78,15 @@ func crossCheck(tracks []*TrackResult, cfg Config) BoundaryReport {
 	}
 	return rep
 }
+
+// BoundaryFromTracks runs the cross-layer check without recovery bookkeeping.
+// It is used for dry (non-recover) summaries where only probe data exists.
+func BoundaryFromTracks(tracks []*TrackResult, cfg Config) BoundaryReport {
+	return crossCheck(tracks, cfg.Normalize())
+}
+
+// SummarizeForTest exposes the status rollup for callers that build a Result
+// without going through Recover.
+func SummarizeForTest(tracks []*TrackResult, b BoundaryReport) Status {
+	return summarize(tracks, b)
+}

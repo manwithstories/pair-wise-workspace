@@ -15,7 +15,9 @@ func manifestFor(t *testing.T, kind fixture.Kind, ladder []int64) *Manifest {
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
-	_, res, err := repair.New(repair.DefaultConfig(), probe.DefaultConfig()).Analyze(fr.Path)
+	rcfg := repair.DefaultConfig()
+	rcfg.Recover = true
+	_, res, err := repair.New(rcfg, probe.DefaultConfig()).Analyze(fr.Path)
 	if err != nil {
 		t.Fatalf("analyze: %v", err)
 	}
@@ -155,7 +157,9 @@ func TestManifestDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, res, err := repair.New(repair.DefaultConfig(), probe.DefaultConfig()).Analyze(fr.Path)
+	rcfg := repair.DefaultConfig()
+	rcfg.Recover = true
+	_, res, err := repair.New(rcfg, probe.DefaultConfig()).Analyze(fr.Path)
 	if err != nil {
 		t.Fatal(err)
 	}

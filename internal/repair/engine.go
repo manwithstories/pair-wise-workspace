@@ -37,18 +37,15 @@ func (e *Engine) Analyze(path string) (*probe.File, *Result, error) {
 func (e *Engine) Recover(pf *probe.File) *Result {
 	res := &Result{Path: pf.Path, Issues: append([]*fault.Fault{}, pf.Issues...)}
 	for _, tr := range pf.Tracks {
-		trRes := scanTrack(pf.Path, tr, e.cfg)
-		res.Tracks = append(res.Tracks, trRes)
-	}
-	for _, tr := range pf.Tracks {
 		res.Issues = append(res.Issues, tr.Issues...)
+		trRes := scanTrack(pf.Path, tr, e.cfg)
+		for _, f := range trRes.Issues {
+			res.Issues = append(res.Issues, f)
+		}
+		res.Tracks = append(res.Tracks, trRes)
 	}
 	res.Boundary = crossCheck(res.Tracks, e.cfg)
 	res.Status = summarize(res.Tracks, res.Boundary)
-	if pf.Truncated {
-		res.Issues = append(res.Issues, fault.At(fault.CodeTruncated, fault.SeverityPartial, "repair",
-			pf.FirstUnreadable, "tail was truncated"))
-	}
 	return res
 }
 

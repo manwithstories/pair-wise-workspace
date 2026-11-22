@@ -22,7 +22,8 @@ type SampleRTP struct {
 
 // rtpsummary maps recovered keyframe boundaries onto the 32-bit RTP clock so
 // a transmitter can align marker packets to the shared timeline.
-type rtpsummary struct {
+// RTPSummary exposes keyframe RTP timestamps for the report and transmitter.
+type RTPSummary struct {
 	ClockRate  uint32         `json:"clock_rate"`
 	Keyframes  []SampleRTP    `json:"keyframe_timestamps"`
 	Wrapped    bool           `json:"wrapped"`
@@ -33,8 +34,8 @@ type rtpsummary struct {
 // summarizeRTP converts each recovered keyframe to an RTP timestamp. The
 // header type from pion/rtp is used so downstream packet builders see the
 // exact field layout this summary is meant to feed.
-func summarizeRTP(t *repair.TrackResult, rate uint32) rtpsummary {
-	out := rtpsummary{ClockRate: rate}
+func summarizeRTP(t *repair.TrackResult, rate uint32) *RTPSummary {
+	out := &RTPSummary{ClockRate: rate}
 	if t == nil || len(t.KeyframeTimes) == 0 {
 		return out
 	}

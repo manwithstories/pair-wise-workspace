@@ -21,6 +21,10 @@ type Config struct {
 	CacheBytes int64
 	// MaxIssues bounds retained faults per track.
 	MaxIssues int
+	// Recover enables payload validation and resume after damage. When false
+	// only structural bounds are checked, so a dry analysis still yields a
+	// complete timeline and manifest for undamaged inputs.
+	Recover bool
 	// DetectUniformFill enables the uniform-byte corruption heuristic.
 	DetectUniformFill bool
 	// FillBytes lists the byte values treated as erased payload. The default

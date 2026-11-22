@@ -10,7 +10,9 @@ import (
 )
 
 func engine() *Engine {
-	return New(DefaultConfig(), probe.DefaultConfig())
+	cfg := DefaultConfig()
+	cfg.Recover = true
+	return New(cfg, probe.DefaultConfig())
 }
 
 func analyzeFixture(t *testing.T, kind fixture.Kind) (*probe.File, *Result, fixture.Result) {
