@@ -21,10 +21,21 @@ type Event struct {
 	MissingBefore uint32
 }
 
-// Result is the output of decoding one job.
+// Result is the output of decoding one job. Exactly one of Ev/SR/Err
+// is set. Index echoes Job.Index so the driver can restore stream
+// order before touching the merger.
 type Result struct {
-	Ev  *Event
-	Err error
+	Index uint64
+	Ev    *Event
+	SR    *SRUpdate
+	Err   error
+}
+
+// SRUpdate carries a parsed sender report through the pool unchanged.
+type SRUpdate struct {
+	Track  uint32
+	SR     *rtpstream.SenderReport
+	Offset int64
 }
 
 // MaxReorderWindow bounds the per-track reorder window.

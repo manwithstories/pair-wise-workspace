@@ -24,11 +24,12 @@ type Metrics struct {
 
 // Segment records one checkpointed output segment.
 type Segment struct {
-	Index  int    `json:"index"`
-	Frames int    `json:"frames"`
-	Bytes  int64  `json:"bytes"`
-	Offset int64  `json:"offset"` // byte offset of the segment inside frames.bin
-	SHA256 string `json:"sha256"`
+	Index   int    `json:"index"`
+	Frames  int    `json:"frames"`
+	Bytes   int64  `json:"bytes"`
+	Offset  int64  `json:"offset"` // byte offset of the segment inside frames.bin
+	SHA256  string `json:"sha256"`
+	JSHA256 string `json:"jsha256"` // sha256 of the segment's provenance lines
 }
 
 // Checkpoint is the resume state persisted after every segment.

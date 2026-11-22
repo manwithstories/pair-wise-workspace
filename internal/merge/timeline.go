@@ -14,6 +14,7 @@ type TrackStats struct {
 	Received uint64 // unique packets placed on the timeline
 	Missing  uint64 // in-range gaps inside the observed sequence span
 	TailLoss uint64 // packets the sender reports sent beyond the last seen
+	Sent     uint64 // sender-reported total packets (last SR count)
 	Isolated bool   // clock drift beyond threshold; track quarantined
 }
 
@@ -254,6 +255,7 @@ func (m *Merger) Stats() []TrackStats {
 		st := TrackStats{Track: id, Received: ts.received,
 			Missing: ts.missing, Isolated: ts.isolated}
 		if ts.hasSR {
+			st.Sent = uint64(ts.srCount)
 			if total := uint64(ts.srCount); total > ts.received+ts.missing {
 				st.TailLoss = total - ts.received - ts.missing
 			}

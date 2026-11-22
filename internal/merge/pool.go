@@ -19,9 +19,12 @@ const (
 	MaxQueue   = 8192
 )
 
-// Job is one unit of decode work.
+// Job is one unit of decode work. Index is the record's position in
+// the input stream; callers use it to restore stream order after
+// concurrent decoding.
 type Job struct {
-	Rec *rtpstream.Record
+	Index uint64
+	Rec   *rtpstream.Record
 }
 
 // Pool decodes records concurrently with bounded concurrency and a
