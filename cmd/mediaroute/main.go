@@ -73,8 +73,8 @@ func demo(args []string) int {
 		return 1
 	}
 	elapsed := time.Since(start)
-	// Second run: checkpointed, crashed at 60% and recovered.
-	crashAt := len(stream.Items) * 3 / 5
+	// Second run: checkpointed, crashed at 2/3 and recovered.
+	crashAt := len(stream.Items) * 2 / 3
 	resumed, err := pipeline.Run(stream, pipeline.Config{
 		CheckpointInterval: len(stream.Items) / 5,
 		CrashAt:            crashAt,
