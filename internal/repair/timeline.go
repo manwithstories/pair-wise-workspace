@@ -140,6 +140,15 @@ func Recover(res ts.ParseResult, videoPID uint16, segmentMs int, extra clock.Fau
 		tl.Segments[id].Complete = false
 		tl.Segments[id].Faults = append(tl.Segments[id].Faults, f)
 	}
+	// 对齐到共享基准：时间轴从 0 开始。
+	for i := range tl.Frames {
+		tl.Frames[i].PTS -= tl.Origin
+	}
+	for i := range tl.Segments {
+		tl.Segments[i].Start -= tl.Origin
+		tl.Segments[i].End -= tl.Origin
+	}
+	tl.Origin = 0
 	return tl
 }
 

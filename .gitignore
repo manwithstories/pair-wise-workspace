@@ -71,3 +71,7 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 项目构建产物 ----
+out/
+mediatool

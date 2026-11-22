@@ -153,12 +153,12 @@ func Generate(seed int64, durationMs int, f FaultSpec) Stream {
 	rng := rand.New(rand.NewSource(seed))
 	s := Stream{DurationMs: durationMs}
 	var out []byte
-	ccPMT, ccVideo, ccAudio := uint8(0), uint8(0), uint8(0)
+	ccPAT, ccPMT, ccVideo, ccAudio := uint8(0), uint8(0), uint8(0), uint8(0)
 
 	emit := func(pkts [][]byte) { for _, p := range pkts { out = append(out, p...) } }
 	emitPSI := func(version int, padTo int, dropTail bool) {
-		pat := section(0x00, 0, []byte{0x00, 0x01, 0xE0 | byte(PIDPMT>>8), byte(PIDPMT&0xFF)})
-		emit(packetize(0, &ccPMT, true, nil, pat))
+		pat := section(0x00, 0, []byte{0x00, 0x01, 0xE0 | byte(PIDPMT>>8), byte(PIDPMT & 0xFF)})
+		emit(packetize(0, &ccPAT, true, nil, pat))
 		pkts := packetize(PIDPMT, &ccPMT, true, nil, section(0x02, version, pmtBody(version, padTo)))
 		if dropTail && len(pkts) > 1 {
 			pkts = pkts[:len(pkts)-1] // 截断：末包丢失
