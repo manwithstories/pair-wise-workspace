@@ -200,7 +200,6 @@ func (st *parseState) decodeBox(bi boxHeader, dst mp4.IBox) error {
 
 type trackBuild struct {
 	id           int
-	trackOffset  int64
 	timescale    int64
 	duration     int64
 	handler      string
@@ -219,7 +218,7 @@ type trackBuild struct {
 }
 
 func (st *parseState) parseTrak(bi boxHeader) error {
-	tb := &trackBuild{trackOffset: bi.start}
+	tb := &trackBuild{}
 	err := children(st.src.r, bi.payload, bi.end, func(child boxHeader) error {
 		switch child.typ {
 		case "tkhd":
