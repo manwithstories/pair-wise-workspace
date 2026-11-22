@@ -115,23 +115,52 @@ func Execute(p Params) (*Result, error) {
 	}
 	defer out.Close()
 
-	// 6. 流式主循环：RTP 恢复 → 声道归一 → 重采样 → 增益 → 封装
+	// 6. 流式主循环：RTP 恢复 → 声道归一 → 重采样 → 增益 → 封装。
+	// 每个分段独立处理（段边界刷新重采样器并补齐帧），
+	// 使中断后能从已完成分段边界精确续跑。
 	policy := transport.PolicyFillSilence
 	if p.LossStop {
 		policy = transport.PolicyStop
 	}
 	reo := transport.New(16, srcRate, frameSamples, policy)
-	rs, err := audio.NewResampler(srcRate, p.OutRate, p.OutChannels)
-	if err != nil {
-		return res, err
-	}
 	segDur := clock.SamplesToTicks(int64(framesPerSeg*frameSamples), srcRate)
 	var outMeter audio.Meter
-	var pending []float64
 	framesWritten := resumeFrames
 	curSeg := resumedFrom
 	actualStart := map[int]clock.Ticks{}
 	pace := &pacer{bwKbps: p.BandwidthKbps, sleep: sleep}
+	perFrame := p.OutRate / 50 * p.OutChannels
+
+	rs, err := audio.NewResampler(srcRate, p.OutRate, p.OutChannels)
+	if err != nil {
+		return res, err
+	}
+	var pending []float64
+
+	emitFrames := func() error {
+		for len(pending) >= perFrame {
+			if err := pkg.WriteFrame(quantize2Bit(pending[:perFrame])); err != nil {
+				return err
+			}
+			pending = pending[perFrame:]
+			framesWritten++
+		}
+		return nil
+	}
+	// finishSegment 刷新当前段尾部并补齐末帧。
+	finishSegment := func() error {
+		tail, err := rs.Process(make([]float64, p.OutChannels*frameSamples))
+		if err != nil {
+			return err
+		}
+		audio.ApplyGain(tail, gain)
+		outMeter.Add(tail)
+		pending = append(pending, tail...)
+		if rem := len(pending) % perFrame; rem != 0 {
+			pending = append(pending, make([]float64, perFrame-rem)...)
+		}
+		return emitFrames()
+	}
 
 	handleUnits := func(units []transport.Unit) error {
 		for _, u := range units {
@@ -144,17 +173,27 @@ func Execute(p Params) (*Result, error) {
 			if segIdx < resumedFrom {
 				continue
 			}
-			if _, ok := actualStart[segIdx]; !ok {
-				actualStart[segIdx] = u.Start
-			}
-			for segIdx > curSeg {
-				curSeg++
-				if err := saveCK(p, idx, curSeg, out, framesWritten); err != nil {
+			if segIdx != curSeg {
+				// 段边界：完成上一段，落检查点，重置段内状态
+				if err := finishSegment(); err != nil {
 					return err
 				}
-				if p.StopAfterSegments > 0 && curSeg >= p.StopAfterSegments {
-					return ErrInterrupted
+				for segIdx > curSeg {
+					curSeg++
+					if err := saveCK(p, idx, curSeg, out, framesWritten); err != nil {
+						return err
+					}
+					if p.StopAfterSegments > 0 && curSeg >= p.StopAfterSegments {
+						return ErrInterrupted
+					}
 				}
+				if rs, err = audio.NewResampler(srcRate, p.OutRate, p.OutChannels); err != nil {
+					return err
+				}
+				pending = nil
+			}
+			if _, ok := actualStart[segIdx]; !ok {
+				actualStart[segIdx] = u.Start
 			}
 			samples, err := unitSamples(u, srcCh, frameSamples)
 			if err != nil {
@@ -171,13 +210,8 @@ func Execute(p Params) (*Result, error) {
 			audio.ApplyGain(block, gain)
 			outMeter.Add(block)
 			pending = append(pending, block...)
-			perFrame := p.OutRate / 50 * p.OutChannels
-			for len(pending) >= perFrame {
-				if err := pkg.WriteFrame(quantize2Bit(pending[:perFrame])); err != nil {
-					return err
-				}
-				pending = pending[perFrame:]
-				framesWritten++
+			if err := emitFrames(); err != nil {
+				return err
 			}
 		}
 		return nil
@@ -202,24 +236,8 @@ func Execute(p Params) (*Result, error) {
 	if err := handleUnits(units); err != nil && !errors.Is(err, ErrInterrupted) {
 		return res, err
 	}
-	// 刷新重采样器尾部并补齐末帧
-	tail, err := rs.Process(make([]float64, srcCh*frameSamples))
-	if err != nil {
+	if err := finishSegment(); err != nil {
 		return res, err
-	}
-	audio.ApplyGain(tail, gain)
-	outMeter.Add(tail)
-	pending = append(pending, tail...)
-	perFrame := p.OutRate / 50 * p.OutChannels
-	if len(pending) > 0 && len(pending) < perFrame {
-		pending = append(pending, make([]float64, perFrame-len(pending))...)
-	}
-	for len(pending) >= perFrame {
-		if err := pkg.WriteFrame(quantize2Bit(pending[:perFrame])); err != nil {
-			return res, err
-		}
-		pending = pending[perFrame:]
-		framesWritten++
 	}
 
 	// 7. 收尾：最终检查点、封装统计、指标
