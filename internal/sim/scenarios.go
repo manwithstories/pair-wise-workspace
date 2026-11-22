@@ -23,8 +23,13 @@ func applyCorrupt(rng *rand.Rand, packets int, drops, dupes, reorders map[uint16
 			reorders[seq] = true
 		}
 	}
-	// Guarantee at least one edge gap that cannot be interpolated.
-	drops[0] = true
+	// Guarantee an internal burst beyond the interpolation reach (default
+	// cap is five packets). It is bracketed by real packets so the loss is
+	// detected, yet too long to reconstruct, yielding non-zero unrecoverable
+	// samples on every seed.
+	for k := 0; k < 7; k++ {
+		drops[uint16(60+k)] = true
+	}
 }
 
 // applyRecovery places short, fully bracketed loss runs that the recovery

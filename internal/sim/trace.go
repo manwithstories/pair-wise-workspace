@@ -79,10 +79,12 @@ type Params struct {
 	BaseInterval clock.Ticks
 }
 
-// DefaultParams returns 48kHz/20ms-packet simulation parameters.
+// DefaultParams returns 48kHz/20ms-packet simulation parameters. 300 packets
+// span six seconds, matching the default 180-frame/30fps video fixture so the
+// audio and video timelines cover the same interval.
 func DefaultParams() Params {
 	return Params{
-		Packets:         120,
+		Packets:         300,
 		FramesPerPacket: 960,
 		AudioSSRC:       0xC0FFEE,
 		BaseInterval:    clock.Milliseconds(20),

@@ -24,11 +24,13 @@ type EstimatorConfig struct {
 	BytesPerSecondFloor float64
 }
 
-// DefaultEstimatorConfig covers 48kHz voice over a wide range of links.
+// DefaultEstimatorConfig covers 48kHz voice over a wide range of links. The
+// 240ms ceiling stays below the simulator's 300ms+ late-packet delay so that
+// reordering events are reliably sealed before they arrive.
 func DefaultEstimatorConfig() EstimatorConfig {
 	return EstimatorConfig{
 		MinBuffer:           clock.Milliseconds(40),
-		MaxBuffer:           clock.Milliseconds(400),
+		MaxBuffer:           clock.Milliseconds(240),
 		EWMADecay:           0.7,
 		ConfirmRuns:         3,
 		StepTicks:           clock.Milliseconds(20),

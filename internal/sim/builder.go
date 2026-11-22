@@ -75,10 +75,6 @@ func Build(scenario string, seed int64, p Params) (*Trace, error) {
 	all := make([]Action, 0, p.Packets+len(dupes))
 	for i := range items {
 		it := items[i]
-		if reorders[it.seq] && i+1 < len(items) {
-			items[i].arrival, items[i+1].arrival = items[i+1].arrival, items[i].arrival
-			it = items[i]
-		}
 		if drops[it.seq] {
 			all = append(all, Action{
 				Kind: ActDrop, Stream: p.AudioSSRC, Seq: it.seq,
@@ -88,7 +84,14 @@ func Build(scenario string, seed int64, p Params) (*Trace, error) {
 		}
 		kind := ActDeliver
 		if reorders[it.seq] {
+			// A genuine late delivery: push arrival beyond the maximum
+			// adaptive buffer target (240ms) so the watermark seals the slot
+			// first and the replayer must recompute it. The delay stays
+			// inside the 500ms replay window, varying deterministically.
 			kind = ActReorder
+			lateDelay := clock.Milliseconds(300 + int64(i%4)*40)
+			it.arrival += lateDelay
+			items[i].arrival = it.arrival
 		}
 		all = append(all, Action{
 			Kind: kind, Stream: p.AudioSSRC, Seq: it.seq,
