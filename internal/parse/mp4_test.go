@@ -1,6 +1,7 @@
 package parse
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -116,6 +117,32 @@ func TestParseMP4Truncated(t *testing.T) {
 	}
 	if res.GlobalFaults[0].ByteOffset <= 0 {
 		t.Error("truncation fault must carry a byte offset")
+	}
+}
+
+func TestParseMP4TruncatedMoov(t *testing.T) {
+	// First render a full file to learn its size, then cut at 90% so the moov
+	// box is present but a nested table is truncated.
+	full := writeFixture(t, "full", healthy())
+	info, err := os.Stat(full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := healthy()
+	spec.Name = "moovcut"
+	spec.TruncateAt = info.Size() * 9 / 10
+	cut := writeFixture(t, "moovcut", spec)
+	res, err := ParseMP4(cut)
+	if err != nil {
+		t.Fatalf("parser must not crash on truncated moov: %v", err)
+	}
+	if len(res.GlobalFaults) == 0 {
+		t.Error("truncated moov must produce a structural fault")
+	}
+	for _, f := range res.GlobalFaults {
+		if f.Kind != model.FaultTruncatedBox || !f.HasByte {
+			t.Errorf("global fault wrong shape: %+v", f)
+		}
 	}
 }
 
