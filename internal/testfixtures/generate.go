@@ -1,6 +1,6 @@
 // Package testdata 用确定性伪随机生成现场多机位样例：MP4/MOV 容器、
 // 自生成 RTP 包与 PCM 音频。所有字节仅依赖 seed，保证重跑可核验。
-package testdata
+package testfixtures
 
 import (
 	"encoding/binary"

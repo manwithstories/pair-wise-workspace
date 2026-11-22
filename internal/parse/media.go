@@ -38,15 +38,20 @@ type TrackInfo struct {
 
 // ParseTracks 从盒树中解析全部 trak，顺序与文件一致。
 // 媒体时基与样本先于跨轨事件解析（由调用方按依赖图排序驱动）。
+// fileSize 用于识别尾部截断造成的越界样本（0 表示不做边界检查）。
 func ParseTracks(r io.ReadSeeker, roots []*RawBox, lim Limits,
 	rep *Report) ([]*TrackInfo, error) {
+	fileSize := int64(0)
+	if sz, err := r.Seek(0, io.SeekEnd); err == nil {
+		fileSize = sz
+	}
 	var out []*TrackInfo
 	for _, n := range roots {
 		if n.Type() != "moov" {
 			continue
 		}
 		for _, trak := range n.All("trak") {
-			ti, err := parseOneTrack(r, trak, lim, rep)
+			ti, err := parseOneTrack(r, trak, lim, rep, fileSize)
 			if err != nil {
 				if fe, ok := err.(*Error); ok && fe.Level == LevelFatal {
 					return nil, err
@@ -65,7 +70,7 @@ func ParseTracks(r io.ReadSeeker, roots []*RawBox, lim Limits,
 }
 
 func parseOneTrack(r io.ReadSeeker, trak *RawBox, lim Limits,
-	rep *Report) (*TrackInfo, error) {
+	rep *Report, fileSize int64) (*TrackInfo, error) {
 	tkhdBox := trak.Find("tkhd")
 	mdhdBox := trak.Find("mdia", "mdhd")
 	hdlrBox := trak.Find("mdia", "hdlr")
@@ -106,7 +111,7 @@ func parseOneTrack(r io.ReadSeeker, trak *RawBox, lim Limits,
 			Message: fmt.Sprintf("unsupported handler %q", hdlr.HandlerType)})
 		return ti, nil
 	}
-	if err := ti.readSamples(r, trak, lim, rep); err != nil {
+	if err := ti.readSamples(r, trak, lim, rep, fileSize); err != nil {
 		return nil, err
 	}
 	return ti, nil
@@ -139,8 +144,9 @@ func codecOf(r io.ReadSeeker, trak *RawBox) string {
 }
 
 // readSamples 展开 stts/stsc/stsz/stco|co64 为逐样本记录。
+// fileSize>0 时剔除超出文件边界的尾部样本（截断恢复），并逐条记录。
 func (ti *TrackInfo) readSamples(r io.ReadSeeker, trak *RawBox,
-	lim Limits, rep *Report) error {
+	lim Limits, rep *Report, fileSize int64) error {
 	stbl := trak.Find("mdia", "minf", "stbl")
 	if stbl == nil {
 		return &Error{Level: LevelRecoverable, BoxType: "stbl",
@@ -195,7 +201,32 @@ func (ti *TrackInfo) readSamples(r io.ReadSeeker, trak *RawBox,
 		}
 		tick += uint64(d)
 	}
+	if fileSize > 0 {
+		ti.dropOutOfRange(fileSize, rep)
+	}
 	return nil
+}
+
+// dropOutOfRange 移除字节区间越过文件末尾的尾部样本（尾部截断）。
+// 保留最后一个完整样本，损坏偏移记入 Report，时间线 tick 不做改写。
+func (ti *TrackInfo) dropOutOfRange(fileSize int64, rep *Report) {
+	kept := ti.Samples[:0]
+	dropped := 0
+	for _, s := range ti.Samples {
+		end := int64(s.Offset) + int64(s.Size)
+		if s.Offset > 0 && end > fileSize {
+			dropped++
+			rep.add(&Error{Level: LevelRecoverable, BoxType: "stco",
+				TrackID: ti.TrackID, Offset: int64(s.Offset), RawTick: s.RawTick,
+				Message: "sample beyond truncated file boundary"})
+			continue
+		}
+		kept = append(kept, s)
+	}
+	ti.Samples = kept
+	if dropped > 0 {
+		ti.IndexGap = ti.IndexGap || false
+	}
 }
 
 func readSizes(r io.ReadSeeker, stbl *RawBox, lim Limits,

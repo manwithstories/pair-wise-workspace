@@ -1,4 +1,4 @@
-package testdata
+package testfixtures
 
 import (
 	"bytes"
@@ -110,16 +110,18 @@ func BuildMP4(g *RNG, spec MediaSpec) ([]byte, [][]byte) {
 	ftyp := &Box{Type: "ftyp", Payload: append([]byte("isom"), make([]byte, 4)...)}
 	mdat := &Box{Type: "mdat", Payload: mdatPayload}
 
-	var buf bytes.Buffer
+	// fast-start 布局：ftyp -> moov -> mdat。
+	// stco 偏移在确定 moov 大小后回填，使 mdat 样本绝对偏移可计算。
 	ftypBytes := ftyp.Encode()
-	mdatBytes := mdat.Encode()
-	buf.Write(ftypBytes)
-	sampleBase := uint32(len(ftypBytes) + 8)
-	buf.Write(mdatBytes)
 	moovBytes := moov.Encode()
-	// 回填 stco 首个 chunk 偏移：定位 stco 盒后的 offset 字段。
+	mdatHeaderLen := 8
+	sampleBase := uint32(len(ftypBytes) + len(moovBytes) + mdatHeaderLen)
 	patchSTCO(moovBytes, sampleBase)
+
+	var buf bytes.Buffer
+	buf.Write(ftypBytes)
 	buf.Write(moovBytes)
+	buf.Write(mdat.Encode())
 	return buf.Bytes(), samples
 }
 

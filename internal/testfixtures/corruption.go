@@ -1,4 +1,6 @@
-package testdata
+package testfixtures
+
+import "encoding/binary"
 
 // Corruption 标识四类自生成边界输入。
 type Corruption string
@@ -31,7 +33,8 @@ func CorruptBoxHeader(data []byte, boxOffset uint32, bogusSize uint32) []byte {
 }
 
 // StripSTSS 从容器字节中移除 stss 盒，模拟关键帧索引缺页。
-// 通过定位盒头并整体跳过其声明长度实现。
+// 移除会让其后的 mdat 整体前移，因此同步把所有 stco chunk 偏移减去盒长，
+// 保持样本绝对偏移有效。
 func StripSTSS(data []byte) []byte {
 	needle := []byte("stss")
 	for i := 0; i+8 <= len(data); i++ {
@@ -44,10 +47,28 @@ func StripSTSS(data []byte) []byte {
 			out := make([]byte, 0, len(data)-size)
 			out = append(out, data[:i]...)
 			out = append(out, data[i+size:]...)
-			return out
+			return shiftSTCO(out, int32(-size))
 		}
 	}
 	return append([]byte(nil), data...)
+}
+
+// shiftSTCO 把全部 stco 条目的绝对偏移加上 delta（可负）。
+func shiftSTCO(data []byte, delta int32) []byte {
+	needle := []byte("stco")
+	for i := 0; i+8 <= len(data); i++ {
+		if string(data[i+4:i+8]) != string(needle) {
+			continue
+		}
+		count := int(binary.BigEndian.Uint32(data[i+12 : i+16]))
+		entryBase := i + 16
+		for k := 0; k < count && entryBase+4*k+4 <= len(data); k++ {
+			off := entryBase + 4*k
+			v := int32(binary.BigEndian.Uint32(data[off : off+4])) + delta
+			binary.BigEndian.PutUint32(data[off:off+4], uint32(v))
+		}
+	}
+	return data
 }
 
 // WrapRTPSeries 生成一组会跨越 32 位回绕的 RTP 时间戳序列。
