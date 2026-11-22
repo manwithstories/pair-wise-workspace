@@ -136,6 +136,6 @@ func printMetrics(opts demo.Options, m demo.Metrics) {
 	fmt.Printf("late_replay_count=%d\n", m.LateReplayCount)
 	fmt.Printf("index_seek_misses=%d\n", m.IndexSeekMisses)
 	fmt.Printf("index_sha256=%s\n", m.IndexSHA256)
-	fmt.Printf("quarantined=%d untrusted_events=%d processed_packets=%d gap_packets=%d\n",
-		m.Quarantined, m.UntrustedEvents, m.ProcessedPackets, m.GapPackets)
+	fmt.Printf("quarantined=%d untrusted_events=%d processed_packets=%d gap_packets=%d manifest_segments=%d\n",
+		m.Quarantined, m.UntrustedEvents, m.ProcessedPackets, m.GapPackets, m.ManifestSegments)
 }

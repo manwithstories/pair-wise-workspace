@@ -14,9 +14,9 @@ import (
 	"github.com/clearliu/fieldcut/internal/fixtures"
 	"github.com/clearliu/fieldcut/internal/index"
 	"github.com/clearliu/fieldcut/internal/ingest"
+	"github.com/clearliu/fieldcut/internal/manifest"
 	"github.com/clearliu/fieldcut/internal/stream"
 	"github.com/clearliu/fieldcut/internal/timeline"
-	"github.com/pion/rtp"
 )
 
 // Options is the parsed and validated demo configuration.
@@ -45,6 +45,7 @@ type Metrics struct {
 	UntrustedEvents    int
 	ProcessedPackets   int
 	GapPackets         int
+	ManifestSegments   int
 }
 
 // hardLimits enforces the project's memory/input ceilings regardless of
@@ -84,6 +85,21 @@ func Run(ctx context.Context, o Options) (Metrics, error) {
 	}
 	segments, err := fixtures.GenerateSegments(cfg, 0)
 	if err != nil {
+		return Metrics{}, err
+	}
+	// 1b. The manifest layer genuinely parses the playlist describing
+	// those segments, so a fault flows manifest -> timeline -> index
+	// rather than skipping the manifest module.
+	seqs := make([]int, len(segments))
+	for i, s := range segments {
+		seqs[i] = s.Sequence
+	}
+	playlist := fixtures.HLSTemplate(seqs, 2)
+	manifestEvents, err := manifest.ParseHLS(playlist, 0, manifest.Options{})
+	if err != nil {
+		return Metrics{}, err
+	}
+	if err := manifest.CheckSequenceConflicts(manifestEvents); err != nil {
 		return Metrics{}, err
 	}
 
@@ -216,6 +232,7 @@ func Run(ctx context.Context, o Options) (Metrics, error) {
 	}
 	// Pipeline latency p95 is dominated by the deliberately slow sink.
 	m.PipelineLatencyP95Ms = stage2.LatencyP95().Milliseconds()
+	m.ManifestSegments = len(manifestEvents)
 	return m, nil
 }
 
@@ -244,42 +261,5 @@ func buildFixtureConfig(o Options) fixtures.Config {
 		// loss already set via InjectLoss
 	}
 	return cfg
-}
-
-func handleOrdered(wm *timeline.Watermark, engine *timeline.ReplayEngine, ordered []ingest.OrderedPacket) {
-	for _, op := range ordered {
-		if op.IsGap {
-			// Preserve the hole on the timeline as an untrusted gap
-			// event; fieldcut never fabricates a frame for it.
-			gap := &timeline.Event{
-				TrackID:  0,
-				Sequence: int(op.GapStart),
-				Kind:     timeline.KindGap,
-				Start:    0,
-				Defect:   fmt.Sprintf("gap:%d", op.GapCount),
-			}
-			released, _ := wm.Commit(gap)
-			for _, r := range released {
-				engine.Append(r)
-			}
-			continue
-		}
-		ev := orderedEvent(op.Packet, 0, op.Recovered, op.Source)
-		released, _ := wm.Commit(ev)
-		for _, r := range released {
-			engine.Append(r)
-		}
-	}
-}
-
-func orderedEvent(pkt *rtp.Packet, track int, recovered bool, src ingest.Source) *timeline.Event {
-	return &timeline.Event{
-		TrackID:   track,
-		Sequence:  int(pkt.SequenceNumber),
-		Kind:      timeline.KindFrame,
-		RawTS:     pkt.Timestamp,
-		Source:    src,
-		Recovered: recovered,
-	}
 }
 
