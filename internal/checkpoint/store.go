@@ -174,3 +174,12 @@ func (e Entry) Validate() error {
 	}
 	return nil
 }
+
+// Remove deletes a committed entry, used when a later verification
+// proves the segment must not be presented as complete.
+func (s *Store) Remove(index int) error {
+	if err := os.Remove(s.path(index)); err != nil && !os.IsNotExist(err) {
+		return fault.Wrap(fault.Fatal, "checkpoint", s.path(index), err)
+	}
+	return s.syncDir()
+}

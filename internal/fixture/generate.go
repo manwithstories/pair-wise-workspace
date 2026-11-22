@@ -28,7 +28,8 @@ const (
 	AudioLeadTicks = 19
 )
 
-// Options controls the generated layout.
+// Options controls the generated layout. Each *At field selects one
+// segment index; use -1 (the zero value) for "not applicable".
 type Options struct {
 	Segments int  // number of media segments
 	Wrap     bool // start counters just before their wrap boundary
@@ -52,10 +53,7 @@ type Layout struct {
 	MediaDir string // relative directory holding segments
 }
 
-func (o Options) withDefaults() Options {
-	if o.TruncateAt == 0 && o.MissingAt == 0 && o.DuplicateAt == 0 && o.ConflictAt == 0 {
-		o.TruncateAt, o.MissingAt, o.DuplicateAt, o.ConflictAt = -1, -1, -1, -1
-	}
+func (o Options) normalize() Options {
 	if o.Segments <= 0 {
 		o.Segments = 1
 	}
@@ -64,7 +62,7 @@ func (o Options) withDefaults() Options {
 
 // Generate writes the layout under root and returns its description.
 func Generate(root string, opt Options) (Layout, error) {
-	opt = opt.withDefaults()
+	opt = opt.normalize()
 	if opt.Segments > 100000 {
 		return Layout{}, fault.Newf(fault.Fatal, "fixture", root, "too many segments")
 	}
@@ -75,9 +73,20 @@ func Generate(root string, opt Options) (Layout, error) {
 		}
 	}
 
+	// With Wrap the stored counters restart mid-stream; the archive base
+	// tag preserves the true presentation start so the timeline stays
+	// continuous without inventing cross-run state.
+	// The counter restart happens after wrapAt seconds, so stored
+	// counter zero corresponds to that presentation time.
+	archiveBase := 0
+	if opt.Wrap {
+		archiveBase = 40 * SegDurSecs
+	}
 	var hls bytes.Buffer
 	hls.WriteString("#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:2\n")
 	hls.WriteString("#EXT-X-MEDIA-SEQUENCE:0\n")
+	fmt.Fprintf(&hls, "#EXT-X-ARCHIVE-BASE:%d\n", archiveBase)
+	emitted := 0 // manifest entries, including the duplicate
 	for i := 0; i < opt.Segments; i++ {
 		name := fmt.Sprintf("seg-%05d.m4s", i)
 		rel := lay.MediaDir + "/" + name
@@ -90,65 +99,67 @@ func Generate(root string, opt Options) (Layout, error) {
 				return Layout{}, err
 			}
 		}
-		fmt.Fprintf(&hls, "#EXTINF:%d.000000,\n%s\n", SegDurSecs, name)
 		if i == opt.DuplicateAt {
-			fmt.Fprintf(&hls, "#EXTINF:%d.000000,\n%s\n", SegDurSecs, name)
+			// A zero-duration repeat of the same URI reproduces a
+			// duplicate manifest reference without shifting the clock:
+			// it shares the primary entry's start and is deduplicated.
+			fmt.Fprintf(&hls, "#EXTINF:0.000000,\n%s/%s\n", lay.MediaDir, name)
+			emitted++
 		}
+		fmt.Fprintf(&hls, "#EXTINF:%d.000000,\n%s/%s\n", SegDurSecs, lay.MediaDir, name)
+		emitted++
 	}
 	hls.WriteString("#EXT-X-ENDLIST\n")
 	if err := writeFile(filepath.Join(root, lay.HLS), hls.Bytes()); err != nil {
 		return Layout{}, err
 	}
-	mpd := dashManifest(opt.Segments, opt.DuplicateAt)
+	mpd := dashManifest(opt.Segments, opt.DuplicateAt, emitted)
 	if err := writeFile(filepath.Join(root, lay.DASH), mpd); err != nil {
 		return Layout{}, err
 	}
 	return lay, nil
 }
 
-// dashManifest emits a SegmentTemplate timeline covering n segments.
-// The duplicate reference is expressed with its own S run so the two
-// manifests describe an identical URI sequence.
-func dashManifest(n, dup int) []byte {
+// dashManifest emits a SegmentTemplate timeline whose URI sequence
+// matches the HLS playlist (including a repeated reference).
+func dashManifest(segs, dup, emitted int) []byte {
 	var b bytes.Buffer
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
 	fmt.Fprintf(&b, `<MPD type="static"><Period><AdaptationSet mimeType="video/mp4">`+
 		`<SegmentTemplate timescale="%d" media="media/seg-$Number$05d$.m4s" startNumber="1">`,
 		VideoTimesc)
 	b.WriteString(`<SegmentTimeline>`)
-	emitted := 0
-	for i := 0; i < n; {
-		if i == dup {
-			// one extra segment slot pointing at the same content
-			fmt.Fprintf(&b, `<S t="%d" d="%d" r="0"/>`, i*SegDurSecs*VideoTimesc, SegDurSecs*VideoTimesc)
-			emitted++
-		}
-		run := 1
-		for i+run < n && i+run != dup {
+	// Walk the manifest entries in order, coalescing runs of distinct
+	// segments and emitting the repeated reference as its own S.
+	i := 0
+	for i < emitted {
+		startAt := i
+		run := 0
+		lastT := -1
+		for i < emitted {
+			t := i
+			if dup >= 0 && i > dup {
+				t = i - 1 // references after the repeat shift back one
+			}
+			if t == dup && lastT == dup {
+				break // the repeated reference gets its own S
+			}
+			lastT = t
 			run++
+			i++
 		}
 		fmt.Fprintf(&b, `<S t="%d" d="%d" r="%d"/>`,
-			i*SegDurSecs*VideoTimesc, SegDurSecs*VideoTimesc, run-1)
-		emitted += run
-		i += run
+			startAt*SegDurSecs*VideoTimesc, SegDurSecs*VideoTimesc, run-1)
 	}
+	_ = segs
 	b.WriteString(`</SegmentTimeline></SegmentTemplate></AdaptationSet></Period></MPD>`)
-	_ = emitted
 	return b.Bytes()
 }
 
 // segment builds one self-contained fMP4 (ftyp + moov + moof + mdat)
 // so every segment can be demuxed on its own.
 func segment(idx int, opt Options) ([]byte, error) {
-	vbase := int64(idx) * SegDurSecs * VideoTimesc
-	abase := int64(idx)*SegDurSecs*AudioTimesc + AudioLeadTicks
-	if opt.Wrap {
-		// Place the wrap point at segment 40 so later segments carry
-		// wrapped counters.
-		const wrapAt = 40 * SegDurSecs
-		vbase += (1 << 33) - int64(wrapAt)*VideoTimesc
-		abase += (1 << 32) - int64(wrapAt)*AudioTimesc
-	}
+	vbase, abase := segmentBases(idx, opt)
 	video := track(idx, 1, "vide", "und", "avc1", VideoTimesc, videoFrames, 3600, vbase)
 	video.Entry = avcEntry(1280, 720)
 	audio := track(idx, 2, "soun", "eng", "mp4a", AudioTimesc, audioFrames, 960, abase)

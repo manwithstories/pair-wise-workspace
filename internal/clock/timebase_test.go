@@ -90,3 +90,29 @@ func TestWrapPeriod(t *testing.T) {
 		t.Fatal("other clocks must use 32-bit period")
 	}
 }
+
+func TestScale(t *testing.T) {
+	cases := []struct {
+		r    Rational
+		ts   int64
+		want int64
+	}{
+		{Must(2, 1), 90000, 180000},
+		{Must(1, 48000), 48000, 1},
+		{Must(19, 48000), 48000, 19},
+		{Must(-1, 3), 3, -1}, // -1 rounds away from zero
+		{Must(1, 7), 3, 0},   // 3/7 rounds to 0
+	}
+	for _, c := range cases {
+		got, err := c.r.Scale(c.ts)
+		if err != nil || got != c.want {
+			t.Errorf("%v.Scale(%d) = %d, %v; want %d", c.r, c.ts, got, err, c.want)
+		}
+	}
+	if _, err := Must(1<<62, 1).Scale(1 << 20); err != ErrOverflow {
+		t.Fatal("expected overflow")
+	}
+	if _, err := Must(1, 1).Scale(0); err == nil {
+		t.Fatal("zero timescale must be rejected")
+	}
+}

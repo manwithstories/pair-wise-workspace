@@ -20,6 +20,7 @@ func ParseHLS(data []byte, source, base string) ([]Segment, error) {
 	var segs []Segment
 	var pending *clock.Rational
 	start := clock.Must(0, 1)
+	started := false
 	lineNo := 0
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
@@ -32,6 +33,18 @@ func ParseHLS(data []byte, source, base string) ([]Segment, error) {
 			continue
 		}
 		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "#EXT-X-ARCHIVE-BASE:") {
+			if started {
+				return nil, fault.Newf(fault.Fatal, "hls", source,
+					"archive base after segments (line %d)", lineNo)
+			}
+			b, err := parseDecimal(strings.TrimPrefix(line, "#EXT-X-ARCHIVE-BASE:"))
+			if err != nil {
+				return nil, err
+			}
+			start = b
 			continue
 		}
 		if strings.HasPrefix(line, "#EXTINF:") {
@@ -63,6 +76,7 @@ func ParseHLS(data []byte, source, base string) ([]Segment, error) {
 			Dur:    *pending,
 			Source: source,
 		})
+		started = true
 		start, err = start.Add(*pending)
 		if err != nil {
 			return nil, fault.Wrap(fault.Fatal, "hls", source, err)

@@ -130,3 +130,33 @@ func WrapPeriod(timescale uint32) uint64 {
 	}
 	return 1 << 32
 }
+
+// Scale returns r expressed in a counter with the given timescale,
+// rounded to nearest, rejecting results outside int64.
+func (r Rational) Scale(timescale int64) (int64, error) {
+	if timescale <= 0 {
+		return 0, fmt.Errorf("clock: non-positive timescale %d", timescale)
+	}
+	n := new(big.Int).Mul(big.NewInt(r.Num), big.NewInt(timescale))
+	d := big.NewInt(r.Den)
+	q, rem := new(big.Int).QuoRem(n, d, new(big.Int))
+	// Round half away from zero.
+	rem.Abs(rem)
+	rem.Lsh(rem, 1)
+	if rem.Cmp(d) >= 0 {
+		if n.Sign() < 0 {
+			q.Sub(q, big.NewInt(1))
+		} else {
+			q.Add(q, big.NewInt(1))
+		}
+	}
+	if !q.IsInt64() {
+		return 0, ErrOverflow
+	}
+	return q.Int64(), nil
+}
+
+// MicrosSigned is Micros allowing negative values, rounding to nearest.
+func (r Rational) MicrosSigned() (int64, error) {
+	return r.Scale(1_000_000)
+}

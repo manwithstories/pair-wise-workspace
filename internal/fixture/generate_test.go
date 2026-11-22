@@ -26,7 +26,7 @@ func fmtName(i int) string {
 
 func TestGenerateAndParseHLS(t *testing.T) {
 	root := t.TempDir()
-	lay, err := Generate(root, Options{Segments: 5})
+	lay, err := Generate(root, Options{Segments: 5, TruncateAt: -1, MissingAt: -1, DuplicateAt: -1, ConflictAt: -1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestGenerateAndParseHLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	segs, err := manifest.ParseHLS(raw, lay.HLS, lay.MediaDir)
+	segs, err := manifest.ParseHLS(raw, lay.HLS, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestGenerateAndParseHLS(t *testing.T) {
 
 func TestGeneratedSegmentDemuxes(t *testing.T) {
 	root := t.TempDir()
-	lay, err := Generate(root, Options{Segments: 2})
+	lay, err := Generate(root, Options{Segments: 2, TruncateAt: -1, MissingAt: -1, DuplicateAt: -1, ConflictAt: -1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestGeneratedSegmentDemuxes(t *testing.T) {
 
 func TestWrapCounters(t *testing.T) {
 	root := t.TempDir()
-	lay, err := Generate(root, Options{Segments: 45, Wrap: true})
+	lay, err := Generate(root, Options{Segments: 45, Wrap: true, TruncateAt: -1, MissingAt: -1, DuplicateAt: -1, ConflictAt: -1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,5 +182,32 @@ func TestMissingAndTruncated(t *testing.T) {
 	}
 	if len(data) >= len(full) {
 		t.Fatalf("truncated segment (%d) should be shorter than intact (%d)", len(data), len(full))
+	}
+}
+
+func TestDuplicateKeepsTimeline(t *testing.T) {
+	root := t.TempDir()
+	lay, err := Generate(root, Options{Segments: 5, DuplicateAt: 2, TruncateAt: -1, MissingAt: -1, ConflictAt: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(root, lay.HLS))
+	if err != nil {
+		t.Fatal(err)
+	}
+	segs, err := manifest.ParseHLS(raw, lay.HLS, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(segs) != 6 {
+		t.Fatalf("entries = %d, want 6", len(segs))
+	}
+	for i := 0; i+1 < len(segs); i++ {
+		if segs[i].Start.Cmp(segs[i+1].Start) > 0 {
+			t.Fatalf("timeline moves backwards at %d: %v -> %v", i, segs[i].Start, segs[i+1].Start)
+		}
+	}
+	if segs[2].URI != segs[3].URI || segs[2].Start.Cmp(segs[3].Start) != 0 {
+		t.Fatalf("duplicate must share URI and start: %+v %+v", segs[2], segs[3])
 	}
 }
