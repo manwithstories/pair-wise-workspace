@@ -57,13 +57,15 @@ func (r *Repairer) Add(segment int, observed, dur uint64) (uint64, Status, *Repa
 		return observed, StatusOK, nil
 	}
 	exp := r.next
-	r.next = exp + dur
 	if observed >= exp && observed-exp <= r.tolerance {
+		r.next = exp + dur
 		return exp, StatusOK, nil
 	}
 	if observed < exp && exp-observed <= r.tolerance {
+		r.next = exp + dur
 		return exp, StatusOK, nil
 	}
+	r.next = exp + dur
 	switch {
 	case observed < exp:
 		// Regression or duplicate (e.g. encoder restart): snap forward.
@@ -77,7 +79,9 @@ func (r *Repairer) Add(segment int, observed, dur uint64) (uint64, Status, *Repa
 				Reason: fmt.Sprintf("gap of %d whole segment(s) closed", gap/dur)}
 			return exp, StatusRepaired, rep
 		}
-		// Ambiguous gap: cannot determine the true offset.
+		// Ambiguous gap: cannot determine the true offset. Resynchronise
+		// the expectation on the observed start so later segments continue.
+		r.next = observed + dur
 		return observed, StatusUnrecoverable, &Repair{
 			Segment: segment, Observed: observed, Adjusted: observed,
 			Reason: fmt.Sprintf("ambiguous gap of %d ticks", gap),
