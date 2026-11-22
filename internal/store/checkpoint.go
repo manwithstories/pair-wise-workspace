@@ -140,6 +140,9 @@ func Save(dir string, cp *Checkpoint) error {
 // file renamed into place. The returned record carries the content digest.
 func WriteBlockAtomically(dir string, index int, data []byte) (BlockRecord, error) {
 	rec := BlockRecord{Index: index, Bytes: int64(len(data)), SHA256: Digest(data)}
+	if err := os.MkdirAll(BlocksDir(dir), 0o755); err != nil {
+		return rec, media.NewError(media.CodeAtomicWrite, -1, 0, "create blocks dir: %v", err).Wrap(err)
+	}
 	if err := WriteFileAtomic(BlockPath(dir, index), data, 0o644); err != nil {
 		return rec, err
 	}
