@@ -13,20 +13,30 @@ import (
 	"archive/internal/fault"
 )
 
+// Window is the default sequence-number window. A packet that arrives
+// more than Window sequence numbers behind the highest number already
+// seen is too late to slot back and counts as unrecoverable.
+const Window = 256
+
 // Packet is one delivery of a packet, in channel order.
 type Packet struct {
 	Seq    uint16
 	Arrive int // monotonically increasing delivery order
-	RTP    *rtp.Packet
+	// Retransmit marks a delivery from the repair stream: the packet was
+	// lost on the first pass and only arrived later.
+	Retransmit bool
+	RTP        *rtp.Packet
 }
 
 // Result summarises recovery over one injected sequence.
 type Result struct {
 	Sent          int     // packets in the original sequence
 	Received      int     // deliveries observed, duplicates included
-	Recovered     int     // late arrivals the window put back in order
+	Recovered     int     // lost packets the sequence window restored
+	Reordered     int     // first-pass packets that arrived late
 	Duplicates    int     // duplicate deliveries dropped
-	Unrecoverable int     // sequence numbers never delivered
+	TooLate       int     // packets arriving outside the window
+	Unrecoverable int     // packets never delivered (or too late)
 	Rate          float64 // recovered / (recovered + unrecoverable), percent
 	Order         []*rtp.Packet
 }
@@ -69,7 +79,7 @@ func Build(n int, inj Inject) []Packet {
 	// The repair stream retransmits each lost packet exactly once, after
 	// the first pass, so they arrive late and out of order.
 	for _, seq := range lost {
-		retrans = append(retrans, Packet{Seq: seq, Arrive: arrive, RTP: newPacket(seq)})
+		retrans = append(retrans, Packet{Seq: seq, Arrive: arrive, Retransmit: true, RTP: newPacket(seq)})
 		arrive++
 	}
 	out := append(first, retrans...)
@@ -95,14 +105,26 @@ func newPacket(seq uint16) *rtp.Packet {
 	}
 }
 
-// Recover rebuilds the ordered stream from observed deliveries.
+// Recover rebuilds the ordered stream from observed deliveries using
+// the default Window.
 func Recover(sent int, observed []Packet) (Result, error) {
+	return RecoverWindow(sent, observed, Window)
+}
+
+// RecoverWindow rebuilds the ordered stream with an explicit sequence
+// window. Packets outside the window are dropped as unrecoverable.
+func RecoverWindow(sent int, observed []Packet, window int) (Result, error) {
 	if sent < 0 || sent > 1<<16 {
 		return Result{}, fault.Newf(fault.Fatal, "rtp", "", "sent count %d out of range", sent)
+	}
+	if window <= 0 || window > 1<<16 {
+		return Result{}, fault.Newf(fault.Fatal, "rtp", "", "window %d out of range", window)
 	}
 	res := Result{Sent: sent, Received: len(observed)}
 	best := map[uint16]*rtp.Packet{}
 	firstSeen := map[uint16]int{}
+	retransmitted := map[uint16]bool{}
+	highest := -1
 	for _, p := range observed {
 		if int(p.Seq) >= sent {
 			return Result{}, fault.Newf(fault.Fatal, "rtp", "", "sequence %d beyond sent count %d", p.Seq, sent)
@@ -114,22 +136,39 @@ func Recover(sent int, observed []Packet) (Result, error) {
 			res.Duplicates++
 			continue
 		}
+		// Too far behind the window to reassemble: the repair attempt
+		// arrived after the buffer had already moved on.
+		if highest-int(p.Seq) >= window {
+			res.TooLate++
+			continue
+		}
 		best[p.Seq] = p.RTP
 		firstSeen[p.Seq] = p.Arrive
+		if p.Retransmit {
+			retransmitted[p.Seq] = true
+		}
+		if int(p.Seq) > highest {
+			highest = int(p.Seq)
+		}
 	}
 
-	// A delivery is late when some later sequence number had already
-	// arrived. Walk backwards tracking the earliest arrival seen above;
-	// that is the exact set a sequence window restores.
+	// A first-pass delivery is late when some later sequence number had
+	// already arrived; the sequence window restores its order. A loss
+	// is recovered when the repair stream supplied the packet at all,
+	// and is unrecoverable only when nothing ever delivered it.
 	minAbove := int(^uint(0) >> 1)
 	for seq := sent - 1; seq >= 0; seq-- {
 		a, ok := firstSeen[uint16(seq)]
 		if !ok {
-			res.Unrecoverable++
+			res.Unrecoverable++ // never delivered, or beyond the window
+			continue
+		}
+		if retransmitted[uint16(seq)] {
+			res.Recovered++
 			continue
 		}
 		if a > minAbove {
-			res.Recovered++
+			res.Reordered++
 		}
 		if a < minAbove {
 			minAbove = a

@@ -19,11 +19,24 @@ const maxDurationSecs = 24 * 3600
 
 // Segment describes one media segment with its provenance.
 type Segment struct {
-	Index  int            // order within the manifest
-	URI    string         // normalized, manifest-relative
-	Start  clock.Rational // presentation start, seconds
-	Dur    clock.Rational // declared duration, seconds
-	Source string         // manifest path this segment came from
+	Index int            // order within the manifest
+	URI   string         // normalized, manifest-relative
+	Start clock.Rational // presentation start, seconds
+	Dur   clock.Rational // declared duration, seconds
+	// Anchor is the presentation time that stored counter zero
+	// corresponds to. It lets a wrap-restarted counter be placed on the
+	// true timeline without carrying state between segments. A zero
+	// value (Den == 0) means anchor zero.
+	Anchor clock.Rational
+	Source string // manifest path this segment came from
+}
+
+// EffectiveAnchor returns the anchor, defaulting an unset value to zero.
+func (s Segment) EffectiveAnchor() clock.Rational {
+	if s.Anchor.Den == 0 {
+		return clock.Must(0, 1)
+	}
+	return s.Anchor
 }
 
 // SafeJoin validates a manifest-relative URI and joins it to base.

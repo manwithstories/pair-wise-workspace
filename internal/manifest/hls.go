@@ -20,6 +20,7 @@ func ParseHLS(data []byte, source, base string) ([]Segment, error) {
 	var segs []Segment
 	var pending *clock.Rational
 	start := clock.Must(0, 1)
+	anchor := clock.Must(0, 1)
 	started := false
 	lineNo := 0
 	for sc.Scan() {
@@ -44,6 +45,7 @@ func ParseHLS(data []byte, source, base string) ([]Segment, error) {
 			if err != nil {
 				return nil, err
 			}
+			anchor = b
 			start = b
 			continue
 		}
@@ -74,6 +76,7 @@ func ParseHLS(data []byte, source, base string) ([]Segment, error) {
 			URI:    uri,
 			Start:  start,
 			Dur:    *pending,
+			Anchor: anchor,
 			Source: source,
 		})
 		started = true

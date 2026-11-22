@@ -118,7 +118,10 @@ func expandTimeline(t *dashTemplate, source, base string) ([]Segment, error) {
 			if err != nil {
 				return nil, err
 			}
-			segs = append(segs, Segment{Index: len(segs), URI: uri, Start: st, Dur: dur, Source: source})
+			segs = append(segs, Segment{
+				Index: len(segs), URI: uri, Start: st, Dur: dur,
+				Anchor: clock.Must(0, 1), Source: source,
+			})
 			nextT = cur + s.D
 		}
 	}

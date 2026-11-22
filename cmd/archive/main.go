@@ -216,8 +216,8 @@ func printReport(rep metrics.Report, rr rtp.Result) {
 	fmt.Printf("sync_error_ms=%.1f recovered_packets=%d recovery_rate=%.1f p95_latency_ms=%.1f cache_verified=%d output_sha256=%s\n",
 		rep.SyncErrorMs, rr.Recovered, rr.Rate, rep.P95LatencyMs, rep.CacheVerified, rep.OutputSHA)
 	if rr.Sent > 0 {
-		fmt.Printf("rtp sent=%d received=%d duplicates=%d recovered=%d unrecoverable=%d\n",
-			rr.Sent, rr.Received, rr.Duplicates, rr.Recovered, rr.Unrecoverable)
+		fmt.Printf("rtp sent=%d received=%d duplicates=%d recovered=%d reordered=%d unrecoverable=%d\n",
+			rr.Sent, rr.Received, rr.Duplicates, rr.Recovered, rr.Reordered, rr.Unrecoverable)
 	}
 	for _, d := range rep.Desync {
 		fmt.Printf("desync %s\n", d)

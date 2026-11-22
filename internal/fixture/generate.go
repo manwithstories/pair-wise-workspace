@@ -120,38 +120,21 @@ func Generate(root string, opt Options) (Layout, error) {
 	return lay, nil
 }
 
-// dashManifest emits a SegmentTemplate timeline whose URI sequence
-// matches the HLS playlist (including a repeated reference).
-func dashManifest(segs, dup, emitted int) []byte {
+// dashManifest emits a SegmentTemplate timeline covering every
+// generated segment. Duplicate references are an HLS-only anomaly here;
+// the DASH form stays one-to-one with the stored media.
+func dashManifest(n, dup, emitted int) []byte {
+	_ = dup
+	_ = emitted
 	var b bytes.Buffer
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
 	fmt.Fprintf(&b, `<MPD type="static"><Period><AdaptationSet mimeType="video/mp4">`+
-		`<SegmentTemplate timescale="%d" media="media/seg-$Number$05d$.m4s" startNumber="1">`,
+		`<SegmentTemplate timescale="%d" media="media/seg-$Number$05d$.m4s" startNumber="0">`,
 		VideoTimesc)
 	b.WriteString(`<SegmentTimeline>`)
-	// Walk the manifest entries in order, coalescing runs of distinct
-	// segments and emitting the repeated reference as its own S.
-	i := 0
-	for i < emitted {
-		startAt := i
-		run := 0
-		lastT := -1
-		for i < emitted {
-			t := i
-			if dup >= 0 && i > dup {
-				t = i - 1 // references after the repeat shift back one
-			}
-			if t == dup && lastT == dup {
-				break // the repeated reference gets its own S
-			}
-			lastT = t
-			run++
-			i++
-		}
-		fmt.Fprintf(&b, `<S t="%d" d="%d" r="%d"/>`,
-			startAt*SegDurSecs*VideoTimesc, SegDurSecs*VideoTimesc, run-1)
+	for i := 0; i < n; i++ {
+		fmt.Fprintf(&b, `<S t="%d" d="%d"/>`, i*SegDurSecs*VideoTimesc, SegDurSecs*VideoTimesc)
 	}
-	_ = segs
 	b.WriteString(`</SegmentTimeline></SegmentTemplate></AdaptationSet></Period></MPD>`)
 	return b.Bytes()
 }
@@ -215,8 +198,11 @@ func track(seg int, id uint32, handler, lang, codec string, timescale uint32, n 
 		binary.BigEndian.PutUint32(p[4:], uint32(i))
 		copy(p[8:], []byte(fmt.Sprintf("%s-%04d-%04d", codec, seg, i)))
 		cts := int64(0)
-		if handler == "vide" && i%2 == 1 {
-			cts = 3600 // B-frame style reordering, presentation only
+		// Interior even samples carry a presentation offset, modelling
+		// decoder reordering while keeping the first and last samples
+		// (the measured boundaries) exact.
+		if handler == "vide" && i%2 == 0 && i > 0 && i < n-1 {
+			cts = 3600
 		}
 		tr.Samples = append(tr.Samples, demux.Sample{
 			DTS: uint64(base + int64(i)*int64(dur)), Dur: dur, CTSOff: cts, Data: p,

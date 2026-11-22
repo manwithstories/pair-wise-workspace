@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -269,23 +270,31 @@ func processOne(root string, cas *cache.Store, cp *checkpoint.Store, seg manifes
 }
 
 // timeline places a track's samples on the manifest presentation
-// timeline. Counter values are unwrapped within the segment only (so
-// wrapped and reordered counters both sort correctly), then anchored to
-// the segment's declared start. No cross-segment state is needed, which
-// is what makes a resumed run reproduce identical bytes.
+// timeline. The manifest anchor says which presentation time a stored
+// counter of zero means; each raw counter is mapped relative to that
+// modulo the source wrap period. A counter that restarted at a wrap
+// therefore lands on the true timeline, and relative offsets between
+// tracks (capture skew) survive for the metrics module to measure.
+// No cross-segment state is involved, which is what makes a resumed
+// run reproduce identical bytes.
 func timeline(seg manifest.Segment, tr demux.Track) ([]int64, error) {
-	base, err := seg.Start.Scale(int64(tr.Timescale))
-	if err != nil {
-		return nil, fault.Wrap(fault.Fatal, "pipeline", seg.URI, err)
-	}
 	if len(tr.Samples) == 0 {
 		return nil, fault.Newf(fault.Degraded, "pipeline", seg.URI, "track without samples")
 	}
-	u := &clock.Unwrap{Period: clock.WrapPeriod(tr.Timescale)}
+	base, err := seg.EffectiveAnchor().Scale(int64(tr.Timescale))
+	if err != nil {
+		return nil, fault.Wrap(fault.Fatal, "pipeline", seg.URI, err)
+	}
+	period := clock.WrapPeriod(tr.Timescale)
 	ds := make([]int64, len(tr.Samples))
-	origin := u.Next(tr.Samples[0].DTS)
 	for j, s := range tr.Samples {
-		ds[j] = base + (u.Next(s.DTS) - origin)
+		d := clock.SignedDelta(s.DTS, 0, period)
+		// Guard the addition without overflowing the bounds themselves:
+		// d is small, so branch on its sign.
+		if (d > 0 && base > math.MaxInt64-d) || (d < 0 && base < math.MinInt64-d) {
+			return nil, fault.Newf(fault.Fatal, "pipeline", seg.URI, "decode time overflow")
+		}
+		ds[j] = base + d
 	}
 	return ds, nil
 }

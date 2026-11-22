@@ -33,8 +33,9 @@ func TestLossRecoveredByRetransmission(t *testing.T) {
 	if res.Unrecoverable != 0 {
 		t.Fatalf("retransmitted losses should be recoverable: %+v", res)
 	}
-	if res.Recovered == 0 {
-		t.Fatal("expected the late retransmissions to count as recovered")
+	// With n=37 every 7th packet is dropped: 6, 13, 20, 27, 34.
+	if want := 5; res.Recovered != want {
+		t.Fatalf("recovered = %d, want %d: %+v", res.Recovered, want, res)
 	}
 	if res.Rate != 100 {
 		t.Fatalf("recovery rate = %v, want 100", res.Rate)
@@ -68,8 +69,8 @@ func TestReorderRecovered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Recovered == 0 {
-		t.Fatalf("swapped deliveries should be recovered: %+v", res)
+	if res.Reordered == 0 {
+		t.Fatalf("swapped deliveries should be reported as reordered: %+v", res)
 	}
 	if res.Unrecoverable != 0 {
 		t.Fatalf("nothing should be lost: %+v", res)
@@ -108,6 +109,9 @@ func TestUnrecoverableCounted(t *testing.T) {
 	}
 	if got, want := res.Rate, float64(res.Recovered)*100/float64(res.Recovered+1); got != want {
 		t.Fatalf("rate = %v, want %v", got, want)
+	}
+	if res.Reordered != 0 {
+		t.Fatalf("no reordering was injected: %+v", res)
 	}
 }
 
