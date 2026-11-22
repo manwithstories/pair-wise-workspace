@@ -48,13 +48,21 @@ func buildTrack(data []byte, trakIdx int, tr *mp4.Track) (*Track, error) {
 		if derr != nil {
 			return nil, &clock.Error{Op: "Duration", TrackID: tr.TrackID, RawTS: ticks, Err: derr}
 		}
+		off := int64(tr.Chunks[i].DataOffset)
+		if off < 0 || int(off)+int(s.Size) > len(data) {
+			return nil, &BoxError{Box: "stco", Detail: fmt.Sprintf(
+				"sample %d offset %d size %d outside container", i, off, s.Size)}
+		}
+		payload := make([]byte, s.Size)
+		copy(payload, data[off:off+int64(s.Size)])
 		t.Samples = append(t.Samples, Sample{
 			TrackID:    tr.TrackID,
 			Index:      i,
 			Start:      start,
 			Duration:   clock.Time(dur),
 			Size:       s.Size,
-			FileOffset: int64(tr.Chunks[i].DataOffset),
+			Payload:    payload,
+			FileOffset: off,
 		})
 		ticks += int64(s.TimeDelta)
 	}

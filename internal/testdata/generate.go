@@ -27,12 +27,23 @@ func (r *rng) u32n(n uint32) uint32 {
 }
 
 // fill writes a deterministic byte pattern keyed by (track, sampleIndex).
+// Audio frames use a high-amplitude little-endian PCM value so they clear any
+// realistic silence threshold; silent frames are all-zero.
 func fill(buf []byte, trackID uint32, idx int, silent bool) {
 	var x uint32 = uint32(trackID)*2654435761 ^ uint32(idx)*40503
 	for i := range buf {
 		x = x*1103515245 + 12345
 		if silent {
 			buf[i] = 0
+			continue
+		}
+		if trackID == 2 {
+			// PCM audio: place amplitude in the high bytes (little-endian),
+			// keeping a deterministic, comfortably audible level (~50%).
+			buf[i] = 0
+			if i == len(buf)-1 {
+				buf[i] = 0x40 ^ byte(x>>24)
+			}
 			continue
 		}
 		buf[i] = byte(x>>16) ^ byte(i*37)
