@@ -63,6 +63,16 @@ Exit codes:
 - `2` — input was damaged but usable fragments were produced under the recovery policy
 - `1` — bad parameters or an unrecoverable write error
 
+Note: `go run` collapses any non-zero child exit status to `1`. To observe the
+`2`/`1` distinction, build the binary first and run it directly:
+
+```sh
+go build -o medialine ./cmd/medialine
+./medialine demo --seed 17 --tracks 4 --bitrates 3 --segment-us 2000000 \
+  --queue 4 --workers 3 --corrupt tail --cancel-after 5 --out ./tmp-run
+echo $?   # 2: damaged input, usable output
+```
+
 `--corrupt` accepts `none`, `tail` (lost trailing index), `length` (oversized
 box declaration) and `sample` (tampered payload marker). `--cut-us` may be
 repeated to add operator edit points on the timeline.
