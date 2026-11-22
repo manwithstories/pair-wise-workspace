@@ -10,10 +10,18 @@
 package engine
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"mediacore/internal/codec"
 	"mediacore/internal/container"
+	"mediacore/internal/media"
 	"mediacore/internal/store"
 )
 
@@ -95,4 +103,127 @@ func statsFromCheckpoint(cp *store.Checkpoint, sha string) Stats {
 		RTPFirst:      first,
 		RTPLast:       last,
 	}
+}
+
+func pickTrack(src *container.Source) (container.Track, bool) {
+	for _, t := range src.Tracks() {
+		if t.SampleCount > 0 {
+			return t, true
+		}
+	}
+	return container.Track{}, false
+}
+
+func totalInputFrames(src *container.Source, track int, f codec.Format) (int64, error) {
+	if f.FrameBytes <= 0 {
+		return 0, media.NewError(media.CodeUnsupportedCodec, -1, track, "compressed input has no frame mapping")
+	}
+	cur, err := src.Cursor(track)
+	if err != nil {
+		return 0, err
+	}
+	defer cur.Close()
+	var frames int64
+	for {
+		s, err := cur.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return 0, err
+		}
+		if s.Size%f.FrameBytes != 0 {
+			return 0, media.NewError(media.CodeUnalignedPCM, s.Offset, track,
+				"sample %d is %d bytes, not a whole number of %d-byte frames",
+				s.Index, s.Size, f.FrameBytes)
+		}
+		frames += int64(s.Size / f.FrameBytes)
+	}
+	return frames, nil
+}
+
+func configDigest(cfg Config, f codec.Format, src *container.Source) string {
+	type payload struct {
+		Config
+		Codec            string
+		InputRate        int
+		InputChannels    int
+		InputFrameBytes  int
+		ContainerVersion string
+	}
+	b, _ := json.Marshal(payload{
+		Config:           cfg,
+		Codec:            f.Codec,
+		InputRate:        f.SampleRate,
+		InputChannels:    f.Channels,
+		InputFrameBytes:  f.FrameBytes,
+		ContainerVersion: src.Version().String(),
+	})
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
+func attachTrack(err error, track int) error {
+	if me, ok := media.AsError(err); ok && me.Track == 0 {
+		me.Track = track
+	}
+	return err
+}
+
+func attachSample(err error, offset int64, track int) error {
+	if me, ok := media.AsError(err); ok {
+		if me.Track == 0 {
+			me.Track = track
+		}
+		if !me.HasOffset {
+			me.Offset = offset
+			me.HasOffset = true
+		}
+	}
+	return err
+}
+
+func ensureDir(dir string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return media.NewError(media.CodeAtomicWrite, -1, 0, "create %s: %v", dir, err).Wrap(err)
+	}
+	return nil
+}
+
+// clearWork removes volatile state from an unfinished run: checkpoint, block
+// files, partial temp files and the assembled output. Provenance is kept
+// because it is an append-only audit trail.
+
+func clearWork(dir string) error {
+	targets := []string{store.Path(dir), store.OutputPath(dir)}
+	entries, err := os.ReadDir(store.BlocksDir(dir))
+	if err == nil {
+		for _, e := range entries {
+			targets = append(targets, filepath.Join(store.BlocksDir(dir), e.Name()))
+		}
+	}
+	for _, path := range targets {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return media.NewError(media.CodeAtomicWrite, -1, 0, "remove %s: %v", path, err).Wrap(err)
+		}
+	}
+	return nil
+}
+
+// CheckInsideWorkDir rejects paths that escape the work directory.
+
+func CheckInsideWorkDir(workDir, path string) error {
+	absWork, err := filepath.Abs(workDir)
+	if err != nil {
+		return media.NewError(media.CodeWorkDirEscape, -1, 0, "resolve work dir: %v", err).Wrap(err)
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return media.NewError(media.CodeWorkDirEscape, -1, 0, "resolve path: %v", err).Wrap(err)
+	}
+	rel, err := filepath.Rel(absWork, absPath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return media.NewError(media.CodeWorkDirEscape, -1, 0, "%s escapes %s", absPath, absWork)
+	}
+	return nil
 }
