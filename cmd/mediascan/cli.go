@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 )
 
@@ -75,6 +74,3 @@ func (o Options) validate() error {
 func (o Options) totalChunks() int {
 	return (o.Frames + o.ChunkFrames - 1) / o.ChunkFrames
 }
-
-// itoa avoids importing strconv scattered across print sites.
-func itoa(n int) string { return strconv.Itoa(n) }
