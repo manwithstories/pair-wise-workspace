@@ -235,8 +235,8 @@ func (w *boxWriter) writeUdta(evs []TimedEvent) {
 			continue
 		}
 		tag := map[Kind]string{
-			KindSubtitle: "mqt t",
-			KindChapter:  "mqchp",
+			KindSubtitle: "mqt ",
+			KindChapter:  "mqch",
 			KindID3:      "id3 ",
 			KindSEI:      "msei",
 		}[e.Kind]

@@ -100,7 +100,7 @@ func (w *boxWriter) writeEmsg(e TimedEvent) {
 	body := bytes.NewBuffer(nil)
 	body.Write(fullBox(0, 0))
 	body.Write(scheme)
-	binary.Write(body, binary.BigEndian, e.Timebase.Num) // timescale
+	binary.Write(body, binary.BigEndian, uint32(e.Timebase.Num)) // timescale
 	binary.Write(body, binary.BigEndian, uint32(e.RawTicks))
 	binary.Write(body, binary.BigEndian, uint32(0)) // duration
 	binary.Write(body, binary.BigEndian, e.ID)
