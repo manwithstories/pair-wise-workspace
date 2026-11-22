@@ -158,3 +158,16 @@ func TestPacketHashMatches(t *testing.T) {
 		t.Fatalf("matched %d / %d", matched, total)
 	}
 }
+
+// TestDuplicateDetection proves the resumed_duplicate_packets metric is not a
+// yes-man: it fires when the same source packet appears twice in the output.
+func TestDuplicateDetection(t *testing.T) {
+	packets := []core.OutputPacket{
+		{Slot: "video", SourceTrack: 1, SourceIndex: 0, SourceSize: 3, Payload: []byte{1, 2, 3}},
+		{Slot: "video", SourceTrack: 1, SourceIndex: 1, SourceSize: 3, Payload: []byte{4, 5, 6}},
+		{Slot: "video", SourceTrack: 1, SourceIndex: 0, SourceSize: 3, Payload: []byte{1, 2, 3}}, // double write
+	}
+	if got := countDuplicates(packets); got != 1 {
+		t.Fatalf("duplicates = %d want 1", got)
+	}
+}
