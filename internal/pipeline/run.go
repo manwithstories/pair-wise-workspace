@@ -66,7 +66,11 @@ func Run(cfg Config) (Result, error) {
 	if err != nil {
 		return res, fault.Wrap(fault.Fatal, "pipeline", cfg.Root, err)
 	}
-	raw, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(cfg.Manifest)))
+	manifestPath, err := safeSegmentPath(root, cfg.Manifest)
+	if err != nil {
+		return res, err
+	}
+	raw, err := os.ReadFile(manifestPath)
 	if err != nil {
 		return res, fault.Wrap(fault.Fatal, "pipeline", cfg.Manifest, err)
 	}
@@ -132,8 +136,6 @@ func Run(cfg Config) (Result, error) {
 			case statusCommitted:
 				res.Committed++
 				res.Entries = append(res.Entries, entry)
-			case statusDuplicate:
-				res.Duplicates++
 			}
 		}
 		if err != nil {
@@ -163,18 +165,13 @@ type status int
 const (
 	statusVerified status = iota
 	statusCommitted
-	statusDuplicate
 )
 
 func (s status) String() string {
-	switch s {
-	case statusVerified:
+	if s == statusVerified {
 		return "verified"
-	case statusCommitted:
-		return "committed"
-	default:
-		return "duplicate"
 	}
+	return "committed"
 }
 
 // processOne verifies or (re)builds a single segment. A Degraded fault

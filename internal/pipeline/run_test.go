@@ -131,6 +131,14 @@ func TestMissingManifestIsFatal(t *testing.T) {
 	}
 }
 
+func TestManifestPathCannotEscapeRoot(t *testing.T) {
+	root := t.TempDir()
+	_, err := Run(Config{Root: root, Manifest: "../../etc/passwd", InterruptAfter: -1})
+	if err == nil || fault.LevelOf(err) != fault.Fatal {
+		t.Fatalf("escaping manifest path must be fatal, got %v", err)
+	}
+}
+
 func TestUnsafeSegmentPath(t *testing.T) {
 	root := t.TempDir()
 	pl := "#EXTM3U\n#EXTINF:2,\nok.m4s\n#EXT-X-ENDLIST\n"
