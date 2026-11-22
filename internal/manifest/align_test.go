@@ -30,7 +30,7 @@ func TestGenerateAndVerifyWithinTolerance(t *testing.T) {
 		1: track(1, 0, 120),
 		2: track(2, 0, 120),
 	}
-	m := Generate(tracks, []uint64{1, 2}, "digest-abc")
+	m := Generate(tracks, declaredFor(tracks, 1, 2), "digest-abc")
 	if len(m.Tracks) != 2 || m.FrameCount != 4 {
 		t.Fatalf("manifest=%+v", m)
 	}
@@ -45,7 +45,8 @@ func TestGenerateAndVerifyWithinTolerance(t *testing.T) {
 
 func TestDriftBeyondOneMillisecondRejected(t *testing.T) {
 	tracks := map[uint64]*timeline.TrackInfo{1: track(1, 0, 120)}
-	m := Generate(tracks, []uint64{1}, "d")
+	declared := declaredFor(tracks, 1)
+	m := Generate(tracks, declared, "d")
 	// Perturb the manifest's declared end by 2ms.
 	m.Tracks[0].DeclaredEndUsec += 2000
 	al := Verify(m, tracks)
@@ -55,7 +56,7 @@ func TestDriftBeyondOneMillisecondRejected(t *testing.T) {
 	if al.MaxErrorUsec != 2000 || al.MaxErrorMs != 2.0 {
 		t.Fatalf("max error=%d us (%.3f ms)", al.MaxErrorUsec, al.MaxErrorMs)
 	}
-	if al.Faults.Count(fault.KindVerification) == 0 || al.Faults.Count(fault.KindManifestDrift) == 0 {
+	if al.Faults.Count(fault.KindManifestDrift) == 0 {
 		t.Fatalf("faults=%v", al.Faults.Faults())
 	}
 	// The fault must carry the block offset for localization.
@@ -63,14 +64,17 @@ func TestDriftBeyondOneMillisecondRejected(t *testing.T) {
 	if !f.HasOffset || int64(f.Offset.Value) != m.Tracks[0].EndOffset {
 		t.Fatalf("fault offset=%v want %d", f.Offset, m.Tracks[0].EndOffset)
 	}
-	if al.Faults.ExitCode() != fault.ExitIntegrity {
+	// A drift is diagnosed damage (exit 2); it blocks commit, it is not an
+	// infrastructure failure.
+	if al.Faults.ExitCode() != fault.ExitDamaged {
 		t.Fatalf("exit=%d", al.Faults.ExitCode())
 	}
 }
 
 func TestExactlyOneMillisecondAccepted(t *testing.T) {
 	tracks := map[uint64]*timeline.TrackInfo{1: track(1, 0, 120)}
-	m := Generate(tracks, []uint64{1}, "d")
+	declared := declaredFor(tracks, 1)
+	m := Generate(tracks, declared, "d")
 	m.Tracks[0].DeclaredStartUsec += 1000
 	al := Verify(m, tracks)
 	if !al.OK || al.MaxErrorUsec != 1000 {
@@ -85,14 +89,14 @@ func TestExactlyOneMillisecondAccepted(t *testing.T) {
 func TestMissingTrackFails(t *testing.T) {
 	m := Manifest{Version: 1, Tracks: []TrackRange{{Track: 9}}}
 	al := Verify(m, map[uint64]*timeline.TrackInfo{})
-	if al.OK || al.Faults.Count(fault.KindVerification) != 1 {
+	if al.OK || al.Faults.Count(fault.KindManifestDrift) != 1 {
 		t.Fatalf("alignment=%+v", al)
 	}
 }
 
 func TestManifestJSONDeterministic(t *testing.T) {
 	tracks := map[uint64]*timeline.TrackInfo{1: track(1, 0, 120), 2: track(2, 40, 160)}
-	m := Generate(tracks, []uint64{2, 1}, "d")
+	m := Generate(tracks, declaredFor(tracks, 2, 1), "d")
 	var a, b bytes.Buffer
 	_ = m.WriteJSON(&a)
 	_ = m.WriteJSON(&b)
@@ -109,4 +113,19 @@ func TestToleranceMillis(t *testing.T) {
 	if got := ToleranceMillis(); got != 1.0 {
 		t.Fatalf("tolerance=%v", got)
 	}
+}
+
+// declaredFor builds declared extents that match the tracks' repaired extents
+// plus one default frame, so a fresh manifest verifies cleanly.
+func declaredFor(tracks map[uint64]*timeline.TrackInfo, order ...uint64) []Declared {
+	var out []Declared
+	for _, n := range order {
+		info := tracks[n]
+		start, end := info.StartEnd()
+		if info.DefaultNS > 0 {
+			end = end.Add(clock.MustNew(int64(info.DefaultNS), 1_000_000_000))
+		}
+		out = append(out, Declared{Track: n, Kind: info.Kind, Start: start, End: end})
+	}
+	return out
 }

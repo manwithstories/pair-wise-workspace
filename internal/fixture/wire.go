@@ -30,6 +30,8 @@ type Wire struct {
 	Payload []byte
 	// Packets is the arrival-order stream including duplicates and reordering.
 	Packets []transport.Packet
+	// Reference is the undamaged sender order, used for quality comparison.
+	Reference []transport.Packet
 	// Sent is the number of distinct packets the sender emitted.
 	Sent int
 	// Bandwidth is the per-window throughput series in bps.
@@ -71,6 +73,7 @@ func BuildWire(seed int64, payload []byte, durationSeconds float64, cfg WireConf
 		})
 	}
 	w.Sent = len(w.Packets)
+	w.Reference = append([]transport.Packet(nil), w.Packets...)
 
 	// Burst loss.
 	if cfg.LossBurst > 0 {

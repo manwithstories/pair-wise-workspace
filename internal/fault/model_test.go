@@ -57,6 +57,20 @@ func TestFatalAndVerificationExit(t *testing.T) {
 	}
 }
 
+func TestRecoveryEventsDoNotFailAcceptance(t *testing.T) {
+	var s Set
+	s.Add(New(ModuleJournal, KindJournalTail, NoOffset(), "torn tail").AsRecovery())
+	s.Add(New(ModuleTxn, KindInterrupted, NoOffset(), "rolled back repair").AsRecovery())
+	if s.ExitCode() != ExitOK {
+		t.Fatalf("recovery-only exit=%d want %d", s.ExitCode(), ExitOK)
+	}
+	// Recovery events plus real damage still surface the damage.
+	s.Add(New(ModuleEBML, KindTruncated, NewOffset(3), "cut"))
+	if s.ExitCode() != ExitDamaged {
+		t.Fatalf("mixed exit=%d", s.ExitCode())
+	}
+}
+
 func TestOffsetUnknownVersusZero(t *testing.T) {
 	if NewOffset(0).String() != "0x0" {
 		t.Fatal("zero offset must render")

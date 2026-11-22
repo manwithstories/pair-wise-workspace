@@ -82,7 +82,7 @@ func New(cfg Config) (*Manager, map[Stage]Artifact, error) {
 	m := &Manager{dir: cfg.Dir, out: cfg.OutDir, wal: w, faults: cfg.Faults, committed: make(map[Stage]Artifact)}
 	if w.Truncated > 0 && m.faults != nil {
 		m.faults.Add(fault.New(fault.ModuleJournal, fault.KindJournalTail, fault.NoOffset(),
-			fmt.Sprintf("discarded %d torn byte(s) from journal tail", w.Truncated)))
+			fmt.Sprintf("discarded %d torn byte(s) from journal tail", w.Truncated)).AsRecovery())
 	}
 	done, err := m.recover(recs)
 	if err != nil {
@@ -153,8 +153,10 @@ func (m *Manager) recover(recs []journal.Record) (map[Stage]Artifact, error) {
 			// back so the stage is recomputed.
 			m.rollback(n, "committed artifact missing or digest mismatch")
 			if m.faults != nil {
+				// A committed artifact that no longer verifies is an integrity
+				// failure, not a routine recovery event.
 				m.faults.Add(fault.New(fault.ModuleTxn, fault.KindVerification, fault.NoOffset(),
-					fmt.Sprintf("stage %q was committed but its artifact no longer verifies; marked for redo", n)))
+					fmt.Sprintf("stage %q was committed but its artifact no longer verifies; marked for redo", n)).Fatal())
 			}
 		case s.lastOp == journal.OpPrepare || s.lastOp == journal.OpBegin:
 			// Prepared but never committed: remove any temp artifact.
@@ -298,7 +300,7 @@ func (m *Manager) rollback(stage Stage, reason string) {
 	delete(m.committed, stage)
 	if reason != "" && m.faults != nil {
 		m.faults.Add(fault.New(fault.ModuleTxn, fault.KindInterrupted, fault.NoOffset(),
-			fmt.Sprintf("rolled back stage %q: %s", stage, reason)))
+			fmt.Sprintf("rolled back stage %q: %s", stage, reason)).AsRecovery())
 	}
 }
 
@@ -323,6 +325,33 @@ func syncDir(dir string) error {
 	}
 	defer d.Close()
 	return d.Sync()
+}
+
+// CrashAfter simulates an abrupt process death right after a committed stage:
+// it appends a partially written journal record (prepare for the next stage
+// without a matching commit) and does not flush cleanly.  Recovery later
+// truncates the torn tail and rolls back the uncommitted stage, incrementing
+// Rollbacks so callers can prove the interruption was handled.
+func (m *Manager) CrashAfter(stage Stage) error {
+	// Journal a prepare for a stage that will never commit, mirroring an
+	// interrupted writer between prepare and commit.
+	next := Stage("")
+	for i, s := range Order {
+		if s == stage && i+1 < len(Order) {
+			next = Order[i+1]
+			break
+		}
+	}
+	if next == "" {
+		return nil
+	}
+	prep, _ := json.Marshal(Artifact{Stage: next, Path: filepath.Join(m.out, string(next)+".artifact")})
+	_, err := m.wal.Append(journal.Record{Stage: string(next), Op: journal.OpPrepare, Payload: prep, Digest: "interrupted"})
+	if err != nil {
+		return err
+	}
+	// Write a torn tail: the length prefixes a record whose body is cut short.
+	return m.wal.AppendTorn([]byte(`{"seq":0,"stage":"` + string(next) + `"`))
 }
 
 // Close closes the journal.

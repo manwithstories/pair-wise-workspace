@@ -50,32 +50,66 @@ type Alignment struct {
 	OK           bool
 }
 
-// Generate builds a manifest describing the repaired tracks.  Declared times
-// are the first/last visible frame timestamps in the container; observed
-// times come from the same data and are recomputed on verification.
-func Generate(tracks map[uint64]*timeline.TrackInfo, order []uint64, indexDigest string) Manifest {
+// Declared is an archive checklist's expected extent for one track, derived
+// from the source's intended timeline rather than the repaired one.
+type Declared struct {
+	Track      uint64
+	Kind       string
+	Start, End clock.Rational
+}
+
+// Generate builds a manifest from the repaired tracks and the independently
+// declared extent of each track.  Declared times come from the archive's
+// intended timeline; observed times are measured from the repaired frames, so
+// verification genuinely compares two derivations.
+func Generate(tracks map[uint64]*timeline.TrackInfo, declared []Declared, indexDigest string) Manifest {
 	m := Manifest{Version: 1, IndexDigest: indexDigest}
+	byTrack := make(map[uint64]Declared, len(declared))
+	for _, d := range declared {
+		byTrack[d.Track] = d
+	}
 	var maxEnd clock.Rational
-	for _, n := range order {
+	nums := make([]uint64, 0, len(declared))
+	for _, d := range declared {
+		nums = append(nums, d.Track)
+	}
+	sort.Slice(nums, func(i, j int) bool { return nums[i] < nums[j] })
+	for _, n := range nums {
+		d := byTrack[n]
 		info := tracks[n]
 		if info == nil {
+			m.Tracks = append(m.Tracks, TrackRange{
+				Track: n, Kind: d.Kind,
+				DeclaredStartUsec: toMicros(d.Start), DeclaredEndUsec: toMicros(d.End),
+				StartOffset: -1, EndOffset: -1,
+			})
 			continue
 		}
-		start, end := info.StartEnd()
+		start, end := observedExtent(info)
 		m.Tracks = append(m.Tracks, TrackRange{
-			Track: info.Number, Kind: info.Kind,
-			DeclaredStartUsec: toMicros(start), DeclaredEndUsec: toMicros(end),
+			Track: n, Kind: d.Kind,
+			DeclaredStartUsec: toMicros(d.Start), DeclaredEndUsec: toMicros(d.End),
 			ObservedStartUsec: toMicros(start), ObservedEndUsec: toMicros(end),
 			StartOffset: firstOffset(info), EndOffset: lastOffset(info),
 		})
 		m.FrameCount += info.Visible()
-		if end.Cmp(maxEnd) > 0 {
-			maxEnd = end
+		if d.End.Cmp(maxEnd) > 0 {
+			maxEnd = d.End
 		}
 	}
 	m.DurationUsec = toMicros(maxEnd)
-	sort.SliceStable(m.Tracks, func(i, j int) bool { return m.Tracks[i].Track < m.Tracks[j].Track })
 	return m
+}
+
+// observedExtent measures a track's repaired extent: first visible timestamp
+// to last visible timestamp plus one default frame duration, matching how the
+// container declares its end boundary.
+func observedExtent(info *timeline.TrackInfo) (clock.Rational, clock.Rational) {
+	start, end := info.StartEnd()
+	if info.DefaultNS > 0 {
+		end = end.Add(clock.MustNew(int64(info.DefaultNS), 1_000_000_000))
+	}
+	return start, end
 }
 
 func firstOffset(t *timeline.TrackInfo) int64 {
@@ -115,11 +149,11 @@ func Verify(m Manifest, tracks map[uint64]*timeline.TrackInfo) Alignment {
 		info := tracks[declared.Track]
 		if info == nil {
 			al.OK = false
-			al.Faults.Add(fault.New(fault.ModuleManifest, fault.KindVerification, fault.NoOffset(),
-				fmt.Sprintf("manifest lists track %d but timeline lacks it", declared.Track)).OnTrack(declared.Track).Fatal())
+			al.Faults.Add(fault.New(fault.ModuleManifest, fault.KindManifestDrift, fault.NoOffset(),
+				fmt.Sprintf("manifest lists track %d but timeline lacks it", declared.Track)).OnTrack(declared.Track))
 			continue
 		}
-		start, end := info.StartEnd()
+		start, end := observedExtent(info)
 		gotStart, gotEnd := toMicros(start), toMicros(end)
 		tr := declared
 		tr.ObservedStartUsec = gotStart
@@ -144,12 +178,9 @@ func Verify(m Manifest, tracks map[uint64]*timeline.TrackInfo) Alignment {
 					off = fault.NewOffset(uint64(err.offset))
 				}
 				fd := fault.New(fault.ModuleManifest, fault.KindManifestDrift, off,
-					fmt.Sprintf("track %d %s boundary is off by %.3f ms (limit %.3f ms); associated block offset 0x%x",
-						declared.Track, err.name, float64(err.usec)/1000.0, Tolerance.Millis(), err.offset)).OnTrack(declared.Track).Fatal()
-				fv := fault.New(fault.ModuleManifest, fault.KindVerification, off,
-					fmt.Sprintf("manifest alignment for track %d %s exceeds 1ms", declared.Track, err.name)).OnTrack(declared.Track).Fatal()
+					fmt.Sprintf("track %d %s boundary is off by %.3f ms (limit %.3f ms); manifest not committed; associated block offset 0x%x",
+						declared.Track, err.name, float64(err.usec)/1000.0, Tolerance.Millis(), err.offset)).OnTrack(declared.Track)
 				al.Faults.Add(fd)
-				al.Faults.Add(fv)
 			}
 		}
 	}

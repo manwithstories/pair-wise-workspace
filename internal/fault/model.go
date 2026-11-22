@@ -84,6 +84,11 @@ type Fault struct {
 	// Recoverable means the pipeline produced a usable, explicitly marked
 	// result rather than silently dropping data.
 	Recoverable bool `json:"recoverable"`
+	// Recovery marks an event produced while repairing the run's own state
+	// (journal tail truncation, rollback of an uncommitted stage).  Such
+	// events are reported but do not by themselves fail acceptance: a clean
+	// resume is a success, not damaged input.
+	Recovery bool `json:"recovery_event"`
 }
 
 // New builds a recoverable fault.
@@ -101,6 +106,12 @@ func (f *Fault) OnTrack(track uint64) *Fault {
 // Fatal marks the fault as non-recoverable.
 func (f *Fault) Fatal() *Fault {
 	f.Recoverable = false
+	return f
+}
+
+// AsRecovery marks the fault as a run-state recovery event.
+func (f *Fault) AsRecovery() *Fault {
+	f.Recovery = true
 	return f
 }
 
@@ -240,11 +251,19 @@ func (s *Set) ExitCode() int {
 		return ExitOK
 	}
 	for _, f := range s.faults {
+		if f.Recovery {
+			continue
+		}
 		if !f.Recoverable || f.Kind == KindVerification || f.Kind == KindJournalRecord {
 			return ExitIntegrity
 		}
 	}
-	return ExitDamaged
+	for _, f := range s.faults {
+		if !f.Recovery {
+			return ExitDamaged
+		}
+	}
+	return ExitOK
 }
 
 // Is works with errors.Is for sentinel kinds.

@@ -207,6 +207,25 @@ func (w *WAL) Close() error {
 // Path returns the WAL file path.
 func (w *WAL) Path() string { return w.path }
 
+// AppendTorn writes a length-prefixed record whose payload is deliberately
+// truncated, simulating a process killed mid-append.  The bytes are flushed
+// to disk so a later Open sees and truncates them.
+func (w *WAL) AppendTorn(partial []byte) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	var hdr [headerLen]byte
+	// Declare a length longer than what we write, so the tail is incomplete.
+	binary.LittleEndian.PutUint32(hdr[0:4], uint32(len(partial)+32))
+	binary.LittleEndian.PutUint32(hdr[4:8], crc32.ChecksumIEEE(partial))
+	if _, err := w.f.Write(hdr[:]); err != nil {
+		return err
+	}
+	if _, err := w.f.Write(partial); err != nil {
+		return err
+	}
+	return w.f.Sync()
+}
+
 // TruncateAt simulates an interrupted write by cutting the file at offset,
 // used by fault injection to create a torn tail.
 func TruncateAt(path string, offset int64) error {

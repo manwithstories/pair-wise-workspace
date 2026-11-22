@@ -66,6 +66,19 @@ type Plan struct {
 	Truncated       bool
 }
 
+// PayloadBytes sums the media payload the archive is expected to carry.
+func (p *Plan) PayloadBytes() int64 {
+	var n int64
+	for _, f := range p.Frames {
+		if len(f.PCM) > 0 {
+			n += int64(len(f.PCM)) * 2
+		} else {
+			n += int64(len(f.Raw))
+		}
+	}
+	return n
+}
+
 type pending struct {
 	spec    TrackSpec
 	ordinal int
