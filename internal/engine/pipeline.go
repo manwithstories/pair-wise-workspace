@@ -495,5 +495,180 @@ func (p *processor) finish() {
 	}
 }
 
+func Run(opts Options) (*Result, error) {
+	if opts.Now == nil {
+		opts.Now = time.Now
+	}
+	started := opts.Now()
+	cfg := opts.Config
+	if err := validateConfig(cfg); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(opts.WorkDir) == "" {
+		return nil, media.NewError(media.CodeUsage, -1, 0, "work directory is required")
+	}
+	if err := ensureDir(opts.WorkDir); err != nil {
+		return nil, err
+	}
+	if err := ensureDir(store.BlocksDir(opts.WorkDir)); err != nil {
+		return nil, err
+	}
+
+	track, ok := pickTrack(opts.Source)
+	if !ok {
+		return nil, media.NewError(media.CodeNoAudioTrack, -1, 0, "no audio track with samples")
+	}
+	desc, err := opts.Codecs.Describe(track.CodecTag, track.Config,
+		track.SampleRate, track.Channels, track.BitsPerSample)
+	if err != nil {
+		return nil, attachTrack(err, track.Number)
+	}
+	if desc.Format.Mapping == codec.MappingCompressed {
+		return nil, media.NewError(media.CodeUnsupportedCodec, track.FirstSampleOffset, track.Number,
+			"%s payload decoding is not supported; provide 16-bit PCM", desc.Format.Codec)
+	}
+	if desc.Format.Channels != 1 && desc.Format.Channels != 2 {
+		return nil, media.NewError(media.CodeChannelsInvalid, track.FirstSampleOffset, track.Number,
+			"input channel count %d is not supported", desc.Format.Channels)
+	}
+
+	totalIn, err := totalInputFrames(opts.Source, track.Number, desc.Format)
+	if err != nil {
+		return nil, err
+	}
+	rs, err := NewResampler(desc.Format.SampleRate, cfg.OutputRate, cfg.OutputChannels)
+	if err != nil {
+		return nil, attachTrack(err, track.Number)
+	}
+	expectedFrames := rs.OutputFramesFor(totalIn)
+	expectedBlocks := int((expectedFrames + int64(cfg.BlockFrames) - 1) / int64(cfg.BlockFrames))
+
+	binding := store.Binding{
+		InputSHA256:      opts.InputSHA,
+		ConfigDigest:     configDigest(cfg, desc.Format, opts.Source),
+		ContainerVersion: opts.Source.Version().String(),
+		CodecVersion:     desc.Adapter.String(),
+		OutputRate:       cfg.OutputRate,
+		OutputChannels:   cfg.OutputChannels,
+		LoudnessDBFS:     cfg.LoudnessDBFS,
+		BlockFrames:      cfg.BlockFrames,
+	}
+
+	cp, err := store.Load(opts.WorkDir)
+	if err != nil {
+		return nil, err
+	}
+	if cp != nil && opts.Fresh && !cp.Complete {
+		if err := clearWork(opts.WorkDir); err != nil {
+			return nil, err
+		}
+		cp = nil
+	}
+	if cp != nil {
+		if err := store.Check(cp, binding); err != nil {
+			return nil, err
+		}
+		if cp.TotalBlocks != expectedBlocks {
+			return nil, media.NewError(media.CodeCheckpointConflict, -1, 0,
+				"checkpoint expects %d blocks, input now yields %d", cp.TotalBlocks, expectedBlocks)
+		}
+		if _, err := store.VerifyBlocks(opts.WorkDir, cp.Blocks); err != nil {
+			return nil, err
+		}
+	}
+
+	resumed := 0
+	if cp == nil {
+		cp = &store.Checkpoint{
+			InputPath:        opts.InputPath,
+			InputSHA256:      opts.InputSHA,
+			InputBytes:       opts.InputSize,
+			ConfigDigest:     binding.ConfigDigest,
+			ContainerVersion: binding.ContainerVersion,
+			CodecVersion:     binding.CodecVersion,
+			OutputRate:       cfg.OutputRate,
+			OutputChannels:   cfg.OutputChannels,
+			LoudnessDBFS:     cfg.LoudnessDBFS,
+			BlockFrames:      cfg.BlockFrames,
+			TotalBlocks:      expectedBlocks,
+		}
+	} else {
+		resumed = cp.CompletedBlocks
+	}
+
+	result := &Result{Checkpoint: cp}
+	if cp.Complete {
+		sha, err := store.Assemble(opts.WorkDir, cp.Blocks, cp.CanonicalSHA256)
+		if err != nil {
+			return nil, err
+		}
+		result.Stats = statsFromCheckpoint(cp, sha)
+		result.Stats.ResumedBlocks = resumed
+		result.Stats.RecoveryMS = opts.Now().Sub(started).Milliseconds()
+		return result, nil
+	}
+
+	p := &processor{
+		opts:    opts,
+		cfg:     cfg,
+		fmt:     desc.Format,
+		track:   track,
+		rs:      rs,
+		cp:      cp,
+		result:  result,
+		totalIn: totalIn,
+	}
+	if err := p.replay(); err != nil {
+		return nil, err
+	}
+	if err := p.stream(); err != nil {
+		return nil, err
+	}
+	if result.Interrupted {
+		result.Stats = statsFromCheckpoint(cp, "")
+		result.Stats.ResumedBlocks = resumed
+		result.Stats.RecoveryMS = opts.Now().Sub(started).Milliseconds()
+		return result, nil
+	}
+	if !cp.Complete {
+		return nil, media.NewError(media.CodeOutputVerification, -1, track.Number,
+			"pipeline produced %d of %d blocks", cp.CompletedBlocks, cp.TotalBlocks)
+	}
+	sha, err := store.Assemble(opts.WorkDir, cp.Blocks, cp.CanonicalSHA256)
+	if err != nil {
+		return nil, err
+	}
+	if err := verifyRTP(cp); err != nil {
+		return nil, err
+	}
+	result.Stats = statsFromCheckpoint(cp, sha)
+	result.Stats.ResumedBlocks = resumed
+	result.Stats.RTPVerified = true
+	result.Stats.RecoveryMS = opts.Now().Sub(started).Milliseconds()
+	return result, nil
+}
+
+func validateConfig(cfg Config) error {
+	if cfg.OutputRate != 44100 && cfg.OutputRate != 48000 {
+		return media.NewError(media.CodeInvalidSampleRate, -1, 0,
+			"output rate %d is not one of 44100, 48000", cfg.OutputRate)
+	}
+	if cfg.OutputChannels != 1 && cfg.OutputChannels != 2 {
+		return media.NewError(media.CodeChannelsInvalid, -1, 0,
+			"output channels %d is not 1 or 2", cfg.OutputChannels)
+	}
+	if cfg.BlockFrames <= 0 || cfg.BlockFrames > cfg.OutputRate {
+		return media.NewError(media.CodeBlockTooLong, -1, 0,
+			"block of %d frames exceeds one second at %d Hz", cfg.BlockFrames, cfg.OutputRate)
+	}
+	if !(cfg.LoudnessDBFS < 0 && cfg.LoudnessDBFS >= -60) {
+		return media.NewError(media.CodeLoudnessInvalid, -1, 0,
+			"loudness ceiling %.3f dBFS must be in [-60, 0)", cfg.LoudnessDBFS)
+	}
+	return nil
+}
+
 func RTPTimestamp(frame int64, rate int) uint32 { return 0 }
 func RTPSequence(block int) uint16              { return 0 }
+
+func verifyRTP(cp *store.Checkpoint) error { return nil }
