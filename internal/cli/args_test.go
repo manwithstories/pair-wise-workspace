@@ -61,12 +61,12 @@ func TestParseRejectsBadArgs(t *testing.T) {
 
 func TestExitCodeMapping(t *testing.T) {
 	checks := map[mediaerr.ErrorCode]int{
-		mediaerr.CodeInvalidArgs:       1,
-		mediaerr.CodeInvalidConfig:     1,
-		mediaerr.CodePathTraversal:     1,
-		mediaerr.CodeTruncatedBox:      2,
-		mediaerr.CodeTruncatedKLV:      2,
-		mediaerr.CodeCropOutOfBounds:   2,
+		mediaerr.CodeInvalidArgs:        1,
+		mediaerr.CodeInvalidConfig:      1,
+		mediaerr.CodePathTraversal:      1,
+		mediaerr.CodeTruncatedBox:       2,
+		mediaerr.CodeTruncatedKLV:       2,
+		mediaerr.CodeCropOutOfBounds:    2,
 		mediaerr.CodeCheckpointMismatch: 3,
 	}
 	for code, want := range checks {

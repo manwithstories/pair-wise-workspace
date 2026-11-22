@@ -17,14 +17,14 @@ import (
 
 // Frame is one decoded sample record from a remux bundle.
 type Frame struct {
-	TrackID  string
-	Index    int64
-	PTS      int64
-	DTS      int64
-	Duration int64
+	TrackID   string
+	Index     int64
+	PTS       int64
+	DTS       int64
+	Duration  int64
 	SrcOffset int64
-	Size     int64
-	Payload  io.Reader
+	Size      int64
+	Payload   io.Reader
 }
 
 // Reader parses a committed mediarun bundle for verification and tracing.

@@ -12,15 +12,15 @@ import (
 
 // Options configures one pipeline run.
 type Options struct {
-	WorkDir       string
-	InputPath     string
-	OutputName    string
-	ManifestName  string
-	QueueDepth    int
-	TargetBitrate int64 // bits per second target for deviation reporting
-	Resume        bool
+	WorkDir        string
+	InputPath      string
+	OutputName     string
+	ManifestName   string
+	QueueDepth     int
+	TargetBitrate  int64 // bits per second target for deviation reporting
+	Resume         bool
 	InterruptAfter int64 // >0: stop cleanly after this many samples (demo fault)
-	Mapping       mapping.Config
+	Mapping        mapping.Config
 	// Metadata inputs per track for resolution/arbitration.
 	Metadata map[string]metadata.Input
 }
@@ -28,23 +28,23 @@ type Options struct {
 // Stats is the structured result reported to the operator. All timing values
 // that feed alignment are derived from exact rationals.
 type Stats struct {
-	Format               string  `json:"format"`
-	SamplesIn            int64   `json:"samples_in"`
-	SamplesOut           int64   `json:"samples_out"`
-	DuplicateSamples     int64   `json:"duplicate_samples"`
-	DroppedSamples       int64   `json:"dropped_samples"`
-	QualityChecked       int64   `json:"quality_checked"`
-	QualityErrors        int64   `json:"quality_errors"`
-	TargetBitrateBPS     int64   `json:"target_bitrate_bps"`
-	ActualBitrateBPS     int64   `json:"actual_bitrate_bps"`
-	BitrateDeviationPct  float64 `json:"bitrate_deviation_pct"`
-	ManifestAlignMillis  int64   `json:"manifest_alignment_ms"`
-	OutputSHA256         string  `json:"output_sha256"`
-	OutputCommitted      bool    `json:"output_committed"`
-	ResumeFromSample     int64   `json:"resume_from_sample"`
-	InputSHA256          string  `json:"input_sha256"`
-	MappingSHA256        string  `json:"mapping_sha256"`
-	DurationSeconds      float64 `json:"duration_seconds"`
+	Format              string  `json:"format"`
+	SamplesIn           int64   `json:"samples_in"`
+	SamplesOut          int64   `json:"samples_out"`
+	DuplicateSamples    int64   `json:"duplicate_samples"`
+	DroppedSamples      int64   `json:"dropped_samples"`
+	QualityChecked      int64   `json:"quality_checked"`
+	QualityErrors       int64   `json:"quality_errors"`
+	TargetBitrateBPS    int64   `json:"target_bitrate_bps"`
+	ActualBitrateBPS    int64   `json:"actual_bitrate_bps"`
+	BitrateDeviationPct float64 `json:"bitrate_deviation_pct"`
+	ManifestAlignMillis int64   `json:"manifest_alignment_ms"`
+	OutputSHA256        string  `json:"output_sha256"`
+	OutputCommitted     bool    `json:"output_committed"`
+	ResumeFromSample    int64   `json:"resume_from_sample"`
+	InputSHA256         string  `json:"input_sha256"`
+	MappingSHA256       string  `json:"mapping_sha256"`
+	DurationSeconds     float64 `json:"duration_seconds"`
 
 	// trace is internal bookkeeping, never serialized in Stats.
 	trace *Trace

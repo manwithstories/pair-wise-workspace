@@ -81,12 +81,12 @@ type View struct {
 // Input bundles the competing descriptions of one track from each layer.
 // Nil fields mean that layer provided no value.
 type Input struct {
-	TrackID         string
-	CodedWidth      int
-	CodedHeight     int
-	Override        *LayerValues // explicit operator override (strongest)
-	TrackLayer      *LayerValues // track-level (tkhd/colr/sample entry)
-	ContainerLayer  *LayerValues // container-level (mvhd/moov wide tags)
+	TrackID        string
+	CodedWidth     int
+	CodedHeight    int
+	Override       *LayerValues // explicit operator override (strongest)
+	TrackLayer     *LayerValues // track-level (tkhd/colr/sample entry)
+	ContainerLayer *LayerValues // container-level (mvhd/moov wide tags)
 }
 
 // LayerValues is the set of values one layer may provide. Pointers/nil

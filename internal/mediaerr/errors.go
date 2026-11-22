@@ -45,7 +45,7 @@ const (
 // Error is the structured error type propagated through the whole pipeline.
 type Error struct {
 	Code    ErrorCode `json:"code"`
-	Format  string    `json:"format,omitempty"`  // "mp4" | "mxf" | "pipeline" ...
+	Format  string    `json:"format,omitempty"` // "mp4" | "mxf" | "pipeline" ...
 	Track   string    `json:"track,omitempty"`  // track identifier, e.g. "video/0"
 	Path    string    `json:"path,omitempty"`   // offending input path
 	Offset  int64     `json:"offset,omitempty"` // absolute byte offset in input

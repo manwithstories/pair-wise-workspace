@@ -89,18 +89,18 @@ func buildVideoTrakAt(spec FixtureSpec, sizes []uint32, chunkOffset uint32) []by
 	// compressorname(32)+depth(2)+predefined(2) = 70 bytes.
 	entry := make([]byte, 8)
 	copy(entry[4:8], "avc1")
-	entry = append(entry, make([]byte, 6)...) // reserved
-	entry = append(entry, u16(1)...)          // data_reference_index
+	entry = append(entry, make([]byte, 6)...)  // reserved
+	entry = append(entry, u16(1)...)           // data_reference_index
 	entry = append(entry, make([]byte, 16)...) // predefined/reserved/predefined2
 	entry = append(entry, u16(uint16(spec.Width))...)
 	entry = append(entry, u16(uint16(spec.Height))...)
-	entry = append(entry, u32(0x00480000)...) // horiz resolution 72dpi
-	entry = append(entry, u32(0x00480000)...) // vert resolution
-	entry = append(entry, u32(0)...)          // reserved
-	entry = append(entry, u16(1)...)          // frame count
+	entry = append(entry, u32(0x00480000)...)  // horiz resolution 72dpi
+	entry = append(entry, u32(0x00480000)...)  // vert resolution
+	entry = append(entry, u32(0)...)           // reserved
+	entry = append(entry, u16(1)...)           // frame count
 	entry = append(entry, make([]byte, 32)...) // compressor name
-	entry = append(entry, u16(0x0018)...)     // depth
-	entry = append(entry, u16(0xFFFF)...)     // predefined -1
+	entry = append(entry, u16(0x0018)...)      // depth
+	entry = append(entry, u16(0xFFFF)...)      // predefined -1
 	stsd := box("stsd", cat(fullbox(0, 0), u32(1), entry))
 	stbl := buildStbl(spec.FrameDur, 0, sizes, chunkOffset, stsd)
 	dref := box("dref", cat(fullbox(0, 0), u32(0)))

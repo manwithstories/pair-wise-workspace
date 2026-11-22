@@ -34,8 +34,8 @@ func RunDemo(a *Args) ([]string, *pipeline.Stats, error) {
 		OutputName: "output.mrmx", ManifestName: "trace.json",
 		QueueDepth: a.QueueDepth, TargetBitrate: a.TargetBitrate,
 		InterruptAfter: a.InterruptAfter, Resume: a.Resume,
-		Mapping:        a.Mapping(),
-		Metadata:       demoMetadata(),
+		Mapping:  a.Mapping(),
+		Metadata: demoMetadata(),
 	}
 	stats, err := pipeline.Run(opts)
 	if err != nil {

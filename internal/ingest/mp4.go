@@ -25,12 +25,12 @@ type mp4Streamer struct {
 }
 
 type mp4Track struct {
-	desc     TrackDesc
-	tb       timebase.Timebase
-	samples  []flatSample // fully resolved sample table
-	next     int
-	dtsPrev  int64
-	hasDTS   bool
+	desc    TrackDesc
+	tb      timebase.Timebase
+	samples []flatSample // fully resolved sample table
+	next    int
+	dtsPrev int64
+	hasDTS  bool
 }
 
 type flatSample struct {

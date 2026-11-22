@@ -138,4 +138,3 @@ func (cp *Checkpoint) Verify(inputHash, mappingHash string) error {
 	}
 	return nil
 }
-

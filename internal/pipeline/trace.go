@@ -32,12 +32,12 @@ type TraceEntry struct {
 // It deliberately stores only media-derived identifiers, never host paths
 // beyond the sandboxed work directory or any environment-sensitive data.
 type Manifest struct {
-	InputHash   string             `json:"input_hash"`
-	MappingHash string             `json:"mapping_hash"`
-	OutputHash  string             `json:"output_hash"`
-	Mappings    []map[string]string `json:"track_mappings"`
+	InputHash   string                         `json:"input_hash"`
+	MappingHash string                         `json:"mapping_hash"`
+	OutputHash  string                         `json:"output_hash"`
+	Mappings    []map[string]string            `json:"track_mappings"`
 	Decisions   map[string][]metadata.Decision `json:"metadata_decisions"`
-	Entries     []TraceEntry       `json:"entries"`
+	Entries     []TraceEntry                   `json:"entries"`
 }
 
 // Trace accumulates provenance entries in a thread-safe way. Entries are
