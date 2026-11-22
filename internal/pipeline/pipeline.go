@@ -151,6 +151,9 @@ func (p *Pipeline) NoteExternal(e model.Event) { p.addEvent(e) }
 // Queue 暴露有界队列供消费者读取。
 func (p *Pipeline) Queue() *BoundedQueue { return p.queue }
 
+// Config 返回管线的固定有界资源配置。
+func (p *Pipeline) Config() Config { return p.cfg }
+
 // Recoverer 暴露恢复器以读取恢复率。
 func (p *Pipeline) Recoverer() *Recoverer { return p.recoverer }
 
