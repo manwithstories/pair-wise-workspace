@@ -46,6 +46,10 @@ type trackBuffer struct {
 	// pendingGaps counts missing sequences skipped since the last
 	// emitted event; attached to the next real event.
 	pendingGaps uint32
+	// primed becomes true once the window has filled for the first
+	// time; until then nothing is emitted, so packets reordered at
+	// stream start are not mistaken for late arrivals.
+	primed bool
 
 	Dups    int
 	TooLate int
@@ -72,6 +76,12 @@ func (b *trackBuffer) push(ev *Event, fl *fault.List) []*Event {
 		b.next = ev.ExtSeq
 	}
 	if ev.ExtSeq < b.next {
+		if !b.primed {
+			// Still priming: nothing has been emitted, so the sequence
+			// base can move backwards to cover startup reordering.
+			b.next = ev.ExtSeq
+			return b.insert(ev, fl)
+		}
 		// Late arrival: exact duplicate or out-of-window packet.
 		if h, ok := b.recent[ev.ExtSeq]; ok && h == ev.Hash {
 			b.Dups++
@@ -104,6 +114,13 @@ func (b *trackBuffer) insert(ev *Event, fl *fault.List) []*Event {
 		return nil
 	}
 	b.slots[slot] = ev
+	if !b.primed {
+		max, _ := b.ext.MaxExtended()
+		if max-b.next+1 < b.window {
+			return nil
+		}
+		b.primed = true
+	}
 	return b.drain()
 }
 
