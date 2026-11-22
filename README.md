@@ -54,7 +54,8 @@ journal.
   `manifest_alignment_ms` at 0, bitrate on target, index digest stable.
 - **corrupt** — a truncated element, a timestamp regression and a duplicate
   timestamp in the source, plus burst loss, duplication and reordering on the
-  wire. Every defect is reported with its module, kind and source offset. The
+  wire. Lost packets lower `quality_psnr_db` (a lost packet is scored against
+  the maximum error) and leave explicit `missing_frames`. Every defect is reported with its module, kind and source offset. The
   same defects propagate across EBML, timeline and transport in one report.
 - **interrupted** — the run stops after committing the index stage and leaves
   a prepared-but-uncommitted manifest plus a torn journal tail.

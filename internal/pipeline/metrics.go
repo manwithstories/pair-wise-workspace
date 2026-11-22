@@ -132,7 +132,14 @@ func qualityStats(wire *fixture.Wire, res transport.Result) verify.QualityStats 
 	for _, ref := range wire.Reference {
 		got, ok := gotBySeq[ref.Seq]
 		if !ok || lost[ref.Seq] {
+			// A lost packet is a real quality defect, not a sample to skip:
+			// score its full payload against the maximum error so PSNR drops
+			// as packets go missing instead of staying artificially perfect.
 			samples = append(samples, verify.Sample{Missing: true})
+			for i := 0; i+1 < len(ref.Payload); i += 2 {
+				a := int16(ref.Payload[i]) | int16(ref.Payload[i+1])<<8
+				samples = append(samples, verify.Sample{Ref: a, Got: -a})
+			}
 			continue
 		}
 		n := len(ref.Payload)
