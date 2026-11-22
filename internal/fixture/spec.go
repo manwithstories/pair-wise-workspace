@@ -24,6 +24,10 @@ type Spec struct {
 	// BoundaryJitterTicks is the per-segment VFR jitter applied at every
 	// segment boundary, compensated within the following segment.
 	BoundaryJitterTicks int
+	// JitterSeed drives boundary jitter. All representations of one asset
+	// share it so boundaries stay on a common clock; other fields still
+	// vary per representation via Seed.
+	JitterSeed int64
 	// KeyframeEveryN marks a keyframe every N segments; 1 means every
 	// boundary (dense), larger values produce sparse keyframes.
 	KeyframeEveryN int
@@ -47,6 +51,7 @@ func DefaultSpec(id string, seed int64, duration, segment media.Ticks) Spec {
 		BoundaryJitterTicks: 1,
 		KeyframeEveryN:      1,
 		EditStartTicks:      media.FromSeconds(1) / 2, // 0.5s non-zero start
+		JitterSeed:          seed, // shared across reps: common boundaries
 	}
 }
 

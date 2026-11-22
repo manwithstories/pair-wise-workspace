@@ -100,3 +100,16 @@ func readFull(f *os.File, buf []byte) (int, error) {
 	}
 	return got, nil
 }
+
+// VideoTrack returns the parsed video track index, or nil.
+func (idx *FileIndex) VideoTrack() *TrackIndex { return idx.videoTrack() }
+
+// TrackByID returns the track with the requested id.
+func (idx *FileIndex) TrackByID(id uint32) *TrackIndex {
+	for i := range idx.Tracks {
+		if idx.Tracks[i].TrackID == id {
+			return &idx.Tracks[i]
+		}
+	}
+	return nil
+}

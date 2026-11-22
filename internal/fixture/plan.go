@@ -16,7 +16,7 @@ func BuildPlan(s Spec) *Plan {
 	step := media.Ticks(media.ClockRate) / media.Ticks(s.VideoRate) // 3600 @25fps
 	segLen := int(s.SegmentTicks / step)                            // samples per segment
 	nSeg := int(s.DurationTicks / s.SegmentTicks)
-	rng := rngBytes(s.Seed)
+	rng := rngBytes(s.JitterSeed)
 
 	// 1. Video samples: each segment is laid out at constant nominal step;
 	// the final sample absorbs the boundary jitter so the next boundary can
