@@ -28,6 +28,9 @@ type RunParams struct {
 	OutDir         string
 	Resume         bool
 	MaxOutBytes    int64 // 0 selects the default hard limit
+	// ClockJumpTrack injects an RTCP clock jump on one track (-1
+	// disables); exercises the drift-isolation path end to end.
+	ClockJumpTrack int
 }
 
 // digest hashes the parameters that affect output content. Worker and
@@ -39,7 +42,8 @@ func (p RunParams) digest() string {
 		Packets int     `json:"packets"`
 		Loss    float64 `json:"loss"`
 		Window  int     `json:"reorder_window"`
-	}{p.Seed, p.Tracks, p.Packets, p.Loss, p.ReorderWindow}
+		Jump    int     `json:"clock_jump_track"`
+	}{p.Seed, p.Tracks, p.Packets, p.Loss, p.ReorderWindow, p.ClockJumpTrack}
 	b, _ := json.Marshal(canonical)
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
@@ -69,7 +73,7 @@ func (p RunParams) genOptions() (rtpstream.GenOptions, error) {
 		DupRate:          0.01,
 		CorruptRate:      0.005,
 		ReorderWindow:    p.ReorderWindow,
-		ClockJumpTrack:   -1,
+		ClockJumpTrack:   p.ClockJumpTrack,
 		ClockJumpSeconds: 2,
 		TailLoss:         4,
 		TruncateTail:     3,

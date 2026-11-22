@@ -63,6 +63,7 @@ func runDemo(ctx context.Context, args []string) int {
 	fs.StringVar(&p.CheckpointPath, "checkpoint", "./tmp/checkpoint.json", "checkpoint path")
 	fs.StringVar(&p.OutDir, "out", "./tmp/out", "output directory")
 	fs.BoolVar(&p.Resume, "resume", false, "resume from checkpoint")
+	fs.IntVar(&p.ClockJumpTrack, "clock-jump-track", -1, "inject RTCP clock jump on track (-1 disables)")
 	if err := fs.Parse(args); err != nil {
 		return 1
 	}

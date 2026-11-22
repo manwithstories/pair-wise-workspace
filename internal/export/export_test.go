@@ -24,6 +24,7 @@ func testParams(dir string) RunParams {
 		Queue:          256,
 		CheckpointPath: filepath.Join(dir, "checkpoint.json"),
 		OutDir:         filepath.Join(dir, "out"),
+		ClockJumpTrack: -1,
 	}
 }
 
