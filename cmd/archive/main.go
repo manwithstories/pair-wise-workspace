@@ -5,6 +5,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -90,6 +91,11 @@ func cmdDemo(args []string) int {
 	if err != nil {
 		return fail(err)
 	}
+	// Record the drill parameters so resume reproduces the same RTP
+	// metrics as the original demo run.
+	if err := saveState(o); err != nil {
+		return fail(err)
+	}
 	fmt.Printf("root=%s\n", lay.Root)
 	fmt.Printf("corrupt=%s segments=%d\n", orNone(o.corrupt), o.segments)
 
@@ -117,7 +123,7 @@ func cmdDemo(args []string) int {
 		return fail(err)
 	}
 	if res.Exit == pipeline.ExitRecovered {
-		fmt.Printf("first_bad_segment=%s recoverable_segments=%d\n", res.FirstBad, res.Committed)
+		fmt.Printf("first_bad_segment=%s recoverable_segments=%d\n", res.FirstBad, len(res.Entries))
 	}
 	return res.Exit
 }
@@ -166,6 +172,10 @@ func cmdResume(args []string) int {
 		fmt.Fprintln(os.Stderr, "archive resume: no manifest at root; run demo first")
 		return pipeline.ExitFailure
 	}
+	state, err := loadState(root)
+	if err != nil {
+		return fail(err)
+	}
 	res, err := pipeline.Run(pipeline.Config{Root: root, Manifest: manifest, InterruptAfter: -1})
 	if err != nil {
 		return fail(err)
@@ -176,14 +186,62 @@ func cmdResume(args []string) int {
 	if err != nil {
 		return fail(err)
 	}
-	printReport(rep, rtp.Result{})
+	rtpN, inj := rtpPlan(state.Segments, state.LossEvery)
+	rtpRes, err := rtp.Recover(rtpN, rtp.Build(rtpN, inj))
+	if err != nil {
+		return fail(err)
+	}
+	printReport(rep, rtpRes)
 	if err := metrics.WriteJSON(root, rep); err != nil {
 		return fail(err)
 	}
 	if res.Exit == pipeline.ExitRecovered {
-		fmt.Printf("first_bad_segment=%s recoverable_segments=%d\n", res.FirstBad, res.Committed)
+		fmt.Printf("first_bad_segment=%s recoverable_segments=%d\n", res.FirstBad, len(res.Entries))
 	}
 	return res.Exit
+}
+
+// runState persists the demo parameters needed for resume to reproduce
+// the same RTP drill without new flags.
+type runState struct {
+	Segments  int    `json:"segments"`
+	LossEvery int    `json:"loss_every"`
+	Corrupt   string `json:"corrupt,omitempty"`
+}
+
+func statePath(root string) string { return filepath.Join(root, "work", "demo.json") }
+
+func saveState(o demoOpts) error {
+	raw, err := json.Marshal(runState{Segments: o.segments, LossEvery: o.lossEvery, Corrupt: o.corrupt})
+	if err != nil {
+		return fault.Wrap(fault.Fatal, "demo", o.root, err)
+	}
+	dir := filepath.Join(o.root, "work")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fault.Wrap(fault.Fatal, "demo", dir, err)
+	}
+	tmp := filepath.Join(dir, "demo.json.tmp")
+	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
+		return fault.Wrap(fault.Fatal, "demo", tmp, err)
+	}
+	return os.Rename(tmp, statePath(o.root))
+}
+
+// loadState tolerates a missing file: an archive from an older demo
+// still resumes, just without the RTP drill parameters.
+func loadState(root string) (runState, error) {
+	raw, err := os.ReadFile(statePath(root))
+	if os.IsNotExist(err) {
+		return runState{}, nil
+	}
+	if err != nil {
+		return runState{}, fault.Wrap(fault.Fatal, "resume", root, err)
+	}
+	var st runState
+	if err := json.Unmarshal(raw, &st); err != nil {
+		return runState{}, fault.Wrap(fault.Fatal, "resume", root, err)
+	}
+	return st, nil
 }
 
 // rtpPlan chooses the synthetic RTP sequence size and faults. The
