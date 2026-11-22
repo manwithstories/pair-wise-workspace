@@ -121,6 +121,15 @@ func NewBlockReader(rd *Reader) *BlockReader {
 	return &BlockReader{rd: rd, faults: rd.Faults()}
 }
 
+// NewBlockReaderWithFaults wires a block reader with an explicit fault sink,
+// which may differ from the reader's (or be the same set).
+func NewBlockReaderWithFaults(rd *Reader, fs *fault.Set) *BlockReader {
+	return &BlockReader{rd: rd, faults: fs}
+}
+
+// Blocks returns the blocks accumulated so far, in document order.
+func (b *BlockReader) Blocks() []*Block { return b.blocks }
+
 // Header returns metadata discovered so far.
 func (b *BlockReader) Header() Header { return b.header }
 

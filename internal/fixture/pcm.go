@@ -16,11 +16,8 @@ type RawAudio struct {
 
 	// Sine is the partial state that keeps phase continuous across blocks.
 	Phase float64
-	Freq  Hz
+	Freq  float64
 }
-
-// Hz is a frequency in hertz.
-type Hz float64
 
 func (r *RawAudio) Next(frames int) []int16 {
 	out := make([]int16, frames*int(r.Channels))
