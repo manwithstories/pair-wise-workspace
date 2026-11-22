@@ -231,3 +231,15 @@ func Standard(bitrate int, frames int) Spec {
 
 // RepName is the canonical fixture file name of a representation.
 func RepName(i int) string { return fmt.Sprintf("rep%d.mp4", i+1) }
+
+// MoovSize returns the byte length of the moov box of a built spec,
+// for placing truncation points precisely.
+func MoovSize(spec Spec) int {
+	full := Build(spec)
+	for i := 0; i+8 <= len(full); i++ {
+		if string(full[i+4:i+8]) == "moov" {
+			return len(full) - i
+		}
+	}
+	return 0
+}
