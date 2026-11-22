@@ -4,11 +4,11 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
-	"sort"
 	"testing"
 
 	"github.com/pion/rtp"
 
+	"mediascan/internal/checkpoint"
 	"mediascan/internal/clock"
 	"mediascan/internal/fault"
 	"mediascan/internal/pipeline"
@@ -153,26 +153,48 @@ func TestInterruptAndResume(t *testing.T) {
 		t.Fatalf("first run segments = %d, want 2", len(first.Segments))
 	}
 
-	// Resume without an interrupt limit processes the remaining three.
+	// Resume without an interrupt limit processes the remaining three and
+	// reconstructs the two already-verified segments from the checkpoint.
 	second, err := pipeline.Run(dir, inputs, params(), 0)
 	if err != nil {
 		t.Fatalf("resume failed: %v", err)
 	}
-	if len(second.Segments) != 3 {
-		t.Fatalf("resume segments = %d, want 3", len(second.Segments))
+	if len(second.Segments) != len(inputs) {
+		t.Fatalf("resume must recover all segments: got %d, want %d",
+			len(second.Segments), len(inputs))
+	}
+	if second.Interrupted {
+		t.Fatal("completed resume must not be marked interrupted")
 	}
 
-	// A complete uninterrupted run against fresh state for comparison.
+	// A complete uninterrupted run against fresh state for comparison. The
+	// resumed report must be byte-for-byte identical once fully reconstructed.
 	full, err := pipeline.Run(t.TempDir(), inputs, params(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Reconstructed full segment list must equal the uninterrupted scan.
-	if len(second.Segments)+len(first.Segments) != len(full.Segments) {
+	if len(second.Segments) != len(full.Segments) {
 		t.Fatal("resume must recover all readable segments")
 	}
-	if sum(merge(first, second)) != sum(full) {
+	if sum(second) != sum(full) {
 		t.Fatal("resumed report checksum must match uninterrupted run")
+	}
+}
+
+// TestCheckpointStaysOnVerifiedBoundary ensures an interrupted run never
+// persists a cursor past the segments it actually verified.
+func TestCheckpointStaysOnVerifiedBoundary(t *testing.T) {
+	dir := t.TempDir()
+	inputs := makeFixtures(t)
+	if _, err := pipeline.Run(dir, inputs, params(), 2); err != pipeline.ErrInterrupted {
+		t.Fatal(err)
+	}
+	store, err := checkpoint.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.CursorIndex != 2 || len(store.SegmentDetails) != 2 || len(store.Faults) == 0 {
+		t.Fatalf("checkpoint must hold exactly the two verified segments: %+v", store)
 	}
 }
 
@@ -212,43 +234,7 @@ func TestRejectsOversizedInput(t *testing.T) {
 	}
 }
 
-// sortFaults mirrors the pipeline's deterministic fault ordering.
-func sortFaults(fs []fault.Fault) {
-	sort.SliceStable(fs, func(i, j int) bool {
-		a, b := fs[i], fs[j]
-		if a.Source != b.Source {
-			return a.Source < b.Source
-		}
-		if a.Offset != b.Offset {
-			return a.Offset < b.Offset
-		}
-		if a.Stage != b.Stage {
-			return a.Stage < b.Stage
-		}
-		return a.Message < b.Message
-	})
-}
-
 // sum returns the deterministic report checksum for a result.
 func sum(r *pipeline.Result) string {
 	return report.Build(r).SHA256
-}
-
-// merge concatenates two partial results (interrupted run + resumed run) in
-// segment order so the combined report can be compared checksum-for-checksum
-// against an uninterrupted scan.
-func merge(a, b *pipeline.Result) *pipeline.Result {
-	out := &pipeline.Result{
-		Params:            a.Params,
-		Fingerprints:      a.Fingerprints,
-		Segments:          append(append([]pipeline.SegmentReport{}, a.Segments...), b.Segments...),
-		Faults:            append(append([]fault.Fault{}, a.Faults...), b.Faults...),
-		RecoveredSegments: a.RecoveredSegments + b.RecoveredSegments,
-		KeyframeGapTotal:  a.KeyframeGapTotal + b.KeyframeGapTotal,
-		// The merged report represents one complete scan, just like the
-		// uninterrupted reference run.
-		Interrupted: false,
-	}
-	sortFaults(out.Faults)
-	return out
 }

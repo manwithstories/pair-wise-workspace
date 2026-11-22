@@ -13,6 +13,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"mediascan/internal/fault"
 )
 
 // Stage names used in the persisted cursor.
@@ -41,6 +43,16 @@ type Store struct {
 	CursorStage string    `json:"cursor_stage"`
 	CursorIndex int       `json:"cursor_index"`
 	Segments    []Segment `json:"segments"`
+	// SegmentDetails holds full JSON-encoded per-segment reports so a
+	// resumed run reconstructs a report byte-identical to a full run.
+	SegmentDetails []json.RawMessage `json:"segment_details"`
+	// Faults accumulated over every verified segment, in append order. The
+	// pipeline re-sorts them deterministically when rendering a report.
+	Faults []fault.Fault `json:"faults"`
+	// Recovered counts the verified segments that carried recoverable damage.
+	Recovered int `json:"recovered"`
+	// KeyframeGaps aggregates keyframe gap counts across verified segments.
+	KeyframeGaps int `json:"keyframe_gaps"`
 	// Params captures run parameters that affect output, so resuming with
 	// different options also refuses the stale checkpoint.
 	Params string `json:"params"`
@@ -144,5 +156,27 @@ func (s *Store) AppendSegment(dir string, seg Segment) error {
 	s.Segments = append(s.Segments, seg)
 	s.CursorStage = seg.Stage
 	s.CursorIndex = len(s.Segments)
+	return s.Save(dir)
+}
+
+// RecordVerified persists one fully verified segment together with its
+// complete report payload, faults and aggregates. The cursor is only moved
+// after all data for the segment has been appended, so a crash can never
+// leave a cursor ahead of the data that justifies it.
+func (s *Store) RecordVerified(dir string, seg Segment, detail any, flts []fault.Fault,
+	recovered bool, keyframeGaps int) error {
+	raw, err := json.Marshal(detail)
+	if err != nil {
+		return fmt.Errorf("encode segment detail: %w", err)
+	}
+	if err := s.AppendSegment(dir, seg); err != nil {
+		return err
+	}
+	s.SegmentDetails = append(s.SegmentDetails, raw)
+	s.Faults = append(s.Faults, flts...)
+	if recovered {
+		s.Recovered++
+	}
+	s.KeyframeGaps += keyframeGaps
 	return s.Save(dir)
 }

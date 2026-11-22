@@ -6,6 +6,7 @@
 package pipeline
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -100,11 +101,42 @@ func Run(dir string, inputs []Input, params Params, interruptAfter int) (*Result
 	}
 
 	res := &Result{Params: params, Fingerprints: fps}
-	startIndex := store.CursorIndex // verified segments skipped on resume
+
+	// Resume: reconstruct the already-verified portion from the checkpoint
+	// so the rendered report covers every segment, not just newly scanned
+	// ones. Only verified segment boundaries are ever persisted, so the
+	// restored data is complete by construction.
+	startIndex := store.CursorIndex
+	if startIndex > len(inputs) {
+		return nil, errors.New("checkpoint cursor exceeds current input list")
+	}
+	for i := 0; i < startIndex; i++ {
+		if i >= len(store.SegmentDetails) {
+			return nil, errors.New("checkpoint missing persisted segment detail")
+		}
+		var seg SegmentReport
+		if err := json.Unmarshal(store.SegmentDetails[i], &seg); err != nil {
+			return nil, fmt.Errorf("decode verified segment %d: %w", i, err)
+		}
+		res.Segments = append(res.Segments, seg)
+	}
+	res.Faults = append(res.Faults, store.Faults...)
+	res.RecoveredSegments = store.Recovered
+	res.KeyframeGapTotal = store.KeyframeGaps
+
 	processed := 0
 	for i := startIndex; i < len(inputs); i++ {
 		seg, flts, err := scanOne(i, inputs[i], params)
 		if err != nil {
+			return nil, err
+		}
+		cpSeg := checkpoint.Segment{
+			ID: fmt.Sprintf("seg-%d", i), Source: inputs[i].Path,
+			Start: seg.Start, End: seg.End, Stage: checkpoint.StageVerify,
+		}
+		// Persist the complete verified segment before touching the in-memory
+		// result, so the cursor never runs ahead of durable data.
+		if err := store.RecordVerified(dir, cpSeg, seg, flts, seg.Recovered, seg.KeyframeGaps); err != nil {
 			return nil, err
 		}
 		res.Faults = append(res.Faults, flts...)
@@ -112,14 +144,6 @@ func Run(dir string, inputs []Input, params Params, interruptAfter int) (*Result
 			res.RecoveredSegments++
 		}
 		res.KeyframeGapTotal += seg.KeyframeGaps
-		// Cursor advances only after the whole segment is verified.
-		cpSeg := checkpoint.Segment{
-			ID: fmt.Sprintf("seg-%d", i), Source: inputs[i].Path,
-			Start: seg.Start, End: seg.End, Stage: checkpoint.StageVerify,
-		}
-		if err := store.AppendSegment(dir, cpSeg); err != nil {
-			return nil, err
-		}
 		res.Segments = append(res.Segments, seg)
 		processed++
 		if interruptAfter > 0 && processed >= interruptAfter {
