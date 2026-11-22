@@ -71,3 +71,8 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# 本地构建产物
+/mediad
+/cmd/mediad/mediad
+*.test
