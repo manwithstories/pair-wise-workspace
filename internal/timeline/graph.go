@@ -86,14 +86,20 @@ func (tl *Timeline) Track(id string) *TrackTimeline {
 
 // AlignmentMs returns the maximum absolute difference of track start
 // times between two timelines, matched by track ID, in milliseconds.
+// Leading gap segments (declared offsets) are skipped.
 func AlignmentMs(a, b *Timeline) float64 {
 	maxDiff := 0.0
 	for _, ta := range a.Tracks {
 		tb := b.Track(ta.Meta.ID)
-		if tb == nil || len(ta.Segments) == 0 || len(tb.Segments) == 0 {
+		if tb == nil {
 			continue
 		}
-		diff, err := ta.Segments[0].Start.Sub(tb.Segments[0].Start)
+		sa, okA := firstMedia(ta.Segments)
+		sb, okB := firstMedia(tb.Segments)
+		if !okA || !okB {
+			continue
+		}
+		diff, err := sa.Start.Sub(sb.Start)
 		if err != nil {
 			continue
 		}
@@ -102,6 +108,15 @@ func AlignmentMs(a, b *Timeline) float64 {
 		}
 	}
 	return maxDiff
+}
+
+func firstMedia(segs []TSegment) (TSegment, bool) {
+	for _, s := range segs {
+		if !s.Gap {
+			return s, true
+		}
+	}
+	return TSegment{}, false
 }
 
 func abs(x float64) float64 {

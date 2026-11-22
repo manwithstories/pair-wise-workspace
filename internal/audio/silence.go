@@ -86,6 +86,24 @@ func (d *Detector) closeRun(endWin int64) error {
 	return nil
 }
 
+// Skip advances the timeline over a hole of n samples without
+// analyzing it; n must be a whole number of windows. An open silent
+// run is closed before the hole so holes never extend silence.
+func (d *Detector) Skip(n int) error {
+	if n <= 0 || n%d.p.WindowSamples != 0 {
+		return clock.At(clock.CodeManifestInvalid, "silence", "", -1,
+			"skip %d samples is not a whole number of %d-sample windows", n, d.p.WindowSamples)
+	}
+	d.buf = nil
+	if d.runFrom >= 0 {
+		if err := d.closeRun(d.win); err != nil {
+			return clock.Wrap(clock.CodeTickOverflow, "silence", err)
+		}
+	}
+	d.win += int64(n / d.p.WindowSamples)
+	return nil
+}
+
 // Finish closes any open silent run and returns all segments. The
 // buffered tail (shorter than one window) is discarded unreported.
 func (d *Detector) Finish() ([]Segment, error) {

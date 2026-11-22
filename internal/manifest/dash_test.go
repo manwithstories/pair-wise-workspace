@@ -32,19 +32,22 @@ func TestParseDASHTimeline(t *testing.T) {
 		t.Fatalf("bad playlist: %+v", pl)
 	}
 	segs := pl.Tracks[0].Segments
-	// 2 segments + 1 hole + 2 segments
-	if len(segs) != 5 {
-		t.Fatalf("got %d segments, want 5: %+v", len(segs), segs)
+	// leading offset gap + 2 segments + 1 hole + 2 segments
+	if len(segs) != 6 {
+		t.Fatalf("got %d segments, want 6: %+v", len(segs), segs)
 	}
-	if segs[0].URI != "v_01.m4s" || segs[0].Dur != clock.Must(2, 1) {
-		t.Fatalf("bad first segment: %+v", segs[0])
+	if !segs[0].Gap || segs[0].Dur != clock.Must(1, 50) {
+		t.Fatalf("leading offset should be a 20ms gap: %+v", segs[0])
+	}
+	if segs[1].URI != "v_01.m4s" || segs[1].Dur != clock.Must(2, 1) {
+		t.Fatalf("bad first segment: %+v", segs[1])
 	}
 	// hole = 378000/90000 - (1800/90000 + 2*2s) = 4.2 - 4.02 = 0.18s
-	if !segs[2].Gap || segs[2].Dur != clock.Must(9, 50) {
-		t.Fatalf("hole should be 0.18s gap: %+v", segs[2])
+	if !segs[3].Gap || segs[3].Dur != clock.Must(9, 50) {
+		t.Fatalf("hole should be 0.18s gap: %+v", segs[3])
 	}
-	if segs[3].URI != "v_03.m4s" {
-		t.Fatalf("bad URI after hole: %q", segs[3].URI)
+	if segs[4].URI != "v_03.m4s" {
+		t.Fatalf("bad URI after hole: %q", segs[4].URI)
 	}
 }
 

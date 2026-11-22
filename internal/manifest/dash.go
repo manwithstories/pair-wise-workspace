@@ -122,6 +122,11 @@ func dashTimelineSegments(trackID string, tpl segmentTemplateXML) ([]Segment, er
 				return nil, clock.Wrap(clock.CodeTickOverflow, op, err)
 			}
 		}
+		if !started && start.Sign() > 0 {
+			// Leading offset: keep it explicit so cross-manifest
+			// alignment can be measured.
+			segs = append(segs, Segment{Index: 0, Dur: start, Gap: true})
+		}
 		if started && start.Cmp(prevEnd) > 0 {
 			// Hole between runs: keep it explicit so statistics can
 			// exclude it from the effective media duration.
