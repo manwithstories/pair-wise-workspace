@@ -112,7 +112,7 @@ func (*AAC) Describe(tag string, config []byte, rate, channels, _ int) (Descript
 		return Description{}, media.NewError(media.CodeUnsupportedCodec, -1, 0,
 			"AAC object type uses escape form, unsupported")
 	}
-	if aot != 2 && aot != 5 {
+	if aot != 2 {
 		return Description{}, media.NewError(media.CodeUnsupportedCodec, -1, 0,
 			"AAC object type %d is not AAC-LC (2)", aot)
 	}

@@ -250,6 +250,10 @@ type processor struct {
 	blockIndex int
 	// outFrame is the absolute output frame of the next block's first frame.
 	outFrame int64
+	// cursor is the number of input *frames* fully absorbed, which is
+	// what resume replays; SamplesIn counts interleaved samples for the
+	// operator-facing summary and must not be used as a frame cursor.
+	cursor int64
 }
 
 // replay reproduces the pipeline state at the checkpoint cursor, then keeps
@@ -300,7 +304,8 @@ func (p *processor) replay() error {
 	p.pending = append(p.pending[:0], p.pending[drop:]...)
 	p.blockIndex = p.cp.CompletedBlocks
 	p.outFrame = completedFrames(p.cp)
-	p.cp.SamplesIn = seen
+	p.cursor = seen
+	p.cp.SamplesIn = seen * int64(p.fmt.Channels)
 	return nil
 }
 
@@ -340,7 +345,8 @@ func (p *processor) stream() error {
 		}
 		consumed += frames
 		p.pending = p.rs.Push(out, p.pending)
-		p.cp.SamplesIn = consumed
+		p.cursor = consumed
+		p.cp.SamplesIn = consumed * int64(p.fmt.Channels)
 		if err := p.frameBlocks(); err != nil {
 			return err
 		}
@@ -456,7 +462,7 @@ func (p *processor) writeBlock(frames []float64) error {
 	p.cp.Blocks = append(p.cp.Blocks, rec)
 	p.cp.CompletedBlocks = len(p.cp.Blocks)
 	p.cp.FramesOut += int64(rec.Frames)
-	p.cp.Cursor = p.cp.SamplesIn
+	p.cp.Cursor = p.cursor
 	if !p.cp.HasPeak || stat.peakDBFS > p.cp.PeakDBFS {
 		p.cp.PeakDBFS = stat.peakDBFS
 		p.cp.HasPeak = true
