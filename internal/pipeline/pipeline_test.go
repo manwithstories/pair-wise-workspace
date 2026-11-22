@@ -303,3 +303,38 @@ func (f *fakeCloser) Write(p []byte) (int, error) { return len(p), nil }
 func (f *fakeCloser) Close() error                { f.closed = true; return f.err }
 
 var _ io.WriteCloser = (*fakeCloser)(nil)
+
+func TestSlowConsumerKeepsInflightBounded(t *testing.T) {
+	// A deliberately slow consumer must not let accepted work grow past
+	// queue+workers; this is the backpressure guarantee the spec requires.
+	p, err := New(context.Background(), Config{Workers: 2, Queue: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var seen int64
+	var wg sync.WaitGroup
+	const total = 40
+	wg.Add(total)
+	go func() {
+		for i := 0; i < total; i++ {
+			_, err := p.Submit(func(ctx context.Context) error {
+				time.Sleep(2 * time.Millisecond)
+				atomic.AddInt64(&seen, 1)
+				return nil
+			}, func(_ int64, _ error) { wg.Done() })
+			if err != nil {
+				t.Errorf("submit %d: %v", i, err)
+				break
+			}
+			if got := p.Stats().Peak; got > p.Stats().Limit() {
+				t.Errorf("peak %d exceeded limit %d", got, p.Stats().Limit())
+				break
+			}
+		}
+	}()
+	wg.Wait()
+	p.Close()
+	if got := atomic.LoadInt64(&seen); got != total {
+		t.Fatalf("ran=%d want %d", got, total)
+	}
+}
