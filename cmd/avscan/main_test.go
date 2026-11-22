@@ -1,9 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"avscan/internal/batch"
 )
 
 func TestDemoEndToEndAndResume(t *testing.T) {
@@ -37,6 +40,22 @@ func TestDemoEndToEndAndResume(t *testing.T) {
 	}
 	if string(first) != string(second) {
 		t.Error("resumed index bytes differ from the first run")
+	}
+	var rec batch.IndexRecord
+	if err := json.Unmarshal(first, &rec); err != nil {
+		t.Fatal(err)
+	}
+	kinds := map[string]bool{}
+	for _, f := range rec.Faults {
+		kinds[string(f.Kind)] = true
+	}
+	for _, want := range []string{"sample_offset_out_of_range", "rtp_sequence_gap", "missing_sync_samples"} {
+		if !kinds[want] {
+			t.Errorf("index faults missing kind %q; got %v", want, kinds)
+		}
+	}
+	if len(rec.DamageSegments) < 2 {
+		t.Errorf("damage segments = %d, want >= 2", len(rec.DamageSegments))
 	}
 }
 

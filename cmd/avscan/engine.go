@@ -124,12 +124,18 @@ func analyze(set fixture.DemoSet, indexPath string, blockSize int, resume bool) 
 	}
 	run.blocks = runner.Blocks()
 
+	// The index records every fault: global/box-level, RTP, alignment and the
+	// per-track parse/scan faults that damage segments are derived from.
+	allFaults := append([]model.Fault(nil), run.globals...)
+	for _, tr := range run.timeline.Tracks {
+		allFaults = append(allFaults, tr.ParseFaults...)
+	}
 	index := batch.IndexRecord{
 		InputDigest:    runnerDigest(summary),
 		BlockSize:      blockSize,
 		Blocks:         run.blocks,
 		DamageSegments: run.damage.Segments,
-		Faults:         run.globals,
+		Faults:         allFaults,
 	}
 	sum, err := batch.IndexSHA256(index)
 	if err != nil {
