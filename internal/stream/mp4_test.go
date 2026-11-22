@@ -2,6 +2,7 @@ package stream
 
 import (
 	"bytes"
+	"encoding/binary"
 	"testing"
 
 	"github.com/abema/go-mp4"
@@ -233,6 +234,27 @@ func TestAnalyzeMP4EmptyAndOversize(t *testing.T) {
 	}
 	if _, err := AnalyzeMP4(make([]byte, 100), Limits{MaxInputBytes: 10}); err == nil {
 		t.Error("oversized input accepted")
+	}
+}
+
+func TestAnalyzeMP4HugeSampleCountGuarded(t *testing.T) {
+	// A corrupt stsz declaring ~1e9 constant-size samples must be rejected
+	// without attempting a 4GB allocation.
+	data := buildMP4(t, []fixture.TrackSpec{videoSpec(4)})
+	idx := bytes.Index(data, []byte("stsz"))
+	if idx < 0 {
+		t.Fatal("no stsz in fixture")
+	}
+	// stsz payload: version/flags [idx+4:idx+8], sample_size [idx+8:idx+12],
+	// sample_count [idx+12:idx+16].
+	binary.BigEndian.PutUint32(data[idx+8:], 4242)        // sample_size != 0
+	binary.BigEndian.PutUint32(data[idx+12:], 0xF0000000) // huge count
+	fa, err := AnalyzeMP4(data, Limits{MaxSamples: 1000})
+	if err != nil {
+		t.Fatalf("guard should report an issue, not a bare error: %v", err)
+	}
+	if !fa.Issues.Fatal() {
+		t.Errorf("huge sample count not reported as fatal: %v", fa.Issues)
 	}
 }
 

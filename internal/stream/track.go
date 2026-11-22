@@ -55,25 +55,45 @@ func analyzeTrack(r io.ReadSeeker, t *trakBoxes, mdats []byteRange, limits Limit
 		tr.DurationNs = durNs
 	}
 
-	// Sample sizes.
+	// Sample sizes. A corrupt stsz can declare a huge SampleCount with a tiny
+	// payload (constant-size samples carry no per-sample entries for the
+	// parser to bound against), so the count is checked against the limit
+	// before any allocation.
 	var sizes []uint32
 	if t.stsz != nil {
 		stsz := &mp4.Stsz{}
 		if err := unmarshalAt(r, t.stsz, stsz); err == nil {
 			if stsz.SampleSize != 0 {
-				for i := uint32(0); i < stsz.SampleCount; i++ {
-					sizes = append(sizes, stsz.SampleSize)
+				if int64(stsz.SampleCount) > int64(limits.MaxSamples) {
+					issues.Add(media.NewFatal(media.ClassMP4BadStructure, media.Locator{TrackID: tr.TrackID, ByteOffset: int64(t.stsz.Offset)},
+						"stsz declares %d constant-size samples, limit is %d", stsz.SampleCount, limits.MaxSamples))
+					return tr, issues, nil
+				}
+				sizes = make([]uint32, stsz.SampleCount)
+				for i := range sizes {
+					sizes[i] = stsz.SampleSize
 				}
 			} else {
 				sizes = stsz.EntrySize
 			}
 		}
 	}
-	// Sample durations.
+	// Sample durations. stts entries are (count, delta) pairs; validate the
+	// summed count before expanding, for the same reason as stsz.
 	var deltas []uint32
 	if t.stts != nil {
 		stts := &mp4.Stts{}
 		if err := unmarshalAt(r, t.stts, stts); err == nil {
+			var total int64
+			for _, e := range stts.Entries {
+				total += int64(e.SampleCount)
+				if total > int64(limits.MaxSamples) {
+					issues.Add(media.NewFatal(media.ClassMP4BadStructure, media.Locator{TrackID: tr.TrackID, ByteOffset: int64(t.stts.Offset)},
+						"stts declares more than %d samples", limits.MaxSamples))
+					return tr, issues, nil
+				}
+			}
+			deltas = make([]uint32, 0, total)
 			for _, e := range stts.Entries {
 				for i := uint32(0); i < e.SampleCount; i++ {
 					deltas = append(deltas, e.SampleDelta)
