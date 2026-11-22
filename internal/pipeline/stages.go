@@ -329,3 +329,17 @@ func declaredExtents(h ebml.Header, blocks []*ebml.Block) []manifest.Declared {
 	}
 	return out
 }
+
+// skewDeclared shifts every declared boundary by skewMS milliseconds.  A
+// positive skew makes the checklist claim a later extent than the media
+// actually has, which verification must catch.
+func skewDeclared(in []manifest.Declared, skewMS float64) []manifest.Declared {
+	shift := clock.MustParseDecimal(fmt.Sprintf("%g", skewMS/1000.0))
+	out := make([]manifest.Declared, len(in))
+	for i, d := range in {
+		d.Start = d.Start.Add(shift)
+		d.End = d.End.Add(shift)
+		out[i] = d
+	}
+	return out
+}

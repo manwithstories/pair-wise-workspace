@@ -84,10 +84,11 @@ type Fault struct {
 	// Recoverable means the pipeline produced a usable, explicitly marked
 	// result rather than silently dropping data.
 	Recoverable bool `json:"recoverable"`
-	// Recovery marks an event produced while repairing the run's own state
-	// (journal tail truncation, rollback of an uncommitted stage).  Such
-	// events are reported but do not by themselves fail acceptance: a clean
-	// resume is a success, not damaged input.
+	// Recovery marks an event produced while managing the run's own resources
+	// (journal tail truncation, rollback of an uncommitted stage, spilling to
+	// disk under a memory budget).  Such events are reported but do not by
+	// themselves fail acceptance: a clean resume or a budgeted spill is
+	// expected behaviour, not damaged input.
 	Recovery bool `json:"recovery_event"`
 }
 

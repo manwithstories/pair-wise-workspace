@@ -41,6 +41,10 @@ type Config struct {
 	MemoryBudget int64
 	// Resume continues from an existing journal instead of a fresh run.
 	Resume bool
+	// ManifestSkewMS shifts the archive's declared track boundaries by this
+	// many milliseconds, simulating a checklist whose timeline has drifted
+	// from the media.  A skew beyond 1 ms must be rejected at commit.
+	ManifestSkewMS float64
 	// CrashOnInterrupt simulates an abrupt process death: the run stops after
 	// InterruptAfter without committing the next stage and leaves any pending
 	// temporary artifact and journal tail in place for recovery to clean up.
@@ -137,6 +141,11 @@ func Run(cfg Config) (*Report, error) {
 	// Timeline repair, carrying transport loss into the frame list.
 	tl := buildTimeline(header, blocks, res, wire)
 	tlResult := tl.Repair()
+
+	// Carry transport and timeline diagnoses into the run's fault set so the
+	// report locates damage across modules.
+	fs.AddAll(wireFaults)
+	fs.AddAll(tlResult.Faults)
 	if err := commitStage(mgr, adopted, txn.StageRepair, func() error {
 		return verifyRepair(tlResult)
 	}); err != nil {
@@ -160,15 +169,36 @@ func Run(cfg Config) (*Report, error) {
 	}
 
 	// Manifest: generate then verify within 1 ms before commit.
-	doc := manifest.Generate(tlResult.Tracks, declaredExtents(header, blocks), idx.Digest)
+	declared := declaredExtents(header, blocks)
+	if cfg.ManifestSkewMS != 0 {
+		declared = skewDeclared(declared, cfg.ManifestSkewMS)
+	}
+	doc := manifest.Generate(tlResult.Tracks, declared, idx.Digest)
 	align := manifest.Verify(doc, tlResult.Tracks)
 	if err := storeManifest(mgr, txn.StageManifest, dirs.out, doc, align.OK); err != nil {
 		// A verification failure is diagnosed damage: record its faults and
 		// refuse the commit with exit 2.  Infrastructure errors propagate.
 		if !align.OK {
 			fs.AddAll(align.Faults)
+			quality := qualityStats(wire, res)
+			rep.Stats = verify.Stats{
+				Quality:          quality,
+				Bitrate:          computeBitrate(plan, tlResult),
+				Tracks:           verify.Tracks(tlResult.Tracks, header.TrackOrder),
+				LostPackets:      res.Lost,
+				DuplicatePackets: res.Duplicates,
+				ReorderedPackets: res.Reordered,
+				TimestampRepairs: len(tlResult.Repairs),
+				IndexEntries:     len(idx.Entries),
+				IndexSHA256:      idx.Digest,
+				ManifestAlignMS:  align.MaxErrorMs,
+				RollbackCount:    mgr.Rollbacks(),
+				PacketLossRate:   res.LossRate(),
+			}
+			rep.Rollbacks = mgr.Rollbacks()
 			rep.Faults = fs.Faults()
 			rep.ExitCode = fs.ExitCode()
+			rep.Stages = append(rep.Stages, string(txn.StageParse), string(txn.StageRepair), string(txn.StageIndex))
 			return rep, nil
 		}
 		return rep, err
@@ -195,6 +225,8 @@ func Run(cfg Config) (*Report, error) {
 	rep.SidecarPath = filepath.Join(dirs.out, "index.mp4")
 	rep.Stages = append(rep.Stages, string(txn.StageIndex), string(txn.StageManifest))
 	rep.Determinism = rep.Stats.Signature()
+	rep.Rollbacks = mgr.Rollbacks()
+	rep.Faults = fs.Faults()
 	rep.ExitCode = fs.ExitCode()
 
 	// A run whose bitrate or quality target fails is diagnosed damage.
@@ -249,9 +281,6 @@ func maybeInterrupt(cfg Config, dirs runDirs, rep *Report, fs *fault.Set, mgr *t
 	}
 	fs.Add(fault.New(fault.ModuleTxn, fault.KindInterrupted, fault.NoOffset(),
 		fmt.Sprintf("run interrupted after committed stage %q; rerun with --resume to continue", stage)))
-	rep.Faults = fs.Faults()
-	rep.ExitCode = fs.ExitCode()
-	rep.Stages = append(rep.Stages, string(stage))
 	if cfg.CrashOnInterrupt {
 		// Leave a dangling temporary artifact from the next stage as an
 		// interrupted writer would.
@@ -262,6 +291,11 @@ func maybeInterrupt(cfg Config, dirs runDirs, rep *Report, fs *fault.Set, mgr *t
 			return true, err
 		}
 	}
+	rep.Faults = fs.Faults()
+	rep.ExitCode = fs.ExitCode()
+	rep.Rollbacks = mgr.Rollbacks()
+	rep.Stats.RollbackCount = mgr.Rollbacks()
+	rep.Stages = append(rep.Stages, string(stage))
 	return true, nil
 }
 

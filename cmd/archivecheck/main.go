@@ -43,6 +43,7 @@ type options struct {
 	reorder        int
 	duplicate      int
 	bandwidth      string
+	skewMS         float64
 	frames         int
 	interruptAfter string
 	resume         bool
@@ -84,6 +85,7 @@ func parseFlags(args []string) (options, error) {
 	fs.IntVar(&o.reorder, "reorder", 0, "adjacent packet swaps")
 	fs.IntVar(&o.duplicate, "duplicate", 0, "duplicated packets")
 	fs.StringVar(&o.bandwidth, "bandwidth-mbps", "2", "comma-separated Mbps samples")
+	fs.Float64Var(&o.skewMS, "manifest-skew-ms", 0, "corrupt path manifest skew in ms")
 	fs.IntVar(&o.frames, "frames", 60, "frames per track")
 	fs.StringVar(&o.interruptAfter, "interrupt-after", "", "stage to interrupt after")
 	fs.BoolVar(&o.resume, "resume", false, "resume an interrupted run")
@@ -142,17 +144,22 @@ func runDemo(args []string) int {
 
 	cfg := pipeline.Config{
 		Seed: o.seed, FrameCount: o.frames,
-		LossBurst: o.lossBurst, Reorder: o.reorder, Duplicate: o.duplicate,
 		BandwidthMbps: bw, MemoryBudget: o.memoryBytes,
 	}
 
-	// 1. Normal path.
+	// 1. Normal path: no injected damage beyond the bandwidth profile.
 	normal, err := pipeline.Run(withDir(cfg, base, "normal", false))
 	if err != nil {
 		return reportFailure("normal", err)
 	}
-	// 2. Corrupt path.
-	corrupt, err := pipeline.Run(withDir(cfg, base, "corrupt", true))
+	// 2. Corrupt path: truncation, timestamp damage, lost/duplicated/reordered
+	// packets, all carried together.
+	corruptCfg := withDir(cfg, base, "corrupt", true)
+	corruptCfg.LossBurst = o.lossBurst
+	corruptCfg.Reorder = o.reorder
+	corruptCfg.Duplicate = o.duplicate
+	corruptCfg.ManifestSkewMS = o.skewMS
+	corrupt, err := pipeline.Run(corruptCfg)
 	if err != nil {
 		return reportFailure("corrupt", err)
 	}
@@ -176,24 +183,18 @@ func runDemo(args []string) int {
 		return reportFailure("resume", err)
 	}
 
-	for _, r := range []*pipeline.Report{normal, corrupt, interrupted, resumed} {
-		if r.ExitCode == fault.ExitIntegrity {
-			return fault.ExitIntegrity
-		}
-	}
-
 	if o.jsonOut {
 		return emitJSON(map[string]any{
 			"normal": normal, "corrupt": corrupt,
 			"interrupted": interrupted, "resumed": resumed,
-		}, chooseExit(normal, corrupt, resumed))
+		}, demoExit(normal, corrupt, interrupted, resumed))
 	}
 	printReport("normal", normal)
 	printReport("corrupt", corrupt)
 	printReport("interrupted", interrupted)
 	printReport("resumed", resumed)
 	printDeterminism(normal, resumed)
-	return chooseExit(normal, corrupt, resumed)
+	return demoExit(normal, corrupt, interrupted, resumed)
 }
 
 // withDir builds a per-path config rooted in its own directory.
@@ -234,7 +235,7 @@ func runVerify(args []string) int {
 		return reportFailure("verify", err)
 	}
 	if o.jsonOut {
-		return emitJSON(rep, chooseExit(rep))
+		return emitJSON(rep, rep.ExitCode)
 	}
 	printReport("verify", rep)
 	problems := acceptance(rep)
@@ -270,14 +271,26 @@ func acceptance(rep *pipeline.Report) []string {
 	return out
 }
 
-func chooseExit(reports ...*pipeline.Report) int {
-	worst := fault.ExitOK
-	for _, r := range reports {
-		if r.ExitCode > worst {
-			worst = r.ExitCode
+// demoExit reports success when every path behaved as designed: the normal
+// and resumed runs are clean, the corrupt run was diagnosed (exit 2), and the
+// interrupted run stopped with a resumable journal.  Any integrity failure
+// (exit 3) or unexpected clean/damaged mismatch is an integrity failure.
+func demoExit(normal, corrupt, interrupted, resumed *pipeline.Report) int {
+	for _, r := range []*pipeline.Report{normal, corrupt, interrupted, resumed} {
+		if r.ExitCode == fault.ExitIntegrity {
+			return fault.ExitIntegrity
 		}
 	}
-	return worst
+	ok := normal.ExitCode == fault.ExitOK &&
+		corrupt.ExitCode == fault.ExitDamaged &&
+		interrupted.ExitCode == fault.ExitDamaged &&
+		resumed.ExitCode == fault.ExitOK
+	if !ok {
+		fmt.Fprintf(os.Stderr, "archivecheck: paths did not behave as designed: normal=%d corrupt=%d interrupted=%d resumed=%d\n",
+			normal.ExitCode, corrupt.ExitCode, interrupted.ExitCode, resumed.ExitCode)
+		return fault.ExitIntegrity
+	}
+	return fault.ExitOK
 }
 
 func reportFailure(path string, err error) int {

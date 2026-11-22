@@ -159,7 +159,8 @@ func (m *Manager) recover(recs []journal.Record) (map[Stage]Artifact, error) {
 					fmt.Sprintf("stage %q was committed but its artifact no longer verifies; marked for redo", n)).Fatal())
 			}
 		case s.lastOp == journal.OpPrepare || s.lastOp == journal.OpBegin:
-			// Prepared but never committed: remove any temp artifact.
+			// Prepared but never committed: remove the dangling artifact left
+			// by the interrupted writer and count the rollback.
 			m.rollback(n, "prepared without commit")
 		}
 	}
@@ -345,12 +346,15 @@ func (m *Manager) CrashAfter(stage Stage) error {
 	if next == "" {
 		return nil
 	}
+	// A prepare reached disk but the commit did not: exactly the window a
+	// crash can land in.  Recovery truncates the torn tail that follows and
+	// rolls back this uncommitted stage, so the next run recomputes it.  No
+	// rollback is counted here because nothing has been rolled back yet; the
+	// resumed run accounts for it once.
 	prep, _ := json.Marshal(Artifact{Stage: next, Path: filepath.Join(m.out, string(next)+".artifact")})
-	_, err := m.wal.Append(journal.Record{Stage: string(next), Op: journal.OpPrepare, Payload: prep, Digest: "interrupted"})
-	if err != nil {
+	if _, err := m.wal.Append(journal.Record{Stage: string(next), Op: journal.OpPrepare, Payload: prep, Digest: "interrupted"}); err != nil {
 		return err
 	}
-	// Write a torn tail: the length prefixes a record whose body is cut short.
 	return m.wal.AppendTorn([]byte(`{"seq":0,"stage":"` + string(next) + `"`))
 }
 
