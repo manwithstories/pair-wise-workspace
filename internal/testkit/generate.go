@@ -54,9 +54,11 @@ type Clip struct {
 	Path    string
 	Size    int64
 	Samples int
-	payload []byte
-	offsets []int64
-	sizes   []int
+	// MdatOffset is the byte offset of the mdat box header.
+	MdatOffset int64
+	// FirstSampleOffset is the byte offset of the first sample payload.
+	FirstSampleOffset int64
+	payload           []byte
 }
 
 // GenerateClip writes a minimal but structurally valid MP4 (ftyp + mdat +
@@ -74,7 +76,15 @@ func GenerateClip(dir string, spec ClipSpec) (*Clip, error) {
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return nil, err
 	}
-	return &Clip{Spec: spec, Path: path, Size: int64(len(data)), Samples: build.sampleCount, payload: build.payload}, nil
+	return &Clip{
+		Spec:              spec,
+		Path:              path,
+		Size:              int64(len(data)),
+		Samples:           build.sampleCount,
+		MdatOffset:        build.mdatOffset,
+		FirstSampleOffset: build.mdatOffset + 8,
+		payload:           build.payload,
+	}, nil
 }
 
 // MarkerObserved reports whether the on-disk sample at offset begins with the
@@ -103,6 +113,10 @@ type builder struct {
 	plans       [][]samplePlan
 	payload     []byte
 	sampleCount int
+	mdatPayload []byte
+	mdatOffset  int64
+	moov        []byte
+	mfra        []byte
 }
 
 func newBuilder(spec ClipSpec) *builder {
@@ -166,6 +180,7 @@ func u64(v uint64) []byte { b := make([]byte, 8); binary.BigEndian.PutUint64(b, 
 func (b *builder) assemble() []byte {
 	ftyp := box("ftyp", []byte("isom"), u32(0x200), []byte("isom"), []byte("iso6"), []byte("mp41"))
 	dataStart := len(ftyp) + 8
+	b.mdatOffset = int64(len(ftyp))
 	offsets, _ := b.chunkOffsets(dataStart)
 	moov := b.buildMoov(dataStart, offsets)
 	mdatPayload := b.buildPayload(offsets)

@@ -76,6 +76,21 @@ type TransitionRecord struct {
 	Representative string `json:"representative"`
 }
 
+// Failure records a fragment that could not be produced. Failures are kept
+// separate from Entries so the manifest never references a failed output as a
+// deliverable.
+type Failure struct {
+	ID             string `json:"id"`
+	Representation string `json:"representation"`
+	TrackID        int    `json:"track_id"`
+	StartUS        int64  `json:"start_us"`
+	EndUS          int64  `json:"end_us"`
+	File           string `json:"file,omitempty"`
+	Stage          string `json:"stage"`
+	Kind           string `json:"kind"`
+	Error          string `json:"error"`
+}
+
 // Manifest is the JSON document written to disk.
 type Manifest struct {
 	Version         int                `json:"version"`
@@ -84,17 +99,19 @@ type Manifest struct {
 	Representations []Representation   `json:"representations"`
 	Transitions     []TransitionRecord `json:"transitions,omitempty"`
 	Entries         []Entry            `json:"entries"`
+	Failures        []Failure          `json:"failures,omitempty"`
 	// Issues carries recoverable faults that did not prevent output.
 	Issues []string `json:"issues,omitempty"`
 }
 
 // Builder accumulates entries before they are serialised.
 type Builder struct {
-	opts    Options
-	reps    []Representation
-	entries []Entry
-	issues  []string
-	seen    map[string]bool
+	opts     Options
+	reps     []Representation
+	entries  []Entry
+	failures []Failure
+	issues   []string
+	seen     map[string]bool
 }
 
 // NewBuilder validates options and creates a builder.
@@ -148,7 +165,7 @@ func (b *Builder) EntryFor(rep Representation, track *model.Track, startUS, endU
 			"duplicate segment id %s", id).WithSegment(id)
 	}
 	b.seen[id] = true
-	rel := b.relPath(rep.ID, startUS, endUS)
+	rel := b.relPath(rep.ID, track.ID, startUS, endUS)
 	e := Entry{
 		ID:               id,
 		Representation:   rep.ID,
@@ -185,6 +202,33 @@ func (b *Builder) CompositeEntry(rep Representation, track *model.Track, tr Tran
 // representation, id) on Serialise so ordering cannot depend on the order in
 // which workers finished.
 func (b *Builder) Append(e Entry) { b.entries = append(b.entries, e) }
+
+// AddFailure records a fragment that could not be produced. Failures never
+// appear in Entries.
+func (b *Builder) AddFailure(f Failure) {
+	if f.Stage == "" {
+		f.Stage = string(fault.StageWrite)
+	}
+	if f.Kind == "" {
+		f.Kind = string(fault.KindWrite)
+	}
+	b.failures = append(b.failures, f)
+}
+
+// Failures returns the recorded failures in deterministic order.
+func (b *Builder) Failures() []Failure {
+	out := append([]Failure(nil), b.failures...)
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].StartUS != out[j].StartUS {
+			return out[i].StartUS < out[j].StartUS
+		}
+		if out[i].TrackID != out[j].TrackID {
+			return out[i].TrackID < out[j].TrackID
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
+}
 
 // Entries returns a copy of the accumulated entries in manifest order.
 func (b *Builder) Entries() []Entry {
@@ -228,6 +272,7 @@ func (b *Builder) Build(spanUS int64, transitions []TransitionRecord) *Manifest 
 		Representations: reps,
 		Transitions:     trs,
 		Entries:         entries,
+		Failures:        b.Failures(),
 		Issues:          append([]string(nil), b.issues...),
 	}
 }
@@ -289,9 +334,11 @@ func VerifyHash(file, want string) (string, error) {
 }
 
 // relPath builds the stable output path for a segment. It is derived purely
-// from the representation and boundary so re-runs overwrite the same file.
-func (b *Builder) relPath(repID string, startUS, endUS int64) string {
-	return filepath.Join(repID, fmt.Sprintf("%012d-%012d.%s", startUS, endUS, b.opts.Ext))
+// from the representation, track and boundary so re-runs overwrite the same
+// file.
+func (b *Builder) relPath(repID string, trackID int, startUS, endUS int64) string {
+	return filepath.Join(repID, fmt.Sprintf("t%d", trackID),
+		fmt.Sprintf("%012d-%012d.%s", startUS, endUS, b.opts.Ext))
 }
 
 // AbsPath resolves a manifest entry's File against the manifest directory,

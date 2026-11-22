@@ -40,12 +40,12 @@ func HashFile(path string) (string, error) {
 
 // EntryResult is the verification outcome for one manifest row.
 type EntryResult struct {
-	ID       string
-	File     string
-	OK       bool
-	Hash     string
-	Skipped  bool
-	Err      *fault.Error
+	ID      string
+	File    string
+	OK      bool
+	Hash    string
+	Skipped bool
+	Err     *fault.Error
 	// RoundTrip reports that the fragment parsed back with the expected
 	// sample count and offsets.
 	RoundTrip bool

@@ -68,3 +68,53 @@ func readBoxPayload(r io.ReadSeeker, bi *gomp4.BoxInfo, dst gomp4.IBox) error {
 	}
 	return nil
 }
+
+// resyncBox searches forward from start for the next plausible box header.
+// Only the boxes medialine consumes are accepted, and each candidate must
+// declare a size that fits inside the file and open with a valid child box.
+// Resynchronising is what allows a file with one corrupt length declaration to
+// still deliver its undamaged tracks.
+func resyncBox(r io.ReadSeeker, start, fileSize uint64) (uint64, bool) {
+	buf := make([]byte, 8)
+	child := make([]byte, 8)
+	for off := start; off+8 <= fileSize; off++ {
+		if _, err := r.Seek(int64(off), io.SeekStart); err != nil {
+			return 0, false
+		}
+		if _, err := io.ReadFull(r, buf); err != nil {
+			return 0, false
+		}
+		typ := string(buf[4:8])
+		if typ != "moov" && typ != "mfra" && typ != "ftyp" {
+			continue
+		}
+		size := uint64(buf[0])<<24 | uint64(buf[1])<<16 | uint64(buf[2])<<8 | uint64(buf[3])
+		if size < 16 || off+size > fileSize {
+			continue
+		}
+		// Validate the first child so random payload bytes cannot pass.
+		if off+16 > fileSize {
+			continue
+		}
+		if _, err := r.Seek(int64(off+8), io.SeekStart); err != nil {
+			return 0, false
+		}
+		if _, err := io.ReadFull(r, child); err != nil {
+			return 0, false
+		}
+		ct := string(child[4:8])
+		ok := false
+		switch typ {
+		case "moov":
+			ok = ct == "mvhd" || ct == "trak" || ct == "mvex" || ct == "udta"
+		case "mfra":
+			ok = ct == "tfra" || ct == "mfro"
+		case "ftyp":
+			ok = ct == "isom" || ct == "iso6" || ct == "mp41" || ct == "mp42"
+		}
+		if ok {
+			return off, true
+		}
+	}
+	return 0, false
+}

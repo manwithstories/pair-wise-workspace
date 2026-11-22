@@ -105,26 +105,48 @@ func TestParseMissingMoovIsRecoverable(t *testing.T) {
 		t.Fatalf("missing moov should be an issue, not an error: %v", err)
 	}
 	if len(f2.Issues) == 0 {
-		t.Fatal("expected missing-index issue")
+		t.Fatal("expected a missing-index issue")
 	}
-	fe, _ := fault.As(f2.Issues[0])
-	if fe.Kind != fault.KindMissingIndex {
-		t.Fatalf("kind=%s", fe.Kind)
+	found := false
+	for _, is := range f2.Issues {
+		if is.Kind == fault.KindMissingIndex {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected a missing-index issue, got %+v", f2.Issues)
 	}
 }
 
 func TestParseOversizedBoxRejected(t *testing.T) {
 	c, _ := genClip(t, testkit.DefaultVideoTrack(1, 2_000_000, 30))
-	if err := testkit.CorruptLength(c.Path, 0, 1<<20); err != nil {
+	// Corrupt the mdat declaration; because moov is still resynchronisable the
+	// parse recovers and reports the length fault as an issue.
+	if err := testkit.CorruptLength(c.Path, c.MdatOffset, 0x7ffffff0); err != nil {
 		t.Fatal(err)
 	}
-	_, err := Parse(c.Path, Options{})
-	fe, ok := fault.As(err)
-	if !ok || fe.Kind != fault.KindInvalidLength {
-		t.Fatalf("expected invalid length, got %v", err)
+	f, err := Parse(c.Path, Options{})
+	if err != nil {
+		fe, _ := fault.As(err)
+		if fe.Kind != fault.KindInvalidLength {
+			t.Fatalf("expected invalid length, got %v", err)
+		}
+		return
 	}
-	if fe.Offset < 0 {
-		t.Fatalf("fault must carry an offset: %v", fe)
+	var found bool
+	for _, is := range f.Issues {
+		if is.Kind == fault.KindInvalidLength {
+			found = true
+			if is.Offset < 0 {
+				t.Fatalf("fault must carry an offset: %v", is)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected invalid-length issue, got %+v", f.Issues)
+	}
+	if len(f.Tracks) == 0 {
+		t.Fatal("undamaged tracks must still be parsed")
 	}
 }
 

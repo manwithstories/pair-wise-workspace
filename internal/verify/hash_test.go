@@ -7,8 +7,8 @@ import (
 
 	"medialine/internal/fault"
 	"medialine/internal/manifest"
-	"medialine/internal/mp4"
 	"medialine/internal/model"
+	"medialine/internal/mp4"
 	"medialine/internal/testkit"
 )
 
@@ -57,16 +57,16 @@ func buildFixture(t *testing.T) (dir string, entry manifest.Entry) {
 		nums = append(nums, s.Number)
 	}
 	entry = manifest.Entry{
-		ID:            plan.ID,
+		ID:             plan.ID,
 		Representation: "v720",
-		TrackID:       1,
-		Kind:          model.SegmentSimple,
-		StartUS:       0,
-		EndUS:         500_000,
-		SampleNumbers: nums,
-		File:          "v720/seg.m4s",
-		ContentHash:   hash,
-		Status:        "complete",
+		TrackID:        1,
+		Kind:           model.SegmentSimple,
+		StartUS:        0,
+		EndUS:          500_000,
+		SampleNumbers:  nums,
+		File:           "v720/seg.m4s",
+		ContentHash:    hash,
+		Status:         "complete",
 	}
 	m := &manifest.Manifest{Version: manifest.ManifestVersion, SegmentUS: 500_000, SpanUS: 500_000, Entries: []manifest.Entry{entry}}
 	if _, err := manifest.Write(m, dir); err != nil {

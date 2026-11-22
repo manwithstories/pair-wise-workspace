@@ -31,6 +31,7 @@ type Pool struct {
 	peak     int
 	accepted int
 	failed   int
+	closed   bool
 	// errFn maps a job panic or error into a fault; set by the caller.
 	errFn func(interface{}) *fault.Error
 	// logFn receives recoverable faults.
@@ -169,6 +170,10 @@ func (p *Pool) Submit(run func(context.Context) error, done func(int64, error)) 
 	default:
 	}
 	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return 0, fault.New(fault.StageCancel, fault.KindCanceled, "pool is closed")
+	}
 	p.accepted++
 	seq := int64(p.accepted)
 	p.mu.Unlock()
@@ -192,11 +197,17 @@ func (p *Pool) Submit(run func(context.Context) error, done func(int64, error)) 
 // Cancel stops accepting work and signals workers to drain. It is idempotent.
 func (p *Pool) Cancel() { p.cancel() }
 
-// Close stops the pool and waits for every worker to exit. It must be called
-// exactly once after the producer has finished submitting.
+// Close finishes every accepted job, closes the submission channel and waits
+// for the workers to exit. It does not discard queued work: a graceful finish
+// is what lets a resumed run count completed segments exactly once. Calling
+// Cancel first turns Close into an immediate stop that fails queued jobs.
+//
+// Close must be called by the same goroutine that produced the submissions.
 func (p *Pool) Close() {
 	p.closer.Do(func() {
-		p.cancel()
+		p.mu.Lock()
+		p.closed = true
+		p.mu.Unlock()
 		close(p.jobs)
 	})
 	p.wg.Wait()

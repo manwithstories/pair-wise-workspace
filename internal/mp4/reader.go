@@ -62,17 +62,18 @@ type Options struct {
 
 // File is the parsed representation of one source MP4.
 type File struct {
-	Path    string
-	Size    int64
-	Ftyp    gomp4.Ftyp
-	Mdat    Span
-	Moov    Span
-	Mfra    Span
-	HasMoov bool
-	Tracks  []*model.Track
-	Issues  []*fault.Error
-	Limits  Limits
-	marker  bool
+	Path     string
+	Size     int64
+	Ftyp     gomp4.Ftyp
+	Mdat     Span
+	Moov     Span
+	Mfra     Span
+	HasMoov  bool
+	Tracks   []*model.Track
+	Issues   []*fault.Error
+	Limits   Limits
+	marker   bool
+	resynced bool
 }
 
 // Close releases the underlying handle. Parse closes its own file handle, so
@@ -125,7 +126,19 @@ func (f *File) scanTopLevel(fh *os.File) error {
 		bi, err := childBox(fh, off, 0, uint64(f.Size), f.Limits.MaxBoxSize)
 		if err != nil {
 			fe, _ := fault.As(err)
-			if fe != nil && fe.Kind != fault.KindInvalidLength && f.HasMoov && f.Mdat.Size > 0 {
+			// A corrupt declaration is recoverable when a later box header can
+			// be found: record the fault and resynchronise. This is what lets
+			// a delivery with one damaged box still yield its intact tracks.
+			if fe != nil && fe.Kind == fault.KindInvalidLength {
+				f.AddIssue(fe)
+				next, ok := resyncBox(fh, off+8, uint64(f.Size))
+				if ok {
+					f.resynced = true
+					off = next
+					continue
+				}
+			}
+			if fe != nil && f.HasMoov && f.Mdat.Size > 0 {
 				// A corrupt trailing region is tolerable once mdat and moov
 				// are complete: record it and stop scanning.
 				f.AddIssue(fe)
@@ -149,6 +162,14 @@ func (f *File) scanTopLevel(fh *os.File) error {
 			f.HasMoov = true
 		case gomp4.BoxTypeMfra():
 			f.Mfra = Span{Offset: bi.Offset, Size: bi.Size}
+		default:
+			// An unknown top-level box is only suspicious before the first
+			// resync: after that, garbage from a corrupt length is expected.
+			if !f.HasMoov && !f.resynced && bi.Type != gomp4.BoxTypeFree() {
+				f.AddIssue(fault.New(fault.StageParse, fault.KindInvalidLength,
+					"box %s at %d is not part of an ISO base media file", bi.Type, bi.Offset).
+					At(fault.UnknownTrack, int64(bi.Offset)))
+			}
 		}
 		off = bi.Offset + bi.Size
 	}
@@ -359,7 +380,19 @@ func (f *File) readPayload(fh *os.File, s model.Sample, buf []byte, maxSize int)
 	if _, err := fh.ReadAt(buf, s.Offset); err != nil {
 		return nil, fault.From(err, fault.StageParse, fault.KindTruncatedBox).At(s.Number, s.Offset)
 	}
+	if f.marker && !hasSampleMarker(buf) {
+		return nil, fault.New(fault.StageParse, fault.KindCorruptSample,
+			"sample %d payload is missing its integrity marker", s.Number).At(s.Number, s.Offset)
+	}
 	return buf, nil
+}
+
+// sampleMarker is duplicated from testkit to avoid a production->fixture
+// dependency; the generator writes the same four bytes.
+var sampleMarker = [4]byte{'M', 'L', 'N', '1'}
+
+func hasSampleMarker(buf []byte) bool {
+	return len(buf) >= len(sampleMarker) && string(buf[:len(sampleMarker)]) == string(sampleMarker[:])
 }
 
 // SampleReader yields sample payloads from one source file with a fixed
