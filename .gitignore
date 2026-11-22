@@ -71,3 +71,6 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 项目本地工作目录（演示夹具、临时输出、检查点）----
+/tmp/
