@@ -41,8 +41,8 @@ func TestDetectsSilenceRun(t *testing.T) {
 
 func TestShortTailNotReported(t *testing.T) {
 	d, _ := NewDetector(1000, Params{WindowSamples: 100, Threshold: 10})
-	d.Feed(tone(250, 500))          // 0.25s tone
-	d.Feed(make([]int16, 50))       // 0.05s silence, shorter than the window
+	d.Feed(tone(250, 500))    // 0.25s tone
+	d.Feed(make([]int16, 50)) // 0.05s silence, shorter than the window
 	segs, err := d.Finish()
 	if err != nil {
 		t.Fatal(err)

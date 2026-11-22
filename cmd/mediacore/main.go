@@ -24,8 +24,8 @@ import (
 )
 
 const (
-	exitOK           = 0
-	exitInputQuality = 2
+	exitOK            = 0
+	exitInputQuality  = 2
 	exitUnrecoverable = 3
 )
 

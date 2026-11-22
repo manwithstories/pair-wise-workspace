@@ -20,10 +20,10 @@ type mpdXML struct {
 }
 
 type adaptationSetXML struct {
-	ID      string `xml:"id,attr"`
-	Kind    string `xml:"contentType,attr"`
-	Codecs  string `xml:"codecs,attr"`
-	Reps    []struct {
+	ID     string `xml:"id,attr"`
+	Kind   string `xml:"contentType,attr"`
+	Codecs string `xml:"codecs,attr"`
+	Reps   []struct {
 		ID       string             `xml:"id,attr"`
 		Template segmentTemplateXML `xml:"SegmentTemplate"`
 	} `xml:"Representation"`

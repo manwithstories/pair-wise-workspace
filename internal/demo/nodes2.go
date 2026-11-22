@@ -235,8 +235,8 @@ func rtpNode(p Params) pipeline.Node {
 
 func reportNode() pipeline.Node {
 	return pipeline.Node{
-		Name: "report",
-		Deps: []string{"timeline", "cut", "silence", "fingerprint", "bitrate", "rtp-check"},
+		Name:    "report",
+		Deps:    []string{"timeline", "cut", "silence", "fingerprint", "bitrate", "rtp-check"},
 		Version: Version,
 		New:     func() any { return &ReportResult{} },
 		Run: func(ctx *pipeline.Context) (any, error) {

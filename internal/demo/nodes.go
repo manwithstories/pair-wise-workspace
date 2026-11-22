@@ -15,9 +15,9 @@ import (
 )
 
 const (
-	silenceWindow   = 480 // 20ms at 24kHz
-	silenceThresh   = 100
-	fingerprintWin  = 4096 // int16 samples = 8192 payload bytes
+	silenceWindow  = 480 // 20ms at 24kHz
+	silenceThresh  = 100
+	fingerprintWin = 4096 // int16 samples = 8192 payload bytes
 )
 
 // Nodes builds the demo pipeline graph.

@@ -90,8 +90,8 @@ type SilenceResult struct {
 }
 
 type FingerprintResult struct {
-	Count      int                      `json:"count"`
-	Duplicates []fingerprint.Duplicate  `json:"duplicates"`
+	Count      int                     `json:"count"`
+	Duplicates []fingerprint.Duplicate `json:"duplicates"`
 }
 
 type BitrateResult struct {

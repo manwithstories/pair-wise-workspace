@@ -14,7 +14,7 @@ func samples(seed int16, n int) []int16 {
 
 func TestFindDuplicatesKeepsEarliest(t *testing.T) {
 	window := 4
-	ref := samples(0, 16)            // 4 windows
+	ref := samples(0, 16)                            // 4 windows
 	dup := append(samples(0, 8), samples(100, 8)...) // first 2 windows copied
 	rh, _ := NewHasher(window)
 	rh.Feed(ref)

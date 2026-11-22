@@ -45,12 +45,12 @@ const (
 
 // Result describes the generated data set.
 type Result struct {
-	Dir           string
-	Manifests     []string // base names of playlist files
-	SegmentFiles  []string // media files, relative to Dir
-	VideoMeta     manifest.TrackMeta
-	AudioMeta     manifest.TrackMeta
-	ReplayMeta    manifest.TrackMeta
+	Dir          string
+	Manifests    []string // base names of playlist files
+	SegmentFiles []string // media files, relative to Dir
+	VideoMeta    manifest.TrackMeta
+	AudioMeta    manifest.TrackMeta
+	ReplayMeta   manifest.TrackMeta
 }
 
 // Generate writes the full data set under dir.
