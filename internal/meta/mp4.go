@@ -4,6 +4,7 @@ package meta
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 
 	mp4 "github.com/abema/go-mp4"
@@ -21,7 +22,9 @@ type EmsgEvent struct {
 }
 
 // BuildSegment serialises events into an MP4 segment (styp + emsg boxes)
-// using version-1 emsg with absolute presentation times.
+// using version-1 emsg with absolute presentation times. mp4.Marshal
+// emits box payloads only, so each box is framed with its size+type
+// header here.
 func BuildSegment(events []EmsgEvent) ([]byte, error) {
 	var buf bytes.Buffer
 	styp := &mp4.Styp{
@@ -31,7 +34,7 @@ func BuildSegment(events []EmsgEvent) ([]byte, error) {
 			{CompatibleBrand: [4]byte{'m', 's', 'd', 'h'}},
 		},
 	}
-	if _, err := mp4.Marshal(&buf, styp, mp4.Context{}); err != nil {
+	if err := marshalBox(&buf, mp4.BoxTypeStyp(), styp); err != nil {
 		return nil, fmt.Errorf("meta: marshal styp: %w", err)
 	}
 	for _, ev := range events {
@@ -48,16 +51,34 @@ func BuildSegment(events []EmsgEvent) ([]byte, error) {
 			MessageData:      ev.Data,
 		}
 		box.SetVersion(1)
-		if _, err := mp4.Marshal(&buf, box, mp4.Context{}); err != nil {
+		if err := marshalBox(&buf, mp4.BoxTypeEmsg(), box); err != nil {
 			return nil, fmt.Errorf("meta: marshal emsg id %d: %w", ev.ID, err)
 		}
 	}
 	return buf.Bytes(), nil
 }
 
+func marshalBox(buf *bytes.Buffer, typ mp4.BoxType, box mp4.IImmutableBox) error {
+	var payload bytes.Buffer
+	if _, err := mp4.Marshal(&payload, box, mp4.Context{}); err != nil {
+		return err
+	}
+	head := make([]byte, 8)
+	binary.BigEndian.PutUint32(head, uint32(payload.Len()+8))
+	copy(head[4:], typ[:])
+	buf.Write(head)
+	buf.Write(payload.Bytes())
+	return nil
+}
+
 // ParseSegment decodes the emsg events of a segment built by
-// BuildSegment. Truncated or malformed input yields a located error.
+// BuildSegment. Box framing is validated first (go-mp4 is lenient at
+// the root level), so truncated or size-corrupted input yields a
+// located error.
 func ParseSegment(data []byte) ([]EmsgEvent, error) {
+	if err := validateBoxes(data); err != nil {
+		return nil, err
+	}
 	var events []EmsgEvent
 	_, err := mp4.ReadBoxStructure(bytes.NewReader(data), func(h *mp4.ReadHandle) (interface{}, error) {
 		if h.BoxInfo.Type != mp4.BoxTypeEmsg() {
@@ -86,4 +107,35 @@ func ParseSegment(data []byte) ([]EmsgEvent, error) {
 		return nil, fmt.Errorf("meta: parse segment: %w", err)
 	}
 	return events, nil
+}
+
+// validateBoxes walks the top-level box structure and verifies every
+// box is well-framed: a complete header, a sane size, and a payload
+// that fits inside the input.
+func validateBoxes(data []byte) error {
+	for off := 0; off < len(data); {
+		if len(data)-off < 8 {
+			return fmt.Errorf("meta: truncated box header at offset %d", off)
+		}
+		size := uint64(binary.BigEndian.Uint32(data[off : off+4]))
+		hdr := uint64(8)
+		if size == 1 {
+			if len(data)-off < 16 {
+				return fmt.Errorf("meta: truncated largesize header at offset %d", off)
+			}
+			size = binary.BigEndian.Uint64(data[off+8 : off+16])
+			hdr = 16
+		} else if size == 0 {
+			size = uint64(len(data) - off) // box extends to end of input
+		}
+		if size < hdr {
+			return fmt.Errorf("meta: box at offset %d has invalid size %d", off, size)
+		}
+		if size > uint64(len(data)-off) {
+			return fmt.Errorf("meta: box at offset %d size %d exceeds remaining %d bytes",
+				off, size, len(data)-off)
+		}
+		off += int(size)
+	}
+	return nil
 }
