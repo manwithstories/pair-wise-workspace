@@ -39,6 +39,27 @@ func NewAtomicWriter(dest string) (*AtomicWriter, error) {
 	return &AtomicWriter{dest: dest, tmp: tmp}, nil
 }
 
+// NewResumingWriter seeds a fresh staging file with the bytes of an existing
+// committed output so a resumed run appends to identical content. The original
+// stays untouched until a successful atomic rename replaces it.
+func NewResumingWriter(dest string) (*AtomicWriter, error) {
+	aw, err := NewAtomicWriter(dest)
+	if err != nil {
+		return nil, err
+	}
+	src, err := os.Open(dest)
+	if err != nil {
+		aw.Abort()
+		return nil, mediaerr.New(mediaerr.CodeIO, err.Error()).OnPath(dest)
+	}
+	defer src.Close()
+	if _, err := io.Copy(aw.tmp, src); err != nil {
+		aw.Abort()
+		return nil, mediaerr.New(mediaerr.CodeIO, err.Error()).OnPath(dest)
+	}
+	return aw, nil
+}
+
 // Write feeds bytes to the temp file.
 func (a *AtomicWriter) Write(p []byte) (int, error) {
 	n, err := a.tmp.Write(p)

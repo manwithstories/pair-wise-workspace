@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 
 	"mediarun/internal/ingest"
 	"mediarun/internal/mapping"
@@ -70,6 +71,58 @@ func NewWriter(dest string, plan *mapping.Plan) (*Writer, error) {
 		return nil, err
 	}
 	return w, nil
+}
+
+// NewAppendingWriter resumes an existing bundle: it copies the committed
+// output into a staging file, parses the header to locate the frame-count
+// field and existing frame total, and positions the stream at the end so new
+// samples append without altering any prior byte.
+func NewAppendingWriter(dest string, plan *mapping.Plan) (*Writer, int64, error) {
+	aw, err := NewResumingWriter(dest)
+	if err != nil {
+		return nil, 0, err
+	}
+	r, err := OpenReader(dest)
+	if err != nil {
+		aw.Abort()
+		return nil, 0, err
+	}
+	existing := r.FrameCount()
+	r.Close()
+	// Locate the frame-count value's absolute offset by re-reading the header
+	// length from the top of the copied file.
+	if _, err := aw.tmp.Seek(0, io.SeekStart); err != nil {
+		aw.Abort()
+		return nil, 0, mediaerr.New(mediaerr.CodeIO, err.Error())
+	}
+	var magic [4]byte
+	var lenBuf [4]byte
+	if _, err := io.ReadFull(aw.tmp, magic[:]); err != nil {
+		aw.Abort()
+		return nil, 0, mediaerr.New(mediaerr.CodeTruncatedBox, err.Error())
+	}
+	if _, err := io.ReadFull(aw.tmp, lenBuf[:]); err != nil {
+		aw.Abort()
+		return nil, 0, mediaerr.New(mediaerr.CodeTruncatedBox, err.Error())
+	}
+	hdrLen := int64(binary.LittleEndian.Uint32(lenBuf[:]))
+	raw := make([]byte, hdrLen)
+	if _, err := io.ReadFull(aw.tmp, raw); err != nil {
+		aw.Abort()
+		return nil, 0, mediaerr.New(mediaerr.CodeTruncatedKLV, err.Error())
+	}
+	w := &Writer{
+		out:       aw,
+		started:   true,
+		samples:   existing,
+		hdrLenOff: int64(4 + frameCountFieldOffset(raw)),
+		hdrLen:    hdrLen,
+	}
+	if _, err := aw.tmp.Seek(0, io.SeekEnd); err != nil {
+		aw.Abort()
+		return nil, 0, mediaerr.New(mediaerr.CodeIO, err.Error())
+	}
+	return w, existing, nil
 }
 
 func (w *Writer) writeHeader(plan *mapping.Plan) error {

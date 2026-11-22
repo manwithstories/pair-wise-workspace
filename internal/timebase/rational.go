@@ -55,6 +55,9 @@ func (r Rational) IsZero() bool { return r.Num == 0 }
 // negative durations with a structured error at the boundary.
 func (r Rational) IsNegative() bool { return r.Num < 0 }
 
+// IsPositive reports whether the value is strictly above zero.
+func (r Rational) IsPositive() bool { return r.Num > 0 }
+
 // Cmp returns -1/0/1 comparing r and o exactly.
 func (r Rational) Cmp(o Rational) int {
 	rd, od := r.Den, o.Den
