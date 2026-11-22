@@ -78,7 +78,15 @@ func Run(cfg Config) (Result, error) {
 	if base == "." {
 		base = ""
 	}
-	segs, err := manifest.ParseHLS(raw, cfg.Manifest, base)
+	// Both archive manifest families flow through the same scheduler;
+	// the extension selects the parser, and everything downstream only
+	// sees segment descriptors with provenance.
+	var segs []manifest.Segment
+	if strings.HasSuffix(strings.ToLower(cfg.Manifest), ".mpd") {
+		segs, err = manifest.ParseDASH(raw, cfg.Manifest, base)
+	} else {
+		segs, err = manifest.ParseHLS(raw, cfg.Manifest, base)
+	}
 	if err != nil {
 		return res, err
 	}

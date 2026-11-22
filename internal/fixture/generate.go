@@ -129,7 +129,7 @@ func dashManifest(n, dup, emitted int) []byte {
 	var b bytes.Buffer
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
 	fmt.Fprintf(&b, `<MPD type="static"><Period><AdaptationSet mimeType="video/mp4">`+
-		`<SegmentTemplate timescale="%d" media="media/seg-$Number$05d$.m4s" startNumber="0">`,
+		`<SegmentTemplate timescale="%d" media="media/seg-$Number%%05d$.m4s" startNumber="0">`,
 		VideoTimesc)
 	b.WriteString(`<SegmentTimeline>`)
 	for i := 0; i < n; i++ {
