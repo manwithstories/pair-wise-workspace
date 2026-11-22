@@ -66,6 +66,16 @@ func NewWrapTracker(rate uint32) *WrapTracker { return &WrapTracker{rate: rate} 
 // wraparound, tolerates small out-of-order delivery, and reports
 // non-monotonic jumps beyond the reorder slack.
 func (w *WrapTracker) Convert(ts uint32) (int64, error) {
+	ext, err := w.ConvertTicks(ts)
+	if err != nil {
+		return 0, err
+	}
+	return Scale(ext, w.rate)
+}
+
+// ConvertTicks maps ts to extended 64-bit sample ticks, handling wraparound
+// and bounded reordering exactly like Convert.
+func (w *WrapTracker) ConvertTicks(ts uint32) (int64, error) {
 	if w.rate == 0 {
 		return 0, fmt.Errorf("clock: zero sample rate")
 	}
@@ -73,7 +83,7 @@ func (w *WrapTracker) Convert(ts uint32) (int64, error) {
 		w.init = true
 		w.last = ts
 		w.lastExt = int64(ts)
-		return Scale(int64(ts), w.rate)
+		return int64(ts), nil
 	}
 	epoch := w.epoch
 	if ts >= w.last {
@@ -97,7 +107,7 @@ func (w *WrapTracker) Convert(ts uint32) (int64, error) {
 	if ext > w.lastExt {
 		w.lastExt = ext
 	}
-	return Scale(ext, w.rate)
+	return ext, nil
 }
 
 // Snapshot returns the wrap state for checkpointing.

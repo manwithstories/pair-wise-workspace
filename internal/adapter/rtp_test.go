@@ -7,7 +7,7 @@ import (
 )
 
 func TestRTPParserBasic(t *testing.T) {
-	p := NewRTPParser(90000)
+	p := NewRTPParser(90000, 0)
 	raw, err := MarshalPacket(7, 90000, true, []byte{0x1, 0xAA})
 	if err != nil {
 		t.Fatal(err)
@@ -26,7 +26,7 @@ func TestRTPParserBasic(t *testing.T) {
 }
 
 func TestRTPParserWraparound(t *testing.T) {
-	p := NewRTPParser(90000)
+	p := NewRTPParser(90000, 0)
 	mk := func(seq uint16, ts uint32) []byte {
 		raw, err := MarshalPacket(seq, ts, false, []byte{0x0})
 		if err != nil {
@@ -47,7 +47,7 @@ func TestRTPParserWraparound(t *testing.T) {
 }
 
 func TestRTPParserCorrupt(t *testing.T) {
-	p := NewRTPParser(90000)
+	p := NewRTPParser(90000, 0)
 	_, err := p.Parse("v", []byte{0x80, 0x60, 0x01}, 64)
 	fe, ok := err.(*fault.Error)
 	if !ok {
@@ -60,7 +60,7 @@ func TestRTPParserCorrupt(t *testing.T) {
 
 func TestRegistryVersionRules(t *testing.T) {
 	r := NewRegistry()
-	r.Register("rtp", NewRTPParser(90000))
+	r.Register("rtp", NewRTPParser(90000, 0))
 	if _, err := r.Parse("nope", "t", []byte{1}, 0); err == nil {
 		t.Fatal("unknown parser accepted")
 	} else if fe := err.(*fault.Error); fe.Category != fault.CatVersion {

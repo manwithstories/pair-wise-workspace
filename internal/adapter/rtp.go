@@ -15,16 +15,18 @@ const rtpFlagKeyframe = 0x1
 
 // RTPParser adapts RTP packets to unified media events. It keeps one
 // WrapTracker per track so 32-bit timestamp wraparound is handled per
-// track clock.
+// track clock. originTicks is the shared stream origin: converted
+// timestamps are relative to it, so all tracks land on one timeline.
 type RTPParser struct {
-	rate   uint32
-	clocks map[string]*clock.WrapTracker
+	rate        uint32
+	originTicks int64
+	clocks      map[string]*clock.WrapTracker
 }
 
 // NewRTPParser returns a parser for the given sample clock rate (e.g.
-// 90000 for video).
-func NewRTPParser(rate uint32) *RTPParser {
-	return &RTPParser{rate: rate, clocks: map[string]*clock.WrapTracker{}}
+// 90000 for video) and stream origin in ticks.
+func NewRTPParser(rate uint32, originTicks int64) *RTPParser {
+	return &RTPParser{rate: rate, originTicks: originTicks, clocks: map[string]*clock.WrapTracker{}}
 }
 
 // MajorVersion implements Parser.
@@ -47,7 +49,13 @@ func (p *RTPParser) Parse(track string, data []byte, offset int64) ([]Event, err
 		wt = clock.NewWrapTracker(p.rate)
 		p.clocks[track] = wt
 	}
-	ts, err := wt.Convert(pkt.Timestamp)
+	ext, err := wt.ConvertTicks(pkt.Timestamp)
+	if err != nil {
+		return nil, fault.New(fault.CatTiming, err.Error()).
+			WithTrack(track).WithSeq(uint32(pkt.SequenceNumber)).
+			WithRawTime(int64(pkt.Timestamp)).WithOffset(offset)
+	}
+	ts, err := clock.Scale(ext-p.originTicks, p.rate)
 	if err != nil {
 		return nil, fault.New(fault.CatTiming, err.Error()).
 			WithTrack(track).WithSeq(uint32(pkt.SequenceNumber)).
