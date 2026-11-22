@@ -107,7 +107,7 @@ func commitParse(mgr *txn.Manager, adopted map[txn.Stage]txn.Artifact, rep *Repo
 	if err != nil {
 		return err
 	}
-	rep.Stages = append(rep.Stages, string(txn.StageParse))
+	rep.Stages = appendUnique(rep.Stages, string(txn.StageParse))
 	return nil
 }
 
@@ -283,33 +283,35 @@ func mustCreate(path string) *os.File {
 	return f
 }
 
-// declaredExtents derives each track's intended extent from the source blocks
-// themselves: earliest stored time to latest, plus one default frame.  This is
-// the archive checklist's expectation, computed before repair, so comparing it
-// with the repaired timeline exercises the repair rules and 1 ms tolerance.
-func declaredExtents(h ebml.Header, blocks []*ebml.Block) []manifest.Declared {
+// declaredExtents derives each track's intended extent from the sealed
+// source's authored timeline (the fixture's intended frame times), not from
+// the stored block timestamps.  Comparing this independent declaration with
+// the repaired timeline is what makes the 1 ms check meaningful: a source
+// whose stored timestamps regress or repeat will show up as misalignment
+// unless repair restores the intended extent.
+func declaredExtents(plan *fixture.Plan, h ebml.Header) []manifest.Declared {
 	type acc struct {
 		start, end clock.Rational
 		have       bool
 	}
 	byTrack := map[uint64]*acc{}
 	var order []uint64
-	for _, b := range blocks {
-		a := byTrack[b.Track]
+	for _, f := range plan.Frames {
+		a := byTrack[f.Track]
 		if a == nil {
 			a = &acc{}
-			byTrack[b.Track] = a
-			order = append(order, b.Track)
+			byTrack[f.Track] = a
+			order = append(order, f.Track)
 		}
 		if !a.have {
-			a.start, a.end, a.have = b.Time, b.Time, true
+			a.start, a.end, a.have = f.Time, f.Time, true
 			continue
 		}
-		if b.Time.Cmp(a.start) < 0 {
-			a.start = b.Time
+		if f.Time.Cmp(a.start) < 0 {
+			a.start = f.Time
 		}
-		if b.Time.Cmp(a.end) > 0 {
-			a.end = b.Time
+		if f.Time.Cmp(a.end) > 0 {
+			a.end = f.Time
 		}
 	}
 	out := make([]manifest.Declared, 0, len(order))
@@ -330,9 +332,8 @@ func declaredExtents(h ebml.Header, blocks []*ebml.Block) []manifest.Declared {
 	return out
 }
 
-// skewDeclared shifts every declared boundary by skewMS milliseconds.  A
-// positive skew makes the checklist claim a later extent than the media
-// actually has, which verification must catch.
+// skewDeclared shifts every declared boundary by skewMS milliseconds to
+// simulate a checklist whose timeline has drifted from the media.
 func skewDeclared(in []manifest.Declared, skewMS float64) []manifest.Declared {
 	shift := clock.MustParseDecimal(fmt.Sprintf("%g", skewMS/1000.0))
 	out := make([]manifest.Declared, len(in))

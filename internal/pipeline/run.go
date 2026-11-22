@@ -169,7 +169,7 @@ func Run(cfg Config) (*Report, error) {
 	}
 
 	// Manifest: generate then verify within 1 ms before commit.
-	declared := declaredExtents(header, blocks)
+	declared := declaredExtents(plan, header)
 	if cfg.ManifestSkewMS != 0 {
 		declared = skewDeclared(declared, cfg.ManifestSkewMS)
 	}
@@ -198,7 +198,9 @@ func Run(cfg Config) (*Report, error) {
 			rep.Rollbacks = mgr.Rollbacks()
 			rep.Faults = fs.Faults()
 			rep.ExitCode = fs.ExitCode()
-			rep.Stages = append(rep.Stages, string(txn.StageParse), string(txn.StageRepair), string(txn.StageIndex))
+			// Reflect what actually committed: parse and repair are committed by
+			// this point; the index was rolled back when the manifest failed.
+			rep.Stages = appendUnique(rep.Stages, string(txn.StageParse), string(txn.StageRepair))
 			return rep, nil
 		}
 		return rep, err
@@ -223,7 +225,7 @@ func Run(cfg Config) (*Report, error) {
 	rep.IndexPath = filepath.Join(dirs.out, "index.json")
 	rep.ManifestPath = filepath.Join(dirs.out, "manifest.json")
 	rep.SidecarPath = filepath.Join(dirs.out, "index.mp4")
-	rep.Stages = append(rep.Stages, string(txn.StageIndex), string(txn.StageManifest))
+	rep.Stages = appendUnique(rep.Stages, string(txn.StageIndex), string(txn.StageManifest))
 	rep.Determinism = rep.Stats.Signature()
 	rep.Rollbacks = mgr.Rollbacks()
 	rep.Faults = fs.Faults()
@@ -295,7 +297,7 @@ func maybeInterrupt(cfg Config, dirs runDirs, rep *Report, fs *fault.Set, mgr *t
 	rep.ExitCode = fs.ExitCode()
 	rep.Rollbacks = mgr.Rollbacks()
 	rep.Stats.RollbackCount = mgr.Rollbacks()
-	rep.Stages = append(rep.Stages, string(stage))
+	rep.Stages = appendUnique(rep.Stages, string(stage))
 	return true, nil
 }
 
@@ -323,4 +325,20 @@ func writeIfChanged(path string, data []byte) error {
 		return nil
 	}
 	return os.WriteFile(path, data, 0o644)
+}
+
+// appendUnique appends stage names that are not already present, keeping the
+// committed-stage list free of duplicates regardless of path.
+func appendUnique(list []string, names ...string) []string {
+	seen := make(map[string]bool, len(list)+len(names))
+	for _, n := range list {
+		seen[n] = true
+	}
+	for _, n := range names {
+		if !seen[n] {
+			seen[n] = true
+			list = append(list, n)
+		}
+	}
+	return list
 }
