@@ -111,7 +111,11 @@ func demo(parent context.Context, cfg demoConfig) (*demoResult, error) {
 	for _, r := range reps {
 		alignReps = append(alignReps, r.alignRep)
 	}
-	al, err := align.Align(alignReps, spanUS, align.Config{SegmentUS: cfg.SegmentUS, SnapBack: true})
+	al, err := align.Align(alignReps, spanUS, align.Config{
+		SegmentUS:  cfg.SegmentUS,
+		SnapBack:   true,
+		EditPoints: cfg.Cuts,
+	})
 	if err != nil {
 		return nil, err
 	}

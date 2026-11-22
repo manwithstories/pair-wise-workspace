@@ -33,6 +33,9 @@ type Config struct {
 	// false, a boundary missing some representation yields a gap for those
 	// representations only.
 	RequireAll bool
+	// EditPoints are operator cuts that must become boundaries in addition to
+	// the nominal segment grid. They are snapped like any other boundary.
+	EditPoints []int64
 }
 
 // Boundary is one aligned cut point.
@@ -90,7 +93,22 @@ func Align(reps []Representation, spanUS int64, cfg Config) (*Aligned, error) {
 	if len(requests) == 0 {
 		requests = []int64{0}
 	}
-	requests = append(requests, spanUS)
+	for _, at := range cfg.EditPoints {
+		if at <= 0 || at >= spanUS {
+			return nil, fault.New(fault.StageAlign, fault.KindBadConfig,
+				"edit point %dus lies outside (0,%d)", at, spanUS).At(fault.UnknownTrack, at)
+		}
+		requests = append(requests, at)
+	}
+	sort.SliceStable(requests, func(i, j int) bool { return requests[i] < requests[j] })
+	uniq := requests[:0]
+	for i, r := range requests {
+		if i > 0 && requests[i-1] == r {
+			continue
+		}
+		uniq = append(uniq, r)
+	}
+	requests = append(uniq, spanUS)
 
 	out := &Aligned{SpanUS: spanUS, Gaps: make(map[string][]Interval)}
 	prevEffective := int64(-1)

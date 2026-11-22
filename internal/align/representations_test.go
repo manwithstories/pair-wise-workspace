@@ -150,3 +150,33 @@ func TestBoundaryDelta(t *testing.T) {
 		t.Fatalf("delta=%d", d)
 	}
 }
+
+func TestAlignIncludesEditPoints(t *testing.T) {
+	low := []int64{0, 500_000, 1_000_000, 1_500_000, 2_000_000, 2_500_000, 3_000_000}
+	keys := map[int]bool{}
+	for i := range low {
+		keys[i+1] = true
+	}
+	reps := []Representation{
+		{ID: "a", TrackID: 1, Index: indexed(t, 1, low, keys)},
+	}
+	got, err := Align(reps, 3_000_000, Config{SegmentUS: 2_000_000, SnapBack: true, EditPoints: []int64{1_250_000}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, b := range got.Boundaries {
+		if b.RequestedUS == 1_250_000 {
+			found = true
+			if b.EffectiveUS != 1_000_000 {
+				t.Fatalf("edit point should snap to 1s, got %d", b.EffectiveUS)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("edit point boundary missing: %+v", got.Boundaries)
+	}
+	if _, err := Align(reps, 3_000_000, Config{SegmentUS: 2_000_000, EditPoints: []int64{5_000_000}}); err == nil {
+		t.Fatal("out-of-range edit point must be rejected")
+	}
+}

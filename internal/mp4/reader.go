@@ -6,8 +6,10 @@
 package mp4
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"sync"
 
 	gomp4 "github.com/abema/go-mp4"
 
@@ -452,4 +454,79 @@ func (r *SampleReader) Close() error {
 // String summarises the file for diagnostics.
 func (f *File) String() string {
 	return fmt.Sprintf("%s tracks=%d issues=%d mdat=[%d,%d)", f.Path, len(f.Tracks), len(f.Issues), f.Mdat.Offset, f.Mdat.End())
+}
+
+// SampleChunk is one payload delivered by StreamSamples. Data aliases the
+// stream's internal buffer and is only valid until the next chunk arrives.
+type SampleChunk struct {
+	TrackID int
+	Sample  model.Sample
+	Data    []byte
+}
+
+// StreamSamples reads a track's samples into a channel with bounded in-flight
+// payloads. The producer blocks whenever maxInflight chunks are unread, so a
+// slow consumer applies backpressure instead of growing an unbounded queue.
+// The channel is closed when the track ends, when the context is cancelled, or
+// on the first unrecoverable read fault, which is then delivered through Err.
+func (f *File) StreamSamples(ctx context.Context, trackID int, maxInflight int) (<-chan SampleChunk, func() error) {
+	if maxInflight <= 0 {
+		maxInflight = f.Limits.MaxInflight
+	}
+	track, ok := f.trackByID(trackID)
+	if !ok {
+		ch := make(chan SampleChunk)
+		close(ch)
+		var err error = fault.New(fault.StageParse, fault.KindBadConfig,
+			"no track %d in %s", trackID, f.Path).At(trackID, fault.UnknownOffset)
+		return ch, func() error { return err }
+	}
+	maxSample := f.Limits.ReadBuffer * 8
+	sr, err := f.OpenSampleReader(maxSample)
+	if err != nil {
+		ch := make(chan SampleChunk)
+		close(ch)
+		return ch, func() error { return err }
+	}
+	ch := make(chan SampleChunk, maxInflight)
+	var mu sync.Mutex
+	var streamErr error
+	setErr := func(e error) {
+		mu.Lock()
+		if streamErr == nil {
+			streamErr = e
+		}
+		mu.Unlock()
+	}
+	go func() {
+		defer close(ch)
+		defer sr.Close()
+		for _, s := range track.Samples {
+			data, rerr := sr.ReadTrackSample(trackID, s)
+			if rerr != nil {
+				setErr(rerr)
+				return
+			}
+			select {
+			case ch <- SampleChunk{TrackID: trackID, Sample: s, Data: data}:
+			case <-ctx.Done():
+				setErr(fault.From(ctx.Err(), fault.StageCancel, fault.KindCanceled).At(trackID, s.Offset))
+				return
+			}
+		}
+	}()
+	return ch, func() error {
+		mu.Lock()
+		defer mu.Unlock()
+		return streamErr
+	}
+}
+
+func (f *File) trackByID(id int) (*model.Track, bool) {
+	for _, t := range f.Tracks {
+		if t.ID == id {
+			return t, true
+		}
+	}
+	return nil, false
 }

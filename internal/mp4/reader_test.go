@@ -1,9 +1,11 @@
 package mp4
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"medialine/internal/fault"
 	"medialine/internal/model"
@@ -254,5 +256,104 @@ func TestFileClose(t *testing.T) {
 	f := &File{}
 	if err := f.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestStreamSamplesBoundedAndComplete(t *testing.T) {
+	c, _ := genClip(t, testkit.DefaultVideoTrack(1, 2_000_000, 15))
+	f, err := Parse(c.Path, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch, streamErr := f.StreamSamples(context.Background(), 1, 2)
+	count := 0
+	for chunk := range ch {
+		if chunk.TrackID != 1 {
+			t.Fatalf("track=%d", chunk.TrackID)
+		}
+		if len(chunk.Data) != chunk.Sample.Size {
+			t.Fatalf("chunk size mismatch")
+		}
+		count++
+	}
+	if err := streamErr(); err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+	if count != len(f.Tracks[0].Samples) {
+		t.Fatalf("chunks=%d want %d", count, len(f.Tracks[0].Samples))
+	}
+}
+
+func TestStreamSamplesCancellation(t *testing.T) {
+	c, _ := genClip(t, testkit.DefaultVideoTrack(1, 2_000_000, 15))
+	f, _ := Parse(c.Path, Options{})
+	ctx, cancel := context.WithCancel(context.Background())
+	ch, streamErr := f.StreamSamples(ctx, 1, 1)
+	<-ch
+	cancel()
+	for range ch {
+	}
+	if err := streamErr(); !fault.IsCanceled(err) {
+		t.Fatalf("expected cancellation, got %v", err)
+	}
+}
+
+func TestStreamSamplesUnknownTrack(t *testing.T) {
+	c, _ := genClip(t, testkit.DefaultVideoTrack(1, 1_000_000, 15))
+	f, _ := Parse(c.Path, Options{})
+	ch, streamErr := f.StreamSamples(context.Background(), 99, 1)
+	for range ch {
+	}
+	if err := streamErr(); err == nil {
+		t.Fatal("expected error for unknown track")
+	}
+}
+
+func TestStreamSamplesReportsMarkerFault(t *testing.T) {
+	c, _ := genClip(t, testkit.DefaultVideoTrack(1, 1_000_000, 15))
+	if err := testkit.CorruptSampleBytes(c.Path, c.FirstSampleOffset); err != nil {
+		t.Fatal(err)
+	}
+	f, _ := Parse(c.Path, Options{CheckSampleMarker: true})
+	ch, streamErr := f.StreamSamples(context.Background(), 1, 1)
+	for range ch {
+	}
+	fe, ok := fault.As(streamErr())
+	if !ok || fe.Kind != fault.KindCorruptSample || fe.TrackID != 1 {
+		t.Fatalf("expected track-attributed marker fault, got %v", streamErr())
+	}
+}
+
+func TestStreamSamplesBackpressure(t *testing.T) {
+	c, _ := genClip(t, testkit.DefaultVideoTrack(1, 4_000_000, 20))
+	f, _ := Parse(c.Path, Options{})
+	const inflight = 2
+	ch, streamErr := f.StreamSamples(context.Background(), 1, inflight)
+	// Read only one chunk then wait: the producer must block instead of
+	// buffering the remainder.
+	<-ch
+	time.Sleep(20 * time.Millisecond)
+	if got := len(ch); got > inflight {
+		t.Fatalf("channel buffered %d > inflight %d", got, inflight)
+	}
+	for range ch {
+	}
+	if err := streamErr(); err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+}
+
+func TestStreamSamplesFaultOffsetIsBytes(t *testing.T) {
+	c, _ := genClip(t, testkit.DefaultVideoTrack(1, 1_000_000, 15))
+	if err := testkit.CorruptSampleBytes(c.Path, c.FirstSampleOffset); err != nil {
+		t.Fatal(err)
+	}
+	f, _ := Parse(c.Path, Options{CheckSampleMarker: true})
+	ch, streamErr := f.StreamSamples(context.Background(), 1, 1)
+	for range ch {
+	}
+	fe, _ := fault.As(streamErr())
+	if fe == nil || fe.Offset != c.FirstSampleOffset {
+		t.Fatalf("fault should point at byte %d, got %v", c.FirstSampleOffset, fe)
 	}
 }

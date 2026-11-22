@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 )
@@ -73,6 +74,7 @@ Demo options:
   --cancel-after int  cancel after this many completed segments, 0 disables
   --out string        output directory (required)
   --duration-us int   source duration per clip (default 12000000)
+  --cut-us int        operator edit point; repeat for several cuts
 
 Verify options:
   --out string        directory containing manifest.json (required)
@@ -93,6 +95,8 @@ type demoConfig struct {
 	CancelAfter int
 	Out         string
 	DurationUS  int64
+	// Cuts are operator edit points on the unified timeline, in microseconds.
+	Cuts []int64
 }
 
 func parseDemoFlags(args []string) (demoConfig, error) {
@@ -109,6 +113,7 @@ func parseDemoFlags(args []string) (demoConfig, error) {
 	fs.IntVar(&cfg.CancelAfter, "cancel-after", 0, "cancel after N completed segments")
 	fs.StringVar(&cfg.Out, "out", "", "output directory")
 	fs.Int64Var(&cfg.DurationUS, "duration-us", 12_000_000, "source duration per clip")
+	fs.Var((*int64List)(&cfg.Cuts), "cut-us", "repeatable operator edit point in microseconds")
 	if err := fs.Parse(args); err != nil {
 		return cfg, err
 	}
@@ -148,6 +153,30 @@ func (c demoConfig) validate() error {
 	default:
 		return fmt.Errorf("corrupt must be one of none|tail|length|sample")
 	}
+	prev := int64(-1)
+	for _, cut := range c.Cuts {
+		if cut <= 0 || cut >= c.DurationUS {
+			return fmt.Errorf("cut-us %d must lie strictly inside the timeline", cut)
+		}
+		if cut <= prev {
+			return fmt.Errorf("cut-us values must be increasing and unique")
+		}
+		prev = cut
+	}
+	return nil
+}
+
+// int64List collects repeatable numeric flags.
+type int64List []int64
+
+func (l *int64List) String() string { return fmt.Sprint([]int64(*l)) }
+
+func (l *int64List) Set(v string) error {
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid --cut-us %q: %w", v, err)
+	}
+	*l = append(*l, n)
 	return nil
 }
 
