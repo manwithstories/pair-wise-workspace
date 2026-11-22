@@ -14,7 +14,18 @@ func (p *parser) buildPackets() error {
 	for _, entry := range p.tables {
 		trk := entry.track
 		tbl := entry.table
+		var prevDTS int64
+		havePrev := false
 		for i := int64(0); i < tbl.count; i++ {
+			// Decode time must be strictly non-decreasing within a track. A
+			// backwards jump means the sample table's timing wrapped or is
+			// corrupt; surface it with the offending sample's byte offset.
+			if havePrev && tbl.dts[i] < prevDTS {
+				return p.errTrack(fault.CodeTimestampWrap, tbl.offsets[i], trk.ID,
+					"track %d sample %d DTS %dns precedes previous %dns",
+					trk.ID, i, tbl.dts[i], prevDTS)
+			}
+			prevDTS, havePrev = tbl.dts[i], true
 			pkt := media.Packet{
 				TrackIndex:    trk.Index,
 				SourceTrackID: trk.ID,

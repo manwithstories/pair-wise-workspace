@@ -224,3 +224,35 @@ func TestPacketCountCapEnforced(t *testing.T) {
 		t.Fatalf("code = %v", fault.CodeOf(err))
 	}
 }
+
+// TestBackwardDTSRejected drives buildPackets directly with a sample table
+// whose decode time goes backwards, as a wrapped counter would produce. The
+// guard must return a located timestamp error.
+func TestBackwardDTSRejected(t *testing.T) {
+	p := &parser{
+		src:   adapter.Source{AssetID: "x", Path: "/x.mov"},
+		opts:  adapter.Options{MaxPacketsPerTrack: 100},
+		asset: &media.Asset{ID: "x"},
+	}
+	tbl := &sampleTable{
+		count:   3,
+		dts:     []int64{0, 100, 50},
+		pts:     []int64{0, 100, 50},
+		dur:     []int64{100, 100, 100},
+		sizes:   []uint32{4, 4, 4},
+		offsets: []int64{10, 14, 18},
+		sync:    []bool{true, false, false},
+	}
+	p.tables = []tableEntry{{track: &media.Track{Index: 0, ID: 1, Kind: media.KindVideo}, table: tbl}}
+	err := p.buildPackets()
+	if err == nil {
+		t.Fatal("expected backward-DTS rejection")
+	}
+	if fault.CodeOf(err) != fault.CodeTimestampWrap {
+		t.Fatalf("code = %v (%v)", fault.CodeOf(err), err)
+	}
+	e, _ := fault.As(err)
+	if e.Loc.Offset != 18 || e.Loc.TrackID != 1 {
+		t.Fatalf("locator = %+v", e.Loc)
+	}
+}
