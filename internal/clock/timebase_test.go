@@ -71,6 +71,17 @@ func TestUnwrap32(t *testing.T) {
 	}
 }
 
+func TestUnwrap32SmallBackwards(t *testing.T) {
+	// A small backwards move is jitter, not a wraparound: it must not add 2^32.
+	got := Unwrap32(1000, 990)
+	if got != 990 {
+		t.Fatalf("small backwards step unwrapped to %d", got)
+	}
+	if Unwrap32(5, 5) != 5 {
+		t.Fatal("duplicate counters must stay equal")
+	}
+}
+
 func TestUnwrap16(t *testing.T) {
 	prev := int64(0xFFFE)
 	prev = Unwrap16(prev, 0xFFFF)

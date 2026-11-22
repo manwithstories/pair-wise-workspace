@@ -52,15 +52,15 @@ func Rescale(ticks int64, src, dst Rational) int64 {
 }
 
 // Unwrap32 converts a stream of 32-bit wrapping counters (e.g. RTP 90kHz
-// timestamps) into a monotonic int64 sequence. A discontinuity larger than
-// half the modulus in either direction is interpreted as a wraparound.
+// timestamps) into a monotonic int64 sequence. A counter that drops by more
+// than half the modulus is interpreted as a forward wraparound; small
+// backwards movements are kept as-is so receiver jitter does not invent a
+// wrap. Equal counters (duplicate packets) stay equal.
 func Unwrap32(prev int64, cur uint32) int64 {
 	const mod = int64(1) << 32
 	const half = mod / 2
 	delta := int64(cur) - (prev & (mod - 1))
-	if delta > half {
-		delta -= mod
-	} else if delta < -half {
+	if delta < -half {
 		delta += mod
 	}
 	return prev + delta
