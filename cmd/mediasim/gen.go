@@ -117,10 +117,15 @@ func genWire(s *stream, rng *rand.Rand, loss float64, burst int) []wirePacket {
 		}
 	}
 	var out []wirePacket
-	var prevPayload []byte
 	for _, idx := range order {
 		f := s.frames[idx]
-		wire, err := rtp.Marshal(f.seq, f.ts, uint32(s.rate), f.payload, prevPayload)
+		// The sender attaches the payload of the immediately preceding
+		// sequence, regardless of what the channel later drops.
+		var redundant []byte
+		if idx > 0 {
+			redundant = s.frames[idx-1].payload
+		}
+		wire, err := rtp.Marshal(f.seq, f.ts, uint32(s.rate), f.payload, redundant)
 		if err != nil {
 			panic(err)
 		}
@@ -129,7 +134,6 @@ func genWire(s *stream, rng *rand.Rand, loss float64, burst int) []wirePacket {
 		if rng.Float64() < 0.05 {
 			out = append(out, wirePacket{track: s.track, data: wire, arrival: arrival + 1})
 		}
-		prevPayload = f.payload
 	}
 	return out
 }

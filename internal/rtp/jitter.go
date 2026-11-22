@@ -39,6 +39,7 @@ func (b *Buffer) extend(seq uint16) int64 {
 	if !b.started {
 		b.started = true
 		b.maxExt = int64(seq)
+		b.released = b.maxExt - 1 // stream starts here: nothing before it is lost
 		return b.maxExt
 	}
 	ext := b.maxExt + int64(int16(seq-uint16(b.maxExt)))
