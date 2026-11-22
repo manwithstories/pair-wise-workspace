@@ -65,7 +65,10 @@ var ErrUnsupportedContainer = errors.New("container: unsupported container")
 type Options struct {
 	// MaxMetadataBytes caps a single structural box (moov, stbl, ...).
 	MaxMetadataBytes int64
-	// MaxSampleBytes caps a single decoded sample read.
+	// MaxSampleBytes caps a single sample read. It is deliberately at
+	// least one second of 48 kHz stereo 16-bit audio (192000 bytes) so a
+	// whole-second sample is still streamable, while a hostile declaration
+	// cannot force a large allocation.
 	MaxSampleBytes int64
 	// MaxSamplesPerTrack caps stsz/stts expansion.
 	MaxSamplesPerTrack int
@@ -80,7 +83,7 @@ func DefaultOptions() Options {
 	// process budget.
 	return Options{
 		MaxMetadataBytes:   16 << 20,
-		MaxSampleBytes:     1 << 20,
+		MaxSampleBytes:     1 << 20, // 1 MiB
 		MaxSamplesPerTrack: 1 << 20,
 		MaxChunkCount:      1 << 20,
 	}
