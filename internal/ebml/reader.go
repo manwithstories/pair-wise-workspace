@@ -55,59 +55,48 @@ func (r *Reader) Offset() int64 { return r.off }
 
 func (r *Reader) readByteN(n int) ([]byte, error) {
 	buf := make([]byte, n)
-	if _, err := io.ReadFull(r.r, buf); err != nil {
-		// Anchor truncation at the byte where the read started.
+	got, err := io.ReadFull(r.r, buf)
+	r.off += int64(got)
+	if err != nil {
+		// Anchor at the physical end of stream: the first byte the
+		// caller cannot read. Within 1 byte of the actual cut point.
 		if err == io.EOF || err == io.ErrUnexpectedEOF {
 			return nil, clock.AtError(clock.CatTruncated, r.off,
-				"needed %d bytes but stream ended", n)
+				"needed %d bytes but stream ended after %d", n, got)
 		}
 		return nil, err
 	}
-	r.off += int64(n)
 	return buf, nil
 }
 
-// popClosed finishes any scopes whose finite body ends at or before the
-// current offset. Returns the active parent scope (or nil at top level).
-func (r *Reader) popClosed() *scope {
-	for len(r.stack) > 0 {
-		top := &r.stack[len(r.stack)-1]
-		if top.bodyEnd >= 0 && r.off >= top.bodyEnd {
-			r.stack = r.stack[:len(r.stack)-1]
-			continue
-		}
-		break
-	}
-	if len(r.stack) == 0 {
-		return nil
-	}
-	return &r.stack[len(r.stack)-1]
-}
-
-// Next advances to the next element header at the current depth,
-// closing any parent scopes whose bodies have been fully consumed.
-// io.EOF is returned at a clean end of input (or end of a known parent).
+// Next advances to the next element header at the current depth. When
+// the innermost pushed scope reaches its declared end it is popped and
+// io.EOF is returned exactly once; the next call resumes in the parent
+// scope. Unknown-length scopes end only at physical EOF.
 func (r *Reader) Next() (*Element, error) {
 	if r.atEOF {
 		return nil, io.EOF
 	}
-	parent := r.popClosed()
-	if parent != nil && parent.bodyEnd >= 0 && r.off >= parent.bodyEnd {
-		return nil, io.EOF
+	// Finite scope fully consumed: pop it and signal EOF once.
+	if len(r.stack) > 0 {
+		if top := &r.stack[len(r.stack)-1]; top.bodyEnd >= 0 && r.off >= top.bodyEnd {
+			r.stack = r.stack[:len(r.stack)-1]
+			return nil, io.EOF
+		}
 	}
 	headerStart := r.off
 	id, idLen, _, err := ReadVINT(r.r, true)
 	if err != nil {
-		// Real EOF at an empty boundary is clean; anything else is corrupt.
 		if err == io.EOF {
-			if parent == nil || parent.bodyEnd < 0 || r.off == parent.bodyEnd {
-				r.atEOF = true
-				return nil, io.EOF
-			}
+			return r.handlePhysicalEOF(headerStart)
 		}
 		return nil, r.wrapReadErr(err, headerStart)
 	}
 	r.off += int64(idLen)
+	var parent *scope
+	if len(r.stack) > 0 {
+		parent = &r.stack[len(r.stack)-1]
+	}
 	sizeStart := r.off
 	size, sizeLen, _, err := ReadVINT(r.r, false)
 	if err != nil {
@@ -139,7 +128,8 @@ func (r *Reader) Next() (*Element, error) {
 		}
 		el.Size = int64(size)
 		el.EndOff = r.off + int64(size)
-		// A finite child cannot extend past its finite parent.
+		// A finite child cannot extend past a finite parent. An
+		// unknown-length (live) parent has no known end, so no check.
 		if parent != nil && parent.bodyEnd >= 0 && el.EndOff > parent.bodyEnd {
 			return nil, clock.AtError(clock.CatBadPath, headerStart,
 				"element ends at %d beyond parent end %d", el.EndOff, parent.bodyEnd)
@@ -148,6 +138,28 @@ func (r *Reader) Next() (*Element, error) {
 	r.current = el
 	return el, nil
 }
+
+// handlePhysicalEOF applies scope semantics when no more bytes remain.
+// A finite scope whose declared body is unfinished is truncation.
+// Finished finite scopes and unknown-length live scopes stay on the
+// stack with the atEOF latch set, returning io.EOF: the consuming walk
+// closes the innermost scope explicitly with CloseCurrent, so each walk
+// level observes exactly one EOF without mistaking a scope for an
+// unconsumed element.
+func (r *Reader) handlePhysicalEOF(off int64) (*Element, error) {
+	if len(r.stack) > 0 {
+		top := r.stack[len(r.stack)-1]
+		if top.bodyEnd >= 0 && r.off < top.bodyEnd {
+			return nil, clock.AtError(clock.CatTruncated, r.off,
+				"stream ended %d bytes before declared element end", top.bodyEnd-r.off)
+		}
+	}
+	r.atEOF = true
+	return nil, io.EOF
+}
+
+// AtEOF reports whether the underlying stream is fully exhausted.
+func (r *Reader) AtEOF() bool { return r.atEOF }
 
 func (r *Reader) wrapReadErr(err error, off int64) error {
 	if me, ok := clock.AsMediaError(err); ok {
@@ -168,9 +180,21 @@ func (r *Reader) Push(el *Element) {
 	r.stack = append(r.stack, scope{el: el, bodyEnd: el.EndOff})
 }
 
-// Leave closes the innermost scope. For finite elements the reader
-// discards any unconsumed body bytes first. It is idempotent: a scope
-// already auto-closed by Next (its body fully consumed) is a no-op.
+// CloseCurrent pops the innermost open scope without reading further.
+// It is used by container walks that reached physical EOF inside an
+// unknown-length (live) scope: such scopes have no declared end, so the
+// consumer decides when the stream is finished. Finite scopes should be
+// allowed to close naturally via Next's EOF handling.
+func (r *Reader) CloseCurrent() {
+	if len(r.stack) > 0 {
+		r.stack = r.stack[:len(r.stack)-1]
+	}
+}
+
+// Leave exits the innermost scope that is still open. A scope whose
+// finite body was fully consumed is already popped by Next, so Leave is
+// a no-op there. For partially consumed finite scopes the remaining
+// declared bytes are discarded, anchoring truncation precisely.
 func (r *Reader) Leave() error {
 	if len(r.stack) == 0 {
 		return nil
@@ -199,9 +223,8 @@ func (r *Reader) discard(n int64) error {
 		n -= int64(got)
 		if err != nil {
 			if err == io.EOF || err == io.ErrUnexpectedEOF {
-				// Anchor at the first byte the element declared but the
-				// stream failed to provide.
-				return clock.AtError(clock.CatTruncated, r.off+n,
+				// r.off is the physical EOF: the first missing byte.
+				return clock.AtError(clock.CatTruncated, r.off,
 					"element body truncated, %d bytes missing", n)
 			}
 			return err

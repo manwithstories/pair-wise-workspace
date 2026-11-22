@@ -28,16 +28,15 @@ func TestTruncationLocalization(t *testing.T) {
 	full := buildElement(0x1F43B675, clusterBody)
 
 	cases := []truncationCase{
-		// Cut one byte into the block's payload: error must anchor at
-		// the first missing payload byte (offset 13), tolerance 1.
+		// Cut one byte into the block's payload: anchor is the physical
+		// end of stream (first unavailable byte), tolerance 1.
 		{"block payload cut", 13, 13},
-		// Cut inside the block header: ID is at offset 9, missing size
-		// byte at 10 -> reported 10.
+		// Cut inside the block header: the size byte is missing, anchor
+		// is the cut point at 10.
 		{"block header cut", 10, 10},
-		// Cut inside timecode body (physical cut at 7): the declared
-		// element end (first missing logical byte) is offset 9.
-		{"timecode body cut", 7, 9},
-		// Cut inside cluster size field (offset 4 missing).
+		// Cut inside timecode body: physical cut at 7 is the anchor.
+		{"timecode body cut", 7, 7},
+		// Cut inside cluster size field: the missing byte sits at 4.
 		{"cluster header cut", 4, 4},
 	}
 	for _, tc := range cases {
