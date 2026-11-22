@@ -6,8 +6,11 @@ import (
 	"strings"
 	"testing"
 
+	"archive/internal/clock"
+	"archive/internal/demux"
 	"archive/internal/fault"
 	"archive/internal/fixture"
+	"archive/internal/manifest"
 )
 
 // newArchive applies the "not applicable" sentinel (-1) to options the
@@ -152,5 +155,40 @@ func TestUnsafeSegmentPath(t *testing.T) {
 	}
 	if _, err := safeSegmentPath(root, "media/ok.m4s"); err != nil {
 		t.Fatalf("safe path rejected: %v", err)
+	}
+}
+
+func TestTimelinePreservesSpacingAcrossWrap(t *testing.T) {
+	// Anchor zero means stored counter zero is presentation zero, so a
+	// counter just before the wrap sits just before zero -- and the
+	// samples after it continue forward without a jump.
+	seg := manifest.Segment{URI: "m/seg.m4s", Anchor: clock.Must(0, 1)}
+	// 90kHz video counter that wraps 33-bit in the middle of the segment.
+	const period = uint64(1) << 33
+	tr := demux.Track{Timescale: 90000}
+	first := uint64(period) - 7200
+	for i := 0; i < 4; i++ {
+		tr.Samples = append(tr.Samples, demux.Sample{DTS: (first + uint64(i)*3600) % period, Dur: 3600})
+	}
+	ds, err := timeline(seg, tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ds[0] != -7200 {
+		t.Fatalf("counter before wrap should map to -7200, got %d", ds[0])
+	}
+	if ds[2] != 0 {
+		t.Fatalf("first post-wrap sample should land on zero, got %d", ds[2])
+	}
+	for i := 1; i < len(ds); i++ {
+		if ds[i]-ds[i-1] != 3600 {
+			t.Fatalf("spacing broken at %d: %d", i, ds[i]-ds[i-1])
+		}
+	}
+}
+
+func TestTimelineRejectsEmptyTrack(t *testing.T) {
+	if _, err := timeline(manifest.Segment{URI: "x"}, demux.Track{Timescale: 90000}); fault.LevelOf(err) != fault.Degraded {
+		t.Fatalf("empty track should be degraded, got %v", err)
 	}
 }

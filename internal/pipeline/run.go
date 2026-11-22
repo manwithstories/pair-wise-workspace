@@ -293,9 +293,15 @@ func timeline(seg manifest.Segment, tr demux.Track) ([]int64, error) {
 		return nil, fault.Wrap(fault.Fatal, "pipeline", seg.URI, err)
 	}
 	period := clock.WrapPeriod(tr.Timescale)
+	// origin is where the segment's own first counter sits relative to
+	// the anchor; unwrapping from there preserves exact sample spacing
+	// even when the counter wraps in the middle of a segment.
+	origin := clock.SignedDelta(tr.Samples[0].DTS, 0, period)
+	u := &clock.Unwrap{Period: period}
+	first := u.Next(tr.Samples[0].DTS)
 	ds := make([]int64, len(tr.Samples))
 	for j, s := range tr.Samples {
-		d := clock.SignedDelta(s.DTS, 0, period)
+		d := origin + (u.Next(s.DTS) - first)
 		// Guard the addition without overflowing the bounds themselves:
 		// d is small, so branch on its sign.
 		if (d > 0 && base > math.MaxInt64-d) || (d < 0 && base < math.MinInt64-d) {
@@ -323,8 +329,14 @@ func signatureOf(tracks []demux.Track) string {
 // safeSegmentPath joins a manifest-relative URI to root and rejects any
 // path that escapes root after cleaning.
 func safeSegmentPath(root, rel string) (string, error) {
-	if strings.HasPrefix(rel, "/") || strings.Contains(rel, "..") {
+	if rel == "" || strings.HasPrefix(rel, "/") || strings.ContainsAny(rel, "\\\x00") ||
+		strings.Contains(rel, "://") {
 		return "", fault.Newf(fault.Fatal, "pipeline", rel, "unsafe segment path")
+	}
+	for _, part := range strings.Split(rel, "/") {
+		if part == ".." {
+			return "", fault.Newf(fault.Fatal, "pipeline", rel, "path escapes root")
+		}
 	}
 	joined := filepath.Join(root, filepath.FromSlash(rel))
 	cleanRoot := filepath.Clean(root) + string(filepath.Separator)
