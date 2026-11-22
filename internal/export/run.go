@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"time"
 
@@ -97,6 +98,16 @@ func decode(_ context.Context, j merge.Job) merge.Result {
 // Run executes the full pipeline (or resumes a checkpointed one) and
 // returns the run metrics.
 func Run(ctx context.Context, params RunParams) (*Metrics, error) {
+	genOpts, err := params.genOptions()
+	if err != nil {
+		return nil, err
+	}
+	return RunGen(ctx, params, genOpts)
+}
+
+// RunGen is Run with an explicit sample-stream configuration; tests use
+// it to inject faults the demo parameters do not expose.
+func RunGen(ctx context.Context, params RunParams, genOpts rtpstream.GenOptions) (*Metrics, error) {
 	start := time.Now()
 	if err := CheckSafePath(params.OutDir); err != nil {
 		return nil, err
@@ -109,10 +120,6 @@ func Run(ctx context.Context, params RunParams) (*Metrics, error) {
 	}
 	if params.MaxOutBytes == 0 {
 		params.MaxOutBytes = MaxOutputBytes
-	}
-	genOpts, err := params.genOptions()
-	if err != nil {
-		return nil, err
 	}
 	gen, err := rtpstream.Generate(genOpts)
 	if err != nil {
@@ -177,6 +184,10 @@ func execute(ctx context.Context, params RunParams, stream []byte, inputSHA stri
 	}
 	fl := &fault.List{Cap: 4096}
 	merger := merge.NewMerger(params.ReorderWindow, 0.5, fl)
+	// The child context lets a failing consumer stop the producer and
+	// the workers: every blocked select in the pipeline unblocks on it.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	pool, err := merge.NewPool(ctx, params.Workers, params.Queue, decode)
 	if err != nil {
 		return nil, err
@@ -188,6 +199,7 @@ func execute(ctx context.Context, params RunParams, stream []byte, inputSHA stri
 	consumerDone := make(chan error, 1)
 	go func() {
 		consumerDone <- consume(ctx, pool, merger, sw, fl)
+		cancel() // unblock the producer and workers on consumer failure
 	}()
 
 	// Producer: parse the stream and submit records in order.
@@ -215,6 +227,11 @@ func execute(ctx context.Context, params RunParams, stream []byte, inputSHA stri
 	}
 	pool.Close()
 	consErr := <-consumerDone
+	// A consumer failure is the root cause when both exist: the
+	// producer's error is then just the cancelled context.
+	if consErr != nil && !errors.Is(consErr, context.Canceled) {
+		return nil, consErr
+	}
 	if prodErr != nil {
 		return nil, prodErr
 	}
@@ -232,7 +249,6 @@ func execute(ctx context.Context, params RunParams, stream []byte, inputSHA stri
 		return nil, err
 	}
 	m.ResumeSeconds = time.Since(start).Seconds()
-	m.ProvenanceErrors = len(merger.Anomalies)
 	return m, nil
 }
 

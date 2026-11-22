@@ -37,6 +37,7 @@ type GenOptions struct {
 	ClockJumpSeconds int64   // size of the injected jump
 	TailLoss         int     // highest-indexed packets of each track to drop
 	TruncateTail     int     // dangling partial-header bytes appended at EOF (0..6)
+	SeqNearWrap      bool    // start sequence numbers near the 16-bit wrap
 }
 
 // Generated holds a generated stream plus ground truth for tests.
@@ -126,21 +127,30 @@ func Generate(opts GenOptions) (*Generated, error) {
 func (g *Generated) genTrack(rng *rand.Rand, opts *GenOptions, track int) []genItem {
 	n := opts.PacketsPerTrack
 	seq0 := uint16(rng.Intn(1 << 16))
+	if opts.SeqNearWrap {
+		seq0 = 65500
+	}
 	ts0 := rng.Uint32()
 	ssrc := uint32(track+1)*1000 + 7
 	const baseNTP = int64(1_700_000_000)
 
+	// Tracks record the same wall-clock session: NTP domains are aligned
+	// (small per-track start offsets), while each track's RTP timestamp
+	// domain starts at a random offset, as real senders do.
+	trackStart := int64(track)*3 + int64(rng.Intn(3))
 	srFor := func(sentIdx int, jump bool) *SenderReport {
-		ts := ts0 + uint32(sentIdx)*TicksPerPacket
-		ntp := baseNTP + int64(ts/ClockRate)
+		// NTP derives from the wall clock; the RTP timestamp field is
+		// the on-the-wire 32-bit value from the track's own domain.
+		totalTicks := uint64(sentIdx) * TicksPerPacket
+		ntp := baseNTP + trackStart + int64(totalTicks/ClockRate)
 		if jump {
 			ntp += opts.ClockJumpSeconds
 		}
 		return &SenderReport{
 			SSRC:         ssrc,
 			NTPSec:       uint32(ntp),
-			NTPFrac:      uint32((uint64(ts%ClockRate) << 32) / ClockRate),
-			RTPTimestamp: ts,
+			NTPFrac:      uint32(((totalTicks % ClockRate) << 32) / ClockRate),
+			RTPTimestamp: ts0 + uint32(sentIdx)*TicksPerPacket,
 			PacketCount:  uint32(sentIdx),
 			OctetCount:   uint32(sentIdx * opts.PayloadSize),
 		}

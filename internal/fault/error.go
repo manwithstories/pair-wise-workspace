@@ -5,7 +5,10 @@
 // the same language.
 package fault
 
-import "fmt"
+import (
+	"fmt"
+	"sync"
+)
 
 // Kind classifies a pipeline error.
 type Kind int
@@ -84,8 +87,9 @@ func Wrap(kind Kind, track, seq, off int64, recoverable bool, err error, msg str
 // List is an ordered collection of faults gathered during a run. It is
 // bounded: once Cap faults are retained, further faults are counted in
 // Dropped instead of being stored, so a flooded error path cannot grow
-// memory without limit.
+// memory without limit. It is safe for concurrent use.
 type List struct {
+	mu      sync.Mutex
 	Errs    []*Error
 	Cap     int
 	Dropped int
@@ -96,6 +100,8 @@ func (l *List) Add(err error) {
 	if err == nil {
 		return
 	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.Cap > 0 && len(l.Errs) >= l.Cap {
 		l.Dropped++
 		return
@@ -110,6 +116,8 @@ func (l *List) Add(err error) {
 
 // Count returns how many faults of the given kind were recorded.
 func (l *List) Count(kind Kind) int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	n := 0
 	for _, e := range l.Errs {
 		if e.Kind == kind {
@@ -121,6 +129,8 @@ func (l *List) Count(kind Kind) int {
 
 // HasFatal reports whether any recorded fault is not recoverable.
 func (l *List) HasFatal() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	for _, e := range l.Errs {
 		if !e.Recoverable {
 			return true

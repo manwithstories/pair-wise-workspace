@@ -2,6 +2,7 @@ package merge
 
 import (
 	"container/heap"
+	"sync"
 
 	"medpipe/internal/clock"
 	"medpipe/internal/fault"
@@ -33,6 +34,9 @@ type Merger struct {
 	heap           eventHeap
 	fl             *fault.List
 	fatal          error
+	fatalMu        sync.Mutex
+	baseSec        uint32
+	hasBase        bool
 	// Anomalies holds cross-track calibration faults (drift,
 	// isolation). They are mirrored into the provenance manifest.
 	Anomalies []*fault.Error
@@ -81,8 +85,14 @@ func NewMerger(window int, driftThreshold float64, fl *fault.List) *Merger {
 // Faults returns the shared fault list.
 func (m *Merger) Faults() *fault.List { return m.fl }
 
-// Fatal returns the first non-recoverable merge error, if any.
-func (m *Merger) Fatal() error { return m.fatal }
+// Fatal returns the first non-recoverable merge error, if any. It is
+// safe to call from the driver goroutine while the consumer applies
+// events.
+func (m *Merger) Fatal() error {
+	m.fatalMu.Lock()
+	defer m.fatalMu.Unlock()
+	return m.fatal
+}
 
 func (m *Merger) track(id uint32) *trackState {
 	ts, ok := m.tracks[id]
@@ -104,7 +114,16 @@ func (m *Merger) AddSenderReport(track uint32, sr *rtpstream.SenderReport, off i
 	if ts.isolated {
 		return
 	}
-	calib := clock.NewCalibration(rtpstream.ClockRate, sr.RTPTimestamp, sr.NTPTime())
+	// Shared-timeline values are kept relative to the first sender
+	// report's whole seconds, so rational arithmetic stays far from
+	// int64 limits.
+	if !m.hasBase {
+		m.baseSec = sr.NTPSec
+		m.hasBase = true
+	}
+	rel := clock.New(int64(sr.NTPSec)-int64(m.baseSec), 1).
+		Add(clock.New(int64(sr.NTPFrac), 1<<32))
+	calib := clock.NewCalibration(rtpstream.ClockRate, sr.RTPTimestamp, rel)
 	if !ts.hasCalib {
 		ts.calib = calib
 		ts.hasCalib = true
@@ -116,12 +135,19 @@ func (m *Merger) AddSenderReport(track uint32, sr *rtpstream.SenderReport, off i
 		return
 	}
 	predicted := ts.calib.ToShared(sr.RTPTimestamp)
-	diff := predicted.Sub(sr.NTPTime()).Float()
+	diff := predicted.Sub(rel).Float()
 	if diff < 0 {
 		diff = -diff
 	}
 	if diff > m.driftThreshold {
 		ts.isolated = true
+		// Discard queued events and uncount them, so Received always
+		// equals the number of events actually emitted downstream.
+		discarded := uint64(len(ts.uncal) + len(ts.queue))
+		if ts.head != nil {
+			discarded++
+		}
+		ts.received -= discarded
 		ts.uncal = nil
 		ts.queue = nil
 		ts.head = nil
@@ -137,7 +163,7 @@ func (m *Merger) AddSenderReport(track uint32, sr *rtpstream.SenderReport, off i
 // AddEvent feeds one decoded packet. Ready events are calibrated and
 // offered to the merge heap.
 func (m *Merger) AddEvent(ev *Event) {
-	if m.fatal != nil {
+	if m.Fatal() != nil {
 		return
 	}
 	ts := m.track(ev.Track)
@@ -148,7 +174,7 @@ func (m *Merger) AddEvent(ev *Event) {
 	}
 	for _, ready := range ts.buf.push(ev, m.fl) {
 		m.offer(ts, ready)
-		if m.fatal != nil {
+		if m.Fatal() != nil {
 			return
 		}
 	}
@@ -189,6 +215,8 @@ func (m *Merger) calibrate(ts *trackState, ev *Event) {
 }
 
 func (m *Merger) setFatal(err error) {
+	m.fatalMu.Lock()
+	defer m.fatalMu.Unlock()
 	if m.fatal == nil {
 		m.fatal = err
 		m.fl.Add(err)
@@ -234,7 +262,7 @@ func (m *Merger) Flush() {
 			m.offer(ts, ev)
 		}
 		if !ts.hasCalib && len(ts.uncal) > 0 {
-			ts.calib = clock.NewCalibration(rtpstream.ClockRate, 0, clock.Rat{})
+			ts.calib = clock.NewCalibration(rtpstream.ClockRate, 0, clock.New(0, 1))
 			ts.hasCalib = true
 			rest := ts.uncal
 			ts.uncal = nil

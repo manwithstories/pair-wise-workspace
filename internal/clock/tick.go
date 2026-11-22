@@ -45,11 +45,22 @@ func New(n, d int64) Rat {
 	return Rat{N: n / g, D: d / g}
 }
 
-// Add returns r + o.
-func (r Rat) Add(o Rat) Rat { return New(r.N*o.D+o.N*r.D, r.D*o.D) }
+// Add returns r + o. Cross terms are reduced by gcd before
+// multiplication to avoid int64 overflow for the magnitudes used here
+// (timeline values are kept relative to a session base, so |N| stays
+// well below 2^63 after reduction).
+func (r Rat) Add(o Rat) Rat {
+	g := gcd(r.D, o.D)
+	rd, od := r.D/g, o.D/g
+	return New(r.N*od+o.N*rd, r.D*od)
+}
 
 // Sub returns r - o.
-func (r Rat) Sub(o Rat) Rat { return New(r.N*o.D-o.N*r.D, r.D*o.D) }
+func (r Rat) Sub(o Rat) Rat {
+	g := gcd(r.D, o.D)
+	rd, od := r.D/g, o.D/g
+	return New(r.N*od-o.N*rd, r.D*od)
+}
 
 // Mul returns r * o.
 func (r Rat) Mul(o Rat) Rat { return New(r.N*o.N, r.D*o.D) }
@@ -135,7 +146,7 @@ type MediaClock struct {
 // Ticks converts an RTP timestamp delta (ticks) into seconds.
 func (c MediaClock) Ticks(delta int64) Rat {
 	if c.Rate == 0 {
-		return Rat{}
+		return New(0, 1)
 	}
 	return New(delta, int64(c.Rate))
 }

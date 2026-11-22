@@ -133,9 +133,10 @@ func (sw *segmentWriter) finalize(params RunParams, merger *merge.Merger,
 		return nil, err
 	}
 
-	// Track timing and metrics from the merger's per-track stats.
+	// Track timing and metrics from the merger's per-track stats. The
+	// frame count is authoritative from the segment writer itself.
 	var timing []TrackTiming
-	var packetsTotal, packetsLost, frames int
+	var packetsTotal, packetsLost int
 	for _, st := range merger.Stats() {
 		sent := st.Sent
 		if sent == 0 {
@@ -149,25 +150,25 @@ func (sw *segmentWriter) finalize(params RunParams, merger *merge.Merger,
 		})
 		packetsTotal += int(sent)
 		packetsLost += int(st.Missing + st.TailLoss)
-		frames += int(st.Received)
 	}
+	frames := int(sw.nextIndex)
 	sort.Slice(timing, func(i, j int) bool { return timing[i].TrackID < timing[j].TrackID })
 
 	// media.mp4 embeds the frame sequence with per-track timing.
-	framesData, err := os.Open(framesPath)
+	framesData, err := os.ReadFile(framesPath)
 	if err != nil {
 		return nil, err
 	}
-	defer framesData.Close()
 	if err := WriteMP4(filepath.Join(out, "media.mp4"), timing, framesData); err != nil {
 		return nil, err
 	}
 
 	m := &Metrics{
-		PacketsTotal:   packetsTotal,
-		PacketsLost:    packetsLost,
-		BadOffsetBytes: parser.Stats.BadOffsetBytes,
-		FramesWritten:  frames,
+		PacketsTotal:     packetsTotal,
+		PacketsLost:      packetsLost,
+		BadOffsetBytes:   parser.Stats.BadOffsetBytes,
+		FramesWritten:    frames,
+		ProvenanceErrors: len(merger.Anomalies),
 	}
 
 	// Output hashes over every artifact except manifest.json (which
