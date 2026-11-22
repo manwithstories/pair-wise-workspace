@@ -31,8 +31,10 @@ func Run(s *sim.Stream, cfg Config) (*Result, error) {
 		cp = NewCheckpointer(cfg.WorkDir, cfg.CheckpointInterval)
 	}
 	i := 0
+	crashed := false
 	for i < len(s.Items) {
-		if i == cfg.CrashAt && cp != nil {
+		if i == cfg.CrashAt && cp != nil && !crashed {
+			crashed = true
 			st, usedPrev, err := cp.Recover()
 			if err != nil {
 				return nil, err

@@ -30,7 +30,8 @@ func TestGenerateLossBurst(t *testing.T) {
 			count++
 		}
 	}
-	if want := 750 - 7; count != want {
+	// 750 frames - 7 lost + 8 injected duplicates (every 97th of 743)
+	if want := 750 - 7 + 8; count != want {
 		t.Fatalf("480p packets = %d, want %d", count, want)
 	}
 }

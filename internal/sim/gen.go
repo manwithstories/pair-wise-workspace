@@ -105,7 +105,7 @@ func Generate(o Options) *Stream {
 			units = append(units, raw)
 			times = append(times, tsNs)
 		}
-		injectFaults(units, times, rng)
+		units, times = injectFaults(units, times)
 		var off int64
 		for i, raw := range units {
 			s.Items = append(s.Items, Item{Parser: "rtp", Track: track, Data: raw, Offset: off, TimeNs: times[i]})
@@ -123,10 +123,10 @@ func Generate(o Options) *Stream {
 }
 
 // injectFaults duplicates every 97th unit and swaps adjacent units around
-// every 53rd, in place; times follow their units.
-func injectFaults(units [][]byte, times []int64, rng *rand.Rand) {
-	for i := len(units) - 1; i >= 0; i-- {
-		if i > 0 && i%53 == 0 {
+// every 53rd; times follow their units. It returns the grown slices.
+func injectFaults(units [][]byte, times []int64) ([][]byte, []int64) {
+	for i := len(units) - 1; i > 0; i-- {
+		if i%53 == 0 {
 			units[i], units[i-1] = units[i-1], units[i]
 			times[i], times[i-1] = times[i-1], times[i]
 		}
@@ -139,10 +139,9 @@ func injectFaults(units [][]byte, times []int64, rng *rand.Rand) {
 			copy(times[i+1:], times[i:])
 			units[i+1] = units[i]
 			times[i+1] = times[i]
-			i-- // the shifted duplicate moves with the loop
 		}
 	}
-	_ = rng
+	return units, times
 }
 
 // addMetadata appends emsg/ID3 boxes, SEI NALs, subtitles and chapters.

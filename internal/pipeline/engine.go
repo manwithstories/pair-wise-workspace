@@ -85,6 +85,7 @@ type Result struct {
 	Manifest          *manifest.Manifest
 	SegEvents         [][]adapter.Event
 	Boundaries        []align.Boundary
+	Errs              *fault.List
 	DuplicatesDropped int
 	LossBurstRecovered int
 	IsolatedTracks    []string
@@ -129,6 +130,7 @@ func (e *Engine) Finish(s *sim.Stream) *Result {
 	m := manifest.Build(bl, segEvents, s.Keyframes[sim.PrimaryRendition])
 	res := &Result{
 		Manifest: m, SegEvents: segEvents, Boundaries: bounds,
+		Errs:               e.Errs,
 		LossBurstRecovered: e.rec.BurstsRecovered,
 		RollbackItems:      e.RollbackItems,
 		AlignP95Ns:         align.P95(errs),
@@ -154,7 +156,9 @@ func Targets(durationNs int64, bandwidth []int64) []int64 {
 		phase = 1
 	}
 	var targets []int64
-	for t := int64(0); t < durationNs; {
+	// A target closer than the minimum step to the end would produce a
+	// sliver segment with no keyframe; merge it into the previous one.
+	for t := int64(0); t+1_000_000_000 <= durationNs; {
 		targets = append(targets, t)
 		i := int(t / phase)
 		if i >= len(bandwidth) {
