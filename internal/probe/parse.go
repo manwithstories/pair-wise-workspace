@@ -401,8 +401,6 @@ func (st *sampleTable) countChunks() uint64 {
 	if len(st.stsc) == 0 {
 		return 0
 	}
-	var total uint64
-	var prevFirst uint64 = 1
 	remaining := st.count
 	for i, run := range st.stsc {
 		first := uint64(run.firstChunk)
@@ -428,19 +426,14 @@ func (st *sampleTable) countChunks() uint64 {
 			return 0
 		}
 		chunks := nextFirst - first
-		total = nextFirst - 1
 		consumed := chunks * uint64(run.samplesPerChunk)
 		if consumed > remaining {
 			return 0
 		}
 		remaining -= consumed
-		prevFirst = nextFirst
 	}
-	_ = prevFirst
-	if total == 0 {
-		return 0
-	}
-	return total
+	// Trailing stsc runs without a following boundary never describe chunks.
+	return 0
 }
 
 // rebuildOffsets places chunks contiguously from the first mdat payload. It

@@ -117,6 +117,7 @@ func planFor(spec Spec) (*plan, error) {
 		mdatStart:   0,
 		audio:       false,
 		dropStco:    spec.Kind == MissingIndex,
+		chunkSize:   7,
 		emptyEditMS: 0,
 	}
 	audio := track{
@@ -128,6 +129,7 @@ func planFor(spec Spec) (*plan, error) {
 		mdatStart:   audioStart,
 		audio:       true,
 		dropStco:    spec.Kind == MissingIndex,
+		chunkSize:   5,
 		emptyEditMS: 0,
 	}
 	res := &plan{
@@ -180,6 +182,7 @@ type track struct {
 	audio       bool
 	emptyEditMS uint32
 	dropStco    bool
+	chunkSize   int
 }
 
 func (t track) trak() []byte {
@@ -264,7 +267,11 @@ func (t track) stbl() []byte {
 	if !t.audio {
 		stss = stssBox(t.samples)
 	}
-	stsc := stscBox()
+	chunk := t.chunkSize
+	if chunk <= 0 {
+		chunk = 1
+	}
+	stsc := stscBox(chunk)
 	stsz := stszBox(t.samples)
 	kids := concat(stsd, stts)
 	if stss != nil {
@@ -272,7 +279,7 @@ func (t track) stbl() []byte {
 	}
 	kids = concat(kids, stsc, stsz)
 	if !t.dropStco {
-		kids = concat(kids, stcoBox(t.samples, t.mdatStart+t.mdatBase))
+		kids = concat(kids, stcoBox(t.samples, t.mdatStart+t.mdatBase, chunk))
 	}
 	return boxBytes("stbl", kids)
 }
@@ -355,12 +362,14 @@ func stssBox(samples []sampleRec) []byte {
 	return fullBox("stss", 0, 0, x.bytes())
 }
 
-func stscBox() []byte {
+// stscBox groups every chunk (except possibly the last) into runs of
+// samplesPerChunk. A non-final chunk is one that is followed by another.
+func stscBox(samplesPerChunk int) []byte {
 	x := &w{}
 	x.u32(1)
-	x.u32(1) // first chunk
-	x.u32(1) // one sample per chunk
-	x.u32(1) // sample description index
+	x.u32(1)
+	x.u32(uint32(samplesPerChunk))
+	x.u32(1)
 	return fullBox("stsc", 0, 0, x.bytes())
 }
 
@@ -374,13 +383,32 @@ func stszBox(samples []sampleRec) []byte {
 	return fullBox("stsz", 0, 0, x.bytes())
 }
 
-func stcoBox(samples []sampleRec, base int) []byte {
+// chunks splits samples into groups of chunkSize (last group may be shorter).
+func chunks(samples []sampleRec, chunkSize int) [][]sampleRec {
+	if chunkSize <= 0 {
+		chunkSize = 1
+	}
+	var out [][]sampleRec
+	for i := 0; i < len(samples); i += chunkSize {
+		end := i + chunkSize
+		if end > len(samples) {
+			end = len(samples)
+		}
+		out = append(out, samples[i:end])
+	}
+	return out
+}
+
+func stcoBox(samples []sampleRec, base, chunkSize int) []byte {
+	groups := chunks(samples, chunkSize)
 	x := &w{}
-	x.u32(uint32(len(samples)))
+	x.u32(uint32(len(groups)))
 	off := base
-	for _, s := range samples {
+	for _, g := range groups {
 		x.u32(uint32(off))
-		off += int(s.size)
+		for _, s := range g {
+			off += int(s.size)
+		}
 	}
 	return fullBox("stco", 0, 0, x.bytes())
 }
