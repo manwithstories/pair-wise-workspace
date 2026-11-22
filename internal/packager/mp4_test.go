@@ -20,7 +20,7 @@ func TestPackageRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	p, err := New(f, 48000, 2, 960)
+	p, err := New(f, 48000, 2, 960, 960*2*2, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestNonIntegralFrame(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	p, _ := New(f, 48000, 2, 960)
+	p, _ := New(f, 48000, 2, 960, 960*2*2, 0)
 	err = p.WriteFrame([]byte{1, 2, 3})
 	fe, ok := fault.As(err)
 	if !ok || fe.Kind != fault.KindPackage || fe.Segment != 0 {
@@ -89,7 +89,7 @@ func TestDeterministicOutput(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "o.mp4")
 		f, _ := os.Create(path)
 		defer f.Close()
-		p, _ := New(f, 48000, 2, 960)
+		p, _ := New(f, 48000, 2, 960, 960*2*2, 0)
 		frame := bytes.Repeat([]byte{0x11, 0x22, 0x33, 0x44}, 960)
 		for i := 0; i < 10; i++ {
 			p.WriteFrame(frame)

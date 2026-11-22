@@ -7,8 +7,7 @@ import (
 )
 
 // writeStbl 写采样表：stsd(sowt PCM 入口)、stts、stsc、stsz、stco。
-func (p *Packager) writeStbl(samples int64) error {
-	w := p.w
+func (p *Packager) writeStbl(w *mp4.Writer, samples int64) error {
 	if _, err := w.StartBox(&mp4.BoxInfo{Type: mp4.BoxTypeStbl()}); err != nil {
 		return err
 	}
@@ -41,18 +40,18 @@ func (p *Packager) writeStbl(samples int64) error {
 		return err
 	}
 	frames := uint32(len(p.sizes))
-	if err := p.marshal(&mp4.Stts{EntryCount: 1, Entries: []mp4.SttsEntry{
+	if err := marshalTo(w, &mp4.Stts{EntryCount: 1, Entries: []mp4.SttsEntry{
 		{SampleCount: frames, SampleDelta: uint32(p.frameSamples)},
 	}}); err != nil {
 		return err
 	}
-	if err := p.marshal(&mp4.Stsc{EntryCount: 1, Entries: []mp4.StscEntry{
+	if err := marshalTo(w, &mp4.Stsc{EntryCount: 1, Entries: []mp4.StscEntry{
 		{FirstChunk: 1, SamplesPerChunk: frames, SampleDescriptionIndex: 1},
 	}}); err != nil {
 		return err
 	}
-	if err := p.marshal(&mp4.Stsz{SampleSize: 0, SampleCount: frames, EntrySize: p.sizes}); err != nil {
+	if err := marshalTo(w, &mp4.Stsz{SampleSize: 0, SampleCount: frames, EntrySize: p.sizes}); err != nil {
 		return err
 	}
-	return p.marshal(&mp4.Stco{EntryCount: 1, ChunkOffset: []uint32{uint32(p.mdatPayload)}})
+	return marshalTo(w, &mp4.Stco{EntryCount: 1, ChunkOffset: []uint32{uint32(p.mdatPayload)}})
 }
