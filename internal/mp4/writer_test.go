@@ -164,3 +164,34 @@ func TestCheckOutputPath(t *testing.T) {
 		t.Fatal("expected escape")
 	}
 }
+
+func TestWriteSegmentRefusesInputOverwrite(t *testing.T) {
+	c, _ := genClip(t, testkit.DefaultVideoTrack(1, 1_000_000, 15))
+	plan, _ := planFromClip(t, c)
+	dir := filepath.Dir(c.Path)
+	_, err := WriteSegment(c.Path, plan, WriterOptions{Root: dir, Inputs: []string{c.Path}})
+	fe, ok := fault.As(err)
+	if !ok || fe.Kind != fault.KindPathEscape {
+		t.Fatalf("expected path-escape refusal, got %v", err)
+	}
+	if _, statErr := os.Stat(c.Path); statErr != nil {
+		t.Fatalf("input was removed: %v", statErr)
+	}
+}
+
+func TestSameFile(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a")
+	if err := os.WriteFile(a, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !sameFile(a, a) {
+		t.Fatal("same path should match")
+	}
+	if sameFile(a, filepath.Join(dir, "b")) {
+		t.Fatal("different files should not match")
+	}
+	if sameFile("", a) {
+		t.Fatal("empty path should not match")
+	}
+}

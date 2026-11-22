@@ -362,27 +362,29 @@ func (f *File) checkMfra(fh *os.File) *fault.Error {
 }
 
 // readPayload copies one sample payload into buf, never exceeding maxSize.
-// The returned slice may alias buf; callers that keep it must copy.
-func (f *File) readPayload(fh *os.File, s model.Sample, buf []byte, maxSize int) ([]byte, error) {
+// The returned slice may alias buf; callers that keep it must copy. The track
+// ID is passed in so a fault names the owning track rather than a sample
+// number, which is what an operator needs to locate the fragment.
+func (f *File) readPayload(fh *os.File, trackID int, s model.Sample, buf []byte, maxSize int) ([]byte, error) {
 	if s.Size < 0 || s.Size > maxSize {
 		return nil, fault.New(fault.StageParse, fault.KindInvalidLength,
 			"sample %d size %d outside buffer limit %d", s.Number, s.Size, maxSize).
-			At(s.Number, s.Offset)
+			At(trackID, s.Offset)
 	}
 	if uint64(s.Offset)+uint64(s.Size) > uint64(f.Size) {
 		return nil, fault.New(fault.StageParse, fault.KindTruncatedBox,
-			"sample %d extends past end of file", s.Number).At(s.Number, s.Offset)
+			"sample %d extends past end of file", s.Number).At(trackID, s.Offset)
 	}
 	if cap(buf) < s.Size {
 		buf = make([]byte, s.Size)
 	}
 	buf = buf[:s.Size]
 	if _, err := fh.ReadAt(buf, s.Offset); err != nil {
-		return nil, fault.From(err, fault.StageParse, fault.KindTruncatedBox).At(s.Number, s.Offset)
+		return nil, fault.From(err, fault.StageParse, fault.KindTruncatedBox).At(trackID, s.Offset)
 	}
 	if f.marker && !hasSampleMarker(buf) {
 		return nil, fault.New(fault.StageParse, fault.KindCorruptSample,
-			"sample %d payload is missing its integrity marker", s.Number).At(s.Number, s.Offset)
+			"sample %d payload is missing its integrity marker", s.Number).At(trackID, s.Offset)
 	}
 	return buf, nil
 }
@@ -398,11 +400,12 @@ func hasSampleMarker(buf []byte) bool {
 // SampleReader yields sample payloads from one source file with a fixed
 // buffer. One reader belongs to one goroutine.
 type SampleReader struct {
-	file   *File
-	fh     *os.File
-	buf    []byte
-	maxSz  int
-	closed bool
+	file    *File
+	fh      *os.File
+	buf     []byte
+	maxSz   int
+	trackID int
+	closed  bool
 }
 
 // OpenSampleReader opens the source for sequential sample reads.
@@ -414,15 +417,27 @@ func (f *File) OpenSampleReader(maxSample int) (*SampleReader, error) {
 	if err != nil {
 		return nil, fault.From(err, fault.StageParse, fault.KindMissingIndex)
 	}
-	return &SampleReader{file: f, fh: fh, maxSz: maxSample}, nil
+	return &SampleReader{file: f, fh: fh, maxSz: maxSample, trackID: 0}, nil
+}
+
+// WithTrack returns a reader that attributes faults to trackID.
+func (r *SampleReader) WithTrack(trackID int) *SampleReader {
+	r.trackID = trackID
+	return r
 }
 
 // ReadSample returns the payload bytes for s. The slice is reused across calls.
 func (r *SampleReader) ReadSample(s model.Sample) ([]byte, error) {
+	return r.ReadTrackSample(r.trackID, s)
+}
+
+// ReadTrackSample reads a sample and attaches trackID to any fault.
+func (r *SampleReader) ReadTrackSample(trackID int, s model.Sample) ([]byte, error) {
 	if r.closed {
-		return nil, fault.New(fault.StageParse, fault.KindCorruptSample, "sample reader closed")
+		return nil, fault.New(fault.StageParse, fault.KindCorruptSample, "sample reader closed").
+			At(trackID, s.Offset)
 	}
-	return r.file.readPayload(r.fh, s, r.buf, r.maxSz)
+	return r.file.readPayload(r.fh, trackID, s, r.buf, r.maxSz)
 }
 
 // Close releases the file handle.

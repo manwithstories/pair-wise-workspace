@@ -409,7 +409,7 @@ func executePlan(canceller *pipeline.Canceller, cfg demoConfig, entries []manife
 			continue
 		}
 		_, serr := pool.Submit(func(ctx context.Context) error {
-			return writeEntry(ctx, cfg, e, rep, mb, &mu, &completed)
+			return writeEntry(ctx, cfg, e, rep, reps, mb, &mu, &completed)
 		}, func(_ int64, jerr error) {
 			if jerr != nil {
 				var fe *fault.Error
@@ -433,7 +433,7 @@ func executePlan(canceller *pipeline.Canceller, cfg demoConfig, entries []manife
 
 // writeEntry reads the samples for one manifest row, writes the fragment and
 // hashes it. Recoverable faults are recorded as manifest failures.
-func writeEntry(ctx context.Context, cfg demoConfig, e manifest.Entry, rep representation, mb *manifest.Builder, mu *sync.Mutex, completed *int64) error {
+func writeEntry(ctx context.Context, cfg demoConfig, e manifest.Entry, rep representation, allReps []representation, mb *manifest.Builder, mu *sync.Mutex, completed *int64) error {
 	if err := ctx.Err(); err != nil {
 		return fault.From(err, fault.StageCancel, fault.KindCanceled).WithSegment(e.ID)
 	}
@@ -454,7 +454,12 @@ func writeEntry(ctx context.Context, cfg demoConfig, e manifest.Entry, rep repre
 		return nil
 	}
 	defer sr.Close()
+	sr.WithTrack(e.TrackID)
 
+	inputs := make([]string, 0, len(allReps))
+	for _, r := range allReps {
+		inputs = append(inputs, r.clip.Path)
+	}
 	plan := mp4.SegmentPlan{
 		ID:        e.ID,
 		TrackID:   e.TrackID,
@@ -478,7 +483,7 @@ func writeEntry(ctx context.Context, cfg demoConfig, e manifest.Entry, rep repre
 		recordFailure(mb, mu, e, err)
 		return nil
 	}
-	if _, err := mp4.WriteSegment(abs, plan, mp4.WriterOptions{Root: cfg.Out, MaxPayload: 1 << 20}); err != nil {
+	if _, err := mp4.WriteSegment(abs, plan, mp4.WriterOptions{Root: cfg.Out, MaxPayload: 1 << 20, Inputs: inputs}); err != nil {
 		recordFailure(mb, mu, e, err)
 		return nil
 	}
@@ -617,7 +622,7 @@ func resumePlan(cfg demoConfig, entries []manifest.Entry, reps []representation,
 			continue
 		}
 		if _, err := pool.Submit(func(ctx context.Context) error {
-			return writeEntry(ctx, cfg, e, rep, mb, &mu, &completed)
+			return writeEntry(ctx, cfg, e, rep, reps, mb, &mu, &completed)
 		}, nil); err != nil {
 			break
 		}

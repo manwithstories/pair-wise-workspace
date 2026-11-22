@@ -36,6 +36,8 @@ type WriterOptions struct {
 	MaxPayload int
 	// Root is the directory that relative segment paths must stay inside.
 	Root string
+	// Inputs lists source files that must never be overwritten.
+	Inputs []string
 }
 
 // WriteSegment writes one deterministic MP4 containing only the planned
@@ -44,6 +46,12 @@ type WriterOptions struct {
 func WriteSegment(path string, plan SegmentPlan, opts WriterOptions) (int64, error) {
 	if err := checkOutputPath(opts.Root, path); err != nil {
 		return 0, err
+	}
+	for _, in := range opts.Inputs {
+		if sameFile(in, path) {
+			return 0, fault.New(fault.StageWrite, fault.KindPathEscape,
+				"output %s would overwrite input %s", path, in).WithSegment(plan.ID)
+		}
 	}
 	if len(plan.Samples) == 0 {
 		return 0, fault.New(fault.StageWrite, fault.KindBadConfig, "segment %s has no samples", plan.ID).
@@ -163,6 +171,34 @@ func checkOutputPath(root, path string) error {
 			"output %s escapes root %s", abs, rootAbs)
 	}
 	return nil
+}
+
+// sameFile reports whether two paths resolve to the same file, tolerating
+// paths that do not exist yet by comparing cleaned absolute forms.
+func sameFile(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	ai, errA := os.Stat(a)
+	bi, errB := os.Stat(b)
+	if errA == nil && errB == nil {
+		return os.SameFile(ai, bi)
+	}
+	absA, errA := filepath.Abs(a)
+	absB, errB := filepath.Abs(b)
+	if errA != nil || errB != nil {
+		return false
+	}
+	if absA == absB {
+		return true
+	}
+	// Resolve symlinks when both targets exist.
+	if realA, err := filepath.EvalSymlinks(absA); err == nil {
+		if realB, err := filepath.EvalSymlinks(absB); err == nil {
+			return realA == realB
+		}
+	}
+	return false
 }
 
 func buildFtyp() ([]byte, error) {
