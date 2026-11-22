@@ -23,8 +23,13 @@ type Checkpoint struct {
 	LastTick     int64  `json:"last_tick"`
 	ChunkFrames  int    `json:"chunk_frames"`
 	TotalChunks  int    `json:"total_chunks"`
-	// Completed is the set of chunk numbers already atomically committed.
+	// Completed is the set of chunk numbers that passed validation and
+	// were atomically committed. Failed chunks never appear here.
 	Completed []int `json:"completed"`
+	// Failed records chunks whose validation failed. Their index row may
+	// exist, but the checkpoint does not treat them as completed, so the
+	// defect is never silently accepted as finished work.
+	Failed []int `json:"failed"`
 }
 
 // ErrDigestMismatch means the input or parameters changed under a resume.
@@ -90,14 +95,15 @@ func (m *Manager) persist() error {
 	return nil
 }
 
-// MarkChunked records a successfully committed chunk and extends the media
-// range. It refuses to advance for an already-completed chunk, and the
-// checkpoint only moves once validation (performed by the caller) passed.
+// MarkChunked records a successfully validated, committed chunk and
+// extends the media range. It refuses to mark a chunk already completed
+// or one that previously failed validation.
 func (m *Manager) MarkChunked(chunk int, startTick, endTick int64) error {
-	for _, c := range m.cp.Completed {
-		if c == chunk {
-			return fmt.Errorf("batch: chunk %d already checkpointed", chunk)
-		}
+	if m.contains(m.cp.Failed, chunk) {
+		return fmt.Errorf("batch: chunk %d previously failed, cannot complete", chunk)
+	}
+	if m.contains(m.cp.Completed, chunk) {
+		return fmt.Errorf("batch: chunk %d already checkpointed", chunk)
 	}
 	if chunk < 0 || chunk >= m.cp.TotalChunks {
 		return fmt.Errorf("batch: chunk %d outside [0,%d)", chunk, m.cp.TotalChunks)
@@ -115,33 +121,63 @@ func (m *Manager) MarkChunked(chunk int, startTick, endTick int64) error {
 	return m.persist()
 }
 
-// Done reports whether every chunk is checkpointed.
-func (m *Manager) Done() bool { return len(m.cp.Completed) == m.cp.TotalChunks }
+// MarkFailed records a chunk whose validation failed. The checkpoint is
+// persisted so the failure is durable, but the chunk is kept out of
+// Completed and therefore never counts as finished work.
+func (m *Manager) MarkFailed(chunk int) error {
+	if chunk < 0 || chunk >= m.cp.TotalChunks {
+		return fmt.Errorf("batch: chunk %d outside [0,%d)", chunk, m.cp.TotalChunks)
+	}
+	if m.contains(m.cp.Completed, chunk) {
+		return fmt.Errorf("batch: chunk %d already completed", chunk)
+	}
+	if m.contains(m.cp.Failed, chunk) {
+		return nil // idempotent: re-encountering a failed chunk is fine
+	}
+	m.cp.Failed = append(m.cp.Failed, chunk)
+	return m.persist()
+}
+
+func (m *Manager) contains(xs []int, v int) bool {
+	for _, x := range xs {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
+// IsFailed reports whether a chunk previously failed validation.
+func (m *Manager) IsFailed(chunk int) bool { return m.contains(m.cp.Failed, chunk) }
+
+// FailedCount returns how many chunks failed validation.
+func (m *Manager) FailedCount() int { return len(m.cp.Failed) }
+
+// Done reports whether every chunk is either completed or failed, i.e.
+// there is no outstanding work left to resume.
+func (m *Manager) Done() bool {
+	return len(m.cp.Completed)+len(m.cp.Failed) == m.cp.TotalChunks
+}
 
 // Snapshot returns a copy of the checkpoint state.
 func (m *Manager) Snapshot() Checkpoint {
 	cp := m.cp
 	cp.Completed = append([]int(nil), m.cp.Completed...)
+	cp.Failed = append([]int(nil), m.cp.Failed...)
 	return cp
 }
 
 // VerifyAgainst checks that every checkpointed chunk exists in the
-// committed set and no committed chunk is missing from the checkpoint.
+// committed index set. Index rows belonging to failed chunks are allowed
+// to exist without being marked completed.
 func (m *Manager) VerifyAgainst(committed map[int]bool) error {
 	for _, c := range m.cp.Completed {
 		if !committed[c] {
-			return fmt.Errorf("%w: checkpoint chunk %d absent from index", ErrInconsistent, c)
+			return fmt.Errorf("%w: completed chunk %d absent from index", ErrInconsistent, c)
 		}
 	}
 	for c := range committed {
-		found := false
-		for _, done := range m.cp.Completed {
-			if done == c {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !m.contains(m.cp.Completed, c) && !m.contains(m.cp.Failed, c) {
 			return fmt.Errorf("%w: index chunk %d absent from checkpoint", ErrInconsistent, c)
 		}
 	}

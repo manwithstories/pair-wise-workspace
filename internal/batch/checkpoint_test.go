@@ -81,6 +81,59 @@ func TestVerifyAgainstIndex(t *testing.T) {
 	}
 }
 
+func TestFailedChunkNeverCompletes(t *testing.T) {
+	dir := t.TempDir()
+	m, _ := NewManager(dir, "in", "p", 2, 50, false)
+	_ = m.MarkChunked(0, 0, 100)
+	if err := m.MarkFailed(1); err != nil {
+		t.Fatal(err)
+	}
+	// failed chunk is excluded from Completed but tracked separately
+	snap := m.Snapshot()
+	if len(snap.Completed) != 1 || len(snap.Failed) != 1 || !m.IsFailed(1) {
+		t.Fatalf("failed bookkeeping wrong: %+v", snap)
+	}
+	// a failed chunk cannot later be marked completed
+	if err := m.MarkChunked(1, 100, 200); err == nil {
+		t.Fatal("failed chunk must not be allowed to complete")
+	}
+	// MarkFailed is idempotent across a re-encounter
+	if err := m.MarkFailed(1); err != nil || m.FailedCount() != 1 {
+		t.Fatal("MarkFailed must be idempotent")
+	}
+	// all work resolved (one complete, one failed) means Done
+	if !m.Done() {
+		t.Fatal("Done should hold when completed+failed covers all chunks")
+	}
+	// an index row for the failed chunk is allowed without inconsistency
+	if err := m.VerifyAgainst(map[int]bool{0: true, 1: true}); err != nil {
+		t.Fatalf("failed-chunk index row rejected: %v", err)
+	}
+	// but a chunk with no checkpoint record at all is still an error; use a
+	// separate 3-chunk manager so the extra row is genuinely untracked
+	m3, _ := NewManager(t.TempDir(), "in", "p", 3, 50, false)
+	_ = m3.MarkChunked(0, 0, 100)
+	_ = m3.MarkFailed(1)
+	if err := m3.VerifyAgainst(map[int]bool{0: true, 1: true, 2: true}); !errors.Is(err, ErrInconsistent) {
+		t.Fatalf("untracked index chunk not detected: %v", err)
+	}
+}
+
+func TestFailedChunkPersistsAcrossResume(t *testing.T) {
+	dir := t.TempDir()
+	m, _ := NewManager(dir, "in", "p", 2, 50, false)
+	if err := m.MarkFailed(0); err != nil {
+		t.Fatal(err)
+	}
+	m2, err := NewManager(dir, "in", "p", 2, 50, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !m2.IsFailed(0) || m2.FailedCount() != 1 {
+		t.Fatalf("failed chunk lost across resume: %+v", m2.Snapshot())
+	}
+}
+
 func TestAtomicWriteLeavesNoTemp(t *testing.T) {
 	dir := t.TempDir()
 	m, _ := NewManager(dir, "in", "p", 2, 50, false)
