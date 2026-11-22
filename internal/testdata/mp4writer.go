@@ -9,9 +9,10 @@ import (
 // framing for ftyp/moov and hand-written stbl tables. Keeping payloads in
 // one mdat keeps the fixture small and fully seekable for the parser.
 type boxWriter struct {
-	buf      *bytes.Buffer
-	offsets  []uint64 // stco chunk offsets, collected while writing mdat
-	mdatPos  int64
+	buf         *bytes.Buffer
+	videoOffset []uint64 // per-track stco/co64 chunk offsets
+	audioOffset []uint64
+	mdatPos     int64
 }
 
 func newBoxWriter() *boxWriter { return &boxWriter{buf: new(bytes.Buffer)} }
@@ -113,21 +114,15 @@ func (w *boxWriter) writeEmsg(e TimedEvent) {
 func (w *boxWriter) writeMdat(video, audio TrackSpec) {
 	f := w.begin("mdat")
 	w.mdatPos = int64(f.start)
-	// One chunk per sample; remember absolute offsets for stco.
-	for _, s := range appendTrackSamples(video, audio) {
-		w.offsets = append(w.offsets, uint64(w.buf.Len()))
-		w.raw(s)
-	}
-	w.end(f)
-}
-
-func appendTrackSamples(video, audio TrackSpec) [][]byte {
-	out := make([][]byte, 0, len(video.Samples)+len(audio.Samples))
+	// One chunk per sample; track offsets separately so each trak's co64
+	// table indexes only its own payload region.
 	for _, s := range video.Samples {
-		out = append(out, s.Payload)
+		w.videoOffset = append(w.videoOffset, uint64(w.buf.Len()))
+		w.raw(s.Payload)
 	}
 	for _, s := range audio.Samples {
-		out = append(out, s.Payload)
+		w.audioOffset = append(w.audioOffset, uint64(w.buf.Len()))
+		w.raw(s.Payload)
 	}
-	return out
+	w.end(f)
 }

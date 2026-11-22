@@ -56,6 +56,13 @@ func fill(buf []byte, trackID uint32, idx int, silent bool) {
 func BuildVideo(p Params) TrackSpec {
 	r := newRNG(p.Seed + 1)
 	base := p.VideoTS / uint32(p.TargetFPS) // ticks per frame, CFR baseline
+	// Size frames so the synthetic stream approximates a broadcast bitrate:
+	// target bytes/frame = target_bps/8/fps. Deterministic jitter keeps the
+	// average close to the target while frames stay distinct.
+	bytesPerFrame := p.TargetBitrate / 8 / int64(p.TargetFPS)
+	if bytesPerFrame <= 0 {
+		bytesPerFrame = 10000
+	}
 	samples := make([]Sample, p.VideoFrames)
 	keyIdx := make([]int, 0, p.VideoFrames/p.KeyframeEvery+1)
 	for i := 0; i < p.VideoFrames; i++ {
@@ -68,11 +75,14 @@ func BuildVideo(p Params) TrackSpec {
 				d = 1
 			}
 		}
+		// Deterministic payload-size jitter of ±5% around the target.
+		jitter := int64(float64(bytesPerFrame) * 0.05)
+		size := int(bytesPerFrame + int64(r.u32n(uint32(2*jitter+1))) - jitter)
 		isKey := p.KeyframeEvery > 0 && i%p.KeyframeEvery == 0
 		if isKey {
 			keyIdx = append(keyIdx, i)
 		}
-		payload := make([]byte, 64+int(r.u32n(64)))
+		payload := make([]byte, size)
 		fill(payload, 1, i, false)
 		if isKey {
 			binary.BigEndian.PutUint32(payload, 0x49445231) // "IDR1" marker

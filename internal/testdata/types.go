@@ -79,6 +79,7 @@ type Params struct {
 	PCMBytes     int   // bytes per PCM frame per channel
 	DriftPPM     float64
 	WrapAt       uint32 // emit RTP wrap behavior once raw ts reaches this value
+	TargetBitrate int64 // synthetic stream target in bits per second
 	// Corruption switches, consumed by the MP4 writer and RTP stream builder.
 	CorruptBox   bool
 	Truncate     bool
@@ -98,6 +99,7 @@ func DefaultParams(seed int64) Params {
 		SilenceEvery:  40,
 		SilenceLen:    12,
 		PCMBytes:      4,
+		TargetBitrate: 2_500_000,
 	}
 }
 

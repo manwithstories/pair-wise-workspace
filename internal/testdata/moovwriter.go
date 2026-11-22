@@ -137,7 +137,7 @@ func (w *boxWriter) writeStbl(t TrackSpec, kind Kind, p Params) {
 	w.writeStts(t)
 	w.writeStsc(t)
 	w.writeStsz(t)
-	w.writeStco(t)
+	w.writeCo64(t, kind)
 	if kind == KindVideo {
 		w.writeStss(t, p)
 	}
@@ -192,15 +192,23 @@ func (w *boxWriter) writeStsz(t TrackSpec) {
 	w.end(f)
 }
 
-func (w *boxWriter) writeStco(t TrackSpec) {
+// writeCo64 stores 64-bit chunk offsets so large synthetic payloads cannot
+// overflow the legacy 32-bit stco table.
+func (w *boxWriter) writeCo64(t TrackSpec, kind Kind) {
+	offsets := w.audioOffset
+	if kind == KindVideo {
+		offsets = w.videoOffset
+	}
 	body := bytes.NewBuffer(nil)
 	body.Write(fullBox(0, 0))
 	u32(body, uint32(len(t.Samples)))
-	base := len(w.offsets) - len(t.Samples)
-	for i := range t.Samples {
-		u32(body, uint32(w.offsets[base+i]))
+	if len(offsets) != len(t.Samples) {
+		panic("co64 offset/sample count mismatch")
 	}
-	f := w.begin("stco")
+	for _, off := range offsets {
+		binary.Write(body, binary.BigEndian, off)
+	}
+	f := w.begin("co64")
 	w.raw(body.Bytes())
 	w.end(f)
 }
