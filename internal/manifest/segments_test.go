@@ -55,7 +55,7 @@ func setupLadder(t *testing.T, span int64) ([]align.Representation, map[int]*mod
 
 func TestBuilderEntriesAndManifest(t *testing.T) {
 	span := int64(6_000_000)
-	reps, tracks, idx, al := setupLadder(t, span)
+	reps, tracks, _, al := setupLadder(t, span)
 	dir := t.TempDir()
 	b, err := NewBuilder(Options{SegmentUS: 2_000_000, SnapBack: true, OutDir: dir})
 	if err != nil {
@@ -66,7 +66,7 @@ func TestBuilderEntriesAndManifest(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	simple, composite, err := b.AlignEntries(al, reps, tracks, idx, nil)
+	simple, composite, err := b.AlignEntries(al, reps, tracks, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,13 +131,13 @@ func TestBuilderDuplicateRejected(t *testing.T) {
 
 func TestCompositeEntries(t *testing.T) {
 	span := int64(4_000_000)
-	reps, tracks, idx, al := setupLadder(t, span)
+	reps, tracks, _, al := setupLadder(t, span)
 	dir := t.TempDir()
 	b, _ := NewBuilder(Options{SegmentUS: 2_000_000, OutDir: dir})
 	b.AddRepresentation(Representation{ID: "v1080", TrackID: 1})
 	b.AddRepresentation(Representation{ID: "v720", TrackID: 2})
 	transitions := []model.Transition{{StartUS: 1_500_000, EndUS: 2_500_000, Kind: model.TransitionCross, Sources: []int{1, 2}}}
-	simple, composite, err := b.AlignEntries(al, reps, tracks, idx, transitions)
+	simple, composite, err := b.AlignEntries(al, reps, tracks, transitions)
 	if err != nil {
 		t.Fatal(err)
 	}

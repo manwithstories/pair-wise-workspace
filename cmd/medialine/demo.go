@@ -371,12 +371,10 @@ func representationIDs(reps []representation) []string {
 
 func planEntries(mb *manifest.Builder, al *align.Aligned, reps []representation, tracks map[int]*model.Track, transitions []model.Transition) ([]manifest.Entry, error) {
 	alignReps := make([]align.Representation, 0, len(reps))
-	idxMap := make(map[string]*index.TrackIndex, len(reps))
 	for _, r := range reps {
 		alignReps = append(alignReps, r.alignRep)
-		idxMap[r.model.ID] = r.alignRep.Index
 	}
-	simple, composite, err := mb.AlignEntries(al, alignReps, tracks, idxMap, transitions)
+	simple, composite, err := mb.AlignEntries(al, alignReps, tracks, transitions)
 	if err != nil {
 		return nil, err
 	}

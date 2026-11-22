@@ -16,7 +16,6 @@ import (
 
 	"medialine/internal/align"
 	"medialine/internal/fault"
-	"medialine/internal/index"
 	"medialine/internal/model"
 )
 
@@ -400,7 +399,7 @@ func PlanFromEntry(e Entry, track *model.Track) ([]model.Sample, error) {
 // AlignEntries converts an aligned boundary list into per-representation
 // manifest entries, making composites for any segment that intersects a
 // transition region.
-func (b *Builder) AlignEntries(a *align.Aligned, reps []align.Representation, tracks map[int]*model.Track, idx map[string]*index.TrackIndex, transitions []model.Transition) ([]Entry, []Entry, error) {
+func (b *Builder) AlignEntries(a *align.Aligned, reps []align.Representation, tracks map[int]*model.Track, transitions []model.Transition) ([]Entry, []Entry, error) {
 	var simple, composite []Entry
 	for _, rep := range reps {
 		track := tracks[rep.TrackID]
