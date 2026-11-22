@@ -14,10 +14,10 @@ import (
 
 // ChannelMatrix 是 source→target 的显式混音矩阵：m[target][source]。
 type ChannelMatrix struct {
-	From   model.ChannelLayout
-	To     model.ChannelLayout
-	Gain   [][]int64 // Q15
-	Fill   bool      // 缺失输入声道补静音（true）否则报错
+	From model.ChannelLayout
+	To   model.ChannelLayout
+	Gain [][]int64 // Q15
+	Fill bool      // 缺失输入声道补静音（true）否则报错
 }
 
 const q15 = 1 << 15
@@ -61,20 +61,20 @@ func BuildMatrix(from, to model.ChannelLayout, fillSilence bool) (*ChannelMatrix
 const c707 int64 = 23170
 
 func downmix51ToStereo(g [][]int64) {
-	g[0][0] = q15   // L
-	g[0][2] = c707 // C→L
-	g[0][4] = c707 // Ls→L
+	g[0][0] = q15      // L
+	g[0][2] = c707     // C→L
+	g[0][4] = c707     // Ls→L
 	g[0][3] = c707 / 2 // LFE→L
-	g[1][1] = q15   // R
-	g[1][2] = c707 // C→R
-	g[1][5] = c707 // Rs→R
+	g[1][1] = q15      // R
+	g[1][2] = c707     // C→R
+	g[1][5] = c707     // Rs→R
 	g[1][3] = c707 / 2 // LFE→R
 }
 
 func downmix71ToStereo(g [][]int64) {
 	downmix51ToStereo(g) // 前 6 声道沿用 5.1 规则
-	g[0][6] = c707 // Lrs→L
-	g[1][7] = c707 // Rrs→R
+	g[0][6] = c707       // Lrs→L
+	g[1][7] = c707       // Rrs→R
 }
 
 func downmix71To51(g [][]int64) {

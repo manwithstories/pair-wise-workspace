@@ -36,11 +36,11 @@ type FragmentParser interface {
 }
 
 type registryEntry struct {
-	family     string
-	major      int
-	version    string
-	parser     FragmentParser
-	supported  map[string]bool // 该适配器声明支持的 codec 四字符码
+	family    string
+	major     int
+	version   string
+	parser    FragmentParser
+	supported map[string]bool // 该适配器声明支持的 codec 四字符码
 }
 
 // Registry 是进程内只读为主、带锁的版本化解析器注册表。

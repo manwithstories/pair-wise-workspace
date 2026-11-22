@@ -134,7 +134,7 @@ func Pack(in PackInput) (*PackResult, error) {
 	res.DurationSec = duration
 	if duration.Num > 0 {
 		secs := float64(duration.Num) / float64(duration.Den)
-		res.ActualKBPS = int(float64(res.MediaBytes)*8 / secs / 1000)
+		res.ActualKBPS = int(float64(res.MediaBytes) * 8 / secs / 1000)
 	}
 	return res, nil
 }

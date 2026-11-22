@@ -77,11 +77,11 @@ func audioInit(trackID uint32, timescale, rate uint32, channels uint16, colr *mo
 
 // audioFragment 构造 moof(mfhd,traf(tfhd,tfdt,trun))+mdat。
 func audioFragment(seq uint32, trackID, timescale, baseTime uint32, payload []byte, dur uint32) []byte {
-	mfhd := fullBox("mfhd", 0, u32b(seq))               // 字段：sequence_number
-	tfhd := fullBox("tfhd", 0, u32b(trackID))           // 字段：track_ID
-	tfdtBox := fullBox("tfdt", 0, u32b(baseTime))       // 字段：baseMediaDecodeTime(v0)
+	mfhd := fullBox("mfhd", 0, u32b(seq))         // 字段：sequence_number
+	tfhd := fullBox("tfhd", 0, u32b(trackID))     // 字段：track_ID
+	tfdtBox := fullBox("tfdt", 0, u32b(baseTime)) // 字段：baseMediaDecodeTime(v0)
 	trunFlags := uint32(trunDataOffset | trunSampleDuration | trunSampleSize)
-	trunFields := append(u32b(1), u32b(0)...)           // sample_count + data_offset 占位
+	trunFields := append(u32b(1), u32b(0)...) // sample_count + data_offset 占位
 	trunFields = append(trunFields, u32b(dur)...)
 	trunFields = append(trunFields, u32b(uint32(len(payload)))...)
 	trun := fullBox("trun", trunFlags, trunFields)

@@ -21,7 +21,7 @@ func TestBuildAlignedManifest(t *testing.T) {
 	dir := t.TempDir()
 	files := map[uint32]string{}
 	for _, seq := range []uint32{1, 2, 3} {
-				p := filepath.Join(dir, "f.m4s")
+		p := filepath.Join(dir, "f.m4s")
 		_ = os.WriteFile(p, []byte{byte(seq)}, 0o644)
 		files[seq] = p
 	}

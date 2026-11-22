@@ -8,8 +8,8 @@ import (
 )
 
 type trunHold struct {
-	info      trunInfo
-	baseOff   int64 // trun payload（字段区）在分片 data 中的绝对偏移
+	info    trunInfo
+	baseOff int64 // trun payload（字段区）在分片 data 中的绝对偏移
 }
 
 type fragState struct {

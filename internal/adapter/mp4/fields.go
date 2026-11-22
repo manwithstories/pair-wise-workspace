@@ -162,12 +162,12 @@ const (
 )
 
 type trunInfo struct {
-	sampleCount  uint32
-	dataOffset   int32
-	hasDuration  bool
-	hasSize      bool
-	entryStarts  int // 样本条目起始偏移
-	entryStride  int
+	sampleCount uint32
+	dataOffset  int32
+	hasDuration bool
+	hasSize     bool
+	entryStarts int // 样本条目起始偏移
+	entryStride int
 }
 
 func parseTrunHeader(b []byte) (trunInfo, bool) {

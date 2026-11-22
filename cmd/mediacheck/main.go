@@ -101,7 +101,7 @@ func runDemo(args []string) int {
 		TargetRate: model.TargetSampleRate, TargetLayout: model.LayoutStereo,
 		TargetLUFS: d.targetLUFS, PeakLimit: 0.95, TargetKBPS: d.targetKBPS,
 		Injection: fixture.Injection(sanitizeInject(d.inject)),
-		Policy: policy, OutDir: d.out, FillSilence: true,
+		Policy:    policy, OutDir: d.out, FillSilence: true,
 		ColorPriority: core.ColorPriority{
 			Order:   []string{"9/16/9", "1/1/1"},
 			Default: model.ColorMeta{ColorPrimaries: 1, Transfer: 1, Matrix: 1},

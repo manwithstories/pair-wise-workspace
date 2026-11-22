@@ -54,7 +54,7 @@ func TestDecode24BitSignExtension(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if frames[0].Samples[0] != -(1 << 23) || frames[0].Samples[1] != (1<<23)-1 {
+	if frames[0].Samples[0] != -(1<<23) || frames[0].Samples[1] != (1<<23)-1 {
 		t.Fatalf("24bit sign extend failed: %+v", frames[0])
 	}
 }

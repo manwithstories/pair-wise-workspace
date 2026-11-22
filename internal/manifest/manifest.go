@@ -27,12 +27,12 @@ type Entry struct {
 
 // Manifest 是跨模块对齐的时间清单。
 type Manifest struct {
-	Timescale       uint32  `json:"timescale"`
-	TargetRate      uint32  `json:"target_rate"`
-	TargetLayout    string  `json:"target_layout"`
-	Entries         []Entry `json:"entries"`
-	TotalDuration   Rational `json:"total_duration"`
-	AlignmentMaxMS  float64 `json:"alignment_max_ms"`
+	Timescale      uint32   `json:"timescale"`
+	TargetRate     uint32   `json:"target_rate"`
+	TargetLayout   string   `json:"target_layout"`
+	Entries        []Entry  `json:"entries"`
+	TotalDuration  Rational `json:"total_duration"`
+	AlignmentMaxMS float64  `json:"alignment_max_ms"`
 }
 
 // Rational 是清单的 JSON 友好有理数（独立于内部 model，保证序列化稳定）。

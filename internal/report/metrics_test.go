@@ -54,7 +54,7 @@ func TestNoNaNEntersSummary(t *testing.T) {
 	in := Inputs{
 		Seed: 1, TargetKBPS: 6000,
 		Normalize: model.NormalizeSnapshot{PeakDBFS: math.NaN(), IntegratedLUFS: math.Inf(1)},
-		Pack: model.PackSnapshot{ActualKBPS: 6000},
+		Pack:      model.PackSnapshot{ActualKBPS: 6000},
 	}
 	m := Build(in)
 	if math.IsNaN(m.PeakDBFS) || math.IsInf(m.LUFS, 0) || math.IsNaN(m.BitrateDeltaPct) {

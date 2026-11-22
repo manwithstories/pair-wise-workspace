@@ -32,7 +32,7 @@ func TestResampler441To48FrameCount(t *testing.T) {
 	// 44100 个输入帧（1 秒）应输出 48000 帧，误差 ≤1。
 	in := make([]int32, 44100)
 	for i := range in {
-		in[i] = int32((i * 137) % 2000 - 1000)
+		in[i] = int32((i*137)%2000 - 1000)
 	}
 	rs, _ := NewResampler(44100, 48000)
 	out := rs.Process(in)

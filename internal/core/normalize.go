@@ -7,21 +7,21 @@ import (
 
 // NormalizeResult 是音频内核处理一轨后的完整结果，供再封装与报告消费。
 type NormalizeResult struct {
-	TrackID        uint32
-	InRate         uint32
-	OutRate        uint32
-	InLayout       model.ChannelLayout
-	OutLayout      model.ChannelLayout
-	FramesIn       int
-	FramesOut      int
-	SamplesIn      int64
-	SamplesOut     int64
-	ExpectedOut    int64 // 有理数核算的期望输出帧数
-	FrameDelta     int64 // 实际与期望的帧差，绝对值 ≤1
-	PCM16          []byte
-	Stats          LoudnessStats
-	PeakDBFS       float64
-	GainQ15        int64
+	TrackID     uint32
+	InRate      uint32
+	OutRate     uint32
+	InLayout    model.ChannelLayout
+	OutLayout   model.ChannelLayout
+	FramesIn    int
+	FramesOut   int
+	SamplesIn   int64
+	SamplesOut  int64
+	ExpectedOut int64 // 有理数核算的期望输出帧数
+	FrameDelta  int64 // 实际与期望的帧差，绝对值 ≤1
+	PCM16       []byte
+	Stats       LoudnessStats
+	PeakDBFS    float64
+	GainQ15     int64
 }
 
 // NormalizeTrack 对一轨 PCM 帧序列执行完整音频规格统一：

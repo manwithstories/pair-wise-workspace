@@ -64,7 +64,7 @@ func NormalizeTimeline(frags []model.Fragment, policy RegressionPolicy) (*ClockR
 			return rep, &model.MediaError{
 				Category: model.ErrDuplicateConflict,
 				Message:  fmt.Sprintf("fragment %d content hash conflict", f.Sequence),
-				Source:    intervalOf(f),
+				Source:   intervalOf(f),
 			}
 		}
 		seen[f.Sequence] = f.ContentSHA
@@ -95,7 +95,7 @@ func NormalizeTimeline(frags []model.Fragment, policy RegressionPolicy) (*ClockR
 				return rep, &model.MediaError{
 					Category: model.ErrTFDTRegression,
 					Message:  fmt.Sprintf("fragment %d tfdt regresses", f.Sequence),
-					Source:    &src,
+					Source:   &src,
 				}
 			case RegressionRebase:
 				// 以前一段结束时间重排，保持时长不变。

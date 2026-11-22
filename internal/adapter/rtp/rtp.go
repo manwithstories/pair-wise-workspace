@@ -13,8 +13,8 @@ import (
 
 const (
 	// PayloadType 为本地动态负载类型（96-127 区间），不与静态类型冲突。
-	PayloadType  uint8 = 96
-	clockRate    uint32 = 48000
+	PayloadType uint8  = 96
+	clockRate   uint32 = 48000
 	maxPayload         = 1400 // 远低于常见 MTU，避免 IP 分片
 	rtpVersion         = 2
 )

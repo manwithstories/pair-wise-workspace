@@ -170,10 +170,10 @@ func (i Interval) Duration() Rational { return i.End.Sub(i.Start) }
 
 // BoxSummary 记录解析到的 box；未知 box 保留并计入摘要。
 type BoxSummary struct {
-	Type   string
-	Offset int64
-	Size   int64
-	Depth  int
+	Type    string
+	Offset  int64
+	Size    int64
+	Depth   int
 	Unknown bool
 }
 
@@ -187,22 +187,22 @@ type Sample struct {
 
 // Fragment 是一个 fMP4 分片解析后的内核视图。
 type Fragment struct {
-	Sequence           uint32
-	Timescale          uint32
+	Sequence            uint32
+	Timescale           uint32
 	BaseMediaDecodeTime int64
-	Intervals          []Interval
-	Samples            []Sample
-	Boxes              []BoxSummary
-	ContentSHA         string // 内容摘要（规范化负载的 sha256 hex）
-	RawSize            int64
+	Intervals           []Interval
+	Samples             []Sample
+	Boxes               []BoxSummary
+	ContentSHA          string // 内容摘要（规范化负载的 sha256 hex）
+	RawSize             int64
 }
 
 // 支持的采样率与声道布局白名单。
 const (
-	Rate44100           uint32 = 44100
-	Rate48000           uint32 = 48000
-	TargetSampleRate    uint32 = 48000
-	MinDurationSeconds         = 1 // 不足时长样本判定阈值（秒）
+	Rate44100          uint32 = 44100
+	Rate48000          uint32 = 48000
+	TargetSampleRate   uint32 = 48000
+	MinDurationSeconds        = 1 // 不足时长样本判定阈值（秒）
 )
 
 type ChannelLayout string

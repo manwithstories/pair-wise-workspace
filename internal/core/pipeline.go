@@ -152,7 +152,7 @@ func Run(ctx context.Context, reg *adapter.Registry, cfg PipelineConfig) (*Pipel
 		Pack: model.PackSnapshot{
 			ActualKBPS: pack.ActualKBPS, MediaBytes: pack.MediaBytes, FreeBytes: pack.FreeBytes,
 		},
-		Color: model.ColorSnapshot{Selected: color.Selected, Conflicts: color.Conflicts},
+		Color:   model.ColorSnapshot{Selected: color.Selected, Conflicts: color.Conflicts},
 		AlignMS: mf.AlignmentMaxMS, Gaps: len(clock.Gaps),
 		UnknownBoxes: countUnknown(parsed.Boxes),
 	})

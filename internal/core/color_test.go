@@ -20,8 +20,8 @@ func TestResolveColorNoConflict(t *testing.T) {
 
 func TestResolveColorConflictByPriority(t *testing.T) {
 	src := []*model.ColorMeta{
-		cm(1, 1, 1),    // BT.709
-		cm(9, 16, 9),   // BT.2020/HLG
+		cm(1, 1, 1),  // BT.709
+		cm(9, 16, 9), // BT.2020/HLG
 		cm(9, 16, 9),
 	}
 	prio := ColorPriority{
