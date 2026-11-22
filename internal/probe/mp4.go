@@ -117,7 +117,7 @@ func Probe(path string) (*Result, *model.MediaError) {
 		return nil, model.New(model.StageProbe, "too_large",
 			fmt.Sprintf("file %s exceeds 20 GB limit", path), model.ExitDamagedInput)
 	}
-	p := &parser{size: st.Size()}
+	p := &parser{size: st.Size(), knownDur: clock.New(0, 1)}
 	_, walkErr := mp4.ReadBoxStructure(f, p.handle)
 	if walkErr != nil && !errors.Is(walkErr, errStop) {
 		if me, ok := walkErr.(*model.MediaError); ok {
@@ -153,6 +153,14 @@ func Probe(path string) (*Result, *model.MediaError) {
 func (p *parser) handle(h *mp4.ReadHandle) (interface{}, error) {
 	bi := &h.BoxInfo
 	if int64(bi.Offset+bi.Size) > p.size { // box extends past EOF: truncated
+		switch bi.Type { // containers: parse the surviving children first
+		case mp4.BoxTypeMoov(), mp4.BoxTypeTrak(), mp4.BoxTypeMdia(),
+			mp4.BoxTypeMinf(), mp4.BoxTypeStbl():
+			if _, err := h.Expand(); err != nil && p.damage == nil {
+				p.damage = &Damage{BoxType: bi.Type.String(), OffsetBytes: p.size, MediaTime: p.knownDur}
+			}
+			return nil, errStop
+		}
 		p.damage = &Damage{BoxType: bi.Type.String(), OffsetBytes: p.size, MediaTime: p.knownDur}
 		return nil, errStop
 	}
