@@ -94,8 +94,31 @@ func TestUnknownSizeFixture(t *testing.T) {
 }
 
 func TestTimestampDefectsPresent(t *testing.T) {
+	// Ordinals 2 and 3 exist on every track (the subtitle track is short).
+	plan, err := Build(41, specs(), 16, Defect{HasRegress: true, TimestampRegressAt: 2, HasDuplicate: true, DuplicateAt: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	perTrack := map[uint64][]int64{}
+	for _, f := range plan.Frames {
+		perTrack[f.Track] = append(perTrack[f.Track], int64(f.Stored.Float64()*1e6))
+	}
+	audios := perTrack[2]
+	var regress, dup int
+	for i := 1; i < len(audios); i++ {
+		if audios[i] < audios[i-1] {
+			regress++
+		}
+		if audios[i] == audios[i-1] {
+			dup++
+		}
+	}
+	if regress == 0 || dup == 0 {
+		t.Fatalf("audio track: regress=%d dup=%d not both present", regress, dup)
+	}
+	// Injection must actually change the bytes.
 	clean, _ := Build(41, specs(), 16, Defect{TimestampRegressAt: -1, DuplicateAt: -1})
-	dirty, _ := Build(41, specs(), 16, Defect{HasRegress: true, TimestampRegressAt: 5, HasDuplicate: true, DuplicateAt: 9})
+	dirty, _ := Build(41, specs(), 16, Defect{HasRegress: true, TimestampRegressAt: 2, HasDuplicate: true, DuplicateAt: 4})
 	if len(clean.Data) == len(dirty.Data) && string(clean.Data) == string(dirty.Data) {
 		t.Fatal("defect injection had no effect")
 	}

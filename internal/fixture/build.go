@@ -147,7 +147,10 @@ func Build(seed int64, tracks []TrackSpec, frameCount int, d Defect) (*Plan, err
 			t = t.Mul(scale)
 			stored := t
 			if d.HasRegress && i == d.TimestampRegressAt && i > 0 {
-				stored = t.Sub(clock.MustNew(1, 1000))
+				// Step back one and a half frames so the stored time falls
+				// before the previous frame's, without landing on it (which
+				// would read as a duplicate rather than a regression).
+				stored = t.Sub(clock.FromTicksMust(spec.FrameDur*3/2, spec.Timescale))
 			}
 			if d.HasDuplicate && i == d.DuplicateAt && i > 0 {
 				prev, _ := clock.FromTicks(int64(i-1)*spec.FrameDur, spec.Timescale)
@@ -174,8 +177,12 @@ func Build(seed int64, tracks []TrackSpec, frameCount int, d Defect) (*Plan, err
 			frames = append(frames, p)
 		}
 	}
+	// Interleave by intended time so the container's block order matches the
+	// authored timeline.  Stored timestamps are written as-is, so an injected
+	// regression or duplicate stays out of order in the byte stream rather
+	// than being silently re-sorted into place.
 	sort.SliceStable(frames, func(i, j int) bool {
-		if c := frames[i].stored.Cmp(frames[j].stored); c != 0 {
+		if c := frames[i].time.Cmp(frames[j].time); c != 0 {
 			return c < 0
 		}
 		return frames[i].spec.Number < frames[j].spec.Number

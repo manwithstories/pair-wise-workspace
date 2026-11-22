@@ -56,6 +56,15 @@ func MustParseDecimal(s string) Rational {
 	return r
 }
 
+// FromTicksMust is FromTicks for values already known to be valid.
+func FromTicksMust(ticks, timescale int64) Rational {
+	r, err := FromTicks(ticks, timescale)
+	if err != nil {
+		panic(err)
+	}
+	return r
+}
+
 // MustNew is New for package-level constants and tests.
 func MustNew(num, den int64) Rational {
 	r, err := New(num, den)

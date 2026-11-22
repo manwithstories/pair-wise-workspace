@@ -312,7 +312,17 @@ func (r *Reader) reportPayloadTruncation(el Element, limit int64) {
 	}
 	msg := fmt.Sprintf("element 0x%x declares payload to 0x%x beyond source end 0x%x; stopped at recoverable boundary 0x%x",
 		el.ID, el.PayloadOffset+int64(el.Size.Value), limit, el.PayloadEnd)
-	r.faults.Add(fault.New(fault.ModuleEBML, fault.KindTruncated, fault.NewOffset(uint64(el.HeaderOffset)), msg))
+	f := fault.New(fault.ModuleEBML, fault.KindTruncated, fault.NewOffset(uint64(el.HeaderOffset)), msg)
+	// A truncated block's first bytes are usually readable, so the offending
+	// track can be named even though the payload is cut.
+	if el.ID == IDSimpleBlock || el.ID == IDBlock {
+		if head, err := r.ReadAt(el.PayloadOffset, 8); err == nil && len(head) > 0 {
+			if track, _, _, perr := ParseTrackNumber(head); perr == nil {
+				f.OnTrack(track)
+			}
+		}
+	}
+	r.faults.Add(f)
 }
 
 // masterIDs lists Matroska master elements the scanner descends into.
