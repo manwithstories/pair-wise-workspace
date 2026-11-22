@@ -1,6 +1,6 @@
 module mediaverify
 
-go 1.24.0
+go 1.23
 
 require github.com/pion/rtp v1.8.11
 
