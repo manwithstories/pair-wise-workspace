@@ -99,14 +99,17 @@ func scanTrack(path string, tr *probe.Track, cfg Config) *TrackResult {
 			// resumes on the next intact frame.
 			if regressed || !row.Keyframe {
 				exclude(res, row)
+				countDamage(dam, row)
 				continue
 			}
 			if reason, _ := validateRow(reader, row, tr, cfg); reason != "" {
 				exclude(res, row)
+				countDamage(dam, row)
 				continue
 			}
 			if lastAcceptedMS >= 0 && row.DTSMS < lastAcceptedMS {
 				exclude(res, row)
+				countDamage(dam, row)
 				continue
 			}
 			resumeSpan(row.DTSMS)
@@ -127,6 +130,7 @@ func scanTrack(path string, tr *probe.Track, cfg Config) *TrackResult {
 					ResumeMS:    -1,
 					Detail:      reason,
 				}
+				countDamage(dam, row)
 				if res.FirstUnreadable < 0 || (row.InBounds && row.Offset < res.FirstUnreadable) {
 					res.FirstUnreadable = row.Offset
 				}
@@ -214,6 +218,15 @@ func scanTrack(path string, tr *probe.Track, cfg Config) *TrackResult {
 // maxKeyframeTimes bounds retained keyframe boundaries per track.
 const maxKeyframeTimes = 1 << 16
 
+// countDamage folds one excluded sample into the open damage window so the
+// reported byte span covers every sample the recovery skipped.
+func countDamage(dam *Damage, row probe.Row) {
+	dam.SampleCount++
+	if row.Size > 0 {
+		dam.ExcludedBytes += int64(row.Size)
+	}
+}
+
 // exclude accounts for one sample kept out of the manifest.
 func exclude(res *TrackResult, row probe.Row) {
 	res.ExcludedSamples++
@@ -251,10 +264,12 @@ func validateRow(r *reader, row probe.Row, tr *probe.Track, cfg Config) (string,
 	if row.Size == 0 {
 		return "zero-length sample", fault.CodeCorrupt
 	}
-	if !cfg.Recover || !cfg.DetectUniformFill || int(row.Size) > int(cfg.CacheBytes) {
+	if !cfg.Recover || !cfg.DetectUniformFill {
 		return "", ""
 	}
-	buf, err := r.read(row.Offset, int(row.Size))
+	// Large samples are validated by streaming through the fixed cache, so
+	// memory stays bounded even for multi-megabyte frames.
+	uniform, err := r.isUniform(row.Offset, int64(row.Size), cfg.FillBytes)
 	if err != nil {
 		if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
 			return "sample payload is cut off", fault.CodeTruncated
@@ -264,7 +279,7 @@ func validateRow(r *reader, row probe.Row, tr *probe.Track, cfg Config) (string,
 		}
 		return fmt.Sprintf("read failed: %v", err), fault.CodeIO
 	}
-	if isUniformFill(buf, cfg.FillBytes) {
+	if uniform {
 		return "sample payload is uniform fill", fault.CodeCorrupt
 	}
 	return "", ""
@@ -292,6 +307,49 @@ func isUniformFill(buf []byte, fill []byte) bool {
 		}
 	}
 	return have
+}
+
+// isUniform streams a sample through the fixed buffer and reports whether it
+// is a single repeated fill byte. Peak allocation is the buffer cap.
+func (r *reader) isUniform(off, n int64, fill []byte) (bool, error) {
+	if off < 0 || n <= 0 || off > r.size || n > r.size-off {
+		return false, errRange
+	}
+	var seen byte
+	have := false
+	var done int64
+	for done < n {
+		chunk := n - done
+		if chunk > int64(r.max) {
+			chunk = int64(r.max)
+		}
+		buf, err := r.read(off+done, int(chunk))
+		if err != nil {
+			return false, err
+		}
+		if !have {
+			if !contains(fill, buf[0]) {
+				return false, nil
+			}
+			seen = buf[0]
+			have = true
+		}
+		if !uniformRun(buf, seen) {
+			return false, nil
+		}
+		done += chunk
+	}
+	return have, nil
+}
+
+// uniformRun reports whether every byte equals want.
+func uniformRun(buf []byte, want byte) bool {
+	for _, b := range buf {
+		if b != want {
+			return false
+		}
+	}
+	return true
 }
 
 func contains(set []byte, b byte) bool {
