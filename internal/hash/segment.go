@@ -58,10 +58,16 @@ type Record struct {
 	URI        string `json:"uri"`
 	Sequence   uint64 `json:"sequence"`
 	Role       string `json:"role"` // "input" or "output"
+	Chunk      int    `json:"chunk"`
 	Size       int64  `json:"size"`
 	SHA256     Hex    `json:"sha256"`
 	StartTicks int64  `json:"start_ticks,omitempty"`
 	EndTicks   int64  `json:"end_ticks,omitempty"`
+	// Gap marks a preserved timeline hole; Determined distinguishes a
+	// confirmed keyframe timeline from an unscannable segment. Both are
+	// persisted so a resumed run reports identical statistics.
+	Gap        bool `json:"gap,omitempty"`
+	Determined bool `json:"determined,omitempty"`
 }
 
 // Validate checks a record is internally consistent.
