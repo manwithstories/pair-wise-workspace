@@ -25,7 +25,7 @@ func TestRoundtripTimestampsAndEvents(t *testing.T) {
 	if err != nil || len(tis1) != 1 {
 		t.Fatalf("first parse failed: %v", err)
 	}
-	ev1 := parse.ParseEvents(bytes.NewReader(full), roots1, tis1, rep1)
+	ev1 := parse.ParseEvents(bytes.NewReader(full), roots1, tis1, lim, rep1)
 
 	// 回写。
 	ws := newMemWriteSeeker()
@@ -40,7 +40,7 @@ func TestRoundtripTimestampsAndEvents(t *testing.T) {
 	if err != nil || len(tis2) != 1 {
 		t.Fatalf("second parse failed: %v", err)
 	}
-	ev2 := parse.ParseEvents(bytes.NewReader(written), roots2, tis2, rep2)
+	ev2 := parse.ParseEvents(bytes.NewReader(written), roots2, tis2, lim, rep2)
 
 	a, b := tis1[0].Samples, tis2[0].Samples
 	if len(a) != len(b) {

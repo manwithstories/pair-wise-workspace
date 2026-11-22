@@ -71,3 +71,11 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Go 构建产物与本地演示输出，不进入交付 ----
+/fieldcut
+/cmd/fieldcut/fieldcut
+*.exe
+*.test
+/out/
+/dist/

@@ -1,6 +1,6 @@
 module fieldcut
 
-go 1.24.0
+go 1.23
 
 require (
 	github.com/abema/go-mp4 v1.4.0

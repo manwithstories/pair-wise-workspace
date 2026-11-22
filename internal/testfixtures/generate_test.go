@@ -126,7 +126,8 @@ func TestEmsgGeneration(t *testing.T) {
 	if rep.HasFatal() {
 		t.Fatal(rep.Errors)
 	}
-	evs := parse.ParseEvents(bytes.NewReader(raw), roots, nil, rep)
+	evs := parse.ParseEvents(bytes.NewReader(raw), roots, nil,
+		parse.DefaultLimits(), rep)
 	if len(evs) != 1 || evs[0].EventID != 9 || evs[0].Text != "cue" {
 		t.Fatalf("generated emsg parse wrong: %+v", evs)
 	}

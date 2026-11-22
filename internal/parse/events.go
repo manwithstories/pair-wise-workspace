@@ -34,17 +34,25 @@ const (
 
 // ParseEvents 按依赖图顺序在盒树中收集跨轨事件。
 // 调用方须保证媒体轨道（提供时钟）已先解析；无法映射的事件保留原始 tick。
+// 事件总数受 Limits.MaxEvents 约束，超限记为 skipped 并停止收集。
 func ParseEvents(r io.ReadSeeker, roots []*RawBox, tis []*TrackInfo,
-	rep *Report) []Event {
-	clockByID := make(map[uint32]*mp4TrackClock)
-	for _, ti := range tis {
-		clockByID[ti.TrackID] = &mp4TrackClock{ti: ti}
-	}
+	lim Limits, rep *Report) []Event {
 	var events []Event
+	capped := func() bool {
+		if len(events) >= lim.MaxEvents {
+			rep.add(&Error{Level: LevelSkipped, BoxType: "events",
+				Message: "event count limit reached"})
+			return true
+		}
+		return false
+	}
 
 	// 1) 顶层/moof 内 emsg 盒（v1 绝对呈现时间，v0 为 delta）。
 	for _, n := range roots {
 		events = append(events, parseEmsgTree(r, n, rep)...)
+		if capped() {
+			return events
+		}
 	}
 
 	// 2) 自定义 id3 盒（AnyType 净荷），按文件出现顺序。
@@ -53,6 +61,9 @@ func ParseEvents(r io.ReadSeeker, roots []*RawBox, tis []*TrackInfo,
 			ev, ok := parseID3Box(r, b, rep)
 			if ok {
 				events = append(events, ev)
+			}
+			if capped() {
+				return events
 			}
 		}
 	}
@@ -68,8 +79,6 @@ func ParseEvents(r io.ReadSeeker, roots []*RawBox, tis []*TrackInfo,
 	}
 	return events
 }
-
-type mp4TrackClock struct{ ti *TrackInfo }
 
 // parseEmsgTree 遍历整棵树收集 emsg（可能位于 moof 内或顶层）。
 func parseEmsgTree(r io.ReadSeeker, root *RawBox, rep *Report) []Event {

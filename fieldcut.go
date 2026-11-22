@@ -120,7 +120,7 @@ func RunFromGenerated(opt Options) (*Result, error) {
 	for j, job := range jobs {
 		roots, _ := parse.Walk(bytes.NewReader(job.data), opt.Limits)
 		evs := parse.ParseEvents(bytes.NewReader(job.data), roots,
-			[]*parse.TrackInfo{job.ti}, rep)
+			[]*parse.TrackInfo{job.ti}, opt.Limits, rep)
 		seg := pipeline.NewSegmenter(opt.Cut, job.ti).Split(job.ti)
 		readAt := func(off int64, p []byte) (int, error) {
 			return bytes.NewReader(job.data).ReadAt(p, off)

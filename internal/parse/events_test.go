@@ -59,7 +59,7 @@ func TestParseEmsgAndID3(t *testing.T) {
 	if rep.HasFatal() {
 		t.Fatal(rep.Errors)
 	}
-	evs := ParseEvents(bytes.NewReader(data), roots, nil, rep)
+	evs := ParseEvents(bytes.NewReader(data), roots, nil, DefaultLimits(), rep)
 	var em, id3 *Event
 	for i := range evs {
 		switch evs[i].Kind {
@@ -81,10 +81,25 @@ func TestParseEmsgAndID3(t *testing.T) {
 	}
 }
 
+func TestEventCountLimit(t *testing.T) {
+	// 两个 emsg 盒，但 MaxEvents=1，第二个必须被跳过并记录。
+	data := append(emsgBoxV1(1000, 100, 1, "a"), emsgBoxV1(2000, 100, 2, "b")...)
+	lim := DefaultLimits()
+	lim.MaxEvents = 1
+	roots, rep := Walk(bytes.NewReader(data), lim)
+	evs := ParseEvents(bytes.NewReader(data), roots, nil, lim, rep)
+	if len(evs) != 1 {
+		t.Fatalf("event cap must stop at 1, got %d", len(evs))
+	}
+	if rep.SkippedBoxes == 0 {
+		t.Fatal("event limit must produce a skipped record")
+	}
+}
+
 func TestEmsgCorruptIsRecoverable(t *testing.T) {
 	bad := box("emsg", []byte{1, 0, 0}) // version 1 但净荷残缺
 	roots, rep := Walk(bytes.NewReader(bad), DefaultLimits())
-	evs := ParseEvents(bytes.NewReader(bad), roots, nil, rep)
+	evs := ParseEvents(bytes.NewReader(bad), roots, nil, DefaultLimits(), rep)
 	if len(evs) != 0 {
 		t.Fatal("corrupt emsg must not emit event")
 	}
