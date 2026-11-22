@@ -81,14 +81,23 @@ func Wrap(kind Kind, track, seq, off int64, recoverable bool, err error, msg str
 		Recoverable: recoverable, Msg: msg, Err: err}
 }
 
-// List is an ordered collection of faults gathered during a run.
+// List is an ordered collection of faults gathered during a run. It is
+// bounded: once Cap faults are retained, further faults are counted in
+// Dropped instead of being stored, so a flooded error path cannot grow
+// memory without limit.
 type List struct {
-	Errs []*Error
+	Errs    []*Error
+	Cap     int
+	Dropped int
 }
 
 // Add appends err if it is non-nil.
 func (l *List) Add(err error) {
 	if err == nil {
+		return
+	}
+	if l.Cap > 0 && len(l.Errs) >= l.Cap {
+		l.Dropped++
 		return
 	}
 	if fe, ok := err.(*Error); ok {
