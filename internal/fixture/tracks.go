@@ -157,6 +157,7 @@ func writeEmptyStsd(bw *BoxWriter, htype string) {
 	must(bw.FullBox(0, 0))
 	_, _ = bw.Write(U32(nil, 0)) // zero sample entries
 	_ = htype
+	must(bw.End())
 }
 
 type sttsEntry struct{ count, delta uint32 }
