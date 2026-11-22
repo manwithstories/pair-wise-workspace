@@ -80,16 +80,22 @@ type Input struct {
 
 // Segment is one final output segment with its SHA-256 digest.
 type Segment struct {
-	Index     int
-	StartNs   int64
-	EndNs     int64
-	Recovery  segment.Recovery
-	TrackIDs  []uint32
-	Sources   []segment.Source
-	Classes   []string
-	Late      int
-	Hash      string
-	HashShort string
+	Index   int
+	StartNs int64
+	EndNs   int64
+	// StartTimecode is the segment start rendered as SMPTE timecode at the
+	// configured video frame rate, so editors can locate it on a deck.
+	StartTimecode string
+	// FrameAligned reports whether the start landed exactly on a frame
+	// boundary; false flags a non-integral frame time.
+	FrameAligned bool
+	Recovery     segment.Recovery
+	TrackIDs     []uint32
+	Sources      []segment.Source
+	Classes      []string
+	Late         int
+	Hash         string
+	HashShort    string
 }
 
 // Output is the complete result of a pipeline run.
@@ -106,6 +112,8 @@ type Output struct {
 	KeyframeHitRate float64
 	// KeyframeIntervals are GOP gaps in ns (video track), for inspection.
 	KeyframeIntervals []int64
+	// TimecodeNonIntegral counts segment starts that were not frame aligned.
+	TimecodeNonIntegral int
 	// RebuiltIndexes counts tracks whose index had to be rebuilt.
 	RebuiltIndexes int
 	// ReplayEqual reports whether every late-event replay was exact.

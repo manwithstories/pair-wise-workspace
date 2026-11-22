@@ -82,6 +82,7 @@ func renderReport(o demoOpts, out *pipeline.Output) string {
 	fmt.Fprintf(&b, "rebuilt_indexes=%d\n", out.RebuiltIndexes)
 	fmt.Fprintf(&b, "replay_equal=%v\n", out.ReplayEqual)
 	fmt.Fprintf(&b, "late_events=%d replays=%d\n", out.LateEvents, out.ReplayCount)
+	fmt.Fprintf(&b, "timecode_non_integral=%d\n", out.TimecodeNonIntegral)
 	fmt.Fprintf(&b, "segments=%d\n", len(out.Segments))
 	fmt.Fprintf(&b, "corrupt_ranges=%d\n", len(out.Corrupt))
 	fmt.Fprintf(&b, "recovered_ranges=%d\n", len(out.Recovered))
@@ -91,8 +92,8 @@ func renderReport(o demoOpts, out *pipeline.Output) string {
 
 	fmt.Fprintln(&b, "segments:")
 	for _, s := range out.Segments {
-		fmt.Fprintf(&b, "  segment=%d start_ns=%d end_ns=%d recovery=%s sha256=%s\n",
-			s.Index, s.StartNs, s.EndNs, s.Recovery, s.HashShort)
+		fmt.Fprintf(&b, "  segment=%d start_ns=%d end_ns=%d tc=%s recovery=%s sha256=%s\n",
+			s.Index, s.StartNs, s.EndNs, s.StartTimecode, s.Recovery, s.HashShort)
 	}
 	if len(out.Corrupt) > 0 {
 		fmt.Fprintln(&b, "corrupt:")

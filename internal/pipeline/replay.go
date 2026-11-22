@@ -61,7 +61,7 @@ func RunReplayed(in Input, cfg Config, lateCount int) (*Output, error) {
 	out.ReplayCount = eng.ReplayCount()
 	out.LateEvents = len(eng.LateEvents())
 	for _, s := range eng.Segments() {
-		out.Segments = append(out.Segments, toSegment(s))
+		out.Segments = append(out.Segments, finalizeSegment(s, cfg.VideoFrameRate, out))
 	}
 	// The strongest consistency check: a fresh, canonical in-order run over
 	// the same event set must produce byte-identical per-segment hashes.

@@ -48,9 +48,9 @@ func Run(in Input, cfg Config) (*Output, error) {
 	out.ReplayCount = eng.ReplayCount()
 	out.LateEvents = len(eng.LateEvents())
 
-	// 5. Emit finalized segments with short hashes.
+	// 5. Emit finalized segments with short hashes and SMPTE start timecodes.
 	for _, s := range eng.Segments() {
-		out.Segments = append(out.Segments, toSegment(s))
+		out.Segments = append(out.Segments, finalizeSegment(s, cfg.VideoFrameRate, out))
 	}
 
 	// 6. Subtitle round-trip below 1.0 is itself a localized defect.
@@ -216,4 +216,26 @@ func toSegment(s timeline.Segment) Segment {
 		TrackIDs: s.TrackIDs, Sources: s.Sources, Classes: s.Classes, Late: s.Late,
 		Hash: s.Hash, HashShort: segment.Short(s.Hash, 12),
 	}
+}
+
+// finalizeSegment converts a timeline segment and renders its start as SMPTE
+// timecode at the given rate. A start that is not frame aligned is flagged and
+// counted, so an editor knows the label is approximate; it is never silently
+// rounded.
+func finalizeSegment(s timeline.Segment, rate media.FrameRate, out *Output) Segment {
+	seg := toSegment(s)
+	frame, rem, err := rate.NanosToFrame(s.StartNs)
+	if err != nil {
+		return seg
+	}
+	label, err := media.TimecodeFromFrames(frame, rate)
+	if err != nil {
+		return seg
+	}
+	seg.StartTimecode = label.String()
+	seg.FrameAligned = rem == 0
+	if rem != 0 {
+		out.TimecodeNonIntegral++
+	}
+	return seg
 }

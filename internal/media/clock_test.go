@@ -162,6 +162,40 @@ func TestTimecodeFromFramesRoundTrip(t *testing.T) {
 	}
 }
 
+// TestCrossDayRoundTripExact verifies that multi-day labels survive a round
+// trip exactly, including drop-frame rates where a label-day is shorter than
+// 24*3600*nominal frames. This guards a subtle bug where a "D+1/" offset was
+// added in nominal rather than label-day frames.
+func TestCrossDayRoundTripExact(t *testing.T) {
+	const dropDay = int64(24*60*60*30 - 2*(24*60-24*6)) // 2,589,408 frames
+	cases := []struct {
+		rate  FrameRate
+		frame int64
+	}{
+		{Rate2997, 0}, {Rate2997, 1},
+		{Rate2997, dropDay - 1}, {Rate2997, dropDay}, {Rate2997, dropDay + 1},
+		{Rate2997, 2 * dropDay}, {Rate2997, 2*dropDay + 20},
+		{Rate25, 0}, {Rate25, 86400}, {Rate25, 2 * 86400},
+	}
+	for _, c := range cases {
+		tc, err := TimecodeFromFrames(c.frame, c.rate)
+		if err != nil {
+			t.Fatalf("%s frame %d: %v", c.rate.Label(), c.frame, err)
+		}
+		parsed, _, err := ParseTimecode(tc.String(), c.rate)
+		if err != nil {
+			t.Fatalf("%s frame %d rendered %q failed to reparse: %v", c.rate.Label(), c.frame, tc.String(), err)
+		}
+		got, err := parsed.totalFrames()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != c.frame {
+			t.Errorf("%s frame %d -> %q -> frame %d", c.rate.Label(), c.frame, tc.String(), got)
+		}
+	}
+}
+
 func TestTimecodeNegativeAndWrap(t *testing.T) {
 	// Negative offset is preserved and maps to negative nanos.
 	tc, _, err := ParseTimecode("-00:00:01:00", Rate25)

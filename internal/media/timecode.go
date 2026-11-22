@@ -155,7 +155,27 @@ type timecodeError struct{ msg string }
 
 func (e *timecodeError) Error() string { return e.msg }
 
-// totalFrames converts the label to an absolute frame count.
+// dayFrames is the number of absolute frames in one full cycle of this rate's
+// timecode labels (24 hours of labels). For drop-frame rates it is less than
+// 24*3600*NominalFPS because 2 (or 4) frame numbers are skipped each minute
+// except every tenth. Using this value rather than nominal frames keeps a
+// "D+N/" day offset exact under round trip.
+func (f FrameRate) dayFrames() int64 {
+	nominal := f.NominalFPS()
+	if nominal <= 0 {
+		return 0
+	}
+	day := int64(24 * 3600 * nominal)
+	if f.DropFrame {
+		// Minutes per day that drop (all except every tenth).
+		dropped := int64(24*60) - int64(24*6)
+		day -= f.dropCountPerMinute() * dropped
+	}
+	return day
+}
+
+// totalFrames converts the label (including any day offset) to an absolute
+// frame count.
 func (tc Timecode) totalFrames() (int64, error) {
 	nominal := tc.Rate.NominalFPS()
 	if nominal <= 0 {
@@ -173,8 +193,8 @@ func (tc Timecode) totalFrames() (int64, error) {
 	if frames < 0 {
 		return 0, fmt.Errorf("%w: negative frame count", ErrBadTimecode)
 	}
-	// Add whole-day offsets.
-	frames += int64(tc.DayOffset) * 24 * 3600 * nominal
+	// Add whole-day offsets in label-day frame units.
+	frames += int64(tc.DayOffset) * tc.Rate.dayFrames()
 	return frames, nil
 }
 
@@ -213,7 +233,18 @@ func TimecodeFromFrames(frame int64, rate FrameRate) (Timecode, error) {
 		return Timecode{}, fmt.Errorf("%w: negative frame count %d", ErrBadTimecode, frame)
 	}
 	nominal := rate.NominalFPS()
+	if nominal <= 0 {
+		return Timecode{}, fmt.Errorf("%w: zero nominal rate", ErrBadTimecode)
+	}
 	drop := rate.DropFrame
+	// Split whole label-days first so the day offset is exact for both
+	// non-drop and drop-frame rates, matching totalFrames.
+	dayFrames := rate.dayFrames()
+	var days int64
+	if dayFrames > 0 {
+		days = frame / dayFrames
+		frame -= days * dayFrames
+	}
 	frames := frame
 	if drop {
 		// The reference drop-frame inverse (SMPTE 12M / A. Duncan):
@@ -238,17 +269,8 @@ func TimecodeFromFrames(frame int64, rate FrameRate) (Timecode, error) {
 	totalMinutes := totalSeconds / 60
 	min := totalMinutes % 60
 	hour := totalMinutes / 60
-	if hour > 23 {
-		// Keep extended hours but record whole days.
-		days := hour / 24
-		hour = hour % 24
-		return Timecode{
-			Hours: int(hour), Minutes: int(min), Seconds: int(sec), Frames: int(fr),
-			DropFrame: drop, DayOffset: int(days), Rate: rate,
-		}, nil
-	}
 	return Timecode{
 		Hours: int(hour), Minutes: int(min), Seconds: int(sec), Frames: int(fr),
-		DropFrame: drop, Rate: rate,
+		DropFrame: drop, DayOffset: int(days), Rate: rate,
 	}, nil
 }

@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"strings"
 	"testing"
 
 	"mediascan/internal/fixture"
@@ -248,4 +249,28 @@ func hasClass(set media.IssueSet, c media.Class) bool {
 		}
 	}
 	return false
+}
+
+func TestSegmentsCarryTimecodes(t *testing.T) {
+	out, err := Run(demoInput(t, demoShape{}), Config{VideoFrameRate: media.Rate2997})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Segments) == 0 {
+		t.Fatal("no segments")
+	}
+	for _, s := range out.Segments {
+		if s.StartTimecode == "" {
+			t.Errorf("segment %d has no timecode", s.Index)
+		}
+		// Drop-frame labels use ';' before the frame field.
+		if !strings.Contains(s.StartTimecode, ";") {
+			t.Errorf("segment %d timecode %q is not drop-frame", s.Index, s.StartTimecode)
+		}
+	}
+	// 1-second boundaries at 30000/1001 are not frame aligned, which must be
+	// reported rather than hidden.
+	if out.TimecodeNonIntegral == 0 {
+		t.Error("expected non-integral frame times at 29.97 with 1s segments")
+	}
 }
