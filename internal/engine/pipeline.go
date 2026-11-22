@@ -195,7 +195,6 @@ func ensureDir(dir string) error {
 // clearWork removes volatile state from an unfinished run: checkpoint, block
 // files, partial temp files and the assembled output. Provenance is kept
 // because it is an append-only audit trail.
-
 func clearWork(dir string) error {
 	targets := []string{store.Path(dir), store.OutputPath(dir)}
 	entries, err := os.ReadDir(store.BlocksDir(dir))
@@ -240,7 +239,6 @@ type processor struct {
 	cp     *store.Checkpoint
 	result *Result
 
-	totalIn int64
 	// pending holds output frames not yet framed into a block.
 	pending []float64
 	// decodeBuf and normBuf avoid per-sample allocation.
@@ -331,15 +329,16 @@ func (p *processor) stream() error {
 		}
 		frames := int64(len(out) / p.cfg.OutputChannels)
 		if consumed+frames <= p.cp.Cursor {
-			// Still inside the replay window; Push already did this work
-			// in replay(). Skip to avoid double-feeding.
+			// replay() already fed this sample through the resampler, so
+			// skip it here rather than double-feeding the stream.
 			consumed += frames
 			continue
 		}
 		if consumed < p.cp.Cursor {
-			// Sample straddles the cursor: feed only the tail.
+			// A sample straddles the cursor: replay fed its head, so feed
+			// only the tail now.
 			off := p.cp.Cursor - consumed
-			out = out[off*int64(p.fmt.Channels):]
+			out = out[off*int64(p.cfg.OutputChannels):]
 			frames -= off
 			consumed = p.cp.Cursor
 		}
@@ -634,14 +633,13 @@ func Run(opts Options) (*Result, error) {
 	}
 
 	p := &processor{
-		opts:    opts,
-		cfg:     cfg,
-		fmt:     desc.Format,
-		track:   track,
-		rs:      rs,
-		cp:      cp,
-		result:  result,
-		totalIn: totalIn,
+		opts:   opts,
+		cfg:    cfg,
+		fmt:    desc.Format,
+		track:  track,
+		rs:     rs,
+		cp:     cp,
+		result: result,
 	}
 	if err := p.replay(); err != nil {
 		return nil, err
