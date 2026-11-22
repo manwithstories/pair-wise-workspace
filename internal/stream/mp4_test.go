@@ -6,22 +6,23 @@ import (
 
 	"github.com/abema/go-mp4"
 
+	"mediascan/internal/fixture"
 	"mediascan/internal/media"
 )
 
-func videoSpec(n int) mediaTrackSpec {
+func videoSpec(n int) fixture.TrackSpec {
 	sizes := make([]uint32, n)
 	for i := range sizes {
 		sizes[i] = 100
 	}
-	return mediaTrackSpec{
+	return fixture.TrackSpec{
 		Kind: "video", Timescale: 30000, SampleDelta: 1001,
 		SampleSizes: sizes, SyncSamples: []int{1, 11, 21}, CorruptSizeIdx: -1,
 	}
 }
 
 func TestAnalyzeMP4Basics(t *testing.T) {
-	data := buildMP4(t, []mediaTrackSpec{videoSpec(30)})
+	data := buildMP4(t, []fixture.TrackSpec{videoSpec(30)})
 	fa, err := AnalyzeMP4(data, Limits{})
 	if err != nil {
 		t.Fatal(err)
@@ -59,7 +60,7 @@ func TestAnalyzeMP4Basics(t *testing.T) {
 }
 
 func TestAnalyzeMP4Truncated(t *testing.T) {
-	data := buildMP4(t, []mediaTrackSpec{videoSpec(20)})
+	data := buildMP4(t, []fixture.TrackSpec{videoSpec(20)})
 	// Truncate inside mdat (payload starts after moov; mdat header is 8 bytes).
 	mdat := bytes.Index(data, []byte("mdat"))
 	if mdat < 0 {
@@ -95,7 +96,7 @@ func TestAnalyzeMP4Truncated(t *testing.T) {
 func TestAnalyzeMP4CorruptSampleSize(t *testing.T) {
 	spec := videoSpec(15)
 	spec.CorruptSizeIdx = 7
-	data := buildMP4(t, []mediaTrackSpec{spec})
+	data := buildMP4(t, []fixture.TrackSpec{spec})
 	fa, err := AnalyzeMP4(data, Limits{})
 	if err != nil {
 		t.Fatal(err)
@@ -121,7 +122,7 @@ func TestAnalyzeMP4CorruptSampleSize(t *testing.T) {
 func TestAnalyzeMP4MissingChunkIndex(t *testing.T) {
 	spec := videoSpec(10)
 	spec.OmitSTCO = true
-	data := buildMP4(t, []mediaTrackSpec{spec})
+	data := buildMP4(t, []fixture.TrackSpec{spec})
 	fa, err := AnalyzeMP4(data, Limits{})
 	if err != nil {
 		t.Fatal(err)
@@ -139,7 +140,7 @@ func TestAnalyzeMP4NoKeyframes(t *testing.T) {
 	spec.SyncSamples = []int{}
 	spec.NoSTSS = false
 	// Empty stss => explicitly no sync samples.
-	data := buildMP4(t, []mediaTrackSpec{spec})
+	data := buildMP4(t, []fixture.TrackSpec{spec})
 	fa, err := AnalyzeMP4(data, Limits{})
 	if err != nil {
 		t.Fatal(err)
@@ -152,7 +153,7 @@ func TestAnalyzeMP4NoKeyframes(t *testing.T) {
 func TestAnalyzeMP4ImplicitAllSync(t *testing.T) {
 	spec := videoSpec(10)
 	spec.NoSTSS = true
-	data := buildMP4(t, []mediaTrackSpec{spec})
+	data := buildMP4(t, []fixture.TrackSpec{spec})
 	fa, err := AnalyzeMP4(data, Limits{})
 	if err != nil {
 		t.Fatal(err)
@@ -166,14 +167,44 @@ func TestAnalyzeMP4ImplicitAllSync(t *testing.T) {
 	}
 }
 
+func TestAnalyzeMP4SampleScanRebuildsIncompleteSTSS(t *testing.T) {
+	// Payload markers cover every keyframe; stss declares only a subset. The
+	// sample scan must detect the gap, restore the entries and mark the index
+	// as rebuilt rather than silently trusting stss.
+	spec := videoSpec(30)
+	spec.KeyframeMarkers = []int{1, 11, 21}
+	spec.SyncSamples = []int{1, 21} // 11 lost from stss
+	data := buildMP4(t, []fixture.TrackSpec{spec})
+	fa, err := AnalyzeMP4(data, Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := fa.Tracks[0]
+	if tr.IndexSource != "rebuilt" {
+		t.Fatalf("index source = %q, want rebuilt", tr.IndexSource)
+	}
+	if !hasClass(fa.Issues, media.ClassMP4MissingIndex) {
+		t.Errorf("incomplete stss not reported: %v", fa.Issues)
+	}
+	want := map[int]bool{1: true, 11: true, 21: true}
+	if len(tr.Keyframes) != 3 {
+		t.Fatalf("keyframes = %v, want three", tr.Keyframes)
+	}
+	for _, k := range tr.Keyframes {
+		if !want[k] {
+			t.Errorf("unexpected rebuilt keyframe %d", k)
+		}
+	}
+}
+
 func TestAnalyzeMP4TwoTracksIsolated(t *testing.T) {
 	video := videoSpec(12)
 	video.CorruptSizeIdx = 5
-	audio := mediaTrackSpec{
+	audio := fixture.TrackSpec{
 		Kind: "audio", Timescale: 48000, SampleDelta: 1024,
 		SampleSizes: []uint32{64, 64, 64, 64}, NoSTSS: true, CorruptSizeIdx: -1,
 	}
-	data := buildMP4(t, []mediaTrackSpec{video, audio})
+	data := buildMP4(t, []fixture.TrackSpec{video, audio})
 	fa, err := AnalyzeMP4(data, Limits{})
 	if err != nil {
 		t.Fatal(err)

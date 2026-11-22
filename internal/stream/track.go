@@ -141,6 +141,46 @@ func analyzeTrack(r io.ReadSeeker, t *trakBoxes, mdats []byteRange, limits Limit
 			syncSet[i] = true
 		}
 	}
+	// Independent scan: inspect each sample's payload for a keyframe marker.
+	// The marker is a bit 0x80 in the first payload byte of a sample. Because
+	// this signal comes from the sample bytes rather than the sample table, it
+	// reveals when stss has lost entries. It is only meaningful for video and
+	// only when the byte spans are readable.
+	scanned := make(map[int]bool)
+	scanValid := t.stss != nil && tr.Kind != "audio"
+	if scanValid {
+		for i := 0; i < sampleCount && i < len(offsets); i++ {
+			if sizes[i] == 0 || !insideAnyMdat(mdats, uint64(offsets[i]), 1) {
+				continue
+			}
+			var first [1]byte
+			if _, err := r.Seek(offsets[i], io.SeekStart); err != nil {
+				continue
+			}
+			if _, err := io.ReadFull(r, first[:]); err != nil {
+				continue
+			}
+			if first[0]&0x80 != 0 {
+				scanned[i+1] = true
+			}
+		}
+	}
+	// If the declared stss is a strict subset of the markers actually present
+	// in the samples, the index is incomplete: restore the missing entries and
+	// record that a rebuild occurred.
+	if scanValid && len(scanned) > len(syncSet) {
+		restored := 0
+		for n := range scanned {
+			if !syncSet[n] {
+				syncSet[n] = true
+				restored++
+			}
+		}
+		issues.Add(media.NewIssue(media.ClassMP4MissingIndex, media.Locator{TrackID: tr.TrackID},
+			"stss declared %d keyframes but samples mark %d; restored %d entries by scanning",
+			len(scanned)-restored, len(scanned), restored))
+		indexSource = "rebuilt"
+	}
 	tr.IndexSource = indexSource
 
 	// Build the sample list with cumulative DTS in ticks then scaled to ns.

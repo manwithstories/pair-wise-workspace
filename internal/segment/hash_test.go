@@ -31,7 +31,6 @@ func TestSHA256SensitiveToFacts(t *testing.T) {
 	mods := []func(*Record){
 		func(r *Record) { r.EndNs++ },
 		func(r *Record) { r.Recovery = Recovered },
-		func(r *Record) { r.LateEvents = 1 },
 		func(r *Record) { r.TrackIDs = []uint32{1} },
 		func(r *Record) { r.IssueClasses = []string{"x"} },
 		func(r *Record) { r.Sources = []Source{{Kind: "k"}} },

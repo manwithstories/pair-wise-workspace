@@ -149,11 +149,10 @@ func finalizeSegment(s *Segment, cfg Config) {
 			recovery = segment.Recovered
 		}
 		if ev.Late {
+			// Lateness is recorded for reporting but deliberately excluded
+			// from the hash inputs (recovery state and classes) so an event
+			// that arrives late hashes exactly as it would have on time.
 			s.Late++
-			if recovery != segment.Failed {
-				recovery = segment.Recovered
-			}
-			classSet[string(media.ClassTimelineLateEvent)] = true
 		}
 		if !srcSeen[ev.Source] {
 			srcSeen[ev.Source] = true

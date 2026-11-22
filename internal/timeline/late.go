@@ -103,7 +103,7 @@ func segmentsEqual(a, b []Segment) bool {
 		if a[i].Index != b[i].Index || a[i].StartNs != b[i].StartNs || a[i].EndNs != b[i].EndNs {
 			return false
 		}
-		if a[i].Recovery != b[i].Recovery || a[i].Hash != b[i].Hash || a[i].Late != b[i].Late {
+		if a[i].Recovery != b[i].Recovery || a[i].Hash != b[i].Hash {
 			return false
 		}
 	}

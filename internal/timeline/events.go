@@ -88,7 +88,10 @@ type Segment struct {
 	TrackIDs []uint32
 	Sources  []segment.Source
 	Classes  []string
-	Late     int
+	// Late counts events in this segment that arrived after the watermark.
+	// It is a processing statistic, not part of the hash: lateness must not
+	// change a segment's digest.
+	Late int
 	// Checkpoint marks a segment boundary that later replays can resume from.
 	Checkpoint bool
 	// Hash is the SHA-256 hex digest of the segment's canonical record.
@@ -102,7 +105,7 @@ type Segment struct {
 func (s Segment) HashRecord() segment.Record {
 	return segment.Record{
 		Index: s.Index, StartNs: s.StartNs, EndNs: s.EndNs, Recovery: s.Recovery,
-		TrackIDs: s.TrackIDs, Sources: s.Sources, IssueClasses: s.Classes, LateEvents: s.Late,
+		TrackIDs: s.TrackIDs, Sources: s.Sources, IssueClasses: s.Classes,
 	}
 }
 

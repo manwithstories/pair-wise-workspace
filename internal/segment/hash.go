@@ -33,6 +33,11 @@ type Source struct {
 }
 
 // Record is the canonical set of facts hashed for one segment.
+//
+// Arrival-order facts (such as how many events were delivered late) are
+// deliberately NOT part of the record: the spec requires that identical input
+// events yield identical hashes regardless of when they arrived. Lateness is a
+// processing statistic reported alongside the segment, not a segment fact.
 type Record struct {
 	Index        int
 	StartNs      int64
@@ -41,9 +46,6 @@ type Record struct {
 	TrackIDs     []uint32
 	Sources      []Source
 	IssueClasses []string
-	// LateEvents counts events that arrived after the watermark and forced a
-	// replay. It is part of the digest so a replayed segment is auditable.
-	LateEvents int
 }
 
 // Canonical renders r as a stable byte string. Every variable-length
@@ -66,7 +68,6 @@ func Canonical(r Record) []byte {
 	num(r.StartNs)
 	num(r.EndNs)
 	field(string(r.Recovery))
-	num(int64(r.LateEvents))
 
 	tracks := append([]uint32(nil), r.TrackIDs...)
 	sort.Slice(tracks, func(i, j int) bool { return tracks[i] < tracks[j] })

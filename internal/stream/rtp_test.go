@@ -3,26 +3,14 @@ package stream
 import (
 	"testing"
 
-	"github.com/pion/rtp"
-
+	"mediascan/internal/fixture"
 	"mediascan/internal/media"
 )
 
-// rtpPacket marshals a packet with the given header fields.
+// rtpPacket delegates to the shared RTP fixture.
 func rtpPacket(t *testing.T, seq uint16, ts uint32, payloadLen int) []byte {
 	t.Helper()
-	p := &rtp.Packet{
-		Header: rtp.Header{
-			Version: 2, PayloadType: 96, SequenceNumber: seq,
-			Timestamp: ts, SSRC: 0xDEADBEEF, Marker: payloadLen%2 == 0,
-		},
-		Payload: make([]byte, payloadLen),
-	}
-	b, err := p.Marshal()
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	return b
+	return fixture.RTPPacket(seq, ts, payloadLen)
 }
 
 func TestAnalyzeRTPSequenceWrap(t *testing.T) {

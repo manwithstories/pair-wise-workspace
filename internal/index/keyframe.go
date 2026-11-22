@@ -52,6 +52,25 @@ func Build(tr *stream.Track) BuildResult {
 			res.Index.Synced = append(res.Index.Synced, s.Number)
 		}
 		return res
+	case "rebuilt":
+		// The analyzer already restored missing entries by scanning sample
+		// bytes; the sample Sync flags now reflect the complete index.
+		res.Index.Source = "rebuilt"
+		res.Index.Complete = tr.Complete
+		res.Rebuilt = true
+		for _, s := range tr.Samples {
+			if s.Sync {
+				res.Index.Synced = append(res.Index.Synced, s.Number)
+			}
+		}
+		if len(res.Index.Synced) == 0 {
+			res.Issues.Add(media.NewIssue(media.ClassMP4NoKeyframes, media.Locator{TrackID: tr.TrackID},
+				"rebuilt index contains no keyframes among %d samples", len(tr.Samples)))
+			return res
+		}
+		res.Issues.Add(media.NewIssue(media.ClassMP4IndexIncomplete, media.Locator{TrackID: tr.TrackID},
+			"keyframe index was missing entries; rebuilt %d keyframes from sample scan", len(res.Index.Synced)))
+		return res
 	case "stss":
 		// fallthrough to validation below
 	default:
