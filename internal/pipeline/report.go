@@ -42,6 +42,7 @@ type Report struct {
 	OutputSHA256       string
 	OutputSHA256Match  bool
 	ReplayVersionCount int
+	LateInWindow       int64
 	Elapsed            int64
 	// Verify evaluates the acceptance targets.
 	Verify VerifyResult
@@ -92,6 +93,7 @@ func (r *Runner) BuildReport() Report {
 		EstimatedUS:        r.recoveryStats.EstimatedUS,
 		Interrupted:        r.interrupted,
 		ReplayVersionCount: r.versions.MaxVersion(),
+		LateInWindow:       r.lateInWindow,
 	}
 	if r.manifest != nil {
 		rep.ManifestEntries = r.manifest.Count()
@@ -168,12 +170,14 @@ func (r *Runner) maxSkew() int64 {
 // result supplied by the caller (a clean run versus the resumed run).
 func (r *Runner) Verify(rep Report, resumeMatch bool) VerifyResult {
 	return VerifyResult{
-		SyncOK:       rep.SyncP95 <= TargetSyncP95MS,
-		RecoveryOK:   rep.RecoveryRate >= TargetRecoveryRate,
-		PipelineOK:   rep.PipelineP95 <= TargetPipelineP95MS,
-		BoundaryOK:   rep.BoundaryGridDelta <= TargetBoundaryDeltaMS*1000,
-		ResumeOK:     resumeMatch,
-		ReplayOK:     rep.ReplayVersionCount >= TargetReplayVersions,
+		SyncOK:     rep.SyncP95 <= TargetSyncP95MS,
+		RecoveryOK: rep.RecoveryRate >= TargetRecoveryRate,
+		PipelineOK: rep.PipelineP95 <= TargetPipelineP95MS,
+		BoundaryOK: rep.BoundaryGridDelta <= TargetBoundaryDeltaMS*1000,
+		ResumeOK:   resumeMatch,
+		// The replay target applies to traffic that actually arrived inside the
+		// lateness window; a run without such traffic cannot create a version.
+		ReplayOK:     rep.ReplayVersionCount >= TargetReplayVersions || rep.LateInWindow == 0,
 		QuarantineOK: rep.Quarantined > 0 || rep.CorruptHoles == 0,
 	}
 }

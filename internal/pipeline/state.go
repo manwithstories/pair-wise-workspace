@@ -17,22 +17,23 @@ import (
 // pipelineState is the opaque checkpoint payload. It contains everything
 // needed to continue without re-reading records already folded in.
 type pipelineState struct {
-	Cursor      int                     `json:"cursor"`
-	Watermark   watermarkState          `json:"watermark"`
-	Streams     []streamStateCheckpoint `json:"streams"`
-	Quarantine  []model.Quarantine      `json:"quarantine,omitempty"`
-	Dupes       int64                   `json:"dupes"`
-	Conflicts   int64                   `json:"conflicts"`
-	Sync        []int64                 `json:"sync_buckets"`
-	P95         []int64                 `json:"p95_buckets"`
-	Recovery    recoveryCheckpoint      `json:"recovery"`
-	Segments    []segmentState          `json:"segments"`
-	FinalSHA    map[string]string       `json:"final_sha"`
-	OutputChain string                  `json:"output_chain"`
-	OutputCount int                     `json:"output_count"`
-	SegCount    int                     `json:"seg_count"`
-	Counted     []string                `json:"counted"`
-	BoundaryMax int64                   `json:"boundary_max"`
+	Cursor       int                     `json:"cursor"`
+	Watermark    watermarkState          `json:"watermark"`
+	Streams      []streamStateCheckpoint `json:"streams"`
+	Quarantine   []model.Quarantine      `json:"quarantine,omitempty"`
+	Dupes        int64                   `json:"dupes"`
+	LateInWindow int64                   `json:"late_in_window"`
+	Conflicts    int64                   `json:"conflicts"`
+	Sync         []int64                 `json:"sync_buckets"`
+	P95          []int64                 `json:"p95_buckets"`
+	Recovery     recoveryCheckpoint      `json:"recovery"`
+	Segments     []segmentState          `json:"segments"`
+	FinalSHA     map[string]string       `json:"final_sha"`
+	OutputChain  string                  `json:"output_chain"`
+	OutputCount  int                     `json:"output_count"`
+	SegCount     int                     `json:"seg_count"`
+	Counted      []string                `json:"counted"`
+	BoundaryMax  int64                   `json:"boundary_max"`
 }
 
 type watermarkState struct {
@@ -90,19 +91,20 @@ type segmentState struct {
 func (r *Runner) marshalPipelineState() (json.RawMessage, error) {
 	maxEnd, set, window := r.wm.State()
 	ps := pipelineState{
-		Cursor:      r.cursor,
-		Watermark:   watermarkState{MaxEndUS: maxEnd, Set: set, WindowUS: window},
-		Quarantine:  r.quarantine,
-		Dupes:       r.dupes,
-		Conflicts:   r.conflicts,
-		Sync:        r.syncHist.Buckets(),
-		P95:         r.p95Hist.Buckets(),
-		FinalSHA:    r.latestSHA,
-		OutputChain: hex.EncodeToString(r.outputChain[:]),
-		OutputCount: r.outputCount,
-		SegCount:    r.segCount,
-		Counted:     r.countedSlots(),
-		BoundaryMax: r.boundaryMax,
+		Cursor:       r.cursor,
+		Watermark:    watermarkState{MaxEndUS: maxEnd, Set: set, WindowUS: window},
+		Quarantine:   r.quarantine,
+		Dupes:        r.dupes,
+		LateInWindow: r.lateInWindow,
+		Conflicts:    r.conflicts,
+		Sync:         r.syncHist.Buckets(),
+		P95:          r.p95Hist.Buckets(),
+		FinalSHA:     r.latestSHA,
+		OutputChain:  hex.EncodeToString(r.outputChain[:]),
+		OutputCount:  r.outputCount,
+		SegCount:     r.segCount,
+		Counted:      r.countedSlots(),
+		BoundaryMax:  r.boundaryMax,
 		Recovery: recoveryCheckpoint{
 			Loss: r.recoveryStats.LossHoles, Recovered: r.recoveryStats.RecoveredLoss,
 			Corrupt: r.recoveryStats.CorruptHoles, RecoveredCorrupt: r.recoveryStats.RecoveredCorrupt,
@@ -161,6 +163,7 @@ func (r *Runner) Restore(st checkpoint.State) error {
 	r.wm.Restore(ps.Watermark.MaxEndUS, ps.Watermark.Set, ps.Watermark.WindowUS)
 	r.quarantine = ps.Quarantine
 	r.dupes = ps.Dupes
+	r.lateInWindow = ps.LateInWindow
 	r.conflicts = ps.Conflicts
 	if err := r.syncHist.Restore(ps.Sync); err != nil {
 		return err

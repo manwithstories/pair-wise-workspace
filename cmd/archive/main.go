@@ -127,14 +127,15 @@ func buildConfig(o *options) (pipeline.Config, error) {
 	}
 	cfg.LateAtBoundary = o.lateAtBoundary
 	cfg.Resume = o.resume
-	if o.interruptAfter != "" {
+	if o.interruptAfter != "" && o.interruptAfter != "0s" {
 		after, err := pipeline.ParseDuration(o.interruptAfter)
-		if err != nil && o.interruptAfter != "0s" {
+		if err != nil {
 			return cfg, err
 		}
-		if after < cfg.DurationUS {
-			cfg.InterruptAfterUS = after
+		if after >= cfg.DurationUS {
+			return cfg, fmt.Errorf("--interrupt-after %s must be shorter than --duration %s", o.interruptAfter, o.duration)
 		}
+		cfg.InterruptAfterUS = after
 	}
 	if err := validateWorkDir(o.workDir); err != nil {
 		return cfg, err
@@ -156,6 +157,11 @@ func validateWorkDir(dir string) error {
 	if err != nil {
 		return err
 	}
+	// macOS resolves /var and /tmp through symlinks; compare real paths so a
+	// legitimate directory is not rejected as escaping the repository. The
+	// target may not exist yet, so resolve the nearest existing ancestor.
+	abs = resolveExisting(abs)
+	wd = resolveExisting(wd)
 	rel, err := filepath.Rel(wd, abs)
 	if err != nil {
 		return err
@@ -164,6 +170,27 @@ func validateWorkDir(dir string) error {
 		return fmt.Errorf("work directory %q must stay inside %s", dir, wd)
 	}
 	return nil
+}
+
+// resolveExisting evaluates symlinks on the deepest existing ancestor of p and
+// re-appends the not-yet-created remainder.
+func resolveExisting(p string) string {
+	rest := ""
+	cur := p
+	for {
+		if real, err := filepath.EvalSymlinks(cur); err == nil {
+			if rest == "" {
+				return real
+			}
+			return filepath.Join(real, rest)
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return p
+		}
+		rest = filepath.Join(filepath.Base(cur), rest)
+		cur = parent
+	}
 }
 
 // runDemo performs the interrupted-then-resumed run and compares it against a

@@ -79,11 +79,12 @@ type Runner struct {
 	boundaryMax int64
 	skewBySlot  map[string]int64
 
-	syncHist   *metrics.Histogram
-	p95Hist    *metrics.Histogram
-	quarantine []model.Quarantine
-	dupes      int64
-	conflicts  int64
+	syncHist     *metrics.Histogram
+	p95Hist      *metrics.Histogram
+	quarantine   []model.Quarantine
+	dupes        int64
+	conflicts    int64
+	lateInWindow int64
 
 	recoveryStats recovery.Stats
 	encodedBytes  int64
@@ -181,6 +182,7 @@ func (r *Runner) build() error {
 	r.boundaryMax = 0
 	r.encodedBytes = 0
 	r.dupes, r.conflicts = 0, 0
+	r.lateInWindow = 0
 	r.interrupted, r.finished = false, false
 	return nil
 }

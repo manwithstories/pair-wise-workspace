@@ -22,6 +22,7 @@ func formatReport(rep pipeline.Report) string {
 	fmt.Fprintf(&b, "QUARANTINED_PACKETS=%d\n", rep.Quarantined)
 	fmt.Fprintf(&b, "DUPLICATE_PACKETS=%d\n", rep.Duplicates)
 	fmt.Fprintf(&b, "REPLAYED_SEGMENTS=%d\n", rep.ReplayedSegments)
+	fmt.Fprintf(&b, "LATE_IN_WINDOW=%d\n", rep.LateInWindow)
 	fmt.Fprintf(&b, "SEGMENTS_COMMITTED=%d\n", rep.Segments)
 	fmt.Fprintf(&b, "MANIFEST_ENTRIES=%d\n", rep.ManifestEntries)
 	fmt.Fprintf(&b, "LEDGER_ENTRIES=%d\n", rep.LedgerEntries)

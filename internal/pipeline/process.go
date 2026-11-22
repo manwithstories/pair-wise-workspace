@@ -101,6 +101,9 @@ func (r *Runner) process(entry logEntry) error {
 	// Capture which segments were already committed before folding this event
 	// in: those are the ones a late arrival has to recalculate.
 	touched := r.committedTouching(st, ev)
+	if len(touched) > 0 {
+		r.lateInWindow++
+	}
 	st.insert(ev)
 	r.observe(ev)
 	for _, idx := range touched {
