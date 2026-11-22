@@ -90,7 +90,7 @@ func buildVideoTrakAt(spec FixtureSpec, sizes []uint32, chunkOffset uint32) []by
 	entry = append(entry, u16(0x0018)...)     // depth
 	entry = append(entry, u16(0xFFFF)...)     // predefined -1
 	stsd := box("stsd", cat(fullbox(0, 0), u32(1), entry))
-	stbl := buildStbl(spec.FrameDur, sizes, chunkOffset, stsd)
+	stbl := buildStbl(spec.FrameDur, 0, sizes, chunkOffset, stsd)
 	dref := box("dref", cat(fullbox(0, 0), u32(0)))
 	minf := box("minf", cat(box("dinf", dref), stbl))
 	mdia := box("mdia", cat(mdhd, hdlr, minf))
@@ -99,7 +99,15 @@ func buildVideoTrakAt(spec FixtureSpec, sizes []uint32, chunkOffset uint32) []by
 }
 
 func buildAudioTrakAt(spec FixtureSpec, sizes []uint32, chunkOffset uint32) []byte {
-	mdhd := box("mdhd", mdhdBody(spec.AudioRate, int64(len(sizes))))
+	// Align the audio timeline with the video timeline: the audio track
+	// spans the same wall-clock duration, expressed in its own clock.
+	videoTicks := int64(spec.VideoSamples) * spec.FrameDur
+	audioTotal := videoTicks * spec.AudioRate / spec.VideoScale
+	audioDelta := audioTotal / int64(len(sizes))
+	if audioDelta < 1 {
+		audioDelta = 1
+	}
+	mdhd := box("mdhd", mdhdBody(spec.AudioRate, audioDelta*int64(len(sizes))))
 	hdlr := box("hdlr", hdlrBody("soun", "AudioHandler"))
 	// Audio sample entry after the 8-byte box header:
 	// reserved(6)+dri(2) | entryversion(2)+reserved(6) |
@@ -116,7 +124,7 @@ func buildAudioTrakAt(spec FixtureSpec, sizes []uint32, chunkOffset uint32) []by
 	entry = append(entry, u16(0)...)          // reserved2
 	entry = append(entry, u32(uint32(spec.AudioRate)<<16)...)
 	stsd := box("stsd", cat(fullbox(0, 0), u32(1), entry))
-	stbl := buildStbl(1, sizes, chunkOffset, stsd)
+	stbl := buildStbl(audioDelta, audioTotal, sizes, chunkOffset, stsd)
 	dref := box("dref", cat(fullbox(0, 0), u32(0)))
 	minf := box("minf", cat(box("dinf", dref), stbl))
 	mdia := box("mdia", cat(mdhd, hdlr, minf))
@@ -141,12 +149,28 @@ func hdlrBody(handler, name string) []byte {
 	return append(body, []byte(name)...)
 }
 
-// buildStbl writes stts (uniform delta), stsc (all samples in one chunk),
-// stsz (per-sample sizes) and stco (single chunk offset).
-func buildStbl(frameDur int64, sizes []uint32, chunkOffset uint32, stsd []byte) []byte {
+// buildStbl writes stts, stsc (all samples in one chunk), stsz (per-sample
+// sizes) and stco (single chunk offset). When totalTicks is > 0 the stts run
+// table distributes that exact total across the samples (the remainder lands
+// on the final sample); otherwise every sample uses uniformDur.
+func buildStbl(uniformDur, totalTicks int64, sizes []uint32, chunkOffset uint32, stsd []byte) []byte {
 	n := uint32(len(sizes))
-	sttsBody := cat(fullbox(0, 0), u32(1), u32(n), u32(uint32(frameDur)))
-	stts := box("stts", sttsBody)
+	var stts []byte
+	if totalTicks > 0 && n > 1 {
+		base := totalTicks / int64(n)
+		rem := totalTicks - base*int64(n)
+		first := int64(n) - 1
+		sttsBody := cat(fullbox(0, 0), u32(2),
+			u32(uint32(first)), u32(uint32(base)),
+			u32(1), u32(uint32(base+rem)))
+		stts = box("stts", sttsBody)
+	} else {
+		dur := uniformDur
+		if totalTicks > 0 {
+			dur = totalTicks / int64(n)
+		}
+		stts = box("stts", cat(fullbox(0, 0), u32(1), u32(n), u32(uint32(dur))))
+	}
 
 	stscBody := cat(fullbox(0, 0), u32(1), u32(1), u32(n), u32(1))
 	stsc := box("stsc", stscBody)
