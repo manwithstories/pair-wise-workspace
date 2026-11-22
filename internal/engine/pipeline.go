@@ -423,8 +423,10 @@ func (p *processor) emitBlock(frames []float64) error {
 			"produced more than the expected %d blocks", p.cp.TotalBlocks)
 	}
 	if p.blockIndex < p.cp.CompletedBlocks {
+		// Replay reuses a sealed block; its exact length comes from the
+		// record so a short final block does not shift later timestamps.
+		p.outFrame += int64(p.cp.Blocks[p.blockIndex].Frames)
 		p.blockIndex++
-		p.outFrame += int64(p.cfg.BlockFrames)
 		return nil
 	}
 	if err := p.writeBlock(frames); err != nil {
