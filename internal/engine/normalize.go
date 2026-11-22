@@ -8,6 +8,7 @@
 package engine
 
 import (
+	"encoding/binary"
 	"math"
 
 	"mediacore/internal/media"
@@ -235,4 +236,92 @@ func gcd64(a, b int64) int64 {
 		return -a
 	}
 	return a
+}
+
+// Loudness and framing kernel: tone controls and 16-bit rendering.
+
+// limitBlock applies the peak ceiling and classifies the block.
+func limitBlock(frames []float64, ceilingDBFS float64) blockStat {
+	ceiling := math.Pow(10, ceilingDBFS/20)
+	var peak float64
+	var clipped bool
+	for _, v := range frames {
+		a := math.Abs(v)
+		if a >= 0.999 {
+			clipped = true
+		}
+		if a > peak {
+			peak = a
+		}
+	}
+	stat := blockStat{peakLinear: peak, peakDBFS: linearToDBFS(peak)}
+	stat.silent = peak == 0
+	stat.clipped = clipped
+	if peak > ceiling {
+		stat.limited = true
+		scale := ceiling / peak
+		for i := range frames {
+			frames[i] *= scale
+		}
+		stat.peakLinear = ceiling
+		stat.peakDBFS = linearToDBFS(ceiling)
+	}
+	return stat
+}
+
+type blockStat struct {
+	peakLinear float64
+	peakDBFS   float64
+	silent     bool
+	clipped    bool
+	limited    bool
+}
+
+// normalizeChannels maps the input layout onto the output layout.
+func normalizeChannels(dst, src []float64, in, out int) {
+	if in == out {
+		copy(dst, src)
+		return
+	}
+	n := len(src) / in
+	if in == 1 && out == 2 {
+		for i := n - 1; i >= 0; i-- {
+			dst[2*i] = src[i]
+			dst[2*i+1] = src[i]
+		}
+		return
+	}
+	if in == 2 && out == 1 {
+		// Average keeps a centred source at constant loudness and cannot
+		// introduce clipping.
+		for i := 0; i < n; i++ {
+			dst[i] = 0.5 * (src[2*i] + src[2*i+1])
+		}
+	}
+}
+
+// quantize renders interleaved float frames as signed 16-bit little-endian.
+func quantize(frames []float64) []byte {
+	out := make([]byte, len(frames)*2)
+	for i, v := range frames {
+		x := int(math.Round(v * 32767))
+		if x > 32767 {
+			x = 32767
+		} else if x < -32768 {
+			x = -32768
+		}
+		binary.LittleEndian.PutUint16(out[2*i:], uint16(int16(x)))
+	}
+	return out
+}
+
+func linearToDBFS(v float64) float64 {
+	if v <= 0 {
+		return -120
+	}
+	db := 20 * math.Log10(v)
+	if db < -120 {
+		return -120
+	}
+	return db
 }
