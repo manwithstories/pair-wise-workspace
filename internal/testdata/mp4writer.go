@@ -76,9 +76,9 @@ func WriteMP4(video, audio TrackSpec, evs []TimedEvent, p Params) ([]byte, error
 		out = out[:len(out)-32]
 	}
 	if p.CorruptBox {
-		// Overwrite an interior box length with an impossible value that
-		// points beyond the parent, so hierarchy validation must reject it.
-		binary.BigEndian.PutUint32(out[w.mdatPos-8:w.mdatPos-4], uint32(1<<30))
+		// Overwrite the mdat header's declared length with an impossible value
+		// that points past EOF, so hierarchy validation must reject it.
+		binary.BigEndian.PutUint32(out[w.mdatPos:w.mdatPos+4], uint32(1<<30))
 	}
 	return out, nil
 }
