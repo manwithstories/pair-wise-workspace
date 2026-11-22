@@ -19,6 +19,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pion/rtp"
+
 	"mediacore/internal/codec"
 	"mediacore/internal/container"
 	"mediacore/internal/media"
@@ -668,7 +670,64 @@ func validateConfig(cfg Config) error {
 	return nil
 }
 
-func RTPTimestamp(frame int64, rate int) uint32 { return 0 }
-func RTPSequence(block int) uint16              { return 0 }
+// RTPTimestamp maps an output frame index onto a 48 kHz RTP clock.
+func RTPTimestamp(frame int64, rate int) uint32 {
+	base, err := media.NewTimeBase(int64(rate))
+	if err != nil {
+		return 0
+	}
+	clock, err := media.NewTimeBase(rtpClockRate)
+	if err != nil {
+		return 0
+	}
+	ts, _, err := media.Exact(frame, base, clock)
+	if err != nil {
+		return 0
+	}
+	return uint32(ts)
+}
 
-func verifyRTP(cp *store.Checkpoint) error { return nil }
+// RTPSequence maps a block index onto a 16-bit RTP sequence number.
+func RTPSequence(block int) uint16 { return uint16(block & 0xFFFF) }
+
+// RTPPacket builds the RTP packet describing one output block. The playback
+// service maps block boundaries straight onto these headers.
+func RTPPacket(block store.BlockRecord, rate int) *rtp.Packet {
+	return &rtp.Packet{Header: rtp.Header{
+		Version:        2,
+		PayloadType:    rtpPayloadType,
+		SequenceNumber: RTPSequence(block.Index),
+		Timestamp:      RTPTimestamp(block.StartFrame, rate),
+		SSRC:           rtpSSRC,
+		Marker:         true,
+	}}
+}
+
+// verifyRTP round-trips every block's header through pion/rtp and checks the
+// timestamp contract: block n starts at n*BlockFrames and maps monotonically
+// on the 48 kHz clock.
+func verifyRTP(cp *store.Checkpoint) error {
+	var prev uint32
+	for i, b := range cp.Blocks {
+		pkt := RTPPacket(b, cp.OutputRate)
+		buf, err := pkt.Marshal()
+		if err != nil {
+			return media.NewError(media.CodeOutputVerification, -1, 0, "marshal RTP: %v", err).Wrap(err)
+		}
+		var back rtp.Packet
+		if err := back.Unmarshal(buf); err != nil {
+			return media.NewError(media.CodeOutputVerification, -1, 0, "unmarshal RTP: %v", err).Wrap(err)
+		}
+		if back.Header.Timestamp != pkt.Header.Timestamp ||
+			back.Header.SequenceNumber != pkt.Header.SequenceNumber {
+			return media.NewError(media.CodeOutputVerification, -1, 0,
+				"block %d RTP round-trip mismatch", b.Index)
+		}
+		if i > 0 && back.Header.Timestamp < prev {
+			return media.NewError(media.CodeOutputVerification, -1, 0,
+				"block %d RTP timestamp regressed", b.Index)
+		}
+		prev = back.Header.Timestamp
+	}
+	return nil
+}
