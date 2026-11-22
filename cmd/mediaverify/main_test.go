@@ -117,3 +117,17 @@ func TestExitCodes(t *testing.T) {
 		t.Fatalf("empty exit=%d", code)
 	}
 }
+
+func TestQualityGateExit3(t *testing.T) {
+	// 目标码率低于媒体码率（无法填充达到）→ 偏差超 10% → 退出码 3
+	old := stdout
+	r, w, _ := pipe()
+	stdout = w
+	code := dispatch([]string{"demo", "--seed", "42", "--target-kbps", "100"})
+	w.Close()
+	stdout = old
+	readAll(r)
+	if code != 3 {
+		t.Fatalf("exit=%d want 3", code)
+	}
+}
