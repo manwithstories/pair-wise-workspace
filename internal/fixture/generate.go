@@ -86,7 +86,6 @@ func Generate(root string, opt Options) (Layout, error) {
 	hls.WriteString("#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:2\n")
 	hls.WriteString("#EXT-X-MEDIA-SEQUENCE:0\n")
 	fmt.Fprintf(&hls, "#EXT-X-ARCHIVE-BASE:%d\n", archiveBase)
-	emitted := 0 // manifest entries, including the duplicate
 	for i := 0; i < opt.Segments; i++ {
 		name := fmt.Sprintf("seg-%05d.m4s", i)
 		rel := lay.MediaDir + "/" + name
@@ -104,16 +103,14 @@ func Generate(root string, opt Options) (Layout, error) {
 			// duplicate manifest reference without shifting the clock:
 			// it shares the primary entry's start and is deduplicated.
 			fmt.Fprintf(&hls, "#EXTINF:0.000000,\n%s/%s\n", lay.MediaDir, name)
-			emitted++
 		}
 		fmt.Fprintf(&hls, "#EXTINF:%d.000000,\n%s/%s\n", SegDurSecs, lay.MediaDir, name)
-		emitted++
 	}
 	hls.WriteString("#EXT-X-ENDLIST\n")
 	if err := writeFile(filepath.Join(root, lay.HLS), hls.Bytes()); err != nil {
 		return Layout{}, err
 	}
-	mpd := dashManifest(opt.Segments, opt.DuplicateAt, emitted)
+	mpd := dashManifest(opt.Segments)
 	if err := writeFile(filepath.Join(root, lay.DASH), mpd); err != nil {
 		return Layout{}, err
 	}
@@ -123,9 +120,7 @@ func Generate(root string, opt Options) (Layout, error) {
 // dashManifest emits a SegmentTemplate timeline covering every
 // generated segment. Duplicate references are an HLS-only anomaly here;
 // the DASH form stays one-to-one with the stored media.
-func dashManifest(n, dup, emitted int) []byte {
-	_ = dup
-	_ = emitted
+func dashManifest(n int) []byte {
 	var b bytes.Buffer
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
 	fmt.Fprintf(&b, `<MPD type="static"><Period><AdaptationSet mimeType="video/mp4">`+
