@@ -60,6 +60,10 @@ type Result struct {
 	Manifest         *report.Manifest
 }
 
+// SHA256Of returns the hex digest of b; exported for provenance checks
+// in tests and fixtures.
+func SHA256Of(b []byte) string { return shaHex(b) }
+
 // TracksString renders the track set for cache keys.
 func TracksString(tracks []report.TrackMap) string {
 	parts := make([]string, len(tracks))
