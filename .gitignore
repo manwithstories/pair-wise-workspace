@@ -71,3 +71,11 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- mediaslice 构建/运行产物（源码与测试纳入交付，产物不纳入）----
+mediaslice-out/
+mediaslice-rerun/
+*.index.json
+*.index.json.tmp
+/mediaslice
+/mediaslice-bin

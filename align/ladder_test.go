@@ -163,3 +163,52 @@ func TestBoundaryUsesActualVFRNotAverageRate(t *testing.T) {
 		t.Fatalf("cut did not follow actual sample tick: %+v", b.Cuts)
 	}
 }
+
+// TestAlignOneTickBoundaryDifference constructs two representations whose
+// shared boundary differs by exactly one 90 kHz tick and asserts the ladder
+// reports max_boundary_delta_ticks=1 (the contractual maximum), not more.
+func TestAlignOneTickBoundaryDifference(t *testing.T) {
+	cfg := BoundaryConfig{SegmentTicks: seg2s, KeyframeWaitMax: seg2s}
+	mk := func(shift media.Ticks) *scan.FileIndex {
+		var starts, durs []media.Ticks
+		keys := map[int]bool{}
+		step := media.Ticks(3600)
+		per := 50
+		cur := media.Ticks(0)
+		for seg := 0; seg < 4; seg++ {
+			end := media.Ticks(seg+1) * seg2s
+			if seg < 3 {
+				end += shift // boundary one tick early/late
+			}
+			for k := 0; k < per; k++ {
+				d := step
+				if k == per-1 {
+					d = end - cur
+				}
+				starts = append(starts, cur)
+				durs = append(durs, d)
+				if k == 0 {
+					keys[len(starts)-1] = true
+				}
+				cur += d
+			}
+		}
+		return syntheticIndex("rep", starts, durs, keys)
+	}
+	b0 := ComputeTrackBoundary("a", mk(0), cfg)
+	b1 := ComputeTrackBoundary("b", mk(-1), cfg) // one tick early
+	al := AlignLadder([]*TrackBoundary{b0, b1}, cfg)
+	if al.MaxDelta == 0 {
+		t.Fatal("expected a non-zero boundary delta")
+	}
+	if al.MaxDelta > 1 {
+		t.Fatalf("max_boundary_delta_ticks=%d want <=1", al.MaxDelta)
+	}
+	plan, err := BuildLadderPlan(al, []*TrackBoundary{b0, b1})
+	if err != nil {
+		t.Fatalf("one-tick ladder must validate: %v", err)
+	}
+	if len(plan.Segments) == 0 {
+		t.Fatal("no segments produced")
+	}
+}
