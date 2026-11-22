@@ -182,3 +182,38 @@ func (p *Parser) duration(payload []byte) (int64, error) {
 
 // MarkDuplicate records a duplicate for accounting.
 func (p *Parser) MarkDuplicate() { p.Counters.Duplicate++ }
+
+// ParserState is the serialisable continuation state of one stream parser. It
+// is checkpointed so a resumed run unwraps the next sequence/timestamp exactly
+// as an uninterrupted run would.
+type ParserState struct {
+	LastSeq   uint16   `json:"last_seq"`
+	ExtSeq    int64    `json:"ext_seq"`
+	SeqOK     bool     `json:"seq_ok"`
+	LastTS    uint32   `json:"last_ts"`
+	ExtTS     int64    `json:"ext_ts"`
+	TSOK      bool     `json:"ts_ok"`
+	BaseTS    int64    `json:"base_ts"`
+	BaseTSSet bool     `json:"base_ts_set"`
+	Counters  Counters `json:"counters"`
+}
+
+// State exports the parser continuation state.
+func (p *Parser) State() ParserState {
+	lastSeq, extSeq, seqOK := p.seqUnw.State()
+	lastTS, extTS, tsOK := p.tsUnw.State()
+	return ParserState{
+		LastSeq: lastSeq, ExtSeq: extSeq, SeqOK: seqOK,
+		LastTS: lastTS, ExtTS: extTS, TSOK: tsOK,
+		BaseTS: p.base, BaseTSSet: p.baseTS,
+		Counters: p.Counters,
+	}
+}
+
+// Restore reloads a checkpointed parser state.
+func (p *Parser) Restore(st ParserState) {
+	p.seqUnw.Restore(st.LastSeq, st.ExtSeq, st.SeqOK)
+	p.tsUnw.Restore(st.LastTS, st.ExtTS, st.TSOK)
+	p.base, p.baseTS = st.BaseTS, st.BaseTSSet
+	p.Counters = st.Counters
+}

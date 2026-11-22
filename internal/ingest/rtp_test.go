@@ -111,3 +111,32 @@ func TestClassifiedErrorsSurvive(t *testing.T) {
 		t.Fatalf("config error = %v", err)
 	}
 }
+
+func TestParserStateContinuation(t *testing.T) {
+	base := uint32(0xFFFFF000)
+	p, _ := NewParser(opusConfig())
+	if _, err := p.Parse(RawRecord{Bytes: encode(t, 65534, base, opus20ms())}); err != nil {
+		t.Fatal(err)
+	}
+	st := p.State()
+	ev, err := p.Parse(RawRecord{Bytes: encode(t, 65535, base+960, opus20ms())})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := ev.ExtTimeUS
+
+	// A fresh parser restored from the checkpoint sees the same continuation.
+	q, _ := NewParser(opusConfig())
+	q.Restore(st)
+	ev2, err := q.Parse(RawRecord{Bytes: encode(t, 65535, base+960, opus20ms())})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev2.ExtTimeUS != want || ev2.ID.Seq != ev.ID.Seq {
+		t.Fatalf("restored continuation = %+v want time %d seq %d", ev2, want, ev.ID.Seq)
+	}
+	// Counters survive too.
+	if q.Counters.Total != 2 {
+		t.Fatalf("restored total = %d", q.Counters.Total)
+	}
+}
