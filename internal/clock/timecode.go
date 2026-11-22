@@ -54,12 +54,12 @@ func (r Rate) NominalFPS() int {
 // Timecode is a decoded SMPTE HH:MM:SS:FF label plus an explicit day count
 // so cross-midnight arithmetic never collapses onto a single 24h cycle.
 type Timecode struct {
-	Hour    int
-	Minute  int
-	Second  int
-	Frame   int
-	Day     int
-	Drop    bool
+	Hour   int
+	Minute int
+	Second int
+	Frame  int
+	Day    int
+	Drop   bool
 }
 
 // dropFrames is the number of dropped frame labels from 00:00:00;00 up to
