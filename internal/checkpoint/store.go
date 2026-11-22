@@ -128,13 +128,17 @@ func (s *Store) VerifyParams(params string) error {
 }
 
 // AppendSegment records a freshly verified segment and advances the cursor
-// to its boundary, then persists atomically. The new segment must begin at
-// or after the current cursor: no backwards or overlapping cursor is allowed.
+// to its boundary, then persists atomically. The cursor advances by segment
+// order; within the same source the verified range must not move backwards,
+// but a new source legitimately starts again at offset zero.
 func (s *Store) AppendSegment(dir string, seg Segment) error {
-	if len(s.Segments) > 0 {
-		last := s.Segments[len(s.Segments)-1]
-		if seg.Start < last.End {
-			return fmt.Errorf("cursor would move backwards: %d before verified end %d", seg.Start, last.End)
+	if seg.End < seg.Start {
+		return fmt.Errorf("invalid segment span %d-%d", seg.Start, seg.End)
+	}
+	for _, prev := range s.Segments {
+		if prev.Source == seg.Source && seg.Start < prev.End {
+			return fmt.Errorf("cursor would move backwards in %s: %d before verified end %d",
+				seg.Source, seg.Start, prev.End)
 		}
 	}
 	s.Segments = append(s.Segments, seg)

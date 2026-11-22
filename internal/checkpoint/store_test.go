@@ -96,18 +96,22 @@ func TestRejectDifferentParams(t *testing.T) {
 func TestCursorOnlyMovesForward(t *testing.T) {
 	dir := t.TempDir()
 	s := &Store{Params: "p"}
-	if err := s.AppendSegment(dir, Segment{ID: "a", Start: 0, End: 100, Stage: StageStream}); err != nil {
+	if err := s.AppendSegment(dir, Segment{ID: "a", Source: "clip1", Start: 0, End: 100, Stage: StageStream}); err != nil {
 		t.Fatal(err)
 	}
-	// Adjacent segment is fine.
-	if err := s.AppendSegment(dir, Segment{ID: "b", Start: 100, End: 200, Stage: StageStream}); err != nil {
+	// Adjacent segment in the same source is fine.
+	if err := s.AppendSegment(dir, Segment{ID: "b", Source: "clip1", Start: 100, End: 200, Stage: StageStream}); err != nil {
 		t.Fatalf("adjacent segment rejected: %v", err)
 	}
-	// Overlapping/backwards cursor must be refused.
-	if err := s.AppendSegment(dir, Segment{ID: "c", Start: 150, End: 180, Stage: StageStream}); err == nil {
-		t.Fatal("backwards cursor must be refused")
+	// A different source legitimately restarts at offset zero.
+	if err := s.AppendSegment(dir, Segment{ID: "c", Source: "clip2", Start: 0, End: 50, Stage: StageStream}); err != nil {
+		t.Fatalf("new source must restart at zero: %v", err)
 	}
-	if s.CursorIndex != 2 {
+	// Overlapping/backwards cursor inside one source must be refused.
+	if err := s.AppendSegment(dir, Segment{ID: "d", Source: "clip1", Start: 150, End: 180, Stage: StageStream}); err == nil {
+		t.Fatal("backwards cursor inside a source must be refused")
+	}
+	if s.CursorIndex != 3 {
 		t.Fatalf("failed append must not move cursor: %d", s.CursorIndex)
 	}
 }
