@@ -212,8 +212,9 @@ func (r *Runner) emitSegment(rep repInput, seq int, rng align.SegmentRange) (Seg
 	var bufferedBytes int64
 	buf := make([]byte, ioCopyChunk)
 
-	for i := range rep.track.Samples {
-		smp := rep.track.Samples[i]
+	n := rep.track.SampleCount()
+	for i := 0; i < n; i++ {
+		smp := rep.track.Sample(i)
 		if smp.StartTick < rng.FromTick || smp.StartTick >= rng.ToTick {
 			continue
 		}

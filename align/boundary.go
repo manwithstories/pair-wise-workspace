@@ -53,13 +53,13 @@ func ComputeTrackBoundary(repID string, idx *scan.FileIndex, cfg BoundaryConfig)
 			media.NewError(media.KindMissingTrack, idx.SourcePath, "no video track"))
 		return out
 	}
-	samples := video.Samples
-	if len(samples) == 0 {
+	n := video.SampleCount()
+	if n == 0 {
 		out.TrackErrors = append(out.TrackErrors,
 			media.NewError(media.KindBadSampleTable, idx.SourcePath, "empty video sample table"))
 		return out
 	}
-	endTick := samples[len(samples)-1].StartTick + samples[len(samples)-1].Duration
+	endTick := video.StartTick[n-1] + video.Duration[n-1]
 
 	// searchStart advances only to previously consumed keyframes; searches
 	// themselves never mutate it, so an unsliceable gap cannot skip the next
@@ -75,8 +75,8 @@ func ComputeTrackBoundary(repID string, idx *scan.FileIndex, cfg BoundaryConfig)
 		}
 		best := -1
 		var bestDist media.Ticks = 1<<62
-		for i := lo; i < len(samples); i++ {
-			smp := samples[i]
+		for i := lo; i < n; i++ {
+			smp := video.Sample(i)
 			if !smp.Keyframe {
 				continue
 			}
@@ -95,7 +95,7 @@ func ComputeTrackBoundary(repID string, idx *scan.FileIndex, cfg BoundaryConfig)
 		if best < 0 || bestDist > cfg.KeyframeWaitMax {
 			return 0, CutPoint{}, false
 		}
-		smp := samples[best]
+		smp := video.Sample(best)
 		return best, CutPoint{
 			Tick:        smp.StartTick,
 			SampleIndex: smp.Index,
@@ -108,7 +108,7 @@ func ComputeTrackBoundary(repID string, idx *scan.FileIndex, cfg BoundaryConfig)
 	for ideal := media.Ticks(0); ideal < endTick; ideal += grid {
 		// The first cut at tick 0 is always the first sample (stream start).
 		if ideal == 0 {
-			out.Cuts = append(out.Cuts, CutPoint{Tick: 0, SampleIndex: 0, Keyframe: samples[0].Keyframe})
+			out.Cuts = append(out.Cuts, CutPoint{Tick: 0, SampleIndex: 0, Keyframe: video.Keyframe[0]})
 			searchStart = 1
 			continue
 		}
@@ -123,6 +123,16 @@ func ComputeTrackBoundary(repID string, idx *scan.FileIndex, cfg BoundaryConfig)
 		}
 		out.Cuts = append(out.Cuts, cp)
 		searchStart = i + 1
+	}
+	// Terminal cut at the actual stream end so the final tail segment is
+	// emitted rather than dropped. It is the last sample's end tick, not an
+	// averaged duration, preserving VFR correctness.
+	lastCut := out.Cuts[len(out.Cuts)-1].Tick
+	if endTick > lastCut {
+		out.Cuts = append(out.Cuts, CutPoint{
+			Tick: endTick, SampleIndex: n, Keyframe: false,
+			WaitTicks: 0,
+		})
 	}
 	return out
 }
@@ -164,13 +174,19 @@ func AlignLadder(bounds []*TrackBoundary, cfg BoundaryConfig) *AlignResult {
 		return res
 	}
 	// Index cuts per rep by their ideal grid ordinal (cut tick / segment,
-	// rounded to nearest), tolerating +/-1 tick VFR jitter.
+	// rounded to nearest), tolerating +/-1 tick VFR jitter. The terminal
+	// end-of-stream cut shares one explicit ordinal across every rep.
+	termOrdinal := int((bounds[0].Cuts[len(bounds[0].Cuts)-1].Tick + cfg.SegmentTicks - 1) /
+		cfg.SegmentTicks)
 	cutMaps := make([]map[int]CutPoint, len(bounds))
 	maxOrdinal := 0
 	for i, b := range bounds {
 		m := map[int]CutPoint{}
-		for _, c := range b.Cuts {
+		for ci, c := range b.Cuts {
 			ord := int((c.Tick + cfg.SegmentTicks/2) / cfg.SegmentTicks)
+			if ci == len(b.Cuts)-1 {
+				ord = termOrdinal // terminal cut: shared end ordinal
+			}
 			m[ord] = c
 			if ord > maxOrdinal {
 				maxOrdinal = ord

@@ -32,25 +32,27 @@ func attachRTP(path string, idx *FileIndex) *media.MediaError {
 	unwrapper := media.NewWrapUnwrapper(base)
 	corrector := media.NewDriftCorrector(0.1, 2)
 
+	n := ti.SampleCount()
+	corrected := make([]media.Ticks, n)
 	stats := &RTPStats{}
 	hdr := make([]byte, 2)
 	packetBuf := make([]byte, 1500)
-	for i := 0; i < len(ti.Samples); i++ {
+	for i := 0; i < n; i++ {
 		if _, err := f.Read(hdr); err != nil {
 			return media.NewError(media.KindIO, path, "truncated RTP sidecar header").
-				WithTrack(ti.TrackID).WithOffset(-1, 0)
+				WithTrack(ti.TrackID)
 		}
-		n := int(binary.BigEndian.Uint16(hdr))
-		if n == 0 || n > len(packetBuf) {
+		plen := int(binary.BigEndian.Uint16(hdr))
+		if plen == 0 || plen > len(packetBuf) {
 			return media.NewError(media.KindBadSampleTable, path, "bad RTP packet length").
 				WithTrack(ti.TrackID)
 		}
-		if _, err := readFull(f, packetBuf[:n]); err != nil {
+		if _, err := readFull(f, packetBuf[:plen]); err != nil {
 			return media.NewError(media.KindIO, path, "truncated RTP packet").
 				WithTrack(ti.TrackID)
 		}
 		var pkt rtp.Packet
-		if err := pkt.Unmarshal(packetBuf[:n]); err != nil {
+		if err := pkt.Unmarshal(packetBuf[:plen]); err != nil {
 			return media.NewError(media.KindBadSampleTable, path, err.Error()).
 				WithTrack(ti.TrackID)
 		}
@@ -60,20 +62,36 @@ func attachRTP(path string, idx *FileIndex) *media.MediaError {
 			return media.NewError(media.KindTimestampWrap, path,
 				"backward timestamp cannot be proven as 32-bit wrap").
 				WithTrack(ti.TrackID).
-				WithInterval(ti.Samples[i].StartTick, ti.Samples[i].StartTick+ti.Samples[i].Duration)
+				WithInterval(ti.StartTick[i], ti.StartTick[i]+ti.Duration[i])
 		}
-		ref := base + ti.Samples[i].StartTick
-		corrected, _ := corrector.Update(pkt.SequenceNumber,
+		ref := base + ti.StartTick[i]
+		corr, _ := corrector.Update(pkt.SequenceNumber,
 			media.DriftSample{Observed: res.Unwrapped, Reference: ref})
-		ti.Samples[i].CorrectedTick = corrected
+		corrected[i] = corr
 		stats.Packets++
 		if res.Wrapped {
+			if stats.WrapCount == 0 {
+				stats.FirstWrapSeq = pkt.SequenceNumber
+			}
 			stats.WrapCount++
 		}
 	}
-	stats.WrapEvents = unwrapper.Events()
 	stats.TotalCorrection = corrector.TotalCorrection()
+	ti.Corrected = corrected
 	ti.RTP = stats
+	return nil
+}
+
+// VideoTrack returns the parsed video track index, or nil.
+func (idx *FileIndex) VideoTrack() *TrackIndex { return idx.videoTrack() }
+
+// TrackByID returns the track with the requested id.
+func (idx *FileIndex) TrackByID(id uint32) *TrackIndex {
+	for i := range idx.Tracks {
+		if idx.Tracks[i].TrackID == id {
+			return &idx.Tracks[i]
+		}
+	}
 	return nil
 }
 
@@ -99,17 +117,4 @@ func readFull(f *os.File, buf []byte) (int, error) {
 		}
 	}
 	return got, nil
-}
-
-// VideoTrack returns the parsed video track index, or nil.
-func (idx *FileIndex) VideoTrack() *TrackIndex { return idx.videoTrack() }
-
-// TrackByID returns the track with the requested id.
-func (idx *FileIndex) TrackByID(id uint32) *TrackIndex {
-	for i := range idx.Tracks {
-		if idx.Tracks[i].TrackID == id {
-			return &idx.Tracks[i]
-		}
-	}
-	return nil
 }

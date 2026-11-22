@@ -107,12 +107,13 @@ func WriteRTPSidecar(path string, p *Plan) error {
 	}
 	defer f.Close()
 	hdr := make([]byte, 2)
-	for _, raw := range p.RTP {
-		binary.BigEndian.PutUint16(hdr, uint16(len(raw)))
+	n := len(p.RTPBuf) / RTPPacketSize
+	for i := 0; i < n; i++ {
+		binary.BigEndian.PutUint16(hdr, RTPPacketSize)
 		if _, err := f.Write(hdr); err != nil {
 			return err
 		}
-		if _, err := f.Write(raw); err != nil {
+		if _, err := f.Write(p.RTPBuf[i*RTPPacketSize:(i+1)*RTPPacketSize]); err != nil {
 			return err
 		}
 	}

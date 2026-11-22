@@ -124,7 +124,11 @@ func parseSamples(f *os.File, source string, trak *boxNode, ti *TrackIndex, idx 
 		}
 	}
 
-	ti.Samples = make([]SampleRecord, n)
+	ti.Offset = make([]int64, n)
+	ti.Size = make([]int32, n)
+	ti.StartTick = ticks
+	ti.Duration = durs
+	ti.Keyframe = make([]bool, n)
 	for i := 0; i < n; i++ {
 		start, end := absOff[i], absOff[i]+int64(sizes[i])
 		if idx.MdatStart != 0 && (start < idx.MdatStart || end > idx.MdatEnd) {
@@ -133,14 +137,9 @@ func parseSamples(f *os.File, source string, trak *boxNode, ti *TrackIndex, idx 
 				WithTrack(ti.TrackID).WithOffset(start, 8).
 				WithInterval(ticks[i], ticks[i]+durs[i])
 		}
-		ti.Samples[i] = SampleRecord{
-			Index:     i,
-			Offset:    start,
-			Size:      int(sizes[i]),
-			StartTick: ticks[i],
-			Duration:  durs[i],
-			Keyframe:  keySet[i],
-		}
+		ti.Offset[i] = start
+		ti.Size[i] = int32(sizes[i])
+		ti.Keyframe[i] = keySet[i]
 	}
 	return nil
 }

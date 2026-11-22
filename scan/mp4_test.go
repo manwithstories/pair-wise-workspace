@@ -45,8 +45,8 @@ func TestScanValidFixture(t *testing.T) {
 	if video == nil || video.Handler != "vide" {
 		t.Fatal("video track not found")
 	}
-	if len(video.Samples) != len(plan.Video) {
-		t.Fatalf("samples=%d want %d", len(video.Samples), len(plan.Video))
+	if video.SampleCount() != len(plan.Video) {
+		t.Fatalf("samples=%d want %d", video.SampleCount(), len(plan.Video))
 	}
 	// Edit list retained with the non-zero media start.
 	if len(video.Edits) != 1 || video.Edits[0].MediaTime != int64(plan.Spec.EditStartTicks) {
@@ -55,8 +55,8 @@ func TestScanValidFixture(t *testing.T) {
 	// VFR: at least two distinct sample durations must exist (no average
 	// frame-rate assumption).
 	durations := map[media.Ticks]bool{}
-	for _, s := range video.Samples {
-		durations[s.Duration] = true
+	for i := 0; i < video.SampleCount(); i++ {
+		durations[video.Duration[i]] = true
 	}
 	if len(durations) < 2 {
 		t.Fatal("expected VFR with multiple distinct sample durations")
@@ -65,16 +65,17 @@ func TestScanValidFixture(t *testing.T) {
 	if video.RTP == nil || video.RTP.WrapCount == 0 {
 		t.Fatal("expected RTP wrap events")
 	}
-	if video.RTP.Packets != len(video.Samples) {
+	if video.RTP.Packets != video.SampleCount() {
 		t.Fatalf("rtp packets=%d", video.RTP.Packets)
 	}
 	if video.RTP.TotalCorrection == 0 {
 		t.Fatal("drift correction never applied")
 	}
 	// Every sample byte range lies inside mdat.
-	for _, s := range video.Samples {
-		if s.Offset < idx.MdatStart || s.Offset+int64(s.Size) > idx.MdatEnd {
-			t.Fatalf("sample %d outside mdat", s.Index)
+	for i := 0; i < video.SampleCount(); i++ {
+		end := video.Offset[i] + int64(video.Size[i])
+		if video.Offset[i] < idx.MdatStart || end > idx.MdatEnd {
+			t.Fatalf("sample %d outside mdat", i)
 		}
 	}
 }

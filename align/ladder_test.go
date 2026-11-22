@@ -12,20 +12,23 @@ const seg2s = media.Ticks(180000)
 // syntheticIndex builds an in-memory FileIndex with a video track whose
 // samples follow start/duration/keyframe arrays in 90 kHz ticks.
 func syntheticIndex(repID string, starts, durs []media.Ticks, keys map[int]bool) *scan.FileIndex {
-	samples := make([]scan.SampleRecord, len(starts))
+	n := len(starts)
+	off := make([]int64, n)
+	size := make([]int32, n)
+	kf := make([]bool, n)
 	for i := range starts {
-		samples[i] = scan.SampleRecord{
-			Index: i, Offset: int64(i * 128), Size: 128,
-			StartTick: starts[i], Duration: durs[i], Keyframe: keys[i],
-		}
+		off[i] = int64(i * 128)
+		size[i] = 128
+		kf[i] = keys[i]
 	}
 	return &scan.FileIndex{
-		SourcePath: repID + ".mp4",
+		SourcePath:  repID + ".mp4",
 		InputSHA256: scan.HashBytes([]byte(repID)),
 		Tracks: []scan.TrackIndex{{
-			TrackID: 1, Handler: "vide", Timescale: media.ClockRate, Samples: samples,
+			TrackID: 1, Handler: "vide", Timescale: media.ClockRate,
+			Offset: off, Size: size, StartTick: starts, Duration: durs, Keyframe: kf,
 		}},
-		MdatStart: 0, MdatEnd: int64(len(starts) * 128),
+		MdatStart: 0, MdatEnd: int64(n * 128),
 	}
 }
 

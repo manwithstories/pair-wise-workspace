@@ -44,7 +44,7 @@ func DefaultSpec(id string, seed int64, duration, segment media.Ticks) Spec {
 		SegmentTicks:        segment,
 		VideoRate:           25,
 		VideoSampleSize:     128,
-		AudioRate:           12000,
+		AudioRate:           100, // 100 Hz audio: compact sample tables
 		AudioSampleSize:     32,
 		RTPStart:            uint32(media.WrapMod - 360000), // wraps ~4s in
 		RTPPPM:              40,
@@ -84,8 +84,9 @@ type Plan struct {
 	MdatSize        int // including 8-byte header
 	videoChunkOffset uint32
 	audioChunkOffset uint32
-	// RTP holds one minimal RTP packet per video sample.
-	RTP [][]byte
+	// RTPBuf is the concatenated RTP packets (each fixed-size, no length
+	// prefix here; WriteRTPSidecar adds the framing the scanner expects).
+	RTPBuf []byte
 }
 
 // rngBytes returns a deterministic pseudo-random byte source for a seed.

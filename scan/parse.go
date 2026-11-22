@@ -171,20 +171,21 @@ func parseEdits(f *os.File, source string, node *boxNode, trackID uint32) ([]Edi
 func summarize(ti *TrackIndex) TrackSummary {
 	h := sha256.New()
 	var buf [8]byte
-	for _, s := range ti.Samples {
-		binary.LittleEndian.PutUint64(buf[:], uint64(s.Offset))
+	n := ti.SampleCount()
+	for i := 0; i < n; i++ {
+		binary.LittleEndian.PutUint64(buf[:], uint64(ti.Offset[i]))
 		h.Write(buf[:])
-		binary.LittleEndian.PutUint64(buf[:], uint64(s.Size))
+		binary.LittleEndian.PutUint64(buf[:], uint64(ti.Size[i]))
 		h.Write(buf[:])
-		binary.LittleEndian.PutUint64(buf[:], uint64(s.StartTick))
+		binary.LittleEndian.PutUint64(buf[:], uint64(ti.StartTick[i]))
 		h.Write(buf[:])
-		binary.LittleEndian.PutUint64(buf[:], uint64(s.Duration))
+		binary.LittleEndian.PutUint64(buf[:], uint64(ti.Duration[i]))
 		h.Write(buf[:])
 	}
 	return TrackSummary{
 		TrackID:      ti.TrackID,
 		Handler:      ti.Handler,
-		SampleCount:  len(ti.Samples),
+		SampleCount:  n,
 		SampleDigest: fmt.Sprintf("%x", h.Sum(nil)),
 	}
 }

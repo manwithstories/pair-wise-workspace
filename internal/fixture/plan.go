@@ -82,48 +82,44 @@ func BuildPlan(s Spec) *Plan {
 	p.MdatSize = 8 + int(mdatOff)
 
 	// 3. RTP sidecar: timestamps start near the 32-bit boundary (guaranteeing
-	// a wrap), drift linearly by RTPPPM and are truncated to 32 bits.
-	p.RTP = make([][]byte, len(p.Video))
+	// a wrap), drift linearly by RTPPPM and are truncated to 32 bits. All
+	// packets share one contiguous buffer to avoid per-packet heap objects.
 	driftPerTick := float64(s.RTPPPM) / 1_000_000
+	pkt := &rtp.Packet{Header: rtp.Header{
+		Version: 2, PayloadType: 96, SSRC: uint32(0x4d534c43 + uint32(s.Seed)),
+	}}
+	pkt.Payload = make([]byte, 4)
 	for i, v := range p.Video {
 		drift := int64(float64(v.StartTick) * driftPerTick)
 		ts64 := int64(s.RTPStart) + int64(v.StartTick) + drift
-		pkt := &rtp.Packet{
-			Header: rtp.Header{
-				Version:        2,
-				PayloadType:    96,
-				SequenceNumber: uint16(i),
-				Timestamp:      uint32(ts64),
-				SSRC:           uint32(0x4d534c43 + uint32(s.Seed)),
-			},
-			Payload: []byte{byte(i >> 24), byte(i >> 16), byte(i >> 8), byte(i)},
-		}
+		pkt.Header.SequenceNumber = uint16(i)
+		pkt.Header.Timestamp = uint32(ts64)
+		pkt.Payload[0], pkt.Payload[1] = byte(i>>24), byte(i>>16)
+		pkt.Payload[2], pkt.Payload[3] = byte(i>>8), byte(i)
 		raw, err := pkt.Marshal()
 		if err != nil {
 			panic(err)
 		}
-		p.RTP[i] = raw
+		p.RTPBuf = append(p.RTPBuf, raw...)
 	}
 	return p
 }
 
+// RTPPacketSize is the fixed on-wire size of every generated packet
+// (12-byte header + 4-byte payload, no CSRC or extensions).
+const RTPPacketSize = 16
+
 // RTPTimestamp reconstructs the raw 32-bit timestamp the sidecar carries for
 // video sample i (used by tests to assert wrap behavior).
 func (p *Plan) RTPTimestamp(i int) uint32 {
-	var pkt rtp.Packet
-	if err := pkt.Unmarshal(p.RTP[i]); err != nil {
-		panic(err)
-	}
-	return pkt.Timestamp
+	off := i*RTPPacketSize + 4
+	return binary.BigEndian.Uint32(p.RTPBuf[off : off+4])
 }
 
 // RTPSequence reconstructs the RTP sequence number for video sample i.
 func (p *Plan) RTPSequence(i int) uint16 {
-	var pkt rtp.Packet
-	if err := pkt.Unmarshal(p.RTP[i]); err != nil {
-		panic(err)
-	}
-	return pkt.SequenceNumber
+	off := i*RTPPacketSize + 2
+	return binary.BigEndian.Uint16(p.RTPBuf[off : off+2])
 }
 
 // MediaDuration90k returns the audio timeline duration expressed in 90 kHz

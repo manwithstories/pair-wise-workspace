@@ -13,18 +13,16 @@ import (
 
 // ParserVersion is bumped whenever the index schema or parsing semantics
 // change; a stale index is always rebuilt.
-const ParserVersion = "mediaslice-parser/v1"
+const ParserVersion = "mediaslice-parser/v2"
 
-// SampleRecord is one indexed sample in unified 90 kHz ticks.
+// SampleRecord is a read-only view over the columnar sample tables.
 type SampleRecord struct {
-	Index      int         `json:"i"`
-	Offset     int64       `json:"off"`
-	Size       int         `json:"size"`
-	StartTick  media.Ticks `json:"start"`
-	Duration   media.Ticks `json:"dur"`
-	Keyframe   bool        `json:"key,omitempty"`
-	// CorrectedTick is the drift-corrected RTP timeline position for tracks
-	// that have an RTP sidecar.
+	Index         int         `json:"i"`
+	Offset        int64       `json:"off"`
+	Size          int         `json:"size"`
+	StartTick     media.Ticks `json:"start"`
+	Duration      media.Ticks `json:"dur"`
+	Keyframe      bool        `json:"key,omitempty"`
 	CorrectedTick media.Ticks `json:"corr,omitempty"`
 }
 
@@ -35,48 +33,80 @@ type EditRecord struct {
 	Rate            int32 `json:"rate"`
 }
 
-// RTPStats summarizes sidecar unwrap/drift processing.
+// RTPStats summarizes sidecar unwrap/drift processing. Wrap events are
+// counted, not retained, to keep long tracks compact.
 type RTPStats struct {
-	Packets          int             `json:"packets"`
-	WrapCount        int             `json:"wraps"`
-	TotalCorrection  media.Ticks     `json:"total_correction"`
-	WrapEvents       []media.WrapEvent `json:"wraps_detail,omitempty"`
+	Packets         int         `json:"packets"`
+	WrapCount       int         `json:"wraps"`
+	TotalCorrection media.Ticks `json:"total_correction"`
+	FirstWrapSeq    uint16      `json:"first_wrap_seq,omitempty"`
 }
 
-// TrackIndex is the per-track parse result.
+// TrackIndex is the per-track parse result. Sample timing is stored in
+// compact columnar form rather than one struct per sample so a multi-hour
+// track stays well inside the 256 MiB process budget.
 type TrackIndex struct {
-	TrackID   uint32          `json:"track_id"`
-	Handler   string          `json:"handler"`
-	Timescale uint32          `json:"timescale"`
-	Edits     []EditRecord    `json:"edits,omitempty"`
-	Samples   []SampleRecord  `json:"samples"`
-	RTP       *RTPStats       `json:"rtp,omitempty"`
+	TrackID   uint32       `json:"track_id"`
+	Handler   string       `json:"handler"`
+	Timescale uint32       `json:"timescale"`
+	Edits     []EditRecord `json:"edits,omitempty"`
+	// Columnar sample tables (all equal length).
+	Offset    []int64       `json:"offsets"`
+	Size      []int32       `json:"sizes"`
+	StartTick []media.Ticks `json:"start_ticks"`
+	Duration  []media.Ticks `json:"durations"`
+	Keyframe  []bool        `json:"keyframes"`
+	Corrected []media.Ticks `json:"corrected_ticks,omitempty"`
+	RTP       *RTPStats     `json:"rtp,omitempty"`
 	// Stopped marks a track the scanner abandoned (e.g. unprovable wrap).
-	Stopped bool           `json:"stopped,omitempty"`
+	Stopped bool                `json:"stopped,omitempty"`
 	Errors  []*media.MediaError `json:"errors,omitempty"`
+}
+
+// EndTick returns the media time one tick past the final sample.
+func (t *TrackIndex) EndTick() media.Ticks {
+	n := len(t.StartTick)
+	if n == 0 {
+		return 0
+	}
+	return t.StartTick[n-1] + t.Duration[n-1]
+}
+
+// SampleCount returns the number of indexed samples.
+func (t *TrackIndex) SampleCount() int { return len(t.StartTick) }
+
+// Sample returns a read-only view of one columnar sample.
+func (t *TrackIndex) Sample(i int) SampleRecord {
+	var corr media.Ticks
+	if len(t.Corrected) > 0 {
+		corr = t.Corrected[i]
+	}
+	return SampleRecord{
+		Index: i, Offset: t.Offset[i], Size: int(t.Size[i]),
+		StartTick: t.StartTick[i], Duration: t.Duration[i],
+		Keyframe: t.Keyframe[i], CorrectedTick: corr,
+	}
 }
 
 // TrackSummary is a compact digest embedded in the index header.
 type TrackSummary struct {
-	TrackID     uint32 `json:"track_id"`
-	Handler     string `json:"handler"`
-	SampleCount int    `json:"samples"`
-	// SampleDigest covers offsets/sizes/timing of every sample.
+	TrackID      uint32 `json:"track_id"`
+	Handler      string `json:"handler"`
+	SampleCount  int    `json:"samples"`
 	SampleDigest string `json:"digest"`
 }
 
 // FileIndex is the complete, verifiable scan result for one MP4 source.
 type FileIndex struct {
-	ParserVersion string         `json:"parser_version"`
-	SourcePath    string         `json:"source_path"`
-	InputSHA256   string         `json:"input_sha256"`
-	FileSize      int64          `json:"file_size"`
-	Tracks        []TrackIndex   `json:"tracks"`
-	Summaries     []TrackSummary `json:"summaries"`
-	// MdatStart/MdatEnd bound every validated sample byte range.
-	MdatStart int64 `json:"mdat_start"`
-	MdatEnd   int64 `json:"mdat_end"`
-	Errors    media.ErrorList `json:"errors,omitempty"`
+	ParserVersion string           `json:"parser_version"`
+	SourcePath    string           `json:"source_path"`
+	InputSHA256   string           `json:"input_sha256"`
+	FileSize      int64            `json:"file_size"`
+	Tracks        []TrackIndex     `json:"tracks"`
+	Summaries     []TrackSummary   `json:"summaries"`
+	MdatStart     int64            `json:"mdat_start"`
+	MdatEnd       int64            `json:"mdat_end"`
+	Errors        media.ErrorList  `json:"errors,omitempty"`
 }
 
 // IndexFileName is the content-addressed index name inside workDir/index.
