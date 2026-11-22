@@ -105,7 +105,7 @@ func Recover(res ts.ParseResult, videoPID uint16, segmentMs int, extra clock.Fau
 	_ = inserts
 	tl.Origin = tl.Frames[0].PTS
 	segTicks := clock.MsToTicks(int64(segmentMs))
-	last := tl.Frames[len(tl.Frames)-1].PTS + delta
+	last := tl.Frames[len(tl.Frames)-1].PTS
 	nSeg := int((last-tl.Origin)/segTicks) + 1
 	tl.Segments = make([]Segment, nSeg)
 	for i := range tl.Segments {
