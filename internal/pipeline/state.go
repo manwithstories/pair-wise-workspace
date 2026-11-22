@@ -217,6 +217,7 @@ func (r *Runner) Restore(st checkpoint.State) error {
 			MediaSHA256: s.MediaSHA,
 		}
 		r.latestSHA[key(s.Rep, s.Index)] = s.SHA
+		r.committed[key(s.Rep, s.Index)] = committedSlot{version: s.Version, digest: s.SHA}
 	}
 	// Rebuild the chained digests and per-slot cursors so duplicate commits
 	// after the restart are idempotent.

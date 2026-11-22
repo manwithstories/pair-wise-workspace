@@ -270,6 +270,14 @@ func (r *Runner) commitSegment(st *streamState, index int, replay bool, cause mo
 	if endUS <= startUS {
 		return
 	}
+	// Idempotency: re-submitting a slot that is still inside the replay horizon
+	// with byte-identical content is a no-op, and a slot outside the horizon
+	// cannot be recalculated at all (its source events were pruned). Neither
+	// case may extend the output chain, so a repeated submission can never
+	// change the result hash.
+	if index < st.frontier-2 {
+		return
+	}
 	begin := time.Now()
 	seg, ent := r.buildSegment(st, index, startUS, endUS)
 	k := key(st.spec.rep.ID, index)
@@ -309,6 +317,13 @@ func (r *Runner) commitSegment(st *streamState, index int, replay bool, cause mo
 		}
 	}
 	ent.OutputSHA256 = segmentOutputDigest(ent)
+	if prev, ok := r.committed[k]; ok && prev.version == ent.Version && prev.digest == ent.OutputSHA256 {
+		return // identical re-submission: nothing to append
+	}
+	r.committed[k] = committedSlot{version: ent.Version, digest: ent.OutputSHA256}
+	if index >= 3 {
+		delete(r.committed, key(st.spec.rep.ID, index-3))
+	}
 	seg.OutputSHA256 = ent.OutputSHA256
 	if !r.counted[k] {
 		r.counted[k] = true
@@ -538,6 +553,13 @@ func abs64(v int64) int64 {
 		return -v
 	}
 	return v
+}
+
+// committedSlot is the digest of the newest committed version of a slot. It
+// backs idempotent duplicate submission and is bounded to the replay horizon.
+type committedSlot struct {
+	version int
+	digest  string
 }
 
 // Materialized holds the on-disk artefacts of one segment version.

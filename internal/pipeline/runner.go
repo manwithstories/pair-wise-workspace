@@ -75,6 +75,7 @@ type Runner struct {
 	segTotal    int
 	segCount    int
 	counted     map[string]bool
+	committed   map[string]committedSlot
 	boundaryMax int64
 	skewBySlot  map[string]int64
 
@@ -175,6 +176,7 @@ func (r *Runner) build() error {
 	r.recoveryStats = recovery.Stats{}
 	r.skewBySlot = map[string]int64{}
 	r.counted = map[string]bool{}
+	r.committed = map[string]committedSlot{}
 	r.segCount = 0
 	r.boundaryMax = 0
 	r.encodedBytes = 0
