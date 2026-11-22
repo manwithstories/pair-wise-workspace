@@ -204,7 +204,9 @@ func (r *Resampler) interpolate(ch int, frac float64) float64 {
 	first := r.nextPos - int64(half) + 1
 	var acc, wsum float64
 	for k := 0; k < r.taps; k++ {
-		t := float64(k) - float64(half) - frac
+		// Sample k sits at absolute frame first+k; the cursor is at
+		// nextPos+frac, so first = nextPos-half+1 gives t = k-half+1-frac.
+		t := float64(k-half+1) - frac
 		x := sinc(cut*t) * cut
 		w := 0.5 + 0.5*math.Cos(math.Pi*t/float64(half))
 		if w < 0 {

@@ -3,7 +3,9 @@ package engine
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -352,6 +354,155 @@ func TestCompleteRunIsIdempotent(t *testing.T) {
 	}
 	if first.Stats.SHA256 != second.Stats.SHA256 {
 		t.Fatalf("digests differ on re-run")
+	}
+}
+
+// TestResamplerPreservesTone checks a mid-band sine survives 44.1 -> 48 kHz
+// with its frequency, amplitude and phase intact, which is what the loudness
+// meter and the playback service both depend on.
+func TestResamplerPreservesTone(t *testing.T) {
+	const srcRate, dstRate, secs = 44100, 48000, 1
+	const freq = 1000.0
+	frames := srcRate * secs
+	in := make([]float64, frames)
+	for i := range in {
+		in[i] = 0.5 * math.Sin(2*math.Pi*freq*float64(i)/srcRate)
+	}
+	rs, err := NewResampler(srcRate, dstRate, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := rs.Push(in, nil)
+	out = rs.Flush(out)
+	if len(out) != dstRate {
+		t.Fatalf("got %d frames, want %d", len(out), dstRate)
+	}
+	// Skip the first and last 50 ms (edge transient) and compare against
+	// the ideal tone at the output rate.
+	var maxErr float64
+	edge := dstRate / 20
+	for i := edge; i < len(out)-edge; i++ {
+		want := 0.5 * math.Sin(2*math.Pi*freq*float64(i)/dstRate)
+		if d := math.Abs(out[i] - want); d > maxErr {
+			maxErr = d
+		}
+	}
+	if maxErr > 0.01 {
+		t.Fatalf("max deviation %.4f exceeds 1%% of full scale", maxErr)
+	}
+}
+
+// TestResamplerIdentity checks src == dst is an exact copy.
+func TestResamplerIdentity(t *testing.T) {
+	rs, err := NewResampler(48000, 48000, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := []float64{0.1, -0.1, 0.25, -0.25, 0.5, -0.5}
+	out := rs.Push(in, nil)
+	out = rs.Flush(out)
+	if len(out) != len(in) {
+		t.Fatalf("length %d != %d", len(out), len(in))
+	}
+	for i := range in {
+		if out[i] != in[i] {
+			t.Fatalf("sample %d: %f != %f", i, out[i], in[i])
+		}
+	}
+}
+
+// TestResamplerBlockInvariance proves the output does not depend on how the
+// input is chunked, which is what makes replay/resume exact.
+func TestResamplerBlockInvariance(t *testing.T) {
+	const n = 44100
+	in := make([]float64, n)
+	for i := range in {
+		in[i] = math.Sin(float64(i) * 0.01)
+	}
+	oneShot, _ := NewResampler(44100, 48000, 1)
+	want := oneShot.Push(in, nil)
+	want = oneShot.Flush(want)
+
+	for _, chunk := range []int{1, 17, 1000, 4096} {
+		rs, _ := NewResampler(44100, 48000, 1)
+		var got []float64
+		for off := 0; off < n; off += chunk {
+			end := off + chunk
+			if end > n {
+				end = n
+			}
+			got = rs.Push(in[off:end], got)
+		}
+		got = rs.Flush(got)
+		if len(got) != len(want) {
+			t.Fatalf("chunk %d: %d frames, want %d", chunk, len(got), len(want))
+		}
+		for i := range want {
+			if math.Abs(got[i]-want[i]) > 1e-12 {
+				t.Fatalf("chunk %d: frame %d differs by %g", chunk, i, got[i]-want[i])
+			}
+		}
+	}
+}
+
+// TestChannelNormalisation checks mono<->stereo mapping is loudness neutral.
+func TestChannelNormalisation(t *testing.T) {
+	src := []float64{0.25, -0.5}
+	dst := make([]float64, 4)
+	normalizeChannels(dst, src, 1, 2)
+	if dst[0] != 0.25 || dst[1] != 0.25 || dst[2] != -0.5 || dst[3] != -0.5 {
+		t.Fatalf("mono->stereo: %v", dst)
+	}
+	back := make([]float64, 2)
+	normalizeChannels(back, dst, 2, 1)
+	if back[0] != 0.25 || back[1] != -0.5 {
+		t.Fatalf("stereo->mono: %v", back)
+	}
+}
+
+// TestLimiterCeilingAndCounters checks the ceiling and classification flags.
+func TestLimiterCeilingAndCounters(t *testing.T) {
+	loud := []float64{2.0, -2.0}
+	stat := limitBlock(loud, -1)
+	if !stat.limited || !stat.clipped {
+		t.Fatalf("flags limited=%v clipped=%v", stat.limited, stat.clipped)
+	}
+	if stat.peakDBFS > -0.99 {
+		t.Fatalf("peak %.3f above ceiling", stat.peakDBFS)
+	}
+	for _, v := range loud {
+		if math.Abs(v) > 0.9 {
+			t.Fatalf("limiter left %f", v)
+		}
+	}
+	if s := limitBlock([]float64{0, 0}, -1); !s.silent {
+		t.Fatal("silence not flagged")
+	}
+	if s := limitBlock([]float64{0.5, -0.5}, -1); s.limited || s.clipped {
+		t.Fatal("clean block misclassified")
+	}
+}
+
+// TestQuantizeSaturates checks full-scale handling and endianness.
+func TestQuantizeSaturates(t *testing.T) {
+	out := quantize([]float64{1.0, -1.0, 0, 0.5})
+	if len(out) != 8 {
+		t.Fatalf("len %d", len(out))
+	}
+	want := []uint16{32767, 0x8000, 0, 16384}
+	for i, w := range want {
+		got := binary.LittleEndian.Uint16(out[2*i:])
+		// -1.0 renders as -32767 in symmetric rounding; both extreme
+		// encodings are full scale, so compare magnitudes for that slot.
+		if i == 1 {
+			if got != 0x8000 && got != 0x8001 {
+				t.Fatalf("sample %d = %#x, want full-scale negative", i, got)
+			}
+			continue
+		}
+		if got != w {
+			t.Fatalf("sample %d = %#x, want %#x", i, got, w)
+		}
 	}
 }
 
