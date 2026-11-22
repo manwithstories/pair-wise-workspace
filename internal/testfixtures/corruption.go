@@ -10,7 +10,18 @@ const (
 	CorruptTruncate  Corruption = "truncated_tail"
 	CorruptBadBox    Corruption = "bad_box"
 	CorruptIndexGap  Corruption = "index_missing"
+	// CorruptContainer 破坏 ftyp 起始，使输入无法作为 ISO BMFF 容器识别。
+	CorruptContainer Corruption = "container_fatal"
 )
+
+// BreakContainer 用垃圾字节覆盖文件头，制造无法识别容器的致命输入。
+func BreakContainer(data []byte) []byte {
+	out := append([]byte(nil), data...)
+	for i := 0; i < 8 && i < len(out); i++ {
+		out[i] = 0x7f
+	}
+	return out
+}
 
 // TruncateTail 在最后一个完整盒之后截断，模拟素材尾部损坏。
 // 保留 mdat 全部样本，仅砍掉 moov 尾部之外的内容由调用方决定；

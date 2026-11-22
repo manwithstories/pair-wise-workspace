@@ -85,6 +85,9 @@ func (r *Report) add(e *Error) {
 	}
 }
 
+// AddError 供外部子系统追加一条带级别的解析错误。
+func (r *Report) AddError(e *Error) { r.add(e) }
+
 // HasFatal 报告是否出现致命错误。
 func (r *Report) HasFatal() bool {
 	for _, e := range r.Errors {

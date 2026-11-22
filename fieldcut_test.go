@@ -176,6 +176,34 @@ func TestVerifyHashesStable(t *testing.T) {
 	}
 }
 
+// 容器级损坏必须判致命（退出码 3），并保留错误而非静默继续。
+func TestFatalContainerError(t *testing.T) {
+	opt := DefaultOptions(41, t.TempDir())
+	opt.Corruptions = []testfixtures.Corruption{testfixtures.CorruptContainer}
+	res, err := RunFromGenerated(opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ExitCode != 3 || res.Fatal == nil {
+		t.Fatalf("container corruption must yield exit 3, got code=%d err=%v",
+			res.ExitCode, res.Fatal)
+	}
+	if !res.Report.HasFatal() {
+		t.Fatal("fatal error must be recorded in report")
+	}
+}
+
+// 参数/输入错误由命令层映射为退出码 2，这里核验库对缺失目录的行为。
+func TestVerifyMissingInput(t *testing.T) {
+	res, err := Verify(t.TempDir() + "/does-not-exist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ExitCode != 2 {
+		t.Fatalf("missing input must be exit 2, got %d", res.ExitCode)
+	}
+}
+
 var _ = pipeline.DefaultThresholds
 
 // 可增长内存 WriteSeeker，供 go-mp4 Writer 使用。

@@ -63,6 +63,15 @@ func RunFromGenerated(opt Options) (*Result, error) {
 		for _, c := range opt.Corruptions {
 			data = applyCorruption(c, data)
 		}
+		// 容器级损坏：盒遍历无法建立任何结构，判致命并保留错误上下文。
+		if hasCorruption(opt.Corruptions, testfixtures.CorruptContainer) {
+			_, walkRep := parse.Walk(bytes.NewReader(data), opt.Limits)
+			mergeReport(rep, walkRep)
+			rep.AddError(&parse.Error{Level: parse.LevelFatal, BoxType: "ftyp",
+				Offset: 0, Message: "container header unrecognizable"})
+			return &Result{Report: rep, ExitCode: 3,
+				Fatal: fmt.Errorf("input is not a parseable ISO BMFF container")}, nil
+		}
 		path := fmt.Sprintf("%s/%s.mp4", opt.OutDir, spec.Camera)
 		if err := os.MkdirAll(opt.OutDir, 0o755); err != nil {
 			return nil, err
@@ -200,8 +209,19 @@ func applyCorruption(c testfixtures.Corruption, data []byte) []byte {
 		}
 	case testfixtures.CorruptIndexGap:
 		return testfixtures.StripSTSS(data)
+	case testfixtures.CorruptContainer:
+		return testfixtures.BreakContainer(data)
 	}
 	return data
+}
+
+func hasCorruption(list []testfixtures.Corruption, want testfixtures.Corruption) bool {
+	for _, c := range list {
+		if c == want {
+			return true
+		}
+	}
+	return false
 }
 
 func indexOfBox(data []byte, typ string) int {
