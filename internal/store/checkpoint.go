@@ -56,6 +56,7 @@ type Checkpoint struct {
 	SamplesIn       int64         `json:"samples_in"`
 	FramesOut       int64         `json:"frames_out"`
 	PeakDBFS        float64       `json:"peak_dbfs"`
+	HasPeak         bool          `json:"has_peak"`
 	Blocks          []BlockRecord `json:"blocks"`
 
 	// Cursor is the number of *input* frames fully absorbed into the
@@ -125,7 +126,11 @@ func Save(dir string, cp *Checkpoint) error {
 		return media.NewError(media.CodeAtomicWrite, -1, 0, "encode checkpoint: %v", err).Wrap(err)
 	}
 	data = append(data, '\n')
-	if err := WriteFileAtomic(Path(dir), data, 0o644); err != nil {
+	write := WriteFileAtomic
+	if cp.Complete {
+		write = WriteFileDurable
+	}
+	if err := write(Path(dir), data, 0o644); err != nil {
 		return err
 	}
 	return nil
@@ -223,7 +228,22 @@ func Assemble(dir string, recs []BlockRecord, expected string) (string, error) {
 }
 
 // WriteFileAtomic writes data to path via a sibling temp file and rename.
+//
+// A process abort can therefore never leave a torn file: readers see the old
+// contents or the new ones. Data is not fsynced per block, which keeps a
+// 4-second run well under a second; the final checkpoint is sealed with
+// WriteFileDurable so a completed run is crash-safe against power loss too.
 func WriteFileAtomic(path string, data []byte, mode os.FileMode) error {
+	return writeFile(path, data, mode, false)
+}
+
+// WriteFileDurable is WriteFileAtomic plus fsync of the file and its
+// directory. Use it for the final checkpoint and the assembled output.
+func WriteFileDurable(path string, data []byte, mode os.FileMode) error {
+	return writeFile(path, data, mode, true)
+}
+
+func writeFile(path string, data []byte, mode os.FileMode, durable bool) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+"-*.part")
 	if err != nil {
@@ -243,8 +263,10 @@ func WriteFileAtomic(path string, data []byte, mode os.FileMode) error {
 	if err := tmp.Chmod(mode); err != nil {
 		return media.NewError(media.CodeAtomicWrite, -1, 0, "chmod temp: %v", err).Wrap(err)
 	}
-	if err := tmp.Sync(); err != nil {
-		return media.NewError(media.CodeAtomicWrite, -1, 0, "sync temp: %v", err).Wrap(err)
+	if durable {
+		if err := tmp.Sync(); err != nil {
+			return media.NewError(media.CodeAtomicWrite, -1, 0, "sync temp: %v", err).Wrap(err)
+		}
 	}
 	if err := tmp.Close(); err != nil {
 		return media.NewError(media.CodeAtomicWrite, -1, 0, "close temp: %v", err).Wrap(err)
@@ -253,6 +275,9 @@ func WriteFileAtomic(path string, data []byte, mode os.FileMode) error {
 		return media.NewError(media.CodeAtomicWrite, -1, 0, "rename %s: %v", path, err).Wrap(err)
 	}
 	ok = true
+	if !durable {
+		return nil
+	}
 	return syncDir(dir)
 }
 
