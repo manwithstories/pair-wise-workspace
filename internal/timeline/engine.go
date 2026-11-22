@@ -216,3 +216,6 @@ func (e *Engine) LateCount() int { return e.lateCount }
 
 // DupCount reports how many pushes were rejected as duplicates.
 func (e *Engine) DupCount() int { return e.dupCount }
+
+// CommittedCount returns the number of committed events.
+func (e *Engine) CommittedCount() int { return len(e.committed) }

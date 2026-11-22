@@ -161,6 +161,21 @@ func (q *BoundedQueue) watchContext(ctx context.Context) func() {
 	return func() { close(done) }
 }
 
+// TryDequeue returns the next item without blocking; ok is false when
+// the queue is currently empty (regardless of closed state).
+func (q *BoundedQueue) TryDequeue() (Item, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.items) == 0 {
+		return Item{}, false
+	}
+	it := q.items[0]
+	q.items = q.items[1:]
+	q.bytes -= itemSize(it)
+	q.cond.Broadcast()
+	return it, true
+}
+
 // Close marks the queue closed. Already queued items remain dequeuable;
 // further enqueues fail. Safe to call multiple times.
 func (q *BoundedQueue) Close() {
