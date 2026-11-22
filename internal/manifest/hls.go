@@ -19,7 +19,7 @@ func ParseHLS(data []byte, source, base string) ([]Segment, error) {
 	first := true
 	var segs []Segment
 	var pending *clock.Rational
-	var start clock.Rational
+	start := clock.Must(0, 1)
 	lineNo := 0
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
