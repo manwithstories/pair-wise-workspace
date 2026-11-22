@@ -19,6 +19,9 @@ var supportedCodecs = []string{"ipcm", "avc1"}
 
 func New() *Parser { return &Parser{} }
 
+// SupportedCodecsList 暴露本适配器声明支持的 codec，供注册表接入。
+func SupportedCodecsList() []string { return supportedCodecs }
+
 func (p *Parser) Parse(ctx context.Context, in adapter.ParseInput) (*adapter.ParseResult, error) {
 	if err := adapter.CheckInputLimits(in); err != nil {
 		return nil, err

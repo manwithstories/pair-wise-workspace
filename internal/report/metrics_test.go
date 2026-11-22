@@ -4,20 +4,18 @@ import (
 	"math"
 	"testing"
 
-	"mediacheck/internal/core"
 	"mediacheck/internal/model"
 )
 
 func TestBuildMetricsAndBitrateWindow(t *testing.T) {
 	in := Inputs{
 		Seed: 7, TargetKBPS: 6000,
-		Normalize: &core.NormalizeResult{
-			SamplesIn: 88200, SamplesOut: 96000,
-			PeakDBFS: -1.5,
-			Stats:    core.LoudnessStats{IntegratedLUFS: -23.1, SilentFrames: 3},
+		Normalize: model.NormalizeSnapshot{
+			SamplesIn: 88200, SamplesOut: 96000, PeakDBFS: -1.5,
+			IntegratedLUFS: -23.1, SilentFrames: 3,
 		},
-		Pack: &core.PackResult{ActualKBPS: 5980},
-		Color: core.ColorDecision{Conflicts: 2},
+		Pack:    model.PackSnapshot{ActualKBPS: 5980},
+		Color:   model.ColorSnapshot{Conflicts: 2},
 		AlignMS: 0.4, Gaps: 1,
 	}
 	m := Build(in)
@@ -39,13 +37,12 @@ func TestBuildMetricsAndBitrateWindow(t *testing.T) {
 }
 
 func TestSummarySHADeterministic(t *testing.T) {
-	in := Inputs{Seed: 1, TargetKBPS: 6000, Pack: &core.PackResult{ActualKBPS: 6000}}
+	in := Inputs{Seed: 1, TargetKBPS: 6000, Pack: model.PackSnapshot{ActualKBPS: 6000}}
 	a := Build(in)
 	b := Build(in)
 	if a.SummarySHA != b.SummarySHA {
 		t.Fatal("identical inputs must yield identical summary sha")
 	}
-	// 任何输入变化都应改变摘要。
 	in.Seed = 2
 	c := Build(in)
 	if c.SummarySHA == a.SummarySHA {
@@ -56,8 +53,8 @@ func TestSummarySHADeterministic(t *testing.T) {
 func TestNoNaNEntersSummary(t *testing.T) {
 	in := Inputs{
 		Seed: 1, TargetKBPS: 6000,
-		Normalize: &core.NormalizeResult{PeakDBFS: math.NaN(), Stats: core.LoudnessStats{IntegratedLUFS: math.Inf(1)}},
-		Pack: &core.PackResult{ActualKBPS: 6000},
+		Normalize: model.NormalizeSnapshot{PeakDBFS: math.NaN(), IntegratedLUFS: math.Inf(1)},
+		Pack: model.PackSnapshot{ActualKBPS: 6000},
 	}
 	m := Build(in)
 	if math.IsNaN(m.PeakDBFS) || math.IsInf(m.LUFS, 0) || math.IsNaN(m.BitrateDeltaPct) {

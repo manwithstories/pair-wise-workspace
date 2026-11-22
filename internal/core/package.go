@@ -19,7 +19,9 @@ type PackInput struct {
 	PCM16         []byte
 	Channels      int
 	Timeline      []model.Interval
-	Color         model.ColorMeta
+	// Seqs 是每个输出分片应使用的原始 mfhd 序号（与 Timeline 对齐）；为空时本地连续编号。
+	Seqs  []uint32
+	Color model.ColorMeta
 }
 
 // PackResult 是落盘结果与码率核算，供清单与报告对齐。
@@ -79,14 +81,22 @@ func Pack(in PackInput) (*PackResult, error) {
 
 	// 分片写入。
 	var mediaBytes int64
-	seq := uint32(1)
-	for off := 0; off < len(in.PCM16); off += bytesPerFrag {
+	for idx := 0; idx*bytesPerFrag < len(in.PCM16); idx++ {
+		off := idx * bytesPerFrag
 		end := off + bytesPerFrag
 		if end > len(in.PCM16) {
 			end = len(in.PCM16)
 		}
+		seq := uint32(idx + 1)
+		if idx < len(in.Seqs) {
+			seq = in.Seqs[idx]
+		}
+		baseTicks := uint32(0)
+		if idx < len(in.Timeline) {
+			baseTicks = uint32(in.Timeline[idx].Start.Ticks(in.Timescale))
+		}
 		payload := in.PCM16[off:end]
-		frag := buildFragment(seq, in.Timescale, uint32(off/frameBytes), payload, uint32(len(payload)/frameBytes))
+		frag := buildFragment(seq, in.Timescale, baseTicks, payload, uint32(len(payload)/frameBytes))
 		fragPath, err := adapter.SafeOutputPath(in.OutDir, fragName(in.BaseName, seq))
 		if err != nil {
 			cleanup()
@@ -100,7 +110,6 @@ func Pack(in PackInput) (*PackResult, error) {
 		res.Files = append(res.Files, fragPath)
 		res.FragmentSeqs = append(res.FragmentSeqs, seq)
 		mediaBytes += int64(len(frag))
-		seq++
 	}
 	// free box 填充到目标总字节，保证实际码率落在目标 ±1%。
 	currentTotal := mediaBytes + int64(len(initBytes))
