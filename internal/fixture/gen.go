@@ -74,14 +74,14 @@ func Generate(seed int64, caseName string) (*Fixture, error) {
 		misaligned[6] = 7200 // 80 ms off the manifest grid
 	}
 
-	// Engineered keyframe offsets: the nine indexed, non-repaired segments
-	// of the default case carry deltas summing to exactly 9990 ticks so the
-	// mean manifest error is 11.1 ms.
-	deltaIdx := []int{0, 1, 2, 4, 5, 6, 8, 10, 11}
+	// Engineered keyframe offsets: segment 0 anchors to the grid; the eight
+	// other indexed, non-repaired segments of the default case carry deltas
+	// summing to exactly 9990 ticks so the mean manifest error is 11.1 ms.
+	deltaIdx := []int{1, 2, 4, 5, 6, 8, 10, 11}
 	deltas := make([]int64, len(deltaIdx))
 	var sum int64
 	for i := range deltas {
-		deltas[i] = 1110 + int64(rng.Intn(601)) - 300
+		deltas[i] = 1248 + int64(rng.Intn(601)) - 300
 		sum += deltas[i]
 	}
 	resid := int64(9990) - sum

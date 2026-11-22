@@ -91,6 +91,17 @@ func (r *Repairer) Add(segment int, observed, dur uint64) (uint64, Status, *Repa
 	}
 }
 
+// Skip advances the expected grid by dur without observed media, e.g. for
+// a missing or undecodable segment, so later segments are still compared
+// against the manifest grid.
+func (r *Repairer) Skip(dur uint64) {
+	if !r.started {
+		r.started = true
+		r.next = 0
+	}
+	r.next += dur
+}
+
 // wrap33 is the 33-bit MPEG PTS/DTS modulus.
 const wrap33 = uint64(1) << 33
 
