@@ -75,11 +75,14 @@ type Options struct {
 
 // DefaultOptions returns the production bounds.
 func DefaultOptions() Options {
+	// Worst-case resident set: one sample decoded to float64 plus the
+	// expanded sample and chunk tables stays well below the 128 MiB
+	// process budget.
 	return Options{
-		MaxMetadataBytes:   64 << 20,
-		MaxSampleBytes:     16 << 20,
-		MaxSamplesPerTrack: 20 << 20,
-		MaxChunkCount:      8 << 20,
+		MaxMetadataBytes:   16 << 20,
+		MaxSampleBytes:     1 << 20,
+		MaxSamplesPerTrack: 1 << 20,
+		MaxChunkCount:      1 << 20,
 	}
 }
 
@@ -343,10 +346,12 @@ func readBoxHeader(r io.ReaderAt, off, fileSize int64) (boxHeader, error) {
 	end := off + size
 	if end > fileSize {
 		if typ == "mdat" {
-			return boxHeader{}, media.NewError(media.CodeTruncatedMdat, off+headerSize, 0,
+			// Report the first byte that should exist but does not,
+			// which is exactly the truncation point.
+			return boxHeader{}, media.NewError(media.CodeTruncatedMdat, fileSize, 0,
 				"mdat declares %d bytes but only %d remain", size, fileSize-off)
 		}
-		return boxHeader{}, media.NewError(media.CodeBoxBeyondEOF, off, 0,
+		return boxHeader{}, media.NewError(media.CodeInvalidBoxLength, off, 0,
 			"box %q declares size %d, file has %d bytes left", typ, size, fileSize-off)
 	}
 	return boxHeader{start: off, end: end, payload: off + headerSize, typ: typ, size: size, headerSize: headerSize}, nil

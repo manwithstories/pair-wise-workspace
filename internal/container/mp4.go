@@ -671,7 +671,14 @@ func buildSampleRefs(tb *trackBuild, sampleCount int, fileSize int64) ([]SampleR
 				firstOff = off
 			}
 			if off < 0 || off+int64(size) > fileSize {
-				return nil, -1, media.NewError(media.CodeTruncatedMdat, off, 0,
+				// Attribute to the first byte that should exist but does
+				// not: the truncation point when the sample starts inside the
+				// file, otherwise the sample's own start.
+				bad := off
+				if off < fileSize {
+					bad = fileSize
+				}
+				return nil, -1, media.NewError(media.CodeTruncatedMdat, bad, 0,
 					"sample %d needs %d bytes at %d, file is %d bytes", sampleIdx, size, off, fileSize)
 			}
 			off += int64(size)
