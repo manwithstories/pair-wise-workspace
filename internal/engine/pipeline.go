@@ -358,7 +358,9 @@ func (p *processor) stream() error {
 	if err := p.frameBlocks(); err != nil {
 		return err
 	}
-	p.finish()
+	if err := p.finish(); err != nil {
+		return err
+	}
 	return store.Save(p.opts.WorkDir, p.cp)
 }
 
@@ -481,13 +483,15 @@ func (p *processor) writeBlock(frames []float64) error {
 	return store.Save(p.opts.WorkDir, p.cp)
 }
 
-// finish writes the trailing partial block and seals the checkpoint.
-func (p *processor) finish() {
+// finish writes the trailing partial block and seals the checkpoint. A write
+// failure is returned, never swallowed: an unsealed checkpoint would look
+// complete while missing its last block.
+func (p *processor) finish() error {
 	if len(p.pending) > 0 && len(p.pending)%p.cfg.OutputChannels == 0 {
 		if p.blockIndex >= p.cp.CompletedBlocks {
 			if err := p.writeBlock(p.pending); err != nil {
 				p.pending = nil
-				return
+				return err
 			}
 		}
 	}
@@ -496,11 +500,13 @@ func (p *processor) finish() {
 	p.cp.FramesOut = p.outFrame
 	if p.cp.Complete {
 		sha, err := store.VerifyBlocks(p.opts.WorkDir, p.cp.Blocks)
-		if err == nil {
-			p.cp.CanonicalSHA256 = sha
-			p.cp.PartialSHA256 = sha
+		if err != nil {
+			return err
 		}
+		p.cp.CanonicalSHA256 = sha
+		p.cp.PartialSHA256 = sha
 	}
+	return nil
 }
 
 func Run(opts Options) (*Result, error) {

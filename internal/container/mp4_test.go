@@ -205,6 +205,33 @@ func TestRejectsOversizedMetadata(t *testing.T) {
 	}
 }
 
+// TestSampleMustLiveInsideMdat rejects a chunk table that points at structure
+// bytes even though they are inside the file.
+func TestSampleMustLiveInsideMdat(t *testing.T) {
+	path := writeTemp(t, FixtureSpec{Rate: 48000, Channels: 1, Frames: 4800, FrameSize: 512})
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Find the first stco entry and point it at the file start (inside
+	// ftyp/moov, never inside mdat).
+	idx := indexOfBox(t, data, "stco")
+	// Layout: size(4) type(4) version+flags(4) count(4) first offset(4).
+	data[idx+16], data[idx+17], data[idx+18], data[idx+19] = 0, 0, 0, 8
+	bad := filepath.Join(t.TempDir(), "m.mp4")
+	if err := os.WriteFile(bad, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = NewMP4(DefaultOptions()).OpenFile(bad)
+	if err == nil {
+		t.Fatal("sample outside mdat accepted")
+	}
+	me, _ := media.AsError(err)
+	if me == nil || me.Code != media.CodeSampleBeyondMdat || me.Track != 1 {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func indexOfBox(t *testing.T, data []byte, tag string) int {
 	t.Helper()
 	for i := 4; i+4 <= len(data); i++ {

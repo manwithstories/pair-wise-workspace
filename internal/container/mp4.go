@@ -83,13 +83,24 @@ func (a *MP4) Open(r io.ReaderAt) (*Source, error) {
 	if len(st.src.tracks) == 0 {
 		return nil, media.NewError(media.CodeNoAudioTrack, -1, 0, "no audio track in moov")
 	}
+	st.src.mdats = st.mdats
+	// Every sample must live inside an mdat. A chunk table can point into
+	// moov or past EOF while still satisfying a plain file-bounds check, and
+	// accepting that would stream structure bytes as audio.
+	for ti := range st.src.refs {
+		for si, ref := range st.src.refs[ti] {
+			if _, ok := st.src.CoveringMdat(ref.Offset, int64(ref.Size)); !ok {
+				return nil, media.NewError(media.CodeSampleBeyondMdat, ref.Offset, ti+1,
+					"sample %d needs %d bytes at %d, which is outside every mdat", si, ref.Size, ref.Offset)
+			}
+		}
+	}
 	st.info.FileSize = size
 	st.info.MoovOffset = st.moovOff
 	st.info.Mdats = st.mdats
 	st.info.TrackCount = len(st.src.tracks)
 	st.info.AudioTracks = len(st.src.tracks)
 	st.info.DurationMS = st.durationMS()
-	st.src.mdats = st.mdats
 	st.src.info = st.info
 	return st.src, nil
 }
@@ -734,6 +745,7 @@ func WriteFixture(path string, fx FixtureSpec) error {
 	data := make([]byte, 0, len(pcm)+4096)
 	data = append(data, boxBytes("ftyp", ftypBody())...)
 	moov := buildMoov(fx, sizes, 0)
+	// Chunk offsets must point at media bytes, i.e. past the mdat header.
 	mdatStart := len(data) + len(moov) + 8
 	moov = buildMoov(fx, sizes, int64(mdatStart))
 	data = append(data, moov...)
