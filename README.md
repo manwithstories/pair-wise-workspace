@@ -52,7 +52,7 @@ manifest=tmp-run/manifest.json
 | --- | --- |
 | `roundtrip_rate` | share of delivered fragments that re-parse to the same sample list (target 0.98–1.00) |
 | `keyframe_hit_rate` | share of committed boundaries that land on a keyframe in every representation (target 0.95–1.00) |
-| `segment_hash_match` | verified fragments / completed fragments |
+| `segment_hash_match` | verified fragments / planned fragments |
 | `aligned_boundary_us` | residual spread of the effective boundary across representations (0 = perfectly aligned) |
 | `peak_inflight` | largest number of accepted-but-unfinished jobs; structurally bounded by `queue + workers` |
 | `recovered_segments` | valid fragments after the resume pass (each counted once) |

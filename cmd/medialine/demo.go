@@ -191,8 +191,11 @@ func demo(parent context.Context, cfg demoConfig) (*demoResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The numerator counts fragments that were completed and hash-verified;
+	// the denominator is every planned fragment, so the ratio shows how much
+	// of the batch is deliverable.
 	res.SegmentMatchNum = vr.Verified
-	res.SegmentMatchDen = vr.Completed
+	res.SegmentMatchDen = res.Total
 	if vr.Completed == 0 {
 		res.RoundTripRate = 1
 	} else {
@@ -501,9 +504,8 @@ func writeEntry(ctx context.Context, cfg demoConfig, e manifest.Entry, rep repre
 	e.SampleNumbers = sampleNumbers(samples)
 	mu.Lock()
 	mb.Append(e)
-	completedNow := atomic.AddInt64(completed, 1)
+	atomic.AddInt64(completed, 1)
 	mu.Unlock()
-	_ = completedNow
 	return nil
 }
 

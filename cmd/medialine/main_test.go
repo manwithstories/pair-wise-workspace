@@ -36,7 +36,10 @@ func TestDemoMeetsAcceptanceMetrics(t *testing.T) {
 		t.Fatalf("keyframe_hit_rate=%v outside [0.95,1.00]", res.KeyframeHitRate)
 	}
 	if res.SegmentMatchNum != res.SegmentMatchDen {
-		t.Fatalf("hash match %d/%d", res.SegmentMatchNum, res.SegmentMatchDen)
+		t.Fatalf("hash match %d/%d: denominator must be the planned total", res.SegmentMatchNum, res.SegmentMatchDen)
+	}
+	if res.SegmentMatchDen != res.Total {
+		t.Fatalf("denominator %d != planned total %d", res.SegmentMatchDen, res.Total)
 	}
 	if res.PeakInflight > res.InflightLimit {
 		t.Fatalf("peak %d exceeds limit %d", res.PeakInflight, res.InflightLimit)
@@ -86,8 +89,11 @@ func TestDemoCorruptTailIsRecoverable(t *testing.T) {
 	if res.Completed == 0 {
 		t.Fatal("usable fragments must still be produced")
 	}
-	if res.SegmentMatchNum != res.SegmentMatchDen {
-		t.Fatalf("delivered fragments must all verify: %d/%d", res.SegmentMatchNum, res.SegmentMatchDen)
+	if res.SegmentMatchNum != res.Completed {
+		t.Fatalf("all completed fragments must verify: %d vs %d", res.SegmentMatchNum, res.Completed)
+	}
+	if res.SegmentMatchDen != res.Total {
+		t.Fatalf("denominator %d != planned total %d", res.SegmentMatchDen, res.Total)
 	}
 }
 
