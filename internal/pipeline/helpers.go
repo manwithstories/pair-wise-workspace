@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -179,6 +180,23 @@ func fillBitrateAndAlignment(stats *Stats, info ingest.ContainerInfo) {
 	if hasV && hasA {
 		stats.ManifestAlignMillis = alignmentError(video, audio)
 	}
+}
+
+// enforceAlignment computes the statistics and rejects a manifest whose
+// cross-track drift exceeds the configured threshold, so a misaligned
+// deliverable can never reach the atomic commit.
+func enforceAlignment(opts Options, stats *Stats, info ingest.ContainerInfo) error {
+	fillBitrateAndAlignment(stats, info)
+	limit := opts.MaxAlignMillis
+	if limit <= 0 {
+		limit = 1 // specification default: |alignment| <= 1 ms
+	}
+	if stats.ManifestAlignMillis > limit {
+		return mediaerr.New(mediaerr.CodeManifestMisalign, fmt.Sprintf(
+			"cross-track drift %d ms exceeds limit %d ms",
+			stats.ManifestAlignMillis, limit))
+	}
+	return nil
 }
 
 func nearestInt(f float64) int64 {

@@ -86,6 +86,7 @@ func Run(opts Options) (*Stats, error) {
 		if mediaerr.Is(err, mediaerr.CodeIO) && isInterrupt(err) {
 			// A clean interrupt is a valid partial-commit boundary: finalize
 			// the staged output atomically so --resume can append to it.
+			fillBitrateAndAlignment(stats, streamer.Info())
 			hash, cerr := writer.Commit()
 			if cerr != nil {
 				return stats, cerr
@@ -93,6 +94,13 @@ func Run(opts Options) (*Stats, error) {
 			stats.OutputSHA256 = hash
 			return checkpointInterrupt(opts, stats, outputPath, trace)
 		}
+		writer.Abort()
+		return stats, err
+	}
+
+	// Compute statistics and enforce the alignment limit BEFORE committing,
+	// so a misaligned manifest cannot produce a completion marker.
+	if err := enforceAlignment(opts, stats, streamer.Info()); err != nil {
 		writer.Abort()
 		return stats, err
 	}
@@ -107,7 +115,6 @@ func Run(opts Options) (*Stats, error) {
 	if err := finalizeTraceAndCheckpoint(opts, inputHash, mappingHash, hash, stats, trace); err != nil {
 		return stats, err
 	}
-	fillBitrateAndAlignment(stats, streamer.Info())
 	return stats, nil
 }
 

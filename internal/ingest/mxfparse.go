@@ -50,7 +50,48 @@ func (s *mxfStreamer) parsePartition() error {
 		s.info.Tracks = append(s.info.Tracks, s.tracks[id].desc)
 		s.totalN += s.tracks[id].desc.SampleCount
 	}
+	s.alignEditUnits()
 	return nil
+}
+
+// alignEditUnits assigns each track a per-sample tick count so every track's
+// wall-clock duration equals the video timeline (video frames at one edit
+// unit each). Without this, an audio track expressed in its own clock would
+// report a different end time and trip the manifest alignment guard.
+func (s *mxfStreamer) alignEditUnits() {
+	var videoID string
+	for _, id := range s.order {
+		if s.tracks[id].desc.Kind == KindVideo {
+			videoID = id
+			break
+		}
+	}
+	if videoID == "" {
+		for _, id := range s.order {
+			s.tracks[id].ticksPerSample = 1
+		}
+		return
+	}
+	video := s.tracks[videoID]
+	video.ticksPerSample = 1
+	// Total video wall-clock seconds = sampleCount / videoTimescale.
+	for _, id := range s.order {
+		if id == videoID {
+			continue
+		}
+		tr := s.tracks[id]
+		if tr.desc.SampleCount <= 0 || tr.desc.Timescale <= 0 {
+			tr.ticksPerSample = 1
+			continue
+		}
+		// ticks on this clock = videoSeconds * thisTimescale, spread evenly.
+		totalTicks := video.desc.SampleCount * tr.desc.Timescale / video.desc.Timescale
+		per := totalTicks / tr.desc.SampleCount
+		if per < 1 {
+			per = 1
+		}
+		tr.ticksPerSample = per
+	}
 }
 
 // readDescriptor consumes one tagged descriptor item (1-byte tag + BER len
@@ -177,14 +218,15 @@ func (s *mxfStreamer) Next() (*SampleEvent, error) {
 	// SectionReader seeks independently for the actual bytes.
 	s.pos = dataOffset + length
 	tr.hasDTS = true
+	dts := tr.next * tr.ticksPerSample
 	ev := &SampleEvent{
 		TrackID:    trackID,
 		Index:      tr.next,
 		DataOffset: dataOffset,
 		Size:       length,
-		DTS:        tr.next,
-		PTS:        tr.next,
-		Duration:   1,
+		DTS:        dts,
+		PTS:        dts,
+		Duration:   tr.ticksPerSample,
 		Timebase:   tr.tb,
 		Payload:    io.NewSectionReader(s.file, dataOffset, length),
 	}

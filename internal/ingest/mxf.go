@@ -48,10 +48,11 @@ type mxfStreamer struct {
 }
 
 type mxfTrack struct {
-	desc   TrackDesc
-	tb     timebase.Timebase
-	next   int64
-	hasDTS bool
+	desc           TrackDesc
+	tb             timebase.Timebase
+	next           int64
+	hasDTS         bool
+	ticksPerSample int64 // duration of one edit unit in this track's clock
 }
 
 // OpenMXF opens and parses the partition pack of an OP1a-subset file.

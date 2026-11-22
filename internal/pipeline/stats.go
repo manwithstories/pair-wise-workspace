@@ -20,6 +20,10 @@ type Options struct {
 	TargetBitrate  int64 // bits per second target for deviation reporting
 	Resume         bool
 	InterruptAfter int64 // >0: stop cleanly after this many samples (demo fault)
+	// MaxAlignMillis is the accepted cross-track end-time drift. Zero means
+	// use the specification default of 1 ms; a larger measured drift fails the
+	// job with MANIFEST_MISALIGN before the output is committed.
+	MaxAlignMillis int64
 	Mapping        mapping.Config
 	// Metadata inputs per track for resolution/arbitration.
 	Metadata map[string]metadata.Input
