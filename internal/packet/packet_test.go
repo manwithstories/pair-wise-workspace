@@ -27,32 +27,44 @@ func makeRTP(t *testing.T, seq uint16, ts uint32) []byte {
 
 func TestReadPacketRoundTrip(t *testing.T) {
 	var buf bytes.Buffer
-	buf.Write(EncodeFrame(makeRTP(t, 1, 90000)))
-	buf.Write(EncodeFrame(makeRTP(t, 2, 93000)))
-	pkt, err := ReadPacket(&buf)
+	buf.Write(EncodeFrame(makeRTP(t, 1, 90000), FlagKeyframe))
+	buf.Write(EncodeFrame(makeRTP(t, 2, 93000), 0))
+	pkt, flags, err := ReadPacket(&buf)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pkt.Timestamp != 90000 || pkt.SequenceNumber != 1 {
-		t.Fatalf("pkt %+v", pkt.Header)
+	if pkt.Timestamp != 90000 || pkt.SequenceNumber != 1 || flags&FlagKeyframe == 0 {
+		t.Fatalf("pkt %+v flags %d", pkt.Header, flags)
 	}
-	pkt, err = ReadPacket(&buf)
+	pkt, _, err = ReadPacket(&buf)
 	if err != nil || pkt.Timestamp != 93000 {
 		t.Fatalf("pkt2 %v %+v", err, pkt)
 	}
 }
 
 func TestReadPacketTruncated(t *testing.T) {
-	frame := EncodeFrame(makeRTP(t, 1, 1))
-	if _, err := ReadPacket(bytes.NewReader(frame[:len(frame)-10])); !errors.Is(err, ErrTruncated) {
+	// Cut short mid-payload.
+	frame := EncodeFrame(makeRTP(t, 1, 1), 0)
+	if _, _, err := ReadPacket(bytes.NewReader(frame[:len(frame)-10])); !errors.Is(err, ErrTruncated) {
 		t.Fatalf("err %v want ErrTruncated", err)
+	}
+	// Flagged by the capture node; stream stays framed afterwards.
+	var buf bytes.Buffer
+	buf.Write(EncodeFrame(makeRTP(t, 1, 1), FlagTruncated))
+	buf.Write(EncodeFrame(makeRTP(t, 2, 2), 0))
+	if _, flags, err := ReadPacket(&buf); !errors.Is(err, ErrTruncated) || flags&FlagTruncated == 0 {
+		t.Fatalf("err %v flags %d", err, flags)
+	}
+	pkt, _, err := ReadPacket(&buf)
+	if err != nil || pkt.SequenceNumber != 2 {
+		t.Fatalf("next pkt %v %+v", err, pkt)
 	}
 }
 
 func TestReadPacketCorrupt(t *testing.T) {
 	var buf bytes.Buffer
-	buf.Write(EncodeFrame([]byte{0xFF, 0x01, 0x02})) // not RTP
-	if _, err := ReadPacket(&buf); !errors.Is(err, ErrCorrupt) {
+	buf.Write(EncodeFrame([]byte{0xFF, 0x01, 0x02}, 0)) // not RTP
+	if _, _, err := ReadPacket(&buf); !errors.Is(err, ErrCorrupt) {
 		t.Fatalf("err %v want ErrCorrupt", err)
 	}
 }

@@ -58,12 +58,14 @@ func (r *Repairer) Add(segment int, observed, dur uint64) (uint64, Status, *Repa
 	}
 	exp := r.next
 	if observed >= exp && observed-exp <= r.tolerance {
+		// Small drift (clock skew): keep the observed timestamp so the
+		// index reflects reality; the expectation stays on the grid.
 		r.next = exp + dur
-		return exp, StatusOK, nil
+		return observed, StatusOK, nil
 	}
 	if observed < exp && exp-observed <= r.tolerance {
 		r.next = exp + dur
-		return exp, StatusOK, nil
+		return observed, StatusOK, nil
 	}
 	r.next = exp + dur
 	switch {
