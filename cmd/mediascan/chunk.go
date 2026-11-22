@@ -53,9 +53,15 @@ func commitChunks(o Options, clk clock.Clock, g []gen.Generated, qs *quality.Sta
 	}
 
 	interrupted := false
+	truncated := gen.HasCorruption(o.Corrupt, gen.CorruptTruncateBox)
 	for chunk := 0; chunk < total; chunk++ {
 		if store.Committed(chunk) {
-			rep.RecoveredChunks++ // already persisted across a resume
+			// already persisted: a resumed completed or previously failed
+			// chunk is never processed or counted twice
+			rep.RecoveredChunks++
+			if mgr.IsFailed(chunk) {
+				_ = mgr.MarkFailed(chunk) // idempotent, keeps failure durable
+			}
 			continue
 		}
 		from := chunk * o.ChunkFrames
@@ -75,16 +81,23 @@ func commitChunks(o Options, clk clock.Clock, g []gen.Generated, qs *quality.Sta
 			}
 		}
 		entry.CorruptRanges = rangesTouching(qs, entry.StartTick, entry.EndTick)
-		// validation failures never advance the checkpoint: the index row
-		// is written first, and only a successful MarkChunked moves the
-		// checkpoint; on error below we return before any further progress.
+		// the index row is always written; the checkpoint then records the
+		// chunk as either completed or failed. A failed chunk never enters
+		// Completed, so validation failure cannot advance completion.
 		if err := store.Commit(entry); err != nil {
 			fmt.Fprintln(stderr(), "index commit:", err)
 			return exitIndexFault
 		}
-		if err := mgr.MarkChunked(chunk, entry.StartTick, entry.EndTick); err != nil {
-			fmt.Fprintln(stderr(), "checkpoint advance:", err)
-			return exitIndexFault
+		if chunkHasFatal(chunk, from, to, truncated, outcomes) {
+			if err := mgr.MarkFailed(chunk); err != nil {
+				fmt.Fprintln(stderr(), "checkpoint mark-failed:", err)
+				return exitIndexFault
+			}
+		} else {
+			if err := mgr.MarkChunked(chunk, entry.StartTick, entry.EndTick); err != nil {
+				fmt.Fprintln(stderr(), "checkpoint advance:", err)
+				return exitIndexFault
+			}
 		}
 		// simulate an interrupt after the requested number of NEW chunks
 		if o.InterruptAfter >= 0 && chunk == o.InterruptAfter-1 && !mgr.Done() {
@@ -109,11 +122,26 @@ func commitChunks(o Options, clk clock.Clock, g []gen.Generated, qs *quality.Sta
 	switch {
 	case interrupted:
 		return exitInterrupted
-	case rep.FatalFaults > 0:
+	case rep.FatalFaults > 0 || mgr.FailedCount() > 0:
 		return exitCorruptInput
 	default:
 		return exitOK
 	}
+}
+
+// chunkHasFatal decides whether a chunk contains an input-invalid defect:
+// a bad-checksum frame inside its range, or a truncated container box whose
+// boundary fault is anchored to the first chunk.
+func chunkHasFatal(chunk, from, to int, truncatedBox bool, outcomes []quality.FrameOutcome) bool {
+	if truncatedBox && chunk == 0 {
+		return true
+	}
+	for i := from; i <= to; i++ {
+		if !outcomes[i].ChecksumOK {
+			return true
+		}
+	}
+	return false
 }
 
 func rangesTouching(qs *quality.Stats, start, end int64) int {
