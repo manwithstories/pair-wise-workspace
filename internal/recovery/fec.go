@@ -107,11 +107,13 @@ type Stats struct {
 	EstimatedUS      int64 `json:"estimated_us"`
 }
 
-// Rate returns the share of loss holes that were recoverable. A run without
-// loss is trivially at 100%.
+// Rate returns the share of loss holes that were recoverable. Unrecoverable
+// holes stay in the denominator: a gap that could not be proven is a loss the
+// archive did not recover. A run without loss is trivially at 100%.
 func (s Stats) Rate() float64 {
-	if s.LossHoles == 0 {
+	denom := s.LossHoles + s.Unrecoverable
+	if denom == 0 {
 		return 1
 	}
-	return float64(s.RecoveredLoss) / float64(s.LossHoles)
+	return float64(s.RecoveredLoss) / float64(denom)
 }

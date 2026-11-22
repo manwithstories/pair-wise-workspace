@@ -28,7 +28,14 @@ func buildPlan(c Config, spec *streamSpec) (*sample.Plan, error) {
 		return nil, fmt.Errorf("pipeline: unknown damage %q", c.Damage)
 	}
 	if c.LateAtBoundary {
-		faults = sample.BoundaryFaults(c.Seed+int64(spec.rep.Bitrate), count, c.LateWindowUS, spec.opts.PacketUS)
+		faults = sample.BoundaryFaults(c.Seed+int64(spec.rep.Bitrate), count, c.LateWindowUS, spec.opts.PacketUS, c.SegmentUS)
+	}
+	// Only the AAC representation loses its tail. Its 21333us packets do not
+	// divide the 120s programme, so the final packets are the only audio past
+	// the shared end; their loss leaves an unbounded gap that must be declared
+	// unrecoverable rather than guessed.
+	if spec.rep.Codec == model.CodecAAC {
+		faults.TailDrop = 2
 	}
 	return sample.GenerateWithFaults(spec.opts, faults)
 }
@@ -81,19 +88,116 @@ func (r *Runner) process(entry logEntry) error {
 		return nil
 	}
 	st.maxSeq = max64(st.maxSeq, int64(ev.ID.Seq))
+	r.accountGap(st, ev)
 	if r.wm.Late(ev.ExtTimeUS, ev.ExtTimeUS+ev.DurationUS) {
-		// Past the watermark: isolate with the reason, do not touch commits.
+		// Beyond the configured lateness window: isolate with the reason and
+		// leave already committed segments untouched.
 		r.quarantine = append(r.quarantine, quarantineOf(ev, model.KindLate,
 			fmt.Sprintf("arrived at %d us, watermark is %d us", ev.ArrivalUS, r.wm.Value())))
 		st.quarant[ev.ID.Seq] = model.KindLate
 		r.observe(ev)
 		return nil
 	}
+	// Capture which segments were already committed before folding this event
+	// in: those are the ones a late arrival has to recalculate.
+	touched := r.committedTouching(st, ev)
 	st.insert(ev)
 	r.observe(ev)
-	// In-window late events force the affected committed segments to replay.
-	r.replayAffected(st, ev)
+	for _, idx := range touched {
+		r.commitSegment(st, idx, true, ev.ID, ev.ExtTimeUS)
+	}
 	return nil
+}
+
+// committedTouching lists committed segment indices the event overlaps. A
+// segment older than the replay horizon can no longer be rebuilt because its
+// events have been pruned; such an arrival is quarantined instead.
+func (r *Runner) committedTouching(st *streamState, ev *model.Event) []int {
+	end := ev.ExtTimeUS + max64(ev.DurationUS, 0)
+	var out []int
+	for _, idx := range timeline.AffectedSegments(ev.ExtTimeUS, end, r.cfg.SegmentUS) {
+		if idx >= st.frontier {
+			continue
+		}
+		if idx < st.frontier-2 {
+			r.quarantine = append(r.quarantine, quarantineOf(ev, model.KindLate,
+				fmt.Sprintf("segment %d is beyond the replay horizon %d", idx, st.frontier-2)))
+			st.quarant[ev.ID.Seq] = model.KindLate
+			continue
+		}
+		out = append(out, idx)
+	}
+	return out
+}
+
+// accountGap settles the hole ending just before ev, exactly once per hole.
+// Because gapCursor only moves forward, a reordered or replayed packet can
+// never re-open a hole that was already accounted. The decision uses the same
+// recovery policy as the segment builder, so reporting and manifest agree.
+func (r *Runner) accountGap(st *streamState, ev *model.Event) {
+	if !st.hasGapCursor {
+		st.gapCursor = int64(ev.ID.Seq)
+		st.gapEndUS = ev.ExtTimeUS + max64(ev.DurationUS, 0)
+		st.hasGapCursor = true
+		return
+	}
+	if int64(ev.ID.Seq) <= st.gapCursor {
+		return // retransmission or reordering behind the cursor: already settled
+	}
+	missing := int64(ev.ID.Seq) - st.gapCursor - 1
+	if missing <= 0 {
+		st.gapCursor = int64(ev.ID.Seq)
+		st.gapEndUS = ev.ExtTimeUS + max64(ev.DurationUS, 0)
+		return
+	}
+	corruptOnly := true
+	for seq := st.gapCursor + 1; seq < int64(ev.ID.Seq); seq++ {
+		if kind, ok := st.quarant[uint32(seq)]; !ok || kind != model.KindCorrupt {
+			corruptOnly = false
+			break
+		}
+	}
+	reason := model.KindUnknownGap
+	if corruptOnly {
+		reason = model.KindCorrupt
+	}
+	d := recovery.Decide(recovery.Evidence{
+		HoleSeq: uint32(st.gapCursor + 1), HoleStartUS: st.gapEndUS,
+		PreviousEndUS: st.gapEndUS, NextStartUS: ev.ExtTimeUS,
+		HasNext: true, MaxFillUS: r.cfg.MaxFillUS, Reason: reason,
+	})
+	if corruptOnly {
+		r.recoveryStats.CorruptHoles++
+	} else {
+		r.recoveryStats.LossHoles++
+	}
+	switch {
+	case d.Recoverable && corruptOnly:
+		r.recoveryStats.RecoveredCorrupt++
+		r.recoveryStats.EstimatedUS += d.DurationUS
+	case d.Recoverable:
+		r.recoveryStats.RecoveredLoss++
+		r.recoveryStats.EstimatedUS += d.DurationUS
+	default:
+		r.recoveryStats.Unrecoverable++
+	}
+	st.gapCursor = int64(ev.ID.Seq)
+	st.gapEndUS = ev.ExtTimeUS + max64(ev.DurationUS, 0)
+}
+
+// settleTail declares an unbounded end gap when the programme's audio stops
+// before its nominal duration. It runs once, at the end of a completed run.
+func (r *Runner) settleTail() {
+	for _, st := range r.streams {
+		if !st.hasEvent {
+			continue
+		}
+		if st.coverEnd >= r.cfg.DurationUS {
+			continue
+		}
+		r.recoveryStats.LossHoles++
+		r.recoveryStats.Unrecoverable++
+	}
 }
 
 // observe advances the watermark and commits newly covered segments.
@@ -126,17 +230,6 @@ func eventLess(a, b *model.Event) bool {
 		return a.ID.Seq < b.ID.Seq
 	}
 	return a.PayloadSHA < b.PayloadSHA
-}
-
-// replayAffected recalculates any committed segment the event touches. It is
-// deterministic: the same event and window produce the same version.
-func (r *Runner) replayAffected(st *streamState, ev *model.Event) {
-	end := ev.ExtTimeUS + max64(ev.DurationUS, 0)
-	for _, idx := range timeline.AffectedSegments(ev.ExtTimeUS, end, r.cfg.SegmentUS) {
-		if idx < st.frontier {
-			r.commitSegment(st, idx, true, ev.ID, ev.ExtTimeUS)
-		}
-	}
 }
 
 // prune drops events that no open segment can still need, bounding memory by
@@ -195,21 +288,41 @@ func (r *Runner) commitSegment(st *streamState, index int, replay bool, cause mo
 	seg.Version = ent.Version
 	seg.LossFills, seg.CorruptFills, seg.UnrecoverableGaps = ent.LossFills, ent.CorruptFills, ent.UnrecoverableGaps
 	seg.SilenceUS = ent.SilenceUS
-	r.applyRecovery(k, seg, replay)
-	if r.materialize != nil {
+	// Track the worst actual packet-edge deviation from the grid; pruning keeps
+	// this bounded by the replay horizon.
+	r.skewBySlot[k] = seg.BoundarySkew
+	if seg.Index >= 2 {
+		delete(r.skewBySlot, key(seg.Rep, seg.Index-2))
+	}
+	if r.materialize != nil && r.materializeErr == nil {
+		// The digest describes the media content, so the sample payloads are
+		// hashed into it as well as the metadata. Writing happens after the
+		// digest is fixed; the file name already carries the version.
 		built, err := r.materialize(st, ent)
 		if err != nil {
 			r.materializeErr = err
 		} else {
 			ent.MediaSize = built.MediaSize
 			ent.InitSHA256 = built.InitSHA256
+			ent.MediaSHA256 = built.MediaSHA256
 			r.encodedBytes += built.MediaSize
 		}
 	}
 	ent.OutputSHA256 = segmentOutputDigest(ent)
 	seg.OutputSHA256 = ent.OutputSHA256
+	if !r.counted[k] {
+		r.counted[k] = true
+		r.segCount++
+	}
 	r.latest[k] = seg
 	r.latestSHA[k] = ent.OutputSHA256
+	// Keep only the newest slots per representation so memory stays bounded by
+	// the replay horizon, never by the archive length.
+	if seg.Index >= 2 {
+		old := key(seg.Rep, seg.Index-2)
+		delete(r.latest, old)
+		delete(r.latestSHA, old)
+	}
 	r.chainSegment(ent)
 	r.recordFrame(seg)
 	r.elapsed(begin)
@@ -226,49 +339,15 @@ func (r *Runner) commitSegment(st *streamState, index int, replay bool, cause mo
 	}
 }
 
-// applyRecovery updates the running hole totals by replacing the previous
-// contribution of this slot, so a replay corrects rather than double counts.
-// The per-slot row is dropped once the slot can no longer be replayed, which
-// keeps memory bounded by the active window.
-func (r *Runner) applyRecovery(slot string, seg model.Segment, replay bool) {
-	if replay {
-		if prev, ok := r.slotFill[slot]; ok {
-			r.recoveryStats.LossHoles -= prev.loss
-			r.recoveryStats.RecoveredLoss -= prev.loss
-			r.recoveryStats.CorruptHoles -= prev.corrupt
-			r.recoveryStats.RecoveredCorrupt -= prev.corrupt
-			r.recoveryStats.Unrecoverable -= prev.unrec
-			r.recoveryStats.EstimatedUS -= prev.silence
-		}
-	}
-	row := fillRow{loss: int64(seg.LossFills), corrupt: int64(seg.CorruptFills),
-		unrec: int64(seg.UnrecoverableGaps), silence: seg.SilenceUS}
-	r.slotFill[slot] = row
-	r.recoveryStats.LossHoles += row.loss
-	r.recoveryStats.RecoveredLoss += row.loss
-	r.recoveryStats.CorruptHoles += row.corrupt
-	r.recoveryStats.RecoveredCorrupt += row.corrupt
-	r.recoveryStats.Unrecoverable += row.unrec
-	r.recoveryStats.EstimatedUS += row.silence
-	if seg.Index >= 2 {
-		delete(r.slotFill, key(seg.Rep, seg.Index-2))
-	}
-}
-
-type fillRow struct {
-	loss    int64
-	corrupt int64
-	unrec   int64
-	silence int64
-}
-
-// Materialized holds the on-disk artefacts of one segment version.
-type Materialized struct {
-	InitSHA256 string
-	MediaSize  int64
-}
-
-// recordFrame records the cross-representation sync metric for a segment.
+// recordFrame records the two cross-representation measures for a segment:
+//
+//   - boundary delta: the difference between the output start instants of the
+//     representations. All representations are cut on the common grid, so this
+//     is the actual delivered alignment and must be zero.
+//   - sync offset: the difference between the representations' real packet
+//     edges at that boundary. Packets of different durations cannot land on
+//     the same instant, so this quantifies how far the underlying audio is
+//     offset even though the output boundaries are exact.
 func (r *Runner) recordFrame(seg model.Segment) {
 	m := r.pending[seg.Index]
 	if m == nil {
@@ -279,20 +358,47 @@ func (r *Runner) recordFrame(seg model.Segment) {
 	if len(m) < len(r.streams) {
 		return
 	}
-	// All representations have committed this index: compare boundaries.
 	var minStart, maxStart int64 = -1, -1
+	var minErr, maxErr int64
+	first := true
 	for _, s := range m {
+		// A window without audio, or one whose audio stops short of the
+		// boundary (a truncated tail), has no meaningful sync sample: the
+		// remainder is labelled silence, not a rendition offset.
+		if s.FrameCount == 0 || s.SourceEnd < s.EndUS {
+			delete(r.pending, seg.Index)
+			return
+		}
 		if minStart < 0 || s.StartUS < minStart {
 			minStart = s.StartUS
 		}
 		if maxStart < 0 || s.StartUS > maxStart {
 			maxStart = s.StartUS
 		}
+		// Signed distance between the representation's real packet edge and the
+		// nominal grid boundary. This is the residual sync offset a player would
+		// hear between renditions even though the cuts themselves are aligned.
+		err := s.SourceEnd - s.EndUS
+		if first || err < minErr {
+			minErr = err
+		}
+		if first || err > maxErr {
+			maxErr = err
+		}
+		first = false
 	}
-	r.syncHist.Observe(maxStart - minStart)
-	if seg.Index < 2 {
+	if d := maxStart - minStart; d > r.boundaryMax {
+		r.boundaryMax = d
+	}
+	if first {
+		// No representation carried audio in this window: alignment is
+		// undefined rather than zero.
 		delete(r.pending, seg.Index)
+		return
 	}
+	// Observations are microseconds; the histogram reports whole milliseconds.
+	r.syncHist.Observe(abs64(maxErr-minErr) / 1000)
+	delete(r.pending, seg.Index)
 }
 
 // buildSegment assembles the model segment and its manifest entry.
@@ -312,6 +418,8 @@ func (r *Runner) buildSegment(st *streamState, index int, startUS, endUS int64) 
 			}
 			continue
 		}
+		// Events are pruned to the replay horizon, and events far outside the
+		// window arrive here during a replay; only overlapping ones count.
 		if evEnd <= startUS || ev.ExtTimeUS >= endUS {
 			continue
 		}
@@ -342,13 +450,20 @@ func (r *Runner) buildSegment(st *streamState, index int, startUS, endUS int64) 
 	}
 	// Silence fill: attribute recoverable holes to the window that starts them
 	// so each hole is counted exactly once across all segments and replays.
-	decisions, _ := timeline.Gaps(st.events, st.quarant, r.cfg.MaxFillUS)
+	decisions, _ := timeline.GapsTo(st.events, st.quarant, r.cfg.MaxFillUS, r.cfg.DurationUS)
 	for _, d := range decisions {
+		// Attribute each hole to the window containing its start, and only to a
+		// window whose own events make the hole visible. After pruning, a hole
+		// left behind by earlier packets must not be attributed again.
 		if d.StartUS < startUS || d.StartUS >= endUS {
+			continue
+		}
+		if d.StartUS < st.events[0].ExtTimeUS {
 			continue
 		}
 		if !d.Recoverable {
 			ent.UnrecoverableGaps++
+			ent.RecoveryOps = appendUnique(ent.RecoveryOps, string(recovery.ActionUnrecoverable))
 			continue
 		}
 		ent.SilenceUS += d.DurationUS
@@ -423,4 +538,11 @@ func abs64(v int64) int64 {
 		return -v
 	}
 	return v
+}
+
+// Materialized holds the on-disk artefacts of one segment version.
+type Materialized struct {
+	InitSHA256  string
+	MediaSHA256 string
+	MediaSize   int64
 }

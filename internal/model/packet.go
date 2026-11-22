@@ -101,8 +101,8 @@ type Event struct {
 	ID         PacketID `json:"id"`
 	Codec      Codec    `json:"codec"`
 	RTPTime    uint32   `json:"rtp_time"`
-	ExtTimeUS  int64    `json:"ext_time_us"` // unified event time, first-packet base
-	DurationUS int64    `json:"duration_us"` // -1 when the duration cannot be inferred
+	ExtTimeUS  int64    `json:"ext_time_us"`       // unified event time, first-packet base
+	DurationUS int64    `json:"duration_us"`       // -1 when the duration cannot be inferred
 	Payload    []byte   `json:"payload,omitempty"` // bounded by the active window
 	// PayloadSHA caches PayloadHash so the timeline can drop payload bytes
 	// once the duration has been derived.
@@ -181,6 +181,7 @@ type Segment struct {
 	CorruptFills      int
 	UnrecoverableGaps int
 	SilenceUS         int64
+	MediaSHA256       string
 }
 
 // Quarantine records an event that could not be placed on the stable timeline.

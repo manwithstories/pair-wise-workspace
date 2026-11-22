@@ -46,6 +46,13 @@ type streamState struct {
 	coverEnd int64
 	hasEvent bool
 	maxSeq   int64
+	// gapCursor is the highest sequence folded into a contiguous run. Holes are
+	// accounted exactly once when a later sequence proves them missing.
+	gapCursor    int64
+	hasGapCursor bool
+	// gapEndUS is the media end of the last packet folded into the contiguous
+	// run, i.e. where the next hole starts.
+	gapEndUS int64
 }
 
 // Runner executes one archive run.
@@ -61,11 +68,15 @@ type Runner struct {
 	manifest *segment.Writer
 	ledger   *provenance.Writer
 
-	versions  *timeline.VersionBook
-	latest    map[string]model.Segment
-	latestSHA map[string]string
-	pending   map[int]map[model.RepresentationID]model.Segment
-	segTotal  int
+	versions    *timeline.VersionBook
+	latest      map[string]model.Segment // newest two slots per rep
+	latestSHA   map[string]string
+	pending     map[int]map[model.RepresentationID]model.Segment
+	segTotal    int
+	segCount    int
+	counted     map[string]bool
+	boundaryMax int64
+	skewBySlot  map[string]int64
 
 	syncHist   *metrics.Histogram
 	p95Hist    *metrics.Histogram
@@ -74,7 +85,6 @@ type Runner struct {
 	conflicts  int64
 
 	recoveryStats recovery.Stats
-	slotFill      map[string]fillRow
 	encodedBytes  int64
 	outputChain   [32]byte
 	outputCount   int
@@ -85,6 +95,7 @@ type Runner struct {
 	// materialize optionally writes real fMP4 artefacts for a segment.
 	materialize    func(st *streamState, e *segment.Entry) (Materialized, error)
 	materializeErr error
+	initHashes     map[model.RepresentationID]string
 }
 
 // New builds a runner, validating the configuration and regenerating the
@@ -153,11 +164,19 @@ func (r *Runner) build() error {
 	r.wm = timeline.NewWatermark(r.cfg.LateWindowUS)
 	r.cursor = 0
 	r.segTotal = int((r.cfg.DurationUS + r.cfg.SegmentUS - 1) / r.cfg.SegmentUS)
+	r.segCount = 0
+	r.boundaryMax = 0
 	r.outputChain = [32]byte{}
 	r.outputCount = 0
+	r.latest = map[string]model.Segment{}
+	r.latestSHA = map[string]string{}
+	r.pending = map[int]map[model.RepresentationID]model.Segment{}
 	r.quarantine = nil
 	r.recoveryStats = recovery.Stats{}
-	r.slotFill = map[string]fillRow{}
+	r.skewBySlot = map[string]int64{}
+	r.counted = map[string]bool{}
+	r.segCount = 0
+	r.boundaryMax = 0
 	r.encodedBytes = 0
 	r.dupes, r.conflicts = 0, 0
 	r.interrupted, r.finished = false, false
@@ -201,6 +220,7 @@ func (r *Runner) Run(ctx context.Context) error {
 		}
 	}
 	r.flush()
+	r.settleTail()
 	r.finished = true
 	return r.saveCheckpoint(ctx)
 }

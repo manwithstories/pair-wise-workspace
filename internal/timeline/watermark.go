@@ -137,14 +137,25 @@ func SortedEvents(events []*model.Event) []*model.Event {
 // sequence numbers of corrupt packets so a hole they leave is attributed to
 // corruption rather than to loss.
 func Gaps(events []*model.Event, quarantined map[uint32]model.ErrorKind, maxFillUS int64) ([]recovery.Decision, recovery.Stats) {
+	return GapsTo(events, quarantined, maxFillUS, 0)
+}
+
+// GapsTo is Gaps with a known media end. A tail shorter than mediaEndUS is a
+// gap with no following packet to bound it, so it is reported unrecoverable
+// rather than silently trimmed or filled with invented content.
+func GapsTo(events []*model.Event, quarantined map[uint32]model.ErrorKind, maxFillUS, mediaEndUS int64) ([]recovery.Decision, recovery.Stats) {
 	var decisions []recovery.Decision
 	var stats recovery.Stats
+	lastEnd := int64(0)
 	for i := 0; i < len(events); i++ {
 		cur := events[i]
 		if cur.DurationUS <= 0 {
 			continue
 		}
 		curEnd := cur.ExtTimeUS + cur.DurationUS
+		if curEnd > lastEnd {
+			lastEnd = curEnd
+		}
 		next := nextTimedEvent(events, i+1)
 		if next == nil {
 			continue
@@ -189,6 +200,14 @@ func Gaps(events []*model.Event, quarantined map[uint32]model.ErrorKind, maxFill
 			}
 			decisions = append(decisions, d)
 		}
+	}
+	if mediaEndUS > 0 && lastEnd > 0 && lastEnd < mediaEndUS {
+		stats.LossHoles++
+		stats.Unrecoverable++
+		decisions = append(decisions, recovery.Decide(recovery.Evidence{
+			HoleStartUS: lastEnd, PreviousEndUS: lastEnd, HasNext: false,
+			Reason: model.KindUnknownGap,
+		}))
 	}
 	return decisions, stats
 }

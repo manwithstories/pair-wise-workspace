@@ -56,4 +56,9 @@ func TestStatsRate(t *testing.T) {
 	if s.Rate() != 0.9 {
 		t.Fatalf("rate = %v", s.Rate())
 	}
+	// Unrecoverable holes remain in the denominator.
+	u := Stats{LossHoles: 10, RecoveredLoss: 9, Unrecoverable: 2}
+	if got := u.Rate(); got != 0.75 {
+		t.Fatalf("rate with unrecoverable = %v", got)
+	}
 }

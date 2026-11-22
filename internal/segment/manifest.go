@@ -45,8 +45,9 @@ type Entry struct {
 	QuarantinedCount int    `json:"quarantined_count,omitempty"`
 	// MediaSize and InitSHA256 describe the written fMP4 artefacts when the
 	// run was asked to materialise them.
-	MediaSize  int64  `json:"media_size,omitempty"`
-	InitSHA256 string `json:"init_sha256,omitempty"`
+	MediaSize   int64  `json:"media_size,omitempty"`
+	InitSHA256  string `json:"init_sha256,omitempty"`
+	MediaSHA256 string `json:"media_sha256,omitempty"`
 	// Hole accounting for this window. Every hole is attributed to the window
 	// containing its start, so totals stay exact across replays.
 	LossFills         int `json:"loss_fills,omitempty"`

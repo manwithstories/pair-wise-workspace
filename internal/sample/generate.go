@@ -46,6 +46,12 @@ type Faults struct {
 	LateBeyond map[int]bool // arrives past the late window
 	LateByUS   int64
 	JitterUS   int64
+	// TailDrop removes the final n packets, leaving an unbounded end gap.
+	TailDrop int
+	// ArrivalOverride pins a packet's arrival time. It exists so the boundary
+	// cases can be placed relative to their segment end rather than their
+	// start, which is what determines whether the segment is already committed.
+	ArrivalOverride map[int]int64
 }
 
 // Record is one log entry, replayable by ingest with no generator dependency.
@@ -167,26 +173,94 @@ func BurstLossFaults(seed int64, count int) Faults {
 	return f
 }
 
+// coalesceDelayedPerSegment keeps the first late packet per segment and drops
+// late copies that would force a second recalculation of the same slot.
+func coalesceDelayedPerSegment(o Opts, f Faults) Faults {
+	if o.SegmentUS <= 0 || o.PacketUS <= 0 {
+		return f
+	}
+	segOf := func(i int) int { return int(int64(i) * o.PacketUS / o.SegmentUS) }
+	claimed := map[int]bool{}
+	keys := make([]int, 0, len(f.Late))
+	for i := range f.Late {
+		keys = append(keys, i)
+	}
+	sort.Ints(keys)
+	for _, i := range keys {
+		s := segOf(i)
+		if claimed[s] {
+			delete(f.Late, i)
+			continue
+		}
+		claimed[s] = true
+	}
+	// Reordering an already delayed segment would promote it twice; move those
+	// reorders elsewhere by dropping them from the segment.
+	rkeys := make([]int, 0, len(f.Reorder))
+	for i := range f.Reorder {
+		rkeys = append(rkeys, i)
+	}
+	sort.Ints(rkeys)
+	for _, i := range rkeys {
+		if claimed[segOf(i)] {
+			delete(f.Reorder, i)
+		}
+	}
+	return f
+}
+
 // NoFaults returns an empty fault set.
 func NoFaults() Faults {
 	return Faults{Lost: map[int]bool{}, Corrupt: map[int]bool{}, Duplicate: map[int]bool{},
 		Reorder: map[int]bool{}, Late: map[int]bool{}, LateBeyond: map[int]bool{}}
 }
 
-// BoundaryFaults places one late packet exactly at the watermark (quarantined)
-// and one a millisecond inside it (forced replay) on every segment boundary,
-// so the window-edge behaviour is exercised for every stream.
-func BoundaryFaults(seed int64, count int, windowUS, packetUS int64) Faults {
+// BoundaryFaults places late traffic relative to segment ends, which is where
+// the two window-edge outcomes actually diverge:
+//
+//   - a packet near a segment end that arrives after the segment was committed
+//     but still inside the window forces a deterministic recalculuation;
+//   - a packet arriving past the window is quarantined instead.
+//
+// Arrivals are pinned explicitly because the outcome depends on the gap
+// between arrival and commit, not on a fixed delay from packet start.
+func BoundaryFaults(seed int64, count int, windowUS, packetUS int64, segmentUS int64) Faults {
 	f := MixedFaults(seed, count)
 	f.Late = map[int]bool{}
 	f.LateBeyond = map[int]bool{}
-	// A packet whose media start is exactly one segment behind becomes late by
-	// windowUS: its end sits exactly on the watermark (quarantined).
-	// A packet one packet later arrives at the watermark minus 1us (replay).
-	f.LateByUS = windowUS
-	for i := 8; i+2 < count; i += 500 {
-		f.Late[i] = true
-		f.LateBeyond[i+1] = true
+	f.ArrivalOverride = map[int]int64{}
+	if segmentUS <= 0 || packetUS <= 0 || windowUS <= 0 {
+		return f
+	}
+	perSeg := int((segmentUS + packetUS - 1) / packetUS)
+	segCount := count / perSeg
+	pick := func(seg int) int {
+		// The last packet fully inside the segment, skipping damaged ones.
+		idx := (seg+1)*perSeg - 1
+		for k := 0; k < perSeg && idx >= 0; k++ {
+			if !f.Lost[idx] && !f.Corrupt[idx] && !f.Duplicate[idx] && !f.Reorder[idx] {
+				return idx
+			}
+			idx--
+		}
+		return -1
+	}
+	segEnd := func(seg int) int64 { return int64(seg+1) * segmentUS }
+	for seg := 2; seg < segCount-2; seg += 3 {
+		idx := pick(seg)
+		if idx < 0 {
+			continue
+		}
+		f.Late[idx] = true
+		f.ArrivalOverride[idx] = segEnd(seg) + windowUS/4
+	}
+	for seg := 3; seg < segCount-2; seg += 3 {
+		idx := pick(seg)
+		if idx < 0 {
+			continue
+		}
+		f.LateBeyond[idx] = true
+		f.ArrivalOverride[idx] = segEnd(seg) + windowUS + windowUS/2
 	}
 	return f
 }
@@ -225,6 +299,18 @@ func GenerateWithFaults(o Opts, f Faults) (*Plan, error) {
 }
 
 func generateWith(o Opts, f Faults, count int) (*Plan, Faults, error) {
+	// At most one delayed (late or reordered) packet per segment. A segment
+	// late packet forces exactly one deterministic recalculation, so the
+	// replay history stays a single replacement edge (v1 -> v2) rather than an
+	// unbounded chain of versions for the same slot.
+	f = coalesceDelayedPerSegment(o, f)
+	if f.TailDrop > 0 {
+		for i := count - f.TailDrop; i < count; i++ {
+			if i >= 0 {
+				f.Lost[i] = true
+			}
+		}
+	}
 	rate := clock.Rate(o.ClockRate)
 	plan := &Plan{Opts: o}
 	var recs []Record
@@ -261,6 +347,9 @@ func generateWith(o Opts, f Faults, count int) (*Plan, Faults, error) {
 			arrival = startUS + f.LateByUS + o.LateWindowUS
 			p.LateBeyond = true
 			plan.LateBeyondCount++
+		}
+		if override, ok := f.ArrivalOverride[i]; ok {
+			arrival = override
 		}
 		if arrival < 0 {
 			arrival = 0
