@@ -31,6 +31,9 @@ const (
 	CodeDTSRegression ErrorCode = "DTS_REGRESSION"
 	// CodeManifestMisalign: cross-track manifest timeline drift exceeds limit (exit 2).
 	CodeManifestMisalign ErrorCode = "MANIFEST_MISALIGN"
+	// CodeSequenceGap: RTP/track sequence or timestamp discontinuity that cannot
+	// be explained by a modular wraparound (exit 2).
+	CodeSequenceGap ErrorCode = "SEQUENCE_GAP"
 	// CodeBlockTooLarge: a sample block exceeds the 4 MiB ceiling (exit 2).
 	CodeBlockTooLarge ErrorCode = "BLOCK_TOO_LARGE"
 	// CodeCheckpointMismatch: checkpoint no longer matches input/config (exit 3).
