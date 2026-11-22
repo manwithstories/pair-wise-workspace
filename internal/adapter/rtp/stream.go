@@ -160,15 +160,16 @@ func Demux(rd *Reader, opts Options) (*Result, error) {
 		}
 		prevNS = ns
 		p := media.Packet{
-			TrackIndex:   0,
-			PacketIndex:  int64(i),
-			SourceOffset: d.offset,
-			SourceSize:   int64(len(d.payload)),
-			DTSNS:        ns - firstNS,
-			PTSNS:        ns - firstNS,
-			DurationNS:   dur,
-			Sync:         true,
-			Sequence:     uint32(d.seq),
+			TrackIndex:    0,
+			SourceTrackID: trackID,
+			PacketIndex:   int64(i),
+			SourceOffset:  d.offset,
+			SourceSize:    int64(len(d.payload)),
+			DTSNS:         ns - firstNS,
+			PTSNS:         ns - firstNS,
+			DurationNS:    dur,
+			Sync:          true,
+			Sequence:      uint32(d.seq),
 		}
 		if end := p.PTSNS + p.DurationNS; end > lastEnd {
 			lastEnd = end

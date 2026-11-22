@@ -27,6 +27,19 @@ func (k TrackKind) Valid() bool {
 	return k == KindVideo || k == KindAudio || k == KindAux
 }
 
+// MaxPacketBytes bounds a single encoded sample. It is deliberately generous
+// relative to any realistic sample while still preventing a corrupt length
+// field from allocating unbounded memory.
+const MaxPacketBytes int64 = 64 << 20
+
+// SampleFlags mirrors the subset of ISOBMFF sample flags the kernel needs.
+type SampleFlags uint32
+
+// Sample flag bit layout (ISO/IEC 14496-12 §8.8.3.1).
+const (
+	FlagSync SampleFlags = 0x00010000
+)
+
 // MediaType is the four-character sample-entry code (avc1, mp4a, tmcd, ...).
 type MediaType string
 
@@ -81,6 +94,9 @@ type Track struct {
 type Packet struct {
 	// TrackIndex references Track.Index.
 	TrackIndex int `json:"track_index"`
+	// SourceTrackID is the container track id this packet came from, copied
+	// into the packet so provenance survives track-index renumbering.
+	SourceTrackID uint32 `json:"source_track_id"`
 	// PacketIndex is the monotonic 0-based ordinal within the track.
 	PacketIndex int64 `json:"packet_index"`
 	// SourceOffset is the byte offset of the first byte of the packet.

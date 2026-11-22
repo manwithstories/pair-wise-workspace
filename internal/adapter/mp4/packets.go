@@ -16,15 +16,16 @@ func (p *parser) buildPackets() error {
 		tbl := entry.table
 		for i := int64(0); i < tbl.count; i++ {
 			pkt := media.Packet{
-				TrackIndex:   trk.Index,
-				PacketIndex:  i,
-				SourceOffset: tbl.offsets[i],
-				SourceSize:   int64(tbl.sizes[i]),
-				DTSNS:        tbl.dts[i],
-				PTSNS:        tbl.pts[i],
-				DurationNS:   tbl.dur[i],
-				Sync:         tbl.sync[i],
-				Sequence:     uint32(i),
+				TrackIndex:    trk.Index,
+				SourceTrackID: trk.ID,
+				PacketIndex:   i,
+				SourceOffset:  tbl.offsets[i],
+				SourceSize:    int64(tbl.sizes[i]),
+				DTSNS:         tbl.dts[i],
+				PTSNS:         tbl.pts[i],
+				DurationNS:    tbl.dur[i],
+				Sync:          tbl.sync[i],
+				Sequence:      uint32(i),
 			}
 			if p.opts.KeepPayload {
 				buf, err := p.sr.read(tbl.offsets[i], int64(tbl.sizes[i]))
