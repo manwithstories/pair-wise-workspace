@@ -175,6 +175,31 @@ func ParseFrameRate(s string) (FrameRate, error) {
 	return rate, nil
 }
 
+// ScaleToNanos converts a tick count in an arbitrary timescale to the shared
+// nanosecond base using exact 128-bit integer arithmetic:
+//
+//	nanos = floor(ticks * 1e9 / timescale)
+//
+// It is used for MP4 media times, RTP clock rates and any other integer
+// timebase; no float is involved.
+func ScaleToNanos(ticks int64, timescale uint32) (int64, error) {
+	if ticks < 0 {
+		return 0, fmt.Errorf("negative tick count %d", ticks)
+	}
+	if timescale == 0 {
+		return 0, fmt.Errorf("zero timescale")
+	}
+	hi, lo := bits.Mul64(uint64(ticks), uint64(NanosPerSecond))
+	if hi >= uint64(timescale) {
+		return 0, fmt.Errorf("tick count %d overflows nanosecond base at timescale %d", ticks, timescale)
+	}
+	q, _ := bits.Div64(hi, lo, uint64(timescale))
+	if q > uint64(^uint64(0)>>1) {
+		return 0, fmt.Errorf("tick count %d exceeds int64 nanoseconds", ticks)
+	}
+	return int64(q), nil
+}
+
 // FrameToNanos maps an absolute frame index to nanoseconds on the shared base
 // using exact 128-bit integer arithmetic:
 //
