@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,6 +26,9 @@ const (
 	exitError   = 2
 	exitQuality = 3
 )
+
+// stdout 可注入的输出（测试捕获 JSON 行用）。
+var stdout io.Writer = os.Stdout
 
 func main() {
 	os.Exit(dispatch(os.Args[1:]))
@@ -135,7 +139,7 @@ func cmdDemo(args []string) int {
 		return fail(err)
 	}
 	res.Metrics.Scenario = "normal"
-	fmt.Println(res.Metrics.JSON())
+	fmt.Fprintln(stdout, res.Metrics.JSON())
 	code := qualityGate(res.Metrics)
 
 	// 4. 损坏样例：截断分段 → 可定位错误（预期内，作为演示输出）
@@ -166,7 +170,7 @@ func cmdDemo(args []string) int {
 			cm.RecoveryAction = string(fe.Recovery)
 		}
 	}
-	fmt.Println(cm.JSON())
+	fmt.Fprintln(stdout, cm.JSON())
 
 	// 5. 恢复样例：中断后续跑，展示摘要校验与续跑边界
 	rparams := params
@@ -183,7 +187,7 @@ func cmdDemo(args []string) int {
 		return fail(err)
 	}
 	rres.Metrics.Scenario = "resumed"
-	fmt.Println(rres.Metrics.JSON())
+	fmt.Fprintln(stdout, rres.Metrics.JSON())
 
 	return code
 }
@@ -216,7 +220,7 @@ func cmdScan(args []string) int {
 	if err := idx.Save(*out); err != nil {
 		return fail(err)
 	}
-	fmt.Printf(`{"scanned_segments":%d,"input_digest":%q}`+"\n", len(idx.Segments), idx.InputDigest)
+	fmt.Fprintf(stdout, `{"scanned_segments":%d,"input_digest":%q}`+"\n", len(idx.Segments), idx.InputDigest)
 	return exitOK
 }
 
@@ -245,6 +249,6 @@ func cmdRun(args []string) int {
 	if err != nil {
 		return fail(err)
 	}
-	fmt.Println(res.Metrics.JSON())
+	fmt.Fprintln(stdout, res.Metrics.JSON())
 	return qualityGate(res.Metrics)
 }
