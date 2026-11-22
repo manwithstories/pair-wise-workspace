@@ -89,6 +89,7 @@ type Summary struct {
 	Status           string           `json:"status"`
 	ExitCode         int              `json:"exit_code"`
 	Size             int64            `json:"size"`
+	Samples          uint64           `json:"samples"`
 	Truncated        bool             `json:"truncated"`
 	DiscardedBytes   int64            `json:"discarded_bytes"`
 	Tracks           []TrackSummary   `json:"tracks"`
@@ -97,6 +98,7 @@ type Summary struct {
 	BitrateDelta     float64          `json:"bitrate_delta_pct"`
 	QualityValid     int              `json:"quality_valid_samples"`
 	AlignmentMS      int64            `json:"manifest_alignment_ms"`
+	KeyframeGapMS    int64            `json:"keyframe_gap_ms"`
 	DamageOffset     int64            `json:"damage_offset"`
 	RecoveredSamples int              `json:"recovered_samples"`
 	Manifest         *ManifestBlock   `json:"manifest,omitempty"`
@@ -159,6 +161,10 @@ func Build(pf *probe.File, res *repair.Result, man *fanout.Manifest, exit int) *
 			ts.MeanGapMS = p.MeanKeyframeGapMS
 			ts.MinGapMS = p.MinKeyframeGapMS
 			ts.IndexComplete = p.Index.Complete
+		}
+		s.Samples += ts.Walked
+		if ts.KeyframeGapMS > s.KeyframeGapMS {
+			s.KeyframeGapMS = ts.KeyframeGapMS
 		}
 		s.Tracks = append(s.Tracks, ts)
 		if s.DamageOffset < 0 || (tr.FirstUnreadable >= 0 && tr.FirstUnreadable < s.DamageOffset) {
@@ -241,8 +247,8 @@ func (s *Summary) Text(w io.Writer) error {
 	if _, err := fmt.Fprintf(w, "mediacheck %s: status=%s exit=%d\n", s.Path, s.Status, s.ExitCode); err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "tracks=%d recovered_samples=%d damage_offset=%d truncated=%v discarded_bytes=%d\n",
-		len(s.Tracks), s.RecoveredSamples, s.DamageOffset, s.Truncated, s.DiscardedBytes)
+	fmt.Fprintf(w, "tracks=%d samples=%d keyframe_gap_ms=%d damage_offset=%d recovered_samples=%d truncated=%v discarded_bytes=%d\n",
+		len(s.Tracks), s.Samples, s.KeyframeGapMS, s.DamageOffset, s.RecoveredSamples, s.Truncated, s.DiscardedBytes)
 	for _, t := range s.Tracks {
 		fmt.Fprintf(w, "  track %d %s %s: declared=%d walked=%d recovered=%d excluded=%d keyframes=%d keyframe_gap_ms=%d index_complete=%v\n",
 			t.ID, t.Kind, t.Codec, t.Declared, t.Walked, t.Recovered, t.Excluded, t.Keyframes, t.KeyframeGapMS, t.IndexComplete)
@@ -251,8 +257,8 @@ func (s *Summary) Text(w io.Writer) error {
 		}
 	}
 	if s.Manifest != nil {
-		fmt.Fprintf(w, "manifest: target_bps=%d actual_bps=%.0f bitrate_delta_pct=%.2f quality_valid_samples=%d alignment_ms=%d switchable=%v\n",
-			s.TargetBPS, s.ActualBPS, s.BitrateDelta, s.QualityValid, s.AlignmentMS, s.Manifest.Switchable)
+		fmt.Fprintf(w, "manifest: target_bps=%d actual_bps=%.0f bitrate_delta_pct=%.2f quality_valid_samples=%d manifest_alignment_ms=%d alignment_ms=%d switchable=%v\n",
+			s.TargetBPS, s.ActualBPS, s.BitrateDelta, s.QualityValid, s.AlignmentMS, s.AlignmentMS, s.Manifest.Switchable)
 	}
 	if s.Boundary != nil {
 		fmt.Fprintf(w, "boundary: accepted=%v tolerance_ms=%d max_delta_ms=%d\n",
