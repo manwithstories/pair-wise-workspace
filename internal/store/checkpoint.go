@@ -16,6 +16,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"mediacore/internal/media"
@@ -56,9 +57,23 @@ type Checkpoint struct {
 	FramesOut       int64         `json:"frames_out"`
 	PeakDBFS        float64       `json:"peak_dbfs"`
 	Blocks          []BlockRecord `json:"blocks"`
-	PartialSHA256   string        `json:"partial_sha256"`
-	Complete        bool          `json:"complete"`
-	UpdatedAt       string        `json:"updated_at"`
+
+	// Cursor is the number of *input* frames fully absorbed into the
+	// completed blocks. Resume restarts the resampler at exactly this
+	// input frame, so the deterministic kernel reproduces the same tail
+	// state it had when the checkpoint was taken.
+	Cursor int64 `json:"cursor"`
+	// CanonicalSHA256 is the digest of the expected complete output,
+	// computed on the first run from the sample table alone.
+	CanonicalSHA256 string `json:"canonical_sha256"`
+	// Stats count blocks rejected by the loudness stage.
+	SilentBlocks  int `json:"silent_blocks"`
+	ClippedBlocks int `json:"clipped_blocks"`
+	LimitedBlocks int `json:"limited_blocks"`
+
+	PartialSHA256 string `json:"partial_sha256"`
+	Complete      bool   `json:"complete"`
+	UpdatedAt     string `json:"updated_at"`
 }
 
 // Path returns the checkpoint file path for a work directory.
@@ -257,4 +272,84 @@ func syncDir(dir string) error {
 func Digest(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
+}
+
+// Binding is everything a resume must match exactly.
+type Binding struct {
+	InputSHA256      string
+	ConfigDigest     string
+	ContainerVersion string
+	CodecVersion     string
+	OutputRate       int
+	OutputChannels   int
+	LoudnessDBFS     float64
+	BlockFrames      int
+}
+
+// Conflict explains why a checkpoint cannot be resumed.
+type Conflict struct {
+	Field   string
+	Stored  string
+	Current string
+}
+
+// Check reports whether cp matches b. A nil checkpoint is always compatible.
+// The returned error is a *media.Error with CodeCheckpointConflict and a
+// detail listing every differing field, so an operator sees all causes at
+// once rather than fixing them one run at a time.
+func Check(cp *Checkpoint, b Binding) error {
+	if cp == nil {
+		return nil
+	}
+	var diffs []Conflict
+	add := func(field, stored, current string) {
+		if stored != current {
+			diffs = append(diffs, Conflict{Field: field, Stored: stored, Current: current})
+		}
+	}
+	add("input_sha256", cp.InputSHA256, b.InputSHA256)
+	add("config_digest", cp.ConfigDigest, b.ConfigDigest)
+	add("container_version", cp.ContainerVersion, b.ContainerVersion)
+	add("codec_version", cp.CodecVersion, b.CodecVersion)
+	add("output_rate", itoa(cp.OutputRate), itoa(b.OutputRate))
+	add("output_channels", itoa(cp.OutputChannels), itoa(b.OutputChannels))
+	add("loudness_dbfs", ftoa(cp.LoudnessDBFS), ftoa(b.LoudnessDBFS))
+	add("block_frames", itoa(cp.BlockFrames), itoa(b.BlockFrames))
+	if len(diffs) == 0 {
+		return nil
+	}
+	msg := ""
+	for i, d := range diffs {
+		if i > 0 {
+			msg += "; "
+		}
+		msg += d.Field + " stored=" + d.Stored + " current=" + d.Current
+	}
+	return media.NewError(media.CodeCheckpointConflict, -1, 0, "%s", msg)
+}
+
+func itoa(i int) string {
+	if i == 0 {
+		return "0"
+	}
+	neg := i < 0
+	if neg {
+		i = -i
+	}
+	var buf [20]byte
+	p := len(buf)
+	for i > 0 {
+		p--
+		buf[p] = byte('0' + i%10)
+		i /= 10
+	}
+	if neg {
+		p--
+		buf[p] = '-'
+	}
+	return string(buf[p:])
+}
+
+func ftoa(f float64) string {
+	return strconv.FormatFloat(f, 'f', 3, 64)
 }
