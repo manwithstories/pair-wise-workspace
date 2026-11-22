@@ -53,6 +53,18 @@ func TestE2EBadIndexIndependentOfStream(t *testing.T) {
 	}
 }
 
+func TestE2EInputSizeLimit(t *testing.T) {
+	oversized := make([]byte, pipeline.MaxInputBytes+1)
+	p, _ := pipeline.New(pipeline.Config{
+		SourceID: "big", ChunkBytes: 2048, WorkDir: t.TempDir(),
+	})
+	_, err := p.Run(context.Background(), oversized)
+	fe, ok := fault.As(err)
+	if !ok || fe.Kind != fault.KindLimit {
+		t.Fatalf("expected limit fault, got %v", err)
+	}
+}
+
 // Fault class 3: interruption followed by resume exercises recovery, and the
 // recovered run must not rewrite already-durable fragments.
 func TestE2ERecoverySkipsExistingFragments(t *testing.T) {

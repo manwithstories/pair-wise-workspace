@@ -46,12 +46,13 @@ usage:
 }
 
 type demoFlags struct {
-	seed          int64
-	bytes         int
-	chunk         int
-	slowMs        int
-	interruptAt   int
-	resume        bool
+	seed        int64
+	bytes       int
+	chunk       int
+	slowMs      int
+	interruptAt int
+	resume      bool
+	corrupt     bool
 }
 
 func parseFlags(args []string) (demoFlags, error) {
@@ -99,6 +100,8 @@ func parseFlags(args []string) (demoFlags, error) {
 			_, err = fmt.Sscan(v, &f.interruptAt)
 		case "--resume":
 			f.resume = true
+		case "--corrupt":
+			f.corrupt = true
 		default:
 			return f, fmt.Errorf("unknown flag %q", a)
 		}

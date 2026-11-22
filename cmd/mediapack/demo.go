@@ -73,6 +73,16 @@ func runDemo(args []string) int {
 		return emitFault(err)
 	}
 	workDir := filepath.Join(os.TempDir(), "mediapack-work", fmt.Sprintf("seed-%d", f.seed))
+	if f.corrupt {
+		// Deterministic truncation inside a later keyframe AU. The parser
+		// reports the first byte where framing can no longer be satisfied.
+		if len(bundle.entries) < 3 {
+			fmt.Fprintln(os.Stderr, "sample too small to inject a fault")
+			return 4
+		}
+		cut := bundle.entries[2].Offset + 16
+		bundle.stream = bundle.stream[:cut]
+	}
 	cfg := pipeline.Config{
 		SourceID:    fmt.Sprintf("seed-%d/h264", f.seed),
 		ChunkBytes:  f.chunk,
@@ -86,6 +96,11 @@ func runDemo(args []string) int {
 	}
 	ctx := context.Background()
 	res, err := p.Run(ctx, bundle.stream)
+	if f.corrupt {
+		// Corrupt path: emit the precise byte offset as structured output and
+		// map the fault kind to the documented exit code (2).
+		return emitCorrupt(err)
+	}
 	if err != nil {
 		if _, ok := err.(*pipeline.ErrInterrupted); !ok {
 			return emitFault(err)
@@ -135,9 +150,31 @@ func runDemo(args []string) int {
 		Fragments:        m.Fragments,
 		Verify:           "ok",
 	}
+	// Persist the provenance manifest next to the durable fragments.
+	if err := writeProvenance(workDir, out); err != nil {
+		return emitFault(err)
+	}
 	raw, _ := json.MarshalIndent(out, "", "  ")
 	fmt.Println(string(raw))
 	return 0
+}
+
+// writeProvenance records the run's identity and digests as a standalone
+// manifest that operators can audit independently of the pipeline process.
+func writeProvenance(workDir string, out orderedOutput) error {
+	manifest := map[string]interface{}{
+		"source_sha256":     out.SourceSHA256,
+		"output_sha256":     out.OutputSHA256,
+		"cache_revalidated": out.CacheRevalidated,
+		"packets":           out.Packets,
+		"fragments":         out.Fragments,
+		"provenance":        "mediapack synthetic in-process sample",
+	}
+	raw, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(workDir, "manifest.json"), raw, 0o644)
 }
 
 // orderedOutput keeps the required fields in a stable, greppable order.
@@ -161,6 +198,25 @@ func emitFault(err error) int {
 	}
 	fmt.Fprintf(os.Stderr, "parse_error_offset=%d kind=%s stage=%s: %s\n",
 		fe.Offset, fe.Kind, fe.Stage, fe.Msg)
+	return exitFor(err)
+}
+
+// emitCorrupt prints the damage location as JSON on stdout (the required
+// parse_error_offset field) and returns the corruption exit code.
+func emitCorrupt(err error) int {
+	fe, ok := fault.As(err)
+	if !ok {
+		fmt.Fprintln(os.Stderr, err)
+		return 4
+	}
+	out := map[string]interface{}{
+		"parse_error_offset": fe.Offset,
+		"stage":              fe.Stage,
+		"kind":               fe.Kind.String(),
+		"verify":             "failed",
+	}
+	raw, _ := json.MarshalIndent(out, "", "  ")
+	fmt.Println(string(raw))
 	return exitFor(err)
 }
 

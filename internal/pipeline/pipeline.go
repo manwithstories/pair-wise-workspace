@@ -95,6 +95,9 @@ func (p *Pipeline) Resume(ctx context.Context, input []byte) (*Result, error) {
 
 // parseAndMap parses the input, maps the track and warms/validates the cache.
 func (p *Pipeline) parseAndMap(ctx context.Context, input []byte) error {
+	if err := checkSize(int64(len(input))); err != nil {
+		return err
+	}
 	if err := ctx.Err(); err != nil {
 		return fault.New(fault.KindCanceled, "pipeline", "canceled before parse")
 	}
