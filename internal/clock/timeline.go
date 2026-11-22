@@ -84,7 +84,7 @@ func (w *WrapTracker) Convert(ts uint32) (int64, error) {
 		epoch++ // forward wraparound
 	}
 	if epoch < 0 {
-		return 0, fmt.Errorf("clock: timestamp %u precedes stream epoch", ts)
+		return 0, fmt.Errorf("clock: timestamp %d precedes stream epoch", ts)
 	}
 	if epoch > w.epoch || (epoch == w.epoch && ts >= w.last && ts-w.last <= 1<<31) {
 		w.epoch = epoch
