@@ -122,6 +122,14 @@ func TestCorruptInputKeepsStructureReadable(t *testing.T) {
 	if r.DamageOffset <= 0 {
 		t.Fatalf("fixture damage offset=%d", r.DamageOffset)
 	}
+	// The corrupt sample's bytes must be a uniform 0xff run at that offset.
+	raw, err := os.ReadFile(r.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.DamageOffset >= int64(len(raw)) || raw[r.DamageOffset] != 0xff {
+		t.Fatalf("damage offset %d does not point at the marker", r.DamageOffset)
+	}
 }
 
 func TestMissingIndexRebuildsOffsets(t *testing.T) {
