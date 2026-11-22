@@ -163,7 +163,14 @@ func streamAndRemux(opts Options, s ingest.Streamer, plan *mapping.Plan,
 		for _, ev := range blk.Samples {
 			if consumed < resumeFrom {
 				// Already committed in the prior run: count once, skip the
-				// rewrite, but still include timing/bytes in full-run stats.
+				// rewrite, but still include QC, timing and bytes in full-run
+				// accounting so statistics describe the whole deliverable.
+				if err := qualityCheck(ev); err != nil {
+					return mediaerr.New(mediaerr.CodeIO,
+						"resumed sample failed quality check: "+err.Error()).
+						At("", ev.TrackID, ev.DataOffset)
+				}
+				stats.QualityChecked++
 				stats.ticks[ev.TrackID] += ev.Duration
 				stats.bytes[ev.TrackID] += ev.Size
 				consumed++

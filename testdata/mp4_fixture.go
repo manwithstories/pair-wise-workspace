@@ -6,13 +6,25 @@ import "encoding/binary"
 // ftyp + moov(mvhd, trak[video], trak[audio]) + mdat, one chunk per track
 // with stts/stsc/stsz/stco tables describing every sample.
 func buildMP4(spec FixtureSpec) ([]byte, error) {
-	videoSamples := make([][]byte, spec.VideoSamples)
-	audioSamples := make([][]byte, spec.AudioSamples)
-	for i := range videoSamples {
-		videoSamples[i] = videoPayload(int64(i), spec.Width, spec.Height)
-	}
-	for i := range audioSamples {
-		audioSamples[i] = audioPayload(int64(i))
+	var videoSamples, audioSamples [][]byte
+	if spec.TargetBitrate > 0 {
+		// Total encoded bytes = bitrate * duration / 8, with duration derived
+		// exactly from the video timeline ticks and timescale.
+		videoTicks := int64(spec.VideoSamples) * spec.FrameDur
+		totalBytes := spec.TargetBitrate * videoTicks / spec.VideoScale / 8
+		videoBytes := totalBytes * 90 / 100
+		audioBytes := totalBytes - videoBytes
+		videoSamples = SizedPayloads(0, spec.VideoSamples, videoBytes)
+		audioSamples = SizedPayloads(1, spec.AudioSamples, audioBytes)
+	} else {
+		videoSamples = make([][]byte, spec.VideoSamples)
+		audioSamples = make([][]byte, spec.AudioSamples)
+		for i := range videoSamples {
+			videoSamples[i] = videoPayload(int64(i), spec.Width, spec.Height)
+		}
+		for i := range audioSamples {
+			audioSamples[i] = audioPayload(int64(i))
+		}
 	}
 
 	var mdatPayload []byte

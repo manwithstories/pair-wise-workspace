@@ -25,6 +25,10 @@ type FixtureSpec struct {
 	Height       uint32
 	AudioSamples int
 	AudioRate    int64
+	// TargetBitrate, when > 0, sizes payloads so total encoded bytes equal
+	// bitrate * media_duration / 8 exactly, making the reported bitrate match
+	// the target within floating-point rounding. Zero keeps geometry sizing.
+	TargetBitrate int64
 	// Injection, when non-empty, corrupts the file deterministically:
 	// "truncated-box" cuts an MP4 box short; "truncated-klv" cuts an MXF
 	// essence payload short; "bad-magic" overwrites the leading bytes.
@@ -120,19 +124,45 @@ func videoPayload(i int64, w, h uint32) []byte {
 	if size < 16 {
 		size = 16
 	}
+	return sizedPayload(0, i, size)
+}
+
+func audioPayload(i int64) []byte {
+	return sizedPayload(1, i, 256) // 128 stereo samples @16-bit
+}
+
+// sizedPayload builds a deterministic buffer of exactly size bytes.
+func sizedPayload(track, i, size int64) []byte {
+	if size < 1 {
+		size = 1
+	}
 	p := make([]byte, size)
+	base := SampleByte(track, i)
 	for k := range p {
-		p[k] = SampleByte(0, i) ^ byte(k)
+		p[k] = base ^ byte(k)
 	}
 	return p
 }
 
-func audioPayload(i int64) []byte {
-	p := make([]byte, 256) // 128 stereo samples @16-bit
-	for k := range p {
-		p[k] = SampleByte(1, i) ^ byte(k)
+// SizedPayloads returns per-sample payloads whose total byte count equals
+// targetTotal exactly: an even base size per sample with the integer
+// remainder spread over the first samples. All sizes stay well under the
+// 4 MiB block ceiling for the demo workloads.
+func SizedPayloads(track, count int, targetTotal int64) [][]byte {
+	if count <= 0 {
+		return nil
 	}
-	return p
+	base := targetTotal / int64(count)
+	rem := targetTotal - base*int64(count)
+	out := make([][]byte, count)
+	for i := 0; i < count; i++ {
+		size := base
+		if int64(i) < rem {
+			size++
+		}
+		out[i] = sizedPayload(int64(track), int64(i), size)
+	}
+	return out
 }
 
 // TotalInputSamples reports how many samples a spec produces across tracks.

@@ -1,0 +1,188 @@
+package pipeline
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+
+	"mediarun/internal/ingest"
+	"mediarun/internal/mapping"
+	"mediarun/internal/mediaerr"
+	"mediarun/internal/metadata"
+	"mediarun/internal/remux"
+	"mediarun/internal/timebase"
+)
+
+// Run executes one full ingest -> resolve/map -> remux job with back-pressure,
+// checkpointing, provenance and statistics. On any structured error the output
+// is aborted (never committed) and the error is returned for exit-code mapping.
+func Run(opts Options) (*Stats, error) {
+	if err := validateOptions(opts); err != nil {
+		return nil, err
+	}
+	depth := opts.QueueDepth
+	if depth <= 0 {
+		depth = DefaultQueueDepth
+	}
+
+	inputHash, err := HashFile(opts.InputPath)
+	if err != nil {
+		return nil, err
+	}
+	cfgRaw, err := json.Marshal(opts.Mapping)
+	if err != nil {
+		return nil, mediaerr.New(mediaerr.CodeInvalidConfig, err.Error())
+	}
+	mappingHash, err := HashConfig(cfgRaw)
+	if err != nil {
+		return nil, err
+	}
+
+	streamer, err := ingest.Open(opts.InputPath)
+	if err != nil {
+		return nil, err
+	}
+	defer streamer.Close()
+
+	plan, err := mapping.Build(opts.Mapping, streamer.Info().Tracks)
+	if err != nil {
+		return nil, err
+	}
+	decisions, err := resolveAll(opts, streamer.Info())
+	if err != nil {
+		return nil, err
+	}
+
+	resumeFrom, partialHash, err := prepareResume(opts, inputHash, mappingHash)
+	if err != nil {
+		return nil, err
+	}
+
+	outputPath := filepath.Join(opts.WorkDir, opts.OutputName)
+	writer, err := remux.NewWriter(outputPath, plan)
+	if err != nil {
+		return nil, err
+	}
+
+	stats, runErr := streamAndRemux(opts, streamer, plan, writer, resumeFrom, depth)
+	stats.InputSHA256 = inputHash
+	stats.MappingSHA256 = mappingHash
+	stats.Format = streamer.Info().Format
+	stats.ResumeFromSample = resumeFrom
+
+	if runErr != nil {
+		writer.Abort()
+		// A clean interrupt is a checkpoint boundary, not a failure: persist
+		// progress so --resume can continue without re-counting samples.
+		if mediaerr.Is(runErr, errInterruptCode) {
+			return checkpointInterrupt(opts, stats, partialHash, outputPath)
+		}
+		return stats, runErr
+	}
+
+	hash, err := writer.Commit()
+	if err != nil {
+		return stats, err
+	}
+	stats.OutputSHA256 = hash
+	stats.OutputCommitted = true
+
+	if err := finalizeTraceAndCheckpoint(opts, inputHash, mappingHash, hash, stats); err != nil {
+		return stats, err
+	}
+	fillBitrateAndAlignment(stats, streamer.Info())
+	return stats, nil
+}
+
+// streamAndRemux runs the bounded producer (ingest) and consumer (remux)
+// concurrently. A full queue blocks the parser, so slow writes propagate
+// back-pressure. Resume skips already-committed samples by index.
+func streamAndRemux(opts Options, s ingest.Streamer, plan *mapping.Plan,
+	w *remux.Writer, resumeFrom, depth int64) (*Stats, error) {
+	stats := &Stats{TargetBitrateBPS: opts.TargetBitrate}
+	q := NewBoundedQueue(int(depth))
+	trace := NewTrace(stats.InputSHA256, stats.MappingSHA256,
+		mappingRules(plan), opts.Metadata)
+	accepted := map[string]bool{}
+	for _, t := range plan.Targets {
+		accepted[t.Source.ID] = true
+	}
+
+	producerErr := make(chan error, 1)
+	go func() {
+		cb := newChunkBlock()
+		for {
+			ev, err := s.Next()
+			if err == io.EOF {
+				if len(cb.current.Samples) > 0 {
+					if perr := q.Push(cb.current); perr != nil {
+						producerErr <- perr
+						return
+					}
+				}
+				q.Close()
+				producerErr <- nil
+				return
+			}
+			if err != nil {
+				producerErr <- err
+				q.Close()
+				return
+			}
+			stats.SamplesIn++
+			if !accepted[ev.TrackID] {
+				stats.DroppedSamples++
+				continue
+			}
+			if cb.add(ev) {
+				if perr := q.Push(cb.current); perr != nil {
+					producerErr <- perr
+					return
+				}
+				cb.reset()
+			}
+		}
+	}()
+
+	var consumed int64
+	for blk := range q.ch {
+		for _, ev := range blk.Samples {
+			// Resume: samples already in the prior committed output are
+			// skipped but still counted exactly once in/out accounting.
+			if consumed < resumeFrom {
+				consumed++
+				stats.SamplesOut++
+				continue
+			}
+			if err := qualityCheck(ev); err != nil {
+				stats.QualityErrors++
+				return stats, mediaerr.New(mediaerr.CodeIO,
+					"quality check failed: "+err.Error()).
+					At(ev.Timebase.TicksPerSecond().String(), ev.TrackID, ev.DataOffset)
+			}
+			stats.QualityChecked++
+			span := trace.NextOutputSpan(ev.TrackID, ev.Size)
+			if err := w.WriteSample(ev); err != nil {
+				return stats, err
+			}
+			trace.Record(TraceEntry{
+				TrackID: ev.TrackID, SampleIdx: ev.Index,
+				InputSpan:  Span{Start: ev.DataOffset, End: ev.DataOffset + ev.Size},
+				OutputSpan: span,
+				PTS:        ev.PTS, DTS: ev.DTS,
+			})
+			consumed++
+			stats.SamplesOut++
+			if opts.InterruptAfter > 0 && stats.SamplesOut >= opts.InterruptAfter {
+				return stats, errInterrupt
+			}
+		}
+	}
+	if err := <-producerErr; err != nil {
+		return stats, err
+	}
+	stats.trace = trace
+	return stats, nil
+}

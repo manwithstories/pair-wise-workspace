@@ -25,15 +25,34 @@ func buildMXF(spec FixtureSpec) ([]byte, error) {
 	out = append(out, ber(int64(len(pack)))...)
 	out = append(out, pack...)
 
+	var videoPayloads, audioPayloads [][]byte
+	if spec.TargetBitrate > 0 {
+		// MXF subset uses one edit unit per sample at VideoScale ticks/sec.
+		totalBytes := spec.TargetBitrate * int64(spec.VideoSamples) / spec.VideoScale / 8
+		videoBytes := totalBytes * 90 / 100
+		videoPayloads = SizedPayloads(0, spec.VideoSamples, videoBytes)
+		audioPayloads = SizedPayloads(1, spec.AudioSamples, totalBytes-videoBytes)
+	}
+
 	// Interleave samples deterministically: video first, then audio.
 	for i := 0; i < spec.VideoSamples; i++ {
-		p := videoPayload(int64(i), spec.Width, spec.Height)
+		var p []byte
+		if videoPayloads != nil {
+			p = videoPayloads[i]
+		} else {
+			p = videoPayload(int64(i), spec.Width, spec.Height)
+		}
 		out = append(out, ingest.MXFVideoULForTest()...)
 		out = append(out, ber(int64(len(p)))...)
 		out = append(out, p...)
 	}
 	for i := 0; i < spec.AudioSamples; i++ {
-		p := audioPayload(int64(i))
+		var p []byte
+		if audioPayloads != nil {
+			p = audioPayloads[i]
+		} else {
+			p = audioPayload(int64(i))
+		}
 		out = append(out, ingest.MXFAudioULForTest()...)
 		out = append(out, ber(int64(len(p)))...)
 		out = append(out, p...)
