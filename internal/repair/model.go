@@ -96,9 +96,14 @@ type Damage struct {
 	SampleCount   int        `json:"sample_count"`
 	ExcludedBytes int64      `json:"excluded_bytes"`
 	StartMS       int64      `json:"start_ms"`
-	// ResumeMS is when recovery restarted (-1 if it never did).
-	ResumeMS int64  `json:"resume_ms"`
-	Detail   string `json:"detail,omitempty"`
+	// ResumeMS is when recovery restarted; -1 when it never did.
+	ResumeMS int64 `json:"resume_ms"`
+	// Resumed reports that a verifiable sync boundary closed this damage.
+	Resumed bool `json:"resumed"`
+	// Tail reports damage that ran to the end of the declared timeline, so it
+	// was never closed by a resume boundary.
+	Tail   bool   `json:"tail"`
+	Detail string `json:"detail,omitempty"`
 }
 
 // Span is a recovered or unrecoverable time range.

@@ -79,6 +79,7 @@ func scanTrack(path string, tr *probe.Track, cfg Config) *TrackResult {
 			EndMS:   end,
 		})
 		dam.ResumeMS = resumeMS
+		dam.Resumed = !dam.Tail
 		res.Damages = append(res.Damages, *dam)
 		dam = nil
 	}
@@ -196,6 +197,9 @@ func scanTrack(path string, tr *probe.Track, cfg Config) *TrackResult {
 		trackEnd := clock.AddMS(tr.DurationMS, tr.StartMS)
 		if trackEnd < dam.StartMS {
 			trackEnd = dam.StartMS
+		}
+		if dam != nil {
+			dam.Tail = true
 		}
 		resumeSpan(trackEnd)
 	}
