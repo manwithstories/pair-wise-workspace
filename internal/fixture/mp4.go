@@ -113,7 +113,7 @@ func WriteRTPSidecar(path string, p *Plan) error {
 		if _, err := f.Write(hdr); err != nil {
 			return err
 		}
-		if _, err := f.Write(p.RTPBuf[i*RTPPacketSize:(i+1)*RTPPacketSize]); err != nil {
+		if _, err := f.Write(p.RTPBuf[i*RTPPacketSize : (i+1)*RTPPacketSize]); err != nil {
 			return err
 		}
 	}

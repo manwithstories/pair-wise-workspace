@@ -46,7 +46,7 @@ func runPipeline(args []string) int {
 		return classifyError(err)
 	}
 	out, _ := json.Marshal(map[string]string{
-		"manifest":     "manifest.json",
+		"manifest":      "manifest.json",
 		"output_sha256": built.runnerResult.OutputSHA256,
 	})
 	fmt.Println(string(out))

@@ -55,8 +55,8 @@ func writeNegativeEditMP4(t *testing.T, path string) {
 	must(bw.Start("elst"))
 	must(bw.FullBox(0, 0))
 	buf := fixture.U32(nil, 1)
-	buf = fixture.U32(buf, 180000) // segment duration
-	buf = fixture.U32(buf, uint32(int64(-90000) & 0xffffffff)) // negative media time
+	buf = fixture.U32(buf, 180000)                           // segment duration
+	buf = fixture.U32(buf, uint32(int64(-90000)&0xffffffff)) // negative media time
 	buf = append(buf, 0x00, 0x01, 0x00, 0x00)
 	_, _ = bw.Write(buf)
 	must(bw.End())

@@ -17,23 +17,23 @@ const ManifestVersion = "mediaslice-manifest/v1"
 
 // SegmentEntry describes one emitted segment of one representation.
 type SegmentEntry struct {
-	RepID       string       `json:"rep_id"`
-	Sequence    int          `json:"sequence"`
-	FileName    string       `json:"file"`
-	FromTick    media.Ticks  `json:"from_tick"`
-	ToTick      media.Ticks  `json:"to_tick"`
-	Bytes       int64        `json:"bytes"`
-	SHA256      string       `json:"sha256"`
-	SampleCount int          `json:"sample_count"`
+	RepID       string      `json:"rep_id"`
+	Sequence    int         `json:"sequence"`
+	FileName    string      `json:"file"`
+	FromTick    media.Ticks `json:"from_tick"`
+	ToTick      media.Ticks `json:"to_tick"`
+	Bytes       int64       `json:"bytes"`
+	SHA256      string      `json:"sha256"`
+	SampleCount int         `json:"sample_count"`
 }
 
 // Manifest is the deterministic per-run segment list.
 type Manifest struct {
-	Version       string         `json:"version"`
-	ParserVersion string         `json:"parser_version"`
-	SegmentTicks  media.Ticks    `json:"segment_ticks"`
-	Representations []string     `json:"representations"`
-	Segments      []SegmentEntry `json:"segments"`
+	Version         string         `json:"version"`
+	ParserVersion   string         `json:"parser_version"`
+	SegmentTicks    media.Ticks    `json:"segment_ticks"`
+	Representations []string       `json:"representations"`
+	Segments        []SegmentEntry `json:"segments"`
 	// SegmentGroups[sequence][repID] gives symmetric cross-rep lookup.
 	SegmentCount int `json:"segment_count"`
 	// InputHashes binds every output to its exact source bytes.

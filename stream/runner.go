@@ -15,9 +15,9 @@ import (
 
 // Default memory budgets: far below the 256 MiB process ceiling.
 const (
-	DefaultMaxBufferedBytes int64 = 32 * 1024 * 1024
-	DefaultMaxBufferedSamples     = 8192
-	ioCopyChunk                   = 64 * 1024
+	DefaultMaxBufferedBytes   int64 = 32 * 1024 * 1024
+	DefaultMaxBufferedSamples       = 8192
+	ioCopyChunk                     = 64 * 1024
 )
 
 // Config controls one streaming run.
@@ -59,10 +59,10 @@ type RunResult struct {
 
 // repInput pairs one representation's validated index and cutting boundary.
 type repInput struct {
-	id     string
-	idx    *scan.FileIndex
-	track  *scan.TrackIndex
-	bound  *align.TrackBoundary
+	id    string
+	idx   *scan.FileIndex
+	track *scan.TrackIndex
+	bound *align.TrackBoundary
 }
 
 // Runner executes a ladder plan against source files under memory budgets.

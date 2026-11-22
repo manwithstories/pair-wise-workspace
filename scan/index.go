@@ -98,15 +98,15 @@ type TrackSummary struct {
 
 // FileIndex is the complete, verifiable scan result for one MP4 source.
 type FileIndex struct {
-	ParserVersion string           `json:"parser_version"`
-	SourcePath    string           `json:"source_path"`
-	InputSHA256   string           `json:"input_sha256"`
-	FileSize      int64            `json:"file_size"`
-	Tracks        []TrackIndex     `json:"tracks"`
-	Summaries     []TrackSummary   `json:"summaries"`
-	MdatStart     int64            `json:"mdat_start"`
-	MdatEnd       int64            `json:"mdat_end"`
-	Errors        media.ErrorList  `json:"errors,omitempty"`
+	ParserVersion string          `json:"parser_version"`
+	SourcePath    string          `json:"source_path"`
+	InputSHA256   string          `json:"input_sha256"`
+	FileSize      int64           `json:"file_size"`
+	Tracks        []TrackIndex    `json:"tracks"`
+	Summaries     []TrackSummary  `json:"summaries"`
+	MdatStart     int64           `json:"mdat_start"`
+	MdatEnd       int64           `json:"mdat_end"`
+	Errors        media.ErrorList `json:"errors,omitempty"`
 }
 
 // IndexFileName is the content-addressed index name inside workDir/index.

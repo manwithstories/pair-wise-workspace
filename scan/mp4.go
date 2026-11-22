@@ -14,9 +14,9 @@ import (
 // boxNode is one node of the lightweight full-tree box walk used to locate
 // truncation at exact byte offsets and to record mdat bounds.
 type boxNode struct {
-	info       mp4.BoxInfo
-	parent     *boxNode
-	children   []*boxNode
+	info     mp4.BoxInfo
+	parent   *boxNode
+	children []*boxNode
 }
 
 // walkBoxes performs a recursive header-only scan of the whole file. A box

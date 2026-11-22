@@ -18,7 +18,7 @@ func writeVideoTrak(bw *BoxWriter, p *Plan) error {
 	buf := U32(nil, 1) // entry count
 	buf = U32(buf, uint32(p.Spec.DurationTicks))
 	buf = append(buf, u32i(int64(p.Spec.EditStartTicks))...) // media_time v0
-	buf = append(buf, 0x00, 0x01, 0x00, 0x00)                 // rate 1.0
+	buf = append(buf, 0x00, 0x01, 0x00, 0x00)                // rate 1.0
 	_, _ = bw.Write(buf)
 	must(bw.End())
 	must(bw.End())
@@ -29,9 +29,9 @@ func writeVideoTrak(bw *BoxWriter, p *Plan) error {
 	must(bw.Start("minf"))
 	must(bw.Start("stbl"))
 	writeVideoStbl(bw, p)
-	must(bw.End()) // stbl
-	must(bw.End()) // minf
-	must(bw.End()) // mdia
+	must(bw.End())  // stbl
+	must(bw.End())  // minf
+	must(bw.End())  // mdia
 	return bw.End() // trak
 }
 
@@ -189,7 +189,7 @@ func writeStsc(bw *BoxWriter, chunks, samples uint32) {
 	must(bw.Start("stsc"))
 	must(bw.FullBox(0, 0))
 	buf := U32(nil, 1) // one run
-	buf = U32(buf, 1) // first_chunk
+	buf = U32(buf, 1)  // first_chunk
 	buf = U32(buf, samples)
 	buf = U32(buf, 1) // sample description index
 	_ = chunks

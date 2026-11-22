@@ -117,7 +117,7 @@ func (u *WrapUnwrapper) Push(seq uint16, raw uint32) (UnwrapResult, bool) {
 		u.events = append(u.events, WrapEvent{
 			Sequence:     seq,
 			RawTimestamp: raw,
-			Unwrapped:   u.lastUnwrap,
+			Unwrapped:    u.lastUnwrap,
 		})
 	}
 	u.lastSeq = seq

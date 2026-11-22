@@ -32,6 +32,7 @@ func elstValues(e *mp4.ElstEntry) (dur, mediaTime int64, rate int32) {
 	}
 	return int64(e.SegmentDurationV0), int64(e.MediaTimeV0), int32(e.MediaRateInteger)
 }
+
 // parseSamples expands the chunk/sample tables into absolute offsets and
 // 90 kHz timings and verifies every byte range lies inside mdat.
 func parseSamples(f *os.File, source string, trak *boxNode, ti *TrackIndex, idx *FileIndex) *media.MediaError {

@@ -29,7 +29,7 @@ func BuildPlan(s Spec) *Plan {
 		if s.BoundaryJitterTicks > 0 {
 			jitter = media.Ticks((rng.Intn(2*s.BoundaryJitterTicks+1) - s.BoundaryJitterTicks))
 		}
-		idealEnd := media.Ticks(seg+1) * s.SegmentTicks + jitter
+		idealEnd := media.Ticks(seg+1)*s.SegmentTicks + jitter
 		if seg == nSeg-1 {
 			idealEnd = s.DurationTicks
 		}
@@ -125,4 +125,3 @@ func (p *Plan) RTPSequence(i int) uint16 {
 func audioDuration90k(rate uint32, raw uint32) media.Ticks {
 	return media.Ticks(uint64(raw) * uint64(media.ClockRate) / uint64(rate))
 }
-

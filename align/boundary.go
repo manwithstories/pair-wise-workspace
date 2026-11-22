@@ -19,20 +19,20 @@ type Interval struct {
 
 // CutPoint is one chosen segment boundary for one representation.
 type CutPoint struct {
-	Tick          media.Ticks `json:"tick"`
-	SampleIndex   int         `json:"sample_index"`
-	Keyframe      bool        `json:"keyframe"`
+	Tick        media.Ticks `json:"tick"`
+	SampleIndex int         `json:"sample_index"`
+	Keyframe    bool        `json:"keyframe"`
 	// WaitTicks is how far behind the ideal grid the cut had to wait.
 	WaitTicks media.Ticks `json:"wait_ticks"`
 }
 
 // TrackBoundary holds the cutting plan for one representation.
 type TrackBoundary struct {
-	RepID         string       `json:"rep_id"`
-	SegmentTicks  media.Ticks  `json:"segment_ticks"`
-	Cuts          []CutPoint   `json:"cuts"`
-	Unsliceable   []Interval   `json:"unsliceable,omitempty"`
-	TrackErrors   media.ErrorList `json:"track_errors,omitempty"`
+	RepID        string          `json:"rep_id"`
+	SegmentTicks media.Ticks     `json:"segment_ticks"`
+	Cuts         []CutPoint      `json:"cuts"`
+	Unsliceable  []Interval      `json:"unsliceable,omitempty"`
+	TrackErrors  media.ErrorList `json:"track_errors,omitempty"`
 }
 
 // BoundaryConfig controls cut point generation.
@@ -74,7 +74,7 @@ func ComputeTrackBoundary(repID string, idx *scan.FileIndex, cfg BoundaryConfig)
 			lo-- // permit a keyframe placed slightly before the ideal grid
 		}
 		best := -1
-		var bestDist media.Ticks = 1<<62
+		var bestDist media.Ticks = 1 << 62
 		for i := lo; i < n; i++ {
 			smp := video.Sample(i)
 			if !smp.Keyframe {
@@ -139,9 +139,9 @@ func ComputeTrackBoundary(repID string, idx *scan.FileIndex, cfg BoundaryConfig)
 
 // CommonBoundary is one aligned boundary shared by every representation.
 type CommonBoundary struct {
-	Index      int            `json:"index"`
-	GridTick   media.Ticks    `json:"grid_tick"`
-	PerRep     map[string]CutPoint `json:"per_rep"`
+	Index    int                 `json:"index"`
+	GridTick media.Ticks         `json:"grid_tick"`
+	PerRep   map[string]CutPoint `json:"per_rep"`
 	// DeltaTicks is max-min of the per-representation boundary ticks; the
 	// acceptance contract requires this to stay within one clock tick.
 	DeltaTicks media.Ticks `json:"delta_ticks"`
@@ -149,10 +149,10 @@ type CommonBoundary struct {
 
 // AlignResult is the full ladder alignment.
 type AlignResult struct {
-	SegmentTicks media.Ticks       `json:"segment_ticks"`
-	Boundaries   []CommonBoundary  `json:"boundaries"`
-	MaxDelta     media.Ticks       `json:"max_delta_ticks"`
-	PerTrack     []*TrackBoundary  `json:"per_track"`
+	SegmentTicks media.Ticks           `json:"segment_ticks"`
+	Boundaries   []CommonBoundary      `json:"boundaries"`
+	MaxDelta     media.Ticks           `json:"max_delta_ticks"`
+	PerTrack     []*TrackBoundary      `json:"per_track"`
 	Unsliceable  map[string][]Interval `json:"unsliceable,omitempty"`
 }
 

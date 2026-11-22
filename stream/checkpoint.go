@@ -18,18 +18,18 @@ const CheckpointVersion = "mediaslice-checkpoint/v1"
 // can leave either the previous complete checkpoint or the new one, never a
 // torn file, and the last fully written segment always precedes it.
 type Checkpoint struct {
-	Version       string             `json:"version"`
-	ParserVersion string             `json:"parser_version"`
+	Version       string `json:"version"`
+	ParserVersion string `json:"parser_version"`
 	// NextSequence is the first segment not yet completed.
-	NextSequence  int                `json:"next_sequence"`
+	NextSequence int `json:"next_sequence"`
 	// BoundaryTick records the exact cut tick at NextSequence.
-	BoundaryTick  media.Ticks        `json:"boundary_tick"`
+	BoundaryTick media.Ticks `json:"boundary_tick"`
 	// Completed maps "repID/seq" -> SegmentEntry for finished segments.
-	Completed     map[string]SegmentEntry `json:"completed"`
+	Completed map[string]SegmentEntry `json:"completed"`
 	// InputHashes is the source fingerprint captured at first run.
-	InputHashes   map[string]string `json:"input_hashes"`
+	InputHashes map[string]string `json:"input_hashes"`
 	// ManifestDigest covers the deterministic ordering of emitted segments.
-	ManifestDigest string           `json:"manifest_digest"`
+	ManifestDigest string `json:"manifest_digest"`
 }
 
 func checkpointPath(workDir string) (string, error) {

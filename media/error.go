@@ -39,9 +39,9 @@ type MediaError struct {
 	ByteOffset int64 `json:"byte_offset,omitempty"`
 	// ErrorBytes is the scanner's localization uncertainty in bytes; 0 means
 	// the offset is exact.
-	ErrorBytes int   `json:"error_bytes,omitempty"`
-	FromTick   Ticks `json:"from_tick,omitempty"`
-	ToTick     Ticks `json:"to_tick,omitempty"`
+	ErrorBytes int    `json:"error_bytes,omitempty"`
+	FromTick   Ticks  `json:"from_tick,omitempty"`
+	ToTick     Ticks  `json:"to_tick,omitempty"`
 	Message    string `json:"message"`
 }
 

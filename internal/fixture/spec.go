@@ -51,37 +51,37 @@ func DefaultSpec(id string, seed int64, duration, segment media.Ticks) Spec {
 		BoundaryJitterTicks: 1,
 		KeyframeEveryN:      1,
 		EditStartTicks:      media.FromSeconds(1) / 2, // 0.5s non-zero start
-		JitterSeed:          seed, // shared across reps: common boundaries
+		JitterSeed:          seed,                     // shared across reps: common boundaries
 	}
 }
 
 // VideoSample is one generated video sample.
 type VideoSample struct {
-	Index       int
-	Offset      uint32 // payload offset inside mdat
-	Size        uint32
-	StartTick   media.Ticks
-	Duration    media.Ticks
-	IsKeyframe  bool
+	Index      int
+	Offset     uint32 // payload offset inside mdat
+	Size       uint32
+	StartTick  media.Ticks
+	Duration   media.Ticks
+	IsKeyframe bool
 }
 
 // AudioSample is one generated audio sample (timescale = AudioRate).
 type AudioSample struct {
-	Index     int
-	Offset    uint32
-	Size      uint32
-	StartRaw  uint32 // in AudioRate units
-	Duration  uint32
+	Index    int
+	Offset   uint32
+	Size     uint32
+	StartRaw uint32 // in AudioRate units
+	Duration uint32
 }
 
 // Plan holds the fully computed sample tables for one fixture.
 type Plan struct {
-	Spec   Spec
-	Video  []VideoSample
-	Audio  []AudioSample
+	Spec  Spec
+	Video []VideoSample
+	Audio []AudioSample
 	// MdatPayloadSize is the total sample byte count (excluding mdat header).
-	MdatPayloadSize int
-	MdatSize        int // including 8-byte header
+	MdatPayloadSize  int
+	MdatSize         int // including 8-byte header
 	videoChunkOffset uint32
 	audioChunkOffset uint32
 	// RTPBuf is the concatenated RTP packets (each fixed-size, no length

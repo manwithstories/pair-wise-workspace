@@ -8,16 +8,16 @@ import (
 
 // SegmentRange is one planned segment's time coverage for one representation.
 type SegmentRange struct {
-	RepID      string       `json:"rep_id"`
-	Sequence   int          `json:"sequence"`
-	FromTick   media.Ticks  `json:"from"`
-	ToTick     media.Ticks  `json:"to"`
+	RepID    string      `json:"rep_id"`
+	Sequence int         `json:"sequence"`
+	FromTick media.Ticks `json:"from"`
+	ToTick   media.Ticks `json:"to"`
 }
 
 // LadderSegment groups every representation's coverage of one common segment.
 type LadderSegment struct {
-	Sequence int                      `json:"sequence"`
-	Ranges   map[string]SegmentRange  `json:"ranges"`
+	Sequence int                     `json:"sequence"`
+	Ranges   map[string]SegmentRange `json:"ranges"`
 }
 
 // LadderPlan is the validated, streamer-ready cutting plan.
