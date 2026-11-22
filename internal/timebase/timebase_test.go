@@ -88,14 +88,15 @@ func TestTimebaseConversionsRoundTrip(t *testing.T) {
 	if !oneSec.Equal(FromInt(1)) {
 		t.Fatalf("90000 ticks = %v, want 1s", oneSec)
 	}
-	// 30000/1001 frame clock: 30000 ticks is just under one second.
-	ntsc := NewTimebaseRat(30000, 1001)
-	dur := ntsc.ToSeconds(30000)
-	if dur.Cmp(FromInt(1)) != -1 {
-		t.Fatalf("NTSC frame window %v must be < 1s", dur)
+	// MP4-style timescale=30000: one 29.97 fps frame spans 1001 ticks,
+	// i.e. 1001/30000 s — slightly LONGER than a nominal 1/30 s frame.
+	tb30k := NewTimebase(30000)
+	frame := tb30k.ToSeconds(1001)
+	if frame.Cmp(New(1, 30)) <= 0 {
+		t.Fatalf("frame window %v must be > 1/30 s for 29.97 fps", frame)
 	}
-	ticks, residual := ntsc.FromSeconds(dur)
-	if ticks != 30000 || !residual.IsZero() {
+	ticks, residual := tb30k.FromSeconds(frame)
+	if ticks != 1001 || !residual.IsZero() {
 		t.Fatalf("round trip got ticks=%d residual=%v", ticks, residual)
 	}
 }

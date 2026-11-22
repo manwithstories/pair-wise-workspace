@@ -38,8 +38,8 @@ func New(num, den int64) Rational {
 // FromInt promotes an integer to a rational.
 func FromInt(v int64) Rational { return Rational{Num: v, Den: 1} }
 
-// Zero is the canonical zero value.
-var Zero = Rational{}
+// Zero is the canonical zero value (normalized to 0/1 so Cmp works).
+var Zero = Rational{Num: 0, Den: 1}
 
 func (r Rational) String() string {
 	if r.Den == 1 || r.Den == 0 {
@@ -57,10 +57,17 @@ func (r Rational) IsNegative() bool { return r.Num < 0 }
 
 // Cmp returns -1/0/1 comparing r and o exactly.
 func (r Rational) Cmp(o Rational) int {
+	rd, od := r.Den, o.Den
+	if rd == 0 { // defensive: a bare Rational{} means zero
+		rd = 1
+	}
+	if od == 0 {
+		od = 1
+	}
 	a := big.NewInt(r.Num)
-	a.Mul(a, big.NewInt(o.Den))
+	a.Mul(a, big.NewInt(od))
 	b := big.NewInt(o.Num)
-	b.Mul(b, big.NewInt(r.Den))
+	b.Mul(b, big.NewInt(rd))
 	return a.Cmp(b)
 }
 
@@ -100,7 +107,8 @@ func (r Rational) Float64() float64 {
 func RequireNonNegative(r Rational, track string) error {
 	if r.IsNegative() {
 		return mediaerr.New(mediaerr.CodeNegativeDuration,
-			fmt.Sprintf("negative duration %s on track %s", r, track))
+			fmt.Sprintf("negative duration %s on track %s", r, track)).
+			At("", track, -1)
 	}
 	return nil
 }
