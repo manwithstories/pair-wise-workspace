@@ -201,14 +201,28 @@ func (s *Store) writeAtomic(obj Object, data []byte) error {
 }
 
 func (s *Store) quarantine(digest string) error {
-	gen := fmt.Sprintf("%s.%d", digest, os.Getpid())
+	// Name each artifact uniquely: a retry in the same process must not
+	// clobber the evidence from the first detection.
 	for _, from := range []string{s.blobPath(digest), s.metaPath(digest)} {
-		to := filepath.Join(s.quarantineDir(), filepath.Base(from)+"."+gen)
+		to, err := uniqueName(filepath.Join(s.quarantineDir(), filepath.Base(from)))
+		if err != nil {
+			return fault.Wrap(fault.Fatal, "cache", digest, err)
+		}
 		if err := os.Rename(from, to); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fault.Wrap(fault.Fatal, "cache", digest, err)
 		}
 	}
 	return nil
+}
+
+func uniqueName(base string) (string, error) {
+	for i := 0; i < 1000; i++ {
+		cand := fmt.Sprintf("%s.%d.%d", base, os.Getpid(), i)
+		if _, err := os.Stat(cand); errors.Is(err, os.ErrNotExist) {
+			return cand, nil
+		}
+	}
+	return "", fmt.Errorf("cache: cannot allocate quarantine name for %s", base)
 }
 
 func checkDigest(d string) error {

@@ -3,6 +3,7 @@ package cache
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -115,5 +116,59 @@ func TestRejectOversize(t *testing.T) {
 	s, _ := Open(t.TempDir())
 	if _, _, err := s.Put("m/big.m4s", make([]byte, 64<<20+1)); err == nil {
 		t.Fatal("segment over 64 MiB must be rejected")
+	}
+}
+
+func TestQuarantineKeepsBothArtifacts(t *testing.T) {
+	root := t.TempDir()
+	s, _ := Open(root)
+	obj, _, err := s.Put("m/seg.m4s", []byte("payload"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.quarantine(obj.Digest); err != nil {
+		t.Fatal(err)
+	}
+	des, err := os.ReadDir(filepath.Join(root, "quarantine"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var blob, meta int
+	for _, de := range des {
+		// Names are "<artifact>.<pid>.<n>", so look for the metadata
+		// marker rather than the (now numeric) suffix.
+		if strings.Contains(de.Name(), ".json.") {
+			meta++
+		} else {
+			blob++
+		}
+	}
+	if blob != 1 || meta != 1 {
+		t.Fatalf("quarantine holds blob=%d meta=%d, want 1/1", blob, meta)
+	}
+	if _, err := os.Stat(filepath.Join(root, "blobs", obj.Digest)); !os.IsNotExist(err) {
+		t.Fatal("blob must be gone from the live store")
+	}
+}
+
+func TestRepeatedQuarantineDoesNotClobber(t *testing.T) {
+	root := t.TempDir()
+	s, _ := Open(root)
+	obj, _, err := s.Put("m/seg.m4s", []byte("payload"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// First quarantine moves the artifacts; the second must simply find
+	// them absent and still succeed without overwriting evidence.
+	if err := s.quarantine(obj.Digest); err != nil {
+		t.Fatal(err)
+	}
+	first, _ := os.ReadDir(filepath.Join(root, "quarantine"))
+	if err := s.quarantine(obj.Digest); err != nil {
+		t.Fatal(err)
+	}
+	second, _ := os.ReadDir(filepath.Join(root, "quarantine"))
+	if len(first) != len(second) {
+		t.Fatalf("quarantine entries changed on repeat: %d -> %d", len(first), len(second))
 	}
 }
