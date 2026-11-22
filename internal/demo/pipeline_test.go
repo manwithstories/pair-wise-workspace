@@ -7,6 +7,7 @@ import (
 
 	"github.com/clearliu/fieldcut/internal/clock"
 	"github.com/clearliu/fieldcut/internal/fixtures"
+	"github.com/clearliu/fieldcut/internal/manifest"
 )
 
 func shortOptions(seed int64) Options {
@@ -113,6 +114,41 @@ func TestLateOutsideWindowBoundary(t *testing.T) {
 	}
 	if inWindow.LateReplayCount == 0 {
 		t.Fatalf("in-window late event should trigger replay: %+v", inWindow)
+	}
+}
+
+func TestManifestCoversGeneratedSegments(t *testing.T) {
+	m, err := Run(context.Background(), shortOptions(41))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 20s capture / 2s segments = 10 playlist entries.
+	if m.ManifestSegments != 10 {
+		t.Fatalf("manifest_segments=%d, want 10", m.ManifestSegments)
+	}
+}
+
+func TestManifestFaultRejects(t *testing.T) {
+	// The playlist parser must refuse traversal/conflict inputs; this is
+	// the manifest-layer fault that never reaches timeline/index.
+	bad := []byte("#EXTM3U\n#EXTINF:1.0,\n../escape.m4s\n")
+	if _, err := manifest.ParseHLS(bad, 0, manifest.Options{}); err == nil {
+		t.Fatal("path traversal playlist must be rejected")
+	}
+	good := []byte("#EXTM3U\n#EXTINF:1.0,\na.m4s\n")
+	evs, err := manifest.ParseHLS(good, 0, manifest.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A second playlist with the same sequence but a different URI is a
+	// cross-manifest conflict the merge step must catch.
+	other := []byte("#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:1.0,\nb.m4s\n")
+	evs2, err := manifest.ParseHLS(other, 0, manifest.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manifest.CheckSequenceConflicts(append(evs, evs2...)); err == nil {
+		t.Fatal("conflicting duplicate sequence must be rejected")
 	}
 }
 
