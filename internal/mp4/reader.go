@@ -22,12 +22,17 @@ const (
 	DefaultMaxBoxSize  = 64 << 20 // 64 MiB
 	DefaultReadBuffer  = 256 << 10
 	DefaultMaxInflight = 8
+	DefaultMaxSample   = 1 << 20
 )
 
 // Limits bounds every allocation the reader performs.
 type Limits struct {
-	MaxBoxSize  uint64
-	ReadBuffer  int
+	MaxBoxSize uint64
+	// ReadBuffer is the nominal sequential read buffer size.
+	ReadBuffer int
+	// MaxSample caps one sample payload read.
+	MaxSample int
+	// MaxInflight caps simultaneously buffered sample chunks in StreamSamples.
 	MaxInflight int
 }
 
@@ -38,6 +43,9 @@ func (l Limits) Normalised() Limits {
 	}
 	if l.ReadBuffer <= 0 {
 		l.ReadBuffer = DefaultReadBuffer
+	}
+	if l.MaxSample <= 0 {
+		l.MaxSample = DefaultMaxSample
 	}
 	if l.MaxInflight <= 0 {
 		l.MaxInflight = DefaultMaxInflight
@@ -481,7 +489,7 @@ func (f *File) StreamSamples(ctx context.Context, trackID int, maxInflight int) 
 			"no track %d in %s", trackID, f.Path).At(trackID, fault.UnknownOffset)
 		return ch, func() error { return err }
 	}
-	maxSample := f.Limits.ReadBuffer * 8
+	maxSample := f.Limits.MaxSample
 	sr, err := f.OpenSampleReader(maxSample)
 	if err != nil {
 		ch := make(chan SampleChunk)

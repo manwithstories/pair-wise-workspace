@@ -416,3 +416,18 @@ func TestParseSampleMarkerFaultNamesTrack(t *testing.T) {
 		t.Fatalf("expected track/offset attribution, got %v", rerr)
 	}
 }
+
+func TestStreamSamplesHonoursMaxSample(t *testing.T) {
+	c, _ := genClip(t, testkit.DefaultVideoTrack(1, 1_000_000, 15))
+	f, err := Parse(c.Path, Options{Limits: Limits{MaxSample: 16}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch, streamErr := f.StreamSamples(context.Background(), 1, 2)
+	for range ch {
+	}
+	fe, ok := fault.As(streamErr())
+	if !ok || fe.Kind != fault.KindInvalidLength {
+		t.Fatalf("expected size-limit fault, got %v", streamErr())
+	}
+}
