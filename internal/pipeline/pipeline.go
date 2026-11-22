@@ -63,25 +63,32 @@ func New(cfg Config) (*Pipeline, error) {
 }
 
 // IngestRTP 接收一个 RTP 包：重排、去重，冲突/迟到转为统一事件。
-// 成功入窗的包不立即入队，由 DrainOrdered 按序产出。
-func (p *Pipeline) IngestRTP(pkt *rtp.Packet) error {
+// sampleOf 把包的 RTP 时间戳映射到统一采样刻度，使事件携带非空时间范围；
+// 传 nil 则事件不绑定时间区间。成功入窗的包由 DrainOrdered 按序产出。
+func (p *Pipeline) IngestRTP(pkt *rtp.Packet, sampleOf func(ts uint32) uint64, blockSize uint64) error {
 	err := p.reorder.Push(pkt)
+	// 事件时间范围：以包时间戳为起点、单包跨度为终点的闭开区间。
+	rng := model.Range{}
+	if sampleOf != nil {
+		lo := sampleOf(pkt.Timestamp)
+		rng = model.Range{Start: lo, End: lo + blockSize}
+	}
 	switch err {
 	case nil:
 		return nil
 	case rtprx.ErrDuplicate:
 		p.addEvent(model.NewEvent(model.CodeDupConflict, model.SevInfo,
-			model.Range{}, "identical duplicate packet ignored").
+			rng, "identical duplicate packet ignored").
 			WithSeq(int(pkt.SequenceNumber), int(pkt.SequenceNumber)))
 		return nil
 	case rtprx.ErrConflict:
 		p.addEvent(model.NewEvent(model.CodeDupConflict, model.SevError,
-			model.Range{}, "same sequence number with conflicting payload").
+			rng, "same sequence number with conflicting payload").
 			WithSeq(int(pkt.SequenceNumber), int(pkt.SequenceNumber)))
 		return err
 	case rtprx.ErrLateOutside:
 		p.addEvent(model.NewEvent(model.CodeLateOutside, model.SevError,
-			model.Range{}, "late packet outside reorder window; unrecoverable").
+			rng, "late packet outside reorder window; unrecoverable").
 			WithSeq(int(pkt.SequenceNumber), int(pkt.SequenceNumber)))
 		return err
 	default:

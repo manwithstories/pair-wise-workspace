@@ -194,7 +194,9 @@ func runDemo(o cliOptions) error {
 		// 同步误差确定性小抖动，正常样例 <=20ms。
 		agg.ObserveSyncError(5 + rng.Float64()*12)
 
-		_ = pipe.IngestRTP(pkt) // 冲突/迟到已在管线内转为事件
+		_ = pipe.IngestRTP(pkt,
+			func(ts uint32) uint64 { return uint64(ts) },
+			uint64(sample.FramesPerPacket)) // 冲突/迟到已在管线内转为事件
 	}
 	// 带宽突降时收紧接收窗口建议（不丢弃任何已排队块）。
 	_ = bw.SuggestWindow(o.bandwidthMbps)

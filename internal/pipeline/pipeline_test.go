@@ -172,7 +172,7 @@ func TestEndToEndInvariants(t *testing.T) {
 			Header:  rtp.Header{SequenceNumber: seq, Timestamp: uint32(seq) * 160},
 			Payload: []byte{byte(seq), byte(seq + 1)},
 		}
-		if err := p.IngestRTP(pkt); err != nil {
+		if err := p.IngestRTP(pkt, func(ts uint32) uint64 { return uint64(ts) }, 160); err != nil {
 			t.Fatalf("ingest %d: %v", seq, err)
 		}
 	}
