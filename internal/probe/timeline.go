@@ -45,6 +45,7 @@ type Cursor struct {
 	sttsLeft uint32
 	cttsRun  int
 	cttsLeft uint32
+	scRun    int
 	keyIdx   int
 	done     bool
 	err      error
@@ -182,25 +183,24 @@ func (c *Cursor) advanceChunk() bool {
 	return true
 }
 
+// samplesPerChunk returns the samples in the given 1-based chunk. Chunks are
+// visited in increasing order, so the run index only advances; the total work
+// over a file is O(runs + chunks) rather than O(runs * chunks).
 func (c *Cursor) samplesPerChunk(chunkNumber uint32) uint32 {
 	if len(c.st.stsc) == 0 {
 		return 0
 	}
-	spc := c.st.stsc[0].samplesPerChunk
-	for _, run := range c.st.stsc {
-		if run.firstChunk > chunkNumber {
-			break
-		}
-		spc = run.samplesPerChunk
+	for c.scRun+1 < len(c.st.stsc) && c.st.stsc[c.scRun+1].firstChunk <= chunkNumber {
+		c.scRun++
 	}
-	return spc
+	return c.st.stsc[c.scRun].samplesPerChunk
 }
 
 func (c *Cursor) isKey() bool {
-	n := uint32(c.index + 1)
 	if !c.st.hasSTSS {
 		return true
 	}
+	n := uint32(c.index + 1)
 	for c.keyIdx < len(c.st.keySamples) && c.st.keySamples[c.keyIdx] < n {
 		c.keyIdx++
 	}
