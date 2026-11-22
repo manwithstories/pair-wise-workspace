@@ -4,12 +4,18 @@ package demux
 
 import (
 	"bytes"
+	"errors"
 	"io"
 
 	"github.com/abema/go-mp4"
 
 	"archive/internal/clock"
 	"archive/internal/fault"
+)
+
+var (
+	errMultipleTrun  = errors.New("multiple trun boxes in one traf")
+	errOrphanTrafBox = errors.New("fragment box outside a traf")
 )
 
 // Sample is one raw access unit with its wrapped source timestamp.
@@ -144,6 +150,9 @@ func Demux(data []byte, name string) ([]Track, error) {
 			cur.Entry = boxBytes(data, h.BoxInfo)
 			return nil, nil
 		case mp4.BoxTypeTfhd():
+			if curTraf == nil {
+				return nil, errOrphanTrafBox
+			}
 			box, _, err := h.ReadPayload()
 			if err != nil {
 				return nil, err
@@ -156,17 +165,29 @@ func Demux(data []byte, name string) ([]Track, error) {
 				curTraf.nilBase = true
 			}
 		case mp4.BoxTypeTfdt():
+			if curTraf == nil {
+				return nil, errOrphanTrafBox
+			}
 			box, _, err := h.ReadPayload()
 			if err != nil {
 				return nil, err
 			}
 			curTraf.tfdt = box.(*mp4.Tfdt).GetBaseMediaDecodeTime()
 		case mp4.BoxTypeTrun():
+			if curTraf == nil {
+				return nil, errOrphanTrafBox
+			}
 			box, _, err := h.ReadPayload()
 			if err != nil {
 				return nil, err
 			}
 			tr := box.(*mp4.Trun)
+			if len(curTraf.sizes) > 0 {
+				// Multiple truns with independent data offsets would
+				// need per-run offsets; reject rather than silently
+				// concatenating bytes from the wrong place.
+				return nil, errMultipleTrun
+			}
 			curTraf.dataOff = int64(tr.DataOffset)
 			for _, e := range tr.Entries {
 				curTraf.durs = append(curTraf.durs, e.SampleDuration)
@@ -181,6 +202,12 @@ func Demux(data []byte, name string) ([]Track, error) {
 	if err != nil {
 		if err == io.ErrUnexpectedEOF || err == io.EOF {
 			return tracks, fault.Newf(fault.Degraded, "demux", name, "truncated MP4")
+		}
+		if err == errMultipleTrun {
+			return tracks, fault.Newf(fault.Fatal, "demux", name, "unsupported: multiple trun boxes")
+		}
+		if err == errOrphanTrafBox {
+			return tracks, fault.Newf(fault.Fatal, "demux", name, "fragment box outside traf")
 		}
 		return tracks, fault.Wrap(fault.Fatal, "demux", name, err)
 	}
