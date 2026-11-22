@@ -71,3 +71,6 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# 本地验证输出（演示/恢复运行的工作目录）
+/tmp/
