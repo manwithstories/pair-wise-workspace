@@ -71,3 +71,7 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 项目演示输出与构建产物 ----
+/out/
+/archivectl
