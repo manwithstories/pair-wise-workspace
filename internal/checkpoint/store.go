@@ -5,6 +5,7 @@ package checkpoint
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"hash/crc32"
 	"os"
@@ -98,11 +99,21 @@ func (s *Store) blockPath(i uint32) string {
 }
 func (s *Store) indexPath() string { return filepath.Join(s.dir, "index.bin") }
 
-// Append writes one block atomically and updates the index. data is copied
-// into a block file named by sequence; a block larger than BlockSize fails.
+// Append writes one block covering one sample and updates the index.
 func (s *Store) Append(trackID uint32, data []byte) (Entry, error) {
+	return s.AppendSamples(trackID, data, 1)
+}
+
+// AppendSamples writes one block covering n samples with the given payload.
+// The block file is self-describing: a fixed header records the index, sample
+// count, byte count and CRC, so a damaged index can be rebuilt from the block
+// files alone. The chained hash still protects against a tampered payload.
+func (s *Store) AppendSamples(trackID uint32, data []byte, samples int) (Entry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if samples <= 0 {
+		return Entry{}, model.NewError(model.ErrParamInvalid, trackID, 0, "block must cover at least one sample")
+	}
 	if len(data) > s.BlockSize || s.BlockSize > maxBlockBytes {
 		return Entry{}, model.NewError(model.ErrSizeLimit, trackID, 0, "block of %d bytes exceeds %d byte limit", len(data), s.BlockSize)
 	}
@@ -113,13 +124,13 @@ func (s *Store) Append(trackID uint32, data []byte) (Entry, error) {
 	h.Write(chain[:])
 	h.Write(data)
 	copy(chain[:], h.Sum(nil))
-	entry := Entry{Index: idx, Samples: 1, Bytes: uint64(len(data)), CRC32: sum, ChainHash: chain}
-	if err := writeAtomic(s.blockPath(idx), data); err != nil {
+	entry := Entry{Index: idx, Samples: uint32(samples), Bytes: uint64(len(data)), CRC32: sum, ChainHash: chain}
+	if err := writeAtomic(s.blockPath(idx), encodeBlock(entry, data)); err != nil {
 		return Entry{}, err
 	}
 	s.entries = append(s.entries, entry)
 	s.chain = chain
-	s.samples++
+	s.samples += uint64(samples)
 	s.bytes += uint64(len(data))
 	s.blocks[idx] = append([]byte(nil), data...)
 	if err := s.writeIndex(); err != nil {
@@ -130,20 +141,35 @@ func (s *Store) Append(trackID uint32, data []byte) (Entry, error) {
 	return entry, nil
 }
 
-// AppendSamples writes one block covering n samples with the given payload.
-func (s *Store) AppendSamples(trackID uint32, data []byte, samples int) (Entry, error) {
-	entry, err := s.Append(trackID, data)
-	if err != nil {
-		return Entry{}, err
+// blockHeaderSize is the fixed self-describing prefix of a block file.
+const blockHeaderSize = 8 + 4 + 4 + 8 + 4
+
+// encodeBlock prefixes data with its index, sample count, byte count and CRC.
+func encodeBlock(e Entry, data []byte) []byte {
+	out := make([]byte, 0, blockHeaderSize+len(data))
+	out = append(out, magic[:]...)
+	out = appendU32(out, e.Index)
+	out = appendU32(out, e.Samples)
+	out = appendU64(out, e.Bytes)
+	out = appendU32(out, e.CRC32)
+	return append(out, data...)
+}
+
+// decodeBlock splits a block file into its header fields and payload.
+func decodeBlock(raw []byte) (index, samples uint32, bytes uint64, crc uint32, payload []byte, ok bool) {
+	if len(raw) < blockHeaderSize {
+		return 0, 0, 0, 0, nil, false
 	}
-	if samples > 1 {
-		s.mu.Lock()
-		s.entries[len(s.entries)-1].Samples = uint32(samples)
-		s.samples += uint64(samples - 1)
-		s.mu.Unlock()
-		if err := s.writeIndex(); err != nil {
-			return Entry{}, err
-		}
+	if [8]byte(raw[0:8]) != magic {
+		return 0, 0, 0, 0, nil, false
 	}
-	return entry, nil
+	index = binary.BigEndian.Uint32(raw[8:12])
+	samples = binary.BigEndian.Uint32(raw[12:16])
+	bytes = binary.BigEndian.Uint64(raw[16:24])
+	crc = binary.BigEndian.Uint32(raw[24:28])
+	payload = raw[blockHeaderSize:]
+	if uint64(len(payload)) != bytes {
+		return 0, 0, 0, 0, nil, false
+	}
+	return index, samples, bytes, crc, payload, true
 }
