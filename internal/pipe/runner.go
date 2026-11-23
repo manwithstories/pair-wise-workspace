@@ -146,6 +146,20 @@ func Run(ctx context.Context, workDir string, tasks []Task, l *LoadedInput, star
 	if start.Committed < 0 || start.Committed > len(tasks) {
 		return nil, fmt.Errorf("resume boundary %d outside %d fragments", start.Committed, len(tasks))
 	}
+	if start.Committed == len(tasks) {
+		// Nothing left to do. Leave the completed output untouched: appending
+		// another trailer would corrupt it, and re-sealing would rotate its
+		// checksum's meaning.
+		res := &Result{OutputPath: OutputPath(workDir), CommittedAt: start.Committed,
+			RepairedTfdt: start.RepairedTfdt, MissingMfhd: start.MissingMfhd,
+			InputDigest: start.InputDigest}
+		if start.Resuming {
+			if cp, err := index.Load(CheckpointPath(workDir)); err == nil {
+				res.Checkpoint = cp
+			}
+		}
+		return res, nil
+	}
 	res := &Result{OutputPath: OutputPath(workDir), CommittedAt: start.Committed,
 		RepairedTfdt: start.RepairedTfdt, MissingMfhd: start.MissingMfhd,
 		InputDigest: start.InputDigest}

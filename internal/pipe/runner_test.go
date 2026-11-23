@@ -435,3 +435,36 @@ func TestResumeAfterCompletedRunIsNoop(t *testing.T) {
 		t.Fatalf("committed %d != total %d", st.Committed, cp.FragmentsTotal)
 	}
 }
+
+func TestRunWithCompletedStartLeavesOutputUntouched(t *testing.T) {
+	f := setup(t)
+	if _, err := f.run(t, f.start(), pipe.Options{QueueCapacity: 4}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	before, err := os.ReadFile(pipe.OutputPath(f.work))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cp, err := index.Load(pipe.CheckpointPath(f.work))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := pipe.ResumeStart(f.loaded.Manifest, cp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := f.run(t, st, pipe.Options{QueueCapacity: 4})
+	if err != nil {
+		t.Fatalf("completed-start run: %v", err)
+	}
+	if res.CommittedAt != 12 {
+		t.Fatalf("committed = %d", res.CommittedAt)
+	}
+	after, err := os.ReadFile(pipe.OutputPath(f.work))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatalf("output changed on a completed-start run (%d -> %d bytes)", len(before), len(after))
+	}
+}
