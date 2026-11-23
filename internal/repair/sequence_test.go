@@ -79,3 +79,23 @@ func TestOrderDropsIdenticalDuplicate(t *testing.T) {
 		t.Fatalf("items = %d duplicates = %d", len(ord.Items), ord.Duplicates())
 	}
 }
+
+func TestCanonicalSequencesWrapDeterministically(t *testing.T) {
+	ord, err := Order([]Item{item("a", 1, true, 0), item("b", 2, true, 1), item("c", 3, true, 2)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := CanonicalSequences(ord, 65534)
+	want := []uint16{65534, 65535, 0}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("sequence %d = %d, want %d", i, got[i], want[i])
+		}
+	}
+	again := CanonicalSequences(ord, 65534)
+	for i := range want {
+		if again[i] != got[i] {
+			t.Fatal("canonical sequences are not deterministic")
+		}
+	}
+}

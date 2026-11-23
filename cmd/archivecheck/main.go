@@ -9,13 +9,10 @@ package main
 
 import (
 	"context"
-	"errors"
-	"flag"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"archivecheck/internal/fault"
 	"archivecheck/internal/pipe"
@@ -75,9 +72,6 @@ func fail(err error) int {
 	if pipe.IsCancelled(err) {
 		return exitCancelled
 	}
-	if fault.IsKind(err, fault.KindCheckpoint) || fault.IsKind(err, fault.KindPath) && errors.Is(err, os.ErrExist) {
-		return exitIncompatible
-	}
 	if fault.IsKind(err, fault.KindCheckpoint) {
 		return exitIncompatible
 	}
@@ -86,8 +80,4 @@ func fail(err error) int {
 
 func signalContext() (context.Context, context.CancelFunc) {
 	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-}
-
-func durationFlag(fs *flag.FlagSet, name string, def time.Duration) *time.Duration {
-	return fs.Duration(name, def, "delay the transform stage per fragment")
 }
