@@ -45,6 +45,12 @@ func (q *BoundedQueue[T]) Enqueue(v T, done <-chan struct{}) error {
 		q.enqWait++
 		q.mu.Unlock()
 	}
+	// Cancellation takes priority over a free slot for deterministic shutdown.
+	select {
+	case <-done:
+		return diag.New(diag.EParam, "", "enqueue canceled")
+	default:
+	}
 	select {
 	case q.ch <- v:
 		q.noteDepth()
@@ -54,9 +60,18 @@ func (q *BoundedQueue[T]) Enqueue(v T, done <-chan struct{}) error {
 	}
 }
 
-// Dequeue blocks until an item is available or done closes.
+// Dequeue blocks until an item is available or done closes. Cancellation takes
+// priority over buffered data: once done is closed it always reports not-ok,
+// so consumers cannot keep draining a pipeline that was asked to stop.
 func (q *BoundedQueue[T]) Dequeue(done <-chan struct{}) (T, bool) {
 	var zero T
+	// Non-blocking cancellation check first so a closed done wins even when
+	// the buffered channel also has a value ready.
+	select {
+	case <-done:
+		return zero, false
+	default:
+	}
 	select {
 	case v := <-q.ch:
 		return v, true
