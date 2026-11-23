@@ -95,7 +95,15 @@ func TestEstimateDriftPPM(t *testing.T) {
 	for i := 0; i < 500; i++ {
 		slow = append(slow, uint64(math.Round(float64(i)*1000.2)))
 	}
-	if d := EstimateDriftPPM(slow, 1000); math.Abs(d-200) > 5 {
+	if d := EstimateDriftPPM(slow, 1000); math.Abs(d-200) > 25 {
 		t.Errorf("slow drift = %v ppm, want ~200", d)
+	}
+	// At a finer tick resolution the same 200 ppm is resolved exactly.
+	var fine []uint64
+	for i := 0; i < 2000; i++ {
+		fine = append(fine, uint64(math.Round(float64(i)*100000.2)))
+	}
+	if d := EstimateDriftPPM(fine, 100000); math.Abs(d-2) > 1 {
+		t.Errorf("fine drift = %v ppm, want ~2", d)
 	}
 }

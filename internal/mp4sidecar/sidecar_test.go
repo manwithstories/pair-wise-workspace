@@ -26,7 +26,7 @@ func fixture(t *testing.T) (*clock.Timeline, map[string][]model.Frame) {
 	for i := 0; i < 5; i++ {
 		frames["mic0"] = append(frames["mic0"], model.Frame{
 			TrackID: "mic0", Seq: uint64(i), RawTS: uint64(64000+i*1024) % 65536,
-			Energy:  []float64{0.1, 0.5}, Payload: []byte{0x55, byte(i)},
+			Energy: []float64{0.1, 0.5}, Payload: []byte{0x55, byte(i)},
 		})
 	}
 	tl, err := clock.Build(tracks, frames, clock.Options{})

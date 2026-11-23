@@ -70,6 +70,12 @@ func (s *Scheduler) Run() (*RunResult, error) {
 		}
 	}
 	rr.Results = results
+	rr.Runs = make(map[string]int, len(s.nodes))
+	s.mu.Lock()
+	for name := range s.nodes {
+		rr.Runs[name] = s.runs[name]
+	}
+	s.mu.Unlock()
 	// Report the first blocked node in topological order.
 	if len(rr.Blocked) > 0 {
 		byNode := make(map[string]BlockedDep, len(rr.Blocked))
@@ -181,6 +187,8 @@ type RunResult struct {
 	ExecutedNodes int
 	// FailedNodes lists failed node names in topological order.
 	FailedNodes []string
+	// Runs is how many times each node actually executed, keyed by node name.
+	Runs map[string]int
 }
 
 // BlockedDep pairs a blocked node with the dependency that stopped it.

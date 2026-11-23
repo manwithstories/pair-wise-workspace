@@ -6,6 +6,7 @@ package clock
 import (
 	"fmt"
 	"math"
+	"sort"
 
 	"medpipe/internal/model"
 )
@@ -99,36 +100,49 @@ func Unwrap(raw []uint64, opt UnwrapOptions) (*UnwrapResult, error) {
 	return res, nil
 }
 
-// EstimateDriftPPM fits the unwrapped tick values against a constant
-// nominal-delta clock and returns the relative frequency error in parts per
-// million. A least-squares slope is used so VFR jitter averages out instead
-// of accumulating. It returns 0 when there are fewer than two samples.
+// EstimateDriftPPM estimates the relative frequency error of the capture
+// counter in parts per million. Steps that depart from the nominal interval by
+// more than 10% are treated as VFR outliers (a camera that switched rate) and
+// excluded; the mean of the remaining integer steps recovers sub-tick drift
+// that a median would quantize away. If no step is close to nominal, the
+// median step is used so a wrong declared nominal value still yields a sane
+// answer.
 func EstimateDriftPPM(unwrapped []uint64, nominalDelta uint64) float64 {
 	n := len(unwrapped)
 	if n < 2 || nominalDelta == 0 {
 		return 0
 	}
-	// Regress tick(i) = a + b*i. The intercept is not needed and is removed
-	// analytically to keep large raw counters from losing precision.
-	var sumI, sumT float64
-	for i, t := range unwrapped {
-		sumI += float64(i)
-		sumT += float64(t) - float64(unwrapped[0])
+	steps := make([]uint64, 0, n-1)
+	for i := 1; i < n; i++ {
+		if unwrapped[i] <= unwrapped[i-1] {
+			continue
+		}
+		steps = append(steps, unwrapped[i]-unwrapped[i-1])
 	}
-	meanI := sumI / float64(n)
-	meanT := sumT / float64(n)
-	var num, den float64
-	for i, t := range unwrapped {
-		di := float64(i) - meanI
-		dt := float64(t) - float64(unwrapped[0]) - meanT
-		num += di * dt
-		den += di * di
-	}
-	if den == 0 {
+	if len(steps) == 0 {
 		return 0
 	}
-	slope := num / den
-	return (slope/float64(nominalDelta) - 1) * 1e6
+	lo := float64(nominalDelta) * 0.9
+	hi := float64(nominalDelta) * 1.1
+	var sum float64
+	var kept int
+	for _, s := range steps {
+		if f := float64(s); f >= lo && f <= hi {
+			sum += f
+			kept++
+		}
+	}
+	if kept == 0 {
+		sorted := append([]uint64(nil), steps...)
+		sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+		median := sorted[len(sorted)/2]
+		if median == 0 {
+			return 0
+		}
+		return (float64(median)/float64(nominalDelta) - 1) * 1e6
+	}
+	mean := sum / float64(kept)
+	return (mean/float64(nominalDelta) - 1) * 1e6
 }
 
 // CorrectedTicks removes the measured drift from an unwrapped tick value.

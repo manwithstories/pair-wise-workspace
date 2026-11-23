@@ -32,14 +32,14 @@ func (k Kind) String() string {
 // capture counter (16 or 32 in practice). NominalTickDelta is the expected
 // number of counter ticks between frames and is used for drift estimation.
 type Track struct {
-	ID               string    `json:"id"`
-	Kind             Kind      `json:"kind"`
-	Timescale        uint32    `json:"timescale"`
-	SampleRate       uint32    `json:"sample_rate,omitempty"`
-	ClockBits        uint8     `json:"clock_bits"`
-	NominalTickDelta uint64    `json:"nominal_tick_delta"`
-	OriginNS         int64     `json:"origin_ns"`
-	Encapsulation    string    `json:"encapsulation,omitempty"`
+	ID               string     `json:"id"`
+	Kind             Kind       `json:"kind"`
+	Timescale        uint32     `json:"timescale"`
+	SampleRate       uint32     `json:"sample_rate,omitempty"`
+	ClockBits        uint8      `json:"clock_bits"`
+	NominalTickDelta uint64     `json:"nominal_tick_delta"`
+	OriginNS         int64      `json:"origin_ns"`
+	Encapsulation    string     `json:"encapsulation,omitempty"`
 	Extra            []Metadata `json:"extra,omitempty"`
 }
 

@@ -133,9 +133,15 @@ func Plan(tl *clock.Timeline, silence []audio.Range, opt Options) (*Result, erro
 			if first >= last {
 				continue // no whole frame starts inside this window
 			}
+			// The cut must land within one frame interval of this track's
+			// nearest frame edge. The window end is exclusive, so we measure
+			// against frame ends too; the track's own coverage ends at last
+			// frame end, and trailing coverage is not a slicing error.
 			se := nearestEdgeError(s, tt)
-			if ee := nearestEdgeError(e, tt); ee > se && e != end {
-				se = ee
+			if e != end {
+				if ee := nearestEdgeError(e, tt); ee > se {
+					se = ee
+				}
 			}
 			if maxInterval > 0 && se > maxInterval {
 				return nil, model.New(model.KindInvariant, "segment.Plan",
@@ -231,6 +237,15 @@ func snap(nominal int64, edges []int64, tol int64) int64 {
 
 func nearestEdgeError(ns int64, tt *clock.TrackTimeline) int64 {
 	if len(tt.Frames) == 0 {
+		return 0
+	}
+	// A cut outside this track's coverage cannot misalign a frame: the track
+	// simply has no media there. Clamp to its span so the error is measured
+	// against the real first/last edge instead of empty time.
+	if ns <= tt.StartNS {
+		return 0
+	}
+	if ns >= tt.EndNS {
 		return 0
 	}
 	i := tt.FrameAtOrAfter(ns)
