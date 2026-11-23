@@ -77,6 +77,12 @@ func (s *Store) Load(inputPath, inputSHA string) (*probe.ContainerReport, Finger
 	target := s.path(inputPath)
 	raw, err := os.ReadFile(target)
 	if err != nil {
+		if os.IsNotExist(err) {
+			// Preserve the not-exist sentinel via Cause so callers can
+			// distinguish a first-run missing index from a rejected one.
+			return nil, Fingerprint{}, fault.New(fault.CatIndexInvalid,
+				"index unreadable: %v", err).Wrap(err)
+		}
 		return nil, Fingerprint{}, fault.New(fault.CatIndexInvalid,
 			"index unreadable: %v", err)
 	}

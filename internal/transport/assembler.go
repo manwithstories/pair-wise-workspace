@@ -3,8 +3,8 @@ package transport
 import (
 	"encoding/binary"
 
-	"mediaroute/internal/fixture"
 	"mediaroute/internal/fault"
+	"mediaroute/internal/fixture"
 )
 
 // SampleDamage links a packet-layer gap to the samples it corrupts.
@@ -24,9 +24,9 @@ type Assembler struct {
 }
 
 type partialSample struct {
-	index uint32
-	size  int
-	chunks map[uint32][]byte // offset -> data
+	index    uint32
+	size     int
+	chunks   map[uint32][]byte // offset -> data
 	gotBytes int
 	complete bool
 }

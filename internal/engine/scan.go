@@ -49,7 +49,9 @@ func Scan(cfg ScanConfig) (*ScanResult, error) {
 	if rep, _, lerr := store.Load(cfg.InputPath, digest); lerr == nil {
 		res.Report, res.Reused = rep, true
 		return res, nil
-	} else {
+	} else if !isIndexMissing(lerr) {
+		// A present but untrusted index is a real rejection; a merely
+		// absent index is the normal first-run path, not a conflict.
 		res.IndexErr = fault.AsError(lerr)
 	}
 	rep, err := scanByFormat(format, cfg.InputPath)

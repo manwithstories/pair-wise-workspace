@@ -3,6 +3,7 @@ package engine
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"os"
 	"sort"
@@ -63,4 +64,11 @@ func sortedKeys(m map[int64]bool) []int64 {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
 	return out
+}
+
+// isIndexMissing reports whether an index load failed simply because no
+// index file exists yet (the normal first-run case), as opposed to a
+// present-but-invalid index that must be reported as a rejection.
+func isIndexMissing(err error) bool {
+	return errors.Is(err, os.ErrNotExist)
 }

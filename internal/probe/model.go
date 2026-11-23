@@ -60,12 +60,12 @@ const (
 
 // ColourDecision is the arbitration result for one track.
 type ColourDecision struct {
-	TrackID  uint32
-	Adopted  Colour
-	Source   ColourScope
-	Track    *Colour // nil when absent
+	TrackID   uint32
+	Adopted   Colour
+	Source    ColourScope
+	Track     *Colour // nil when absent
 	Container *Colour // nil when absent
-	Conflict bool
+	Conflict  bool
 }
 
 // TrackMeta describes one track and its fully expanded sample table.
@@ -89,11 +89,11 @@ type TrackMeta struct {
 
 // SampleInfo is one fully resolved sample entry.
 type SampleInfo struct {
-	Index        int64
-	Offset       int64 // byte offset of sample data inside the container
-	Size         int64
-	DTSTicks     int64 // decode timestamp in track time-base units
-	DTSNanos     int64 // decode timestamp on the shared nanosecond base
+	Index         int64
+	Offset        int64 // byte offset of sample data inside the container
+	Size          int64
+	DTSTicks      int64 // decode timestamp in track time-base units
+	DTSNanos      int64 // decode timestamp on the shared nanosecond base
 	DurationTicks int64
 	DurationNanos int64
 	IsKeyframe    bool

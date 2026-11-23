@@ -163,4 +163,3 @@ func truncateInsideMdat(raw []byte) []byte {
 	}
 	return raw
 }
-

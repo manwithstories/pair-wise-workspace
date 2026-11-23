@@ -54,12 +54,12 @@ type ReorderBuffer struct {
 // missing sequence is waited for before it is declared a gap.
 func NewReorderBuffer(ssrc uint32, gapTimeoutNanos int64) *ReorderBuffer {
 	return &ReorderBuffer{
-		ssrc:       ssrc,
-		pending:    map[uint64][]byte{},
+		ssrc:        ssrc,
+		pending:     map[uint64][]byte{},
 		gapDeadline: map[uint64]int64{},
-		maxPending: 4096,
-		gapTimeout: gapTimeoutNanos,
-		rtpRate:    clock.Rational{Num: 90000, Den: 1},
+		maxPending:  4096,
+		gapTimeout:  gapTimeoutNanos,
+		rtpRate:     clock.Rational{Num: 90000, Den: 1},
 	}
 }
 
@@ -72,11 +72,11 @@ func (b *ReorderBuffer) SetClock(r clock.Rational) {
 
 // PushResult classifies an incoming packet.
 type PushResult struct {
-	Accepted   bool
-	Duplicate  bool
-	Late       bool
-	Overflow   bool
-	ExtSeq     uint64
+	Accepted  bool
+	Duplicate bool
+	Late      bool
+	Overflow  bool
+	ExtSeq    uint64
 }
 
 // Push stores one packet keyed by its unwrapped sequence number.
@@ -179,8 +179,8 @@ func (b *ReorderBuffer) ExpireGaps(nowNanos int64) []Gap {
 
 func (b *ReorderBuffer) buildGap(first, last uint64) Gap {
 	g := Gap{
-		SeqFirst:  uint16(first),
-		SeqLast:   uint16(last),
+		SeqFirst: uint16(first),
+		SeqLast:  uint16(last),
 		ExtFirst: first,
 		ExtLast:  last,
 	}

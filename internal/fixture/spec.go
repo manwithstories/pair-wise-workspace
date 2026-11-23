@@ -23,15 +23,15 @@ const PayloadHeaderSize = 14
 
 // Spec describes one generated media asset and its transport behaviour.
 type Spec struct {
-	Seed         int64
-	SampleCount  int
-	Width        uint32
-	Height       uint32
-	Timescale    uint32 // track edit rate numerator, denominator 1
-	FrameDelta   uint32 // ticks per sample
-	KeyEvery     int    // key frame period in samples
-	Codec        string // e.g. "avc1"; "unknown" simulates unsupported codec
-	Rotation     int    // degrees, right angle only
+	Seed        int64
+	SampleCount int
+	Width       uint32
+	Height      uint32
+	Timescale   uint32 // track edit rate numerator, denominator 1
+	FrameDelta  uint32 // ticks per sample
+	KeyEvery    int    // key frame period in samples
+	Codec       string // e.g. "avc1"; "unknown" simulates unsupported codec
+	Rotation    int    // degrees, right angle only
 	// MP4 faults.
 	TruncateSTSZ bool // rewrite stsz with a reduced entry count
 	TruncateMDAT bool // truncate the file inside sample data
@@ -53,7 +53,7 @@ func DefaultSpec(seed int64) Spec {
 	return Spec{
 		Seed: seed, SampleCount: 1000, Width: 1920, Height: 1080,
 		Timescale: 24000, FrameDelta: 1001, KeyEvery: 24,
-		Codec: "avc1",
+		Codec:       "avc1",
 		DropBurstAt: -1,
 	}
 }

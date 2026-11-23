@@ -16,9 +16,9 @@ const RTPClockRate uint32 = 90000
 // Packet wraps a marshalled RTP packet with the sequence number the
 // receiver expects to see.
 type Packet struct {
-	Seq     uint16
-	Raw     []byte
-	SSRC    uint32
+	Seq  uint16
+	Raw  []byte
+	SSRC uint32
 }
 
 // BuildPackets renders the deterministic, fault-injected RTP packet

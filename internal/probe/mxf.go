@@ -50,14 +50,14 @@ const MXFKeyframe uint32 = 1
 
 // MXFTrackHeader is the 32-byte value of a ULTrack KLV item.
 type MXFTrackHeader struct {
-	TrackID      uint32
-	TrackType    uint32 // 0 = video, 1 = audio
-	TimeNum      uint32
-	TimeDen      uint32
-	Duration     uint32 // declared sample count
-	Width        uint32
-	Height       uint32
-	Rotation     uint32 // degrees; only 0/90/180/270 accepted
+	TrackID   uint32
+	TrackType uint32 // 0 = video, 1 = audio
+	TimeNum   uint32
+	TimeDen   uint32
+	Duration  uint32 // declared sample count
+	Width     uint32
+	Height    uint32
+	Rotation  uint32 // degrees; only 0/90/180/270 accepted
 }
 
 // MXFColourWire is the 8-byte colour description payload.
@@ -69,11 +69,11 @@ type MXFColourWire struct {
 }
 
 type mxfTrackBuild struct {
-	hdr    MXFTrackHeader
-	colr   *Colour
-	crop   *CropRect
-	codec  string
-	index  []MXFIndexEntry
+	hdr   MXFTrackHeader
+	colr  *Colour
+	crop  *CropRect
+	codec string
+	index []MXFIndexEntry
 }
 
 // ScanMXF scans a local MXF-flavoured KLV container.
@@ -273,9 +273,9 @@ func mxfCollectTracks(raw []byte) []*mxfTrackBuild {
 		case ULCrop:
 			if cur != nil && len(val) >= 16 {
 				cur.crop = &CropRect{
-					Left: binary.BigEndian.Uint32(val[0:]),
-					Top: binary.BigEndian.Uint32(val[4:]),
-					Right: binary.BigEndian.Uint32(val[8:]),
+					Left:   binary.BigEndian.Uint32(val[0:]),
+					Top:    binary.BigEndian.Uint32(val[4:]),
+					Right:  binary.BigEndian.Uint32(val[8:]),
 					Bottom: binary.BigEndian.Uint32(val[12:]),
 				}
 			}

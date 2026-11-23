@@ -71,3 +71,12 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- mediaroute build artifacts / local run outputs ----
+/cmd/mediaroute/mediaroute
+*.out
+*.bin
+*.midx
+*.cp
+*.cp.tmp
+*.midx.tmp

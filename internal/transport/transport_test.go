@@ -206,4 +206,3 @@ func TestBurstLossPropagatesToSampleDamage(t *testing.T) {
 		t.Fatal("no samples marked damaged")
 	}
 }
-

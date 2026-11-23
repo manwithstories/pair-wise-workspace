@@ -109,7 +109,7 @@ func (s Spec) writeStsd(mw *mp4.Writer) error {
 }
 
 func writeVisualEntry(mw *mp4.Writer, codec string, s Spec) error {
-	payload := make([]byte, 78) // standard VisualSampleEntry payload
+	payload := make([]byte, 78)                // standard VisualSampleEntry payload
 	binary.BigEndian.PutUint16(payload[6:], 1) // data reference index
 	binary.BigEndian.PutUint16(payload[24:], uint16(s.Width))
 	binary.BigEndian.PutUint16(payload[26:], uint16(s.Height))
@@ -159,7 +159,7 @@ func writeTrackColr(mw *mp4.Writer, c [3]uint16) error {
 // The box is written fully raw (no StartBox/EndBox) because go-mp4 v1.3.0
 // does not register a clap box definition; the probe reads it structurally.
 func writeIllegalClap(mw *mp4.Writer, s Spec) error {
-	payload := make([]byte, 36) // version/flags + 8 uint32 rationals
+	payload := make([]byte, 36)                          // version/flags + 8 uint32 rationals
 	binary.BigEndian.PutUint32(payload[4:], s.Width+200) // clean width num
 	binary.BigEndian.PutUint32(payload[8:], 1)
 	binary.BigEndian.PutUint32(payload[12:], s.Height) // clean height num
@@ -220,8 +220,8 @@ func (s Spec) writeStsc(mw *mp4.Writer) error {
 		return err
 	}
 	payload := make([]byte, 20)
-	binary.BigEndian.PutUint32(payload[4:], 1) // one entry
-	binary.BigEndian.PutUint32(payload[8:], 1) // first chunk
+	binary.BigEndian.PutUint32(payload[4:], 1)  // one entry
+	binary.BigEndian.PutUint32(payload[8:], 1)  // first chunk
 	binary.BigEndian.PutUint32(payload[12:], 1) // one sample per chunk
 	if _, err := mw.Write(payload); err != nil {
 		return err

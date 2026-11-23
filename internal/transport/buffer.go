@@ -23,20 +23,20 @@ type JitterBuffer struct {
 	hard    int
 	paused  bool
 	// bandwidth history in bits per second.
-	bwSamples     []int64
-	lowStreak     int
-	pauseStreak   int
-	resumeStreak  int
+	bwSamples      []int64
+	lowStreak      int
+	pauseStreak    int
+	resumeStreak   int
 	pauseThreshold float64 // fraction of nominal rate that counts as slow
 }
 
 // NewJitterBuffer wraps a reorder buffer with bandwidth policy.
 func NewJitterBuffer(r *ReorderBuffer) *JitterBuffer {
 	return &JitterBuffer{
-		reorder:         r,
-		soft:            DefaultSoftLimit,
-		hard:            HardMemoryLimit,
-		pauseThreshold:  0.45,
+		reorder:        r,
+		soft:           DefaultSoftLimit,
+		hard:           HardMemoryLimit,
+		pauseThreshold: 0.45,
 	}
 }
 

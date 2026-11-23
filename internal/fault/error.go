@@ -56,7 +56,7 @@ type Error struct {
 	SeqFirst int64
 	SeqLast  int64
 	// Range scopes the fault on the shared nanosecond time base when known.
-	Range clock.TimeRange
+	Range    clock.TimeRange
 	HasRange bool
 	// Message is the human-readable explanation.
 	Message string
