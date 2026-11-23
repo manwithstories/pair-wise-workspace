@@ -2,6 +2,7 @@ package clock
 
 import (
 	"errors"
+	"math"
 	"testing"
 )
 
@@ -119,5 +120,25 @@ func TestFitDriftRejectsBadResidual(t *testing.T) {
 	_, err := FitDrift(pts, DefaultFitConfig())
 	if !IsKind(err, KindUnrecoverable) {
 		t.Fatalf("want unrecoverable, got %v", err)
+	}
+}
+
+func TestConvertReportsOverflowInsteadOfWrapping(t *testing.T) {
+	// A 1kHz clock driven to the very top of the 64-bit counter space must
+	// not produce a wrapped, negative axis position.
+	c, err := NewTrackClock("v", 1000, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Convert(1)
+	r := c.Convert(math.MaxUint64)
+	if !r.Regressed {
+		t.Fatalf("overflow not reported: %+v", r)
+	}
+	if r.NS != 0 {
+		t.Fatalf("overflow produced a non-zero timestamp: %d", r.NS)
+	}
+	if c.RegCount != 1 {
+		t.Fatalf("overflow not counted: %d", c.RegCount)
 	}
 }

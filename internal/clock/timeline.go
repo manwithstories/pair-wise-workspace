@@ -51,8 +51,9 @@ func NewTrackClock(name string, timescale, modulus uint64) (*TrackClock, error) 
 	return &TrackClock{Name: name, Timescale: timescale, Modulus: modulus}, nil
 }
 
-// Convert maps raw onto the ns axis. Huge counters are converted with
-// quotient/remainder so extended*1e9 cannot overflow.
+// Convert maps raw onto the ns axis. An extended counter can exceed int64
+// nanoseconds after a very large number of wraps; overflow is reported as a
+// regression rather than wrapped into a negative time.
 func (c *TrackClock) Convert(raw uint64) Result {
 	res := Result{Raw: raw}
 	if !c.started {
@@ -91,7 +92,14 @@ func (c *TrackClock) Convert(raw uint64) Result {
 		return res
 	}
 	ext := c.wraps*c.Modulus + raw
-	ns := c.baseNS + scale(ext, c.Timescale)
+	ns, ok := addScale(c.baseNS, ext, c.Timescale)
+	if !ok {
+		// The axis position cannot be represented; refuse rather than emit
+		// a wrapped, meaningless timestamp.
+		c.RegCount++
+		res.Regressed = true
+		return res
+	}
 	res.NS = ns
 	c.lastRaw = raw
 	c.lastNS = ns
@@ -112,6 +120,24 @@ func scale(v uint64, timescale uint64) int64 {
 	q := v / timescale
 	r := v % timescale
 	return int64(q)*nanosPerSecond + int64(r)*nanosPerSecond/int64(timescale)
+}
+
+// addScale adds base + scale(v, timescale), reporting overflow instead of
+// silently wrapping.
+func addScale(base int64, v uint64, timescale uint64) (int64, bool) {
+	q := v / timescale
+	r := v % timescale
+	if q > uint64(math.MaxInt64/nanosPerSecond) {
+		return 0, false
+	}
+	part := int64(q)*nanosPerSecond + int64(r)*nanosPerSecond/int64(timescale)
+	if part > 0 && base > math.MaxInt64-part {
+		return 0, false
+	}
+	if part < 0 && base < math.MinInt64-part {
+		return 0, false
+	}
+	return base + part, true
 }
 
 // DriftPoint is one observation of a media clock against a reference clock,
