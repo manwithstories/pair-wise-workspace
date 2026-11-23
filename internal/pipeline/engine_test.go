@@ -96,8 +96,9 @@ func TestResumeMatchesCleanRerun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resume: %v", err)
 	}
-	if !res.ResumeHashEqual {
-		t.Fatalf("resumed hash %s != reference %s", res.ResumedHash, cleanRes.NormalHash)
+	if !res.ResumeChecked || !res.ResumeHashEqual {
+		t.Fatalf("resumed hash %s != reference %s (checked=%v)",
+			res.ResumedHash, cleanRes.NormalHash, res.ResumeChecked)
 	}
 	if res.RollbackCount == 0 {
 		t.Fatalf("expected the interruption to be recorded as a rollback")

@@ -62,15 +62,18 @@ const (
 
 // Result is everything the demo and tests assert on.
 type Result struct {
-	NormalHash         string
-	ResumedHash        string
-	RoundtripRate      float64
-	KeyframeHitRate    float64
-	SegmentHashMatch   float64
-	RecoveredGaps      int
-	FinalGaps          int
-	RollbackCount      int
-	ResumeHashEqual    bool
+	NormalHash       string
+	ResumedHash      string
+	RoundtripRate    float64
+	KeyframeHitRate  float64
+	SegmentHashMatch float64
+	RecoveredGaps    int
+	FinalGaps        int
+	RollbackCount    int
+	ResumeHashEqual  bool
+	// ResumeChecked reports whether a reference hash was available, i.e.
+	// whether resume equality was actually verified.
+	ResumeChecked      bool
 	ProvenanceComplete bool
 	Keyframes          int
 	CommittedIntervals int
@@ -304,9 +307,8 @@ func Run(cfg Config) (Result, error) {
 	// full run of the same inputs. The caller supplies that reference; without
 	// one the equality claim is not made rather than assumed.
 	if cfg.ReferenceHash != "" {
+		res.ResumeChecked = true
 		res.ResumeHashEqual = finalHash == cfg.ReferenceHash
-	} else if !cfg.Resume {
-		res.ResumeHashEqual = true
 	}
 	sort.Slice(idx.Keyframes, func(i, j int) bool { return idx.Keyframes[i].TimeNS < idx.Keyframes[j].TimeNS })
 	return res, nil

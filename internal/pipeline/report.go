@@ -83,20 +83,23 @@ const (
 )
 
 // Invariants collects the acceptance thresholds and the boolean guarantees
-// the demo must not soften.
+// the demo must not soften. ResumeChecked distinguishes "resume equality was
+// verified" from "resume equality is trivially true because no resume ran".
 type Invariants struct {
 	Roundtrip     float64
 	KeyframeHit   float64
 	SegmentHashes float64
 	ResumeEqual   bool
+	ResumeChecked bool
 	Provenance    bool
 }
 
-// Pass reports whether every documented invariant holds.
+// Pass reports whether every documented invariant holds. The full acceptance
+// contract requires a verified resume, so an unchecked resume cannot pass.
 func (v Invariants) Pass() bool {
 	return v.Roundtrip >= MinRoundtripRate &&
 		v.KeyframeHit >= MinKeyframeHitRate &&
 		v.SegmentHashes >= MinSegmentHashMatch &&
-		v.ResumeEqual &&
+		v.ResumeChecked && v.ResumeEqual &&
 		v.Provenance
 }

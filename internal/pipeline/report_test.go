@@ -53,7 +53,8 @@ func TestAcceptanceThresholds(t *testing.T) {
 	}
 	for _, c := range cases {
 		inv := Invariants{Roundtrip: c.rt, KeyframeHit: c.hit,
-			SegmentHashes: c.hash, ResumeEqual: true, Provenance: true}
+			SegmentHashes: c.hash, ResumeEqual: true, ResumeChecked: true,
+			Provenance: true}
 		if inv.Pass() != c.want {
 			t.Fatalf("%+v: pass = %v", c, inv.Pass())
 		}
@@ -62,10 +63,16 @@ func TestAcceptanceThresholds(t *testing.T) {
 
 func TestInvariantsRequireResumeAndProvenance(t *testing.T) {
 	inv := Invariants{Roundtrip: 1, KeyframeHit: 1, SegmentHashes: 1,
-		ResumeEqual: false, Provenance: true}
+		ResumeEqual: false, ResumeChecked: true, Provenance: true}
 	if inv.Pass() {
 		t.Fatalf("false resume equality accepted")
 	}
+	inv.ResumeEqual = true
+	inv.ResumeChecked = false
+	if inv.Pass() {
+		t.Fatalf("unverified resume accepted")
+	}
+	inv.ResumeChecked = true
 	inv.Provenance = false
 	if inv.Pass() {
 		t.Fatalf("incomplete provenance accepted")
