@@ -26,7 +26,8 @@ func writeVideoMinf(w *mp4.Writer, spec FixtureSpec) {
 	_, _ = w.EndBox() // minf
 }
 
-func writeAudioMinf(w *mp4.Writer, rate uint32, ch uint16, n uint32) {
+func writeAudioMinf(w *mp4.Writer, spec FixtureSpec, n uint32) {
+	rate, ch := spec.AudioSampleRate, spec.AudioChannels
 	_, _ = w.StartBox(&mp4.BoxInfo{Type: mp4.BoxTypeMinf()})
 	_, _ = w.StartBox(&mp4.BoxInfo{Type: mp4.BoxTypeSmhd()})
 	_, _ = mp4.Marshal(w, &mp4.Smhd{}, mp4.Context{})
@@ -34,7 +35,7 @@ func writeAudioMinf(w *mp4.Writer, rate uint32, ch uint16, n uint32) {
 	writeDinf(w)
 
 	_, _ = w.StartBox(&mp4.BoxInfo{Type: mp4.BoxTypeStbl()})
-	writeAudioStsd(w, rate, ch)
+	writeAudioStsd(w, spec)
 	// one sample per video frame duration (rate/30 frames of audio)
 	writeStts(w, n, rate/30)
 	writeStsc(w, n)
@@ -85,11 +86,33 @@ func writeVideoStsd(w *mp4.Writer, spec FixtureSpec) {
 	_, _ = w.EndBox() // stsd
 }
 
-func writeAudioStsd(w *mp4.Writer, rate uint32, ch uint16) {
+func writeAudioStsd(w *mp4.Writer, spec FixtureSpec) {
+	rate, ch := spec.AudioSampleRate, spec.AudioChannels
 	_, _ = w.StartBox(&mp4.BoxInfo{Type: mp4.BoxTypeStsd()})
 	_, _ = mp4.Marshal(w, &mp4.Stsd{EntryCount: 1}, mp4.Context{})
 	_, _ = w.StartBox(&mp4.BoxInfo{Type: boxType("mp4a")})
-	_, _ = mp4.Marshal(w, newFixed("mp4a", 28, mp4aPayload(rate, ch)), mp4.Context{})
+	declared := ch
+	if spec.Damage == DamageBadLayout {
+		// Declare more channels than the label set describes.
+		declared = ch + 2
+	}
+	_, _ = mp4.Marshal(w, newFixed("mp4a", 28, mp4aPayload(rate, declared)),
+		mp4.Context{})
+	if len(spec.AudioLayout) > 0 {
+		_, _ = w.StartBox(&mp4.BoxInfo{Type: boxType("chnl")})
+		payload := []byte{}
+		for i, l := range spec.AudioLayout {
+			if i > 0 {
+				payload = append(payload, 0)
+			}
+			payload = append(payload, []byte(l)...)
+		}
+		_, _ = mp4.Marshal(w, &RawBox{
+			AnyTypeBox: mp4.AnyTypeBox{Type: boxType("chnl")},
+			Data:       payload,
+		}, mp4.Context{})
+		_, _ = w.EndBox()
+	}
 	_, _ = w.EndBox()
 	_, _ = w.EndBox()
 }

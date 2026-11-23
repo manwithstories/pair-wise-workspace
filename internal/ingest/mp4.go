@@ -103,6 +103,8 @@ func ParseMP4(r io.ReadSeeker, path string) (*Summary, error) {
 				return nil, err
 			}
 			return h.Expand()
+		case inStbl && last == "chnl":
+			return st.readChnl(h)
 		}
 		return nil, nil
 	}
@@ -386,6 +388,33 @@ func (st *parseState) readMpa4(h *mp4.ReadHandle) (interface{}, error) {
 	st.audio.Channels = binary.BigEndian.Uint16(d[16:18])
 	if rate := binary.BigEndian.Uint32(d[24:28]) >> 16; rate != 0 {
 		st.audio.SampleRate = rate
+	}
+	return nil, nil
+}
+
+func (st *parseState) readChnl(h *mp4.ReadHandle) (interface{}, error) {
+	box, _, err := h.ReadPayload()
+	if err != nil {
+		return nil, err
+	}
+	raw := box.(*RawBox)
+	var labels []string
+	cur := []byte{}
+	for _, b := range raw.Data {
+		if b == 0 {
+			if len(cur) > 0 {
+				labels = append(labels, string(cur))
+				cur = cur[:0]
+			}
+			continue
+		}
+		cur = append(cur, b)
+	}
+	if len(cur) > 0 {
+		labels = append(labels, string(cur))
+	}
+	if st.audio != nil {
+		st.audio.ChannelLayout = labels
 	}
 	return nil, nil
 }

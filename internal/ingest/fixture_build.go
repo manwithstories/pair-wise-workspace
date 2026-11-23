@@ -117,7 +117,6 @@ func writeAudioTrak(w *mp4.Writer, spec FixtureSpec) {
 	if rate == 0 {
 		return
 	}
-	ch := spec.AudioChannels
 	samples := rate / 10 // 100ms-equivalent per sample at 10fps grouping
 	n := spec.VideoSamples
 	audioDur := uint32(n) * samples / 10
@@ -131,7 +130,7 @@ func writeAudioTrak(w *mp4.Writer, spec FixtureSpec) {
 	_, _ = w.StartBox(&mp4.BoxInfo{Type: mp4.BoxTypeMdia()})
 	writeMdhd(w, 2, rate, uint32(n)*rate/30)
 	writeHdlr(w, "soun", "SoundHandler")
-	writeAudioMinf(w, rate, ch, n)
+	writeAudioMinf(w, spec, n)
 	_, _ = w.EndBox()
 	_, _ = w.EndBox()
 }

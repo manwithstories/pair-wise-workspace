@@ -125,6 +125,33 @@ func TestCorruptFixtures(t *testing.T) {
 	}
 }
 
+func TestBadAudioLayoutFixture(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "badlayout.mp4")
+	if _, err := GenerateMP4(FixtureSpec{
+		Path: path, Width: 640, Height: 360, VideoSamples: 6,
+		AudioSampleRate: 48000, AudioChannels: 2,
+		AudioLayout: []string{"L", "R"},
+		Damage:      DamageBadLayout,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sum := mustParse(t, path)
+	var aud *AudioTrackLayout
+	for _, tr := range sum.Tracks {
+		if tr.Kind == "audio" {
+			aud = tr.Audio
+		}
+	}
+	if aud == nil {
+		t.Fatal("audio track missing")
+	}
+	if aud.Channels != 4 || len(aud.ChannelLayout) != 2 {
+		t.Fatalf("fixture must disagree: ch=%d labels=%v",
+			aud.Channels, aud.ChannelLayout)
+	}
+}
+
 func TestRoundTripSummary(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "rt.mp4")

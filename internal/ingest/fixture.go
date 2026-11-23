@@ -61,6 +61,7 @@ func newFixed(t string, _ int, data []byte) mp4.IImmutableBox {
 
 func init() {
 	mp4.AddAnyTypeBoxDef(&RawBox{}, mp4.StrToBoxType("avcC"))
+	mp4.AddAnyTypeBoxDef(&RawBox{}, mp4.StrToBoxType("chnl"))
 	mp4.AddAnyTypeBoxDef(&avc1Box{}, mp4.StrToBoxType("avc1"))
 	mp4.AddAnyTypeBoxDef(&mp4aBox{}, mp4.StrToBoxType("mp4a"))
 	mp4.AddAnyTypeBoxDef(&clapBox{}, mp4.StrToBoxType("clap"))
