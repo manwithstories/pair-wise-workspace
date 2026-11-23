@@ -18,17 +18,18 @@ const CheckpointVersion = 1
 // Checkpoint captures everything needed to prove resumability: input manifest
 // digest, committed-output digest, and the index plus timeline state.
 type Checkpoint struct {
-	Version            int      `json:"version"`
-	InputDigest        string   `json:"input_digest"`
-	CommittedDigest    string   `json:"committed_digest"`
-	CommittedFragments []string `json:"committed_fragments"`
-	LastCommitted      string   `json:"last_committed"`
-	FragmentsTotal     int      `json:"fragments_total"`
-	RepairedTfdt       int      `json:"repaired_tfdt"`
-	MissingMfhd        int      `json:"missing_mfhd"`
-	OutputBytes        int64    `json:"output_bytes"`
-	Index              *Index   `json:"index"`
-	Checksum           string   `json:"checksum"`
+	Version            int               `json:"version"`
+	InputDigest        string            `json:"input_digest"`
+	CommittedDigest    string            `json:"committed_digest"`
+	CommittedFragments []string          `json:"committed_fragments"`
+	LastCommitted      string            `json:"last_committed"`
+	FragmentsTotal     int               `json:"fragments_total"`
+	RepairedTfdt       int               `json:"repaired_tfdt"`
+	MissingMfhd        int               `json:"missing_mfhd"`
+	OutputBytes        int64             `json:"output_bytes"`
+	NextDecodeTime     map[uint32]uint64 `json:"next_decode_time"`
+	Index              *Index            `json:"index"`
+	Checksum           string            `json:"checksum"`
 }
 
 // indexDigest hashes the committed state excluding the checksum field itself.

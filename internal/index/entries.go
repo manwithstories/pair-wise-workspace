@@ -47,29 +47,16 @@ type Index struct {
 	ByTrack    map[uint32]int `json:"by_track"`
 }
 
-// Build creates per-sample entries and sync-delimited intervals from the
-// repaired timeline. Entry order is deterministic: track, then DTS, then byte
-// offset, independent of channel scheduling.
+// Build flattens a repaired timeline into a normalized index.
 func Build(tl *repair.Timeline) (*Index, error) {
 	if tl == nil {
 		return nil, fault.New(fault.KindIndex, "", "trun", 0, "nil timeline")
 	}
-	idx := &Index{ByTrack: map[uint32]int{}}
-	type trackCursor struct {
-		intervalID int
-		open       bool
-	}
-	cursors := map[uint32]*trackCursor{}
-	nextInterval := 0
+	var entries []Entry
 	for _, ft := range tl.Fragments {
 		if ft.Timescale == 0 {
 			return nil, fault.New(fault.KindIndex, ft.Segment, "mdhd", 0,
 				fmt.Sprintf("track %d has zero timescale in index input", ft.TrackID))
-		}
-		cur := cursors[ft.TrackID]
-		if cur == nil {
-			cur = &trackCursor{}
-			cursors[ft.TrackID] = cur
 		}
 		for _, s := range ft.Samples {
 			if s.EndDTS <= s.DTS {
@@ -80,29 +67,22 @@ func Build(tl *repair.Timeline) (*Index, error) {
 				return nil, fault.New(fault.KindIndex, ft.Segment, "mdat", s.Offset,
 					fmt.Sprintf("sample range invalid: offset=%d size=%d", s.Offset, s.Size))
 			}
-			isSync := s.Sync()
-			if isSync || !cur.open {
-				cur.intervalID = nextInterval
-				nextInterval++
-				cur.open = true
-				idx.Intervals = append(idx.Intervals, Interval{
-					ID: cur.intervalID, TrackID: ft.TrackID, Timescale: ft.Timescale,
-					StartDTS: s.DTS, EndDTS: s.EndDTS, Role: intervalRole(isSync),
-					Seekable: isSync, SyncDTS: s.DTS,
-				})
-			}
-			iv := &idx.Intervals[cur.intervalID]
-			if s.EndDTS > iv.EndDTS {
-				iv.EndDTS = s.EndDTS
-			}
-			idx.Entries = append(idx.Entries, Entry{
+			entries = append(entries, Entry{
 				Segment: ft.Segment, Sequence: ft.Sequence, TrackID: ft.TrackID,
 				Timescale: ft.Timescale, DTS: s.DTS, EndDTS: s.EndDTS,
-				Offset: s.Offset, Size: s.Size, Sync: isSync,
-				Seekable: iv.Seekable, IntervalID: iv.ID,
+				Offset: s.Offset, Size: s.Size, Sync: s.Sync(),
 			})
 		}
 	}
+	return Normalize(entries)
+}
+
+// Normalize sorts entries deterministically (track, DTS, output offset) and
+// assigns sync-delimited intervals. Intervals that do not begin with a sync
+// sample are marked unseekable.
+func Normalize(entries []Entry) (*Index, error) {
+	idx := &Index{ByTrack: map[uint32]int{}}
+	idx.Entries = append(idx.Entries, entries...)
 	sort.SliceStable(idx.Entries, func(a, b int) bool {
 		x, y := idx.Entries[a], idx.Entries[b]
 		if x.TrackID != y.TrackID {
@@ -113,7 +93,42 @@ func Build(tl *repair.Timeline) (*Index, error) {
 		}
 		return x.Offset < y.Offset
 	})
+	active := map[uint32]int{}
+	intervalByID := map[int]*Interval{}
+	nextID := 0
+	for i := range idx.Entries {
+		e := &idx.Entries[i]
+		if e.EndDTS <= e.DTS {
+			return nil, fault.New(fault.KindIndex, e.Segment, "trun", e.Offset,
+				fmt.Sprintf("entry %d has non-positive duration", i))
+		}
+		if e.Timescale == 0 {
+			return nil, fault.New(fault.KindIndex, e.Segment, "mdhd", 0, "entry has zero timescale")
+		}
+		current, open := active[e.TrackID]
+		if !open || e.Sync {
+			current = nextID
+			nextID++
+			active[e.TrackID] = current
+			iv := Interval{
+				ID: current, TrackID: e.TrackID, Timescale: e.Timescale,
+				StartDTS: e.DTS, EndDTS: e.EndDTS, SyncDTS: e.DTS,
+				Seekable: e.Sync, Role: intervalRole(e.Sync),
+			}
+			intervalByID[current] = &iv
+			idx.Intervals = append(idx.Intervals, iv)
+		}
+		iv := intervalByID[current]
+		if e.EndDTS > iv.EndDTS {
+			iv.EndDTS = e.EndDTS
+		}
+		e.IntervalID = iv.ID
+		e.Seekable = iv.Seekable
+		idx.ByTrack[e.TrackID]++
+	}
+	// Copy interval end times back from the local map.
 	for i := range idx.Intervals {
+		idx.Intervals[i] = *intervalByID[idx.Intervals[i].ID]
 		if !idx.Intervals[i].Seekable {
 			idx.Unseekable++
 		}
@@ -128,9 +143,6 @@ func Build(tl *repair.Timeline) (*Index, error) {
 		}
 		return x.ID < y.ID
 	})
-	for _, e := range idx.Entries {
-		idx.ByTrack[e.TrackID]++
-	}
 	return idx, nil
 }
 
@@ -159,8 +171,8 @@ func (idx *Index) SeekPoints() []Entry {
 	return out
 }
 
-// Validate checks internal consistency: monotonic per-track DTS, valid sample
-// ranges, and interval linkage.
+// Validate checks internal consistency: monotonic per-track DTS, positive
+// durations, and sample ranges inside the output file.
 func (idx *Index) Validate(fileSize int64) error {
 	if idx == nil {
 		return fault.New(fault.KindIndex, "", "", 0, "nil index")
@@ -176,7 +188,7 @@ func (idx *Index) Validate(fileSize int64) error {
 				fmt.Sprintf("entry %d regresses track %d: dts=%d previous end=%d", i, e.TrackID, e.DTS, prev))
 		}
 		lastEnd[e.TrackID] = e.EndDTS
-		if e.Offset < 0 || int64(e.Size) > fileSize || e.Offset > fileSize-int64(e.Size) {
+		if e.Offset < 0 || e.Size == 0 || int64(e.Size) > fileSize || e.Offset > fileSize-int64(e.Size) {
 			return fault.New(fault.KindIndex, e.Segment, "mdat", e.Offset,
 				fmt.Sprintf("entry %d sample range [%d,%d) outside file of %d bytes", i, e.Offset, e.Offset+int64(e.Size), fileSize))
 		}

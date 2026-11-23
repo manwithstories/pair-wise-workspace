@@ -85,8 +85,17 @@ func unmarshalChild(payload []byte, base int64, segment, typ string, dst mp4.IBo
 	return nil
 }
 
-// ParseInit reads ftyp and moov from an initialization segment.
+// ParseInit reads ftyp and moov from an initialization segment file.
 func ParseInit(f *os.File, segment string) (*Init, error) {
+	info, err := f.Stat()
+	if err != nil {
+		return nil, fault.Wrap(err, fault.KindShortRead, segment, "", 0, "stat failed")
+	}
+	return ParseInitReader(f, info.Size(), segment)
+}
+
+// ParseInitReader reads ftyp and moov from an arbitrary reader.
+func ParseInitReader(r io.ReadSeeker, size int64, segment string) (*Init, error) {
 	init := &Init{Segment: segment, Tracks: map[uint32]*Track{}}
 	type pending struct {
 		id        uint32
@@ -95,7 +104,7 @@ func ParseInit(f *os.File, segment string) (*Init, error) {
 	}
 	// keyed by track order within moov
 	var tracks []pending
-	err := WalkFile(f, segment, func(h Header, r io.ReadSeeker) error {
+	err := WalkReader(r, size, segment, func(h Header, r io.ReadSeeker) error {
 		switch h.Type {
 		case "ftyp":
 			p, err := ReadPayload(r, h, segment)
@@ -218,14 +227,23 @@ type parsedTrun struct {
 	flags uint32
 }
 
-// ParseFragment reads one media segment and validates every sample range
-// against its following mdat.
+// ParseFragment reads one media segment file and validates every sample
+// range against its following mdat.
 func ParseFragment(f *os.File, segment string, init *Init) (*Fragment, error) {
-	frag := &Fragment{Segment: segment, MdatOffset: -1}
+	info, err := f.Stat()
+	if err != nil {
+		return nil, fault.Wrap(err, fault.KindShortRead, segment, "", 0, "stat failed")
+	}
+	return ParseFragmentReader(f, info.Size(), segment, init)
+}
+
+// ParseFragmentReader reads a single moof+mdat segment from a reader.
+func ParseFragmentReader(r io.ReadSeeker, size int64, segment string, init *Init) (*Fragment, error) {
 	var moofPayload []byte
-	var moof Header
+	var moof, mdat Header
 	seenMoof := false
-	err := WalkFile(f, segment, func(h Header, r io.ReadSeeker) error {
+	seenMdat := false
+	err := WalkReader(r, size, segment, func(h Header, rr io.ReadSeeker) error {
 		switch h.Type {
 		case "moof":
 			if seenMoof {
@@ -233,7 +251,7 @@ func ParseFragment(f *os.File, segment string, init *Init) (*Fragment, error) {
 			}
 			seenMoof = true
 			moof = h
-			p, err := ReadPayload(r, h, segment)
+			p, err := ReadPayload(rr, h, segment)
 			if err != nil {
 				return err
 			}
@@ -242,13 +260,11 @@ func ParseFragment(f *os.File, segment string, init *Init) (*Fragment, error) {
 			if !seenMoof || moofPayload == nil {
 				return fault.New(fault.KindMalformed, segment, "mdat", h.Offset, "mdat precedes moof")
 			}
-			if frag.MdatOffset >= 0 {
+			if seenMdat {
 				return fault.New(fault.KindMalformed, segment, "mdat", h.Offset, "multiple mdat boxes in one media segment")
 			}
-			frag.MdatOffset = h.Offset
-			frag.MdatSize = h.Size
-			frag.MdatPayload = h.PayloadOffset()
-			frag.MdatEnd = h.End()
+			seenMdat = true
+			mdat = h
 		}
 		return nil
 	})
@@ -258,11 +274,22 @@ func ParseFragment(f *os.File, segment string, init *Init) (*Fragment, error) {
 	if !seenMoof {
 		return nil, fault.New(fault.KindMissingBox, segment, "moof", 0, "media segment has no moof")
 	}
-	if frag.MdatOffset < 0 {
+	if !seenMdat {
 		return nil, fault.New(fault.KindMissingBox, segment, "mdat", moof.Offset, "moof has no following mdat")
 	}
-	frag.MoofOffset = moof.Offset
-	frag.MoofSize = moof.Size
+	return ParseFragmentBoxes(moofPayload, moof, mdat, segment, init)
+}
+
+// ParseFragmentBoxes validates one moof payload against its mdat header.
+func ParseFragmentBoxes(moofPayload []byte, moof, mdat Header, segment string, init *Init) (*Fragment, error) {
+	if init == nil {
+		return nil, fault.New(fault.KindMissingBox, segment, "moov", 0, "no initialization segment")
+	}
+	frag := &Fragment{
+		Segment: segment, MoofOffset: moof.Offset, MoofSize: moof.Size,
+		MdatOffset: mdat.Offset, MdatSize: mdat.Size,
+		MdatPayload: mdat.PayloadOffset(), MdatEnd: mdat.End(),
+	}
 	if err := parseMoof(frag, moofPayload, moof.PayloadOffset(), segment, init); err != nil {
 		return nil, err
 	}
@@ -272,7 +299,7 @@ func ParseFragment(f *os.File, segment string, init *Init) (*Fragment, error) {
 func parseMoof(frag *Fragment, data []byte, base int64, segment string, init *Init) error {
 	var trafs []*parsedTraf
 	baseOffset := frag.MoofOffset
-	defaultBaseIsMoof := false
+	explicitBase := false
 	mfhdCount := 0
 	err := WalkPayload(data, base, segment, func(h Header, payload []byte) error {
 		switch h.Type {
@@ -300,10 +327,7 @@ func parseMoof(frag *Fragment, data []byte, base int64, segment string, init *In
 					pt.tfhd = &tfhd
 					if tfhd.CheckFlag(mp4.TfhdBaseDataOffsetPresent) {
 						baseOffset = int64(tfhd.BaseDataOffset)
-					}
-					if tfhd.CheckFlag(mp4.TfhdDefaultBaseIsMoof) {
-						defaultBaseIsMoof = true
-						baseOffset = frag.MoofOffset
+						explicitBase = true
 					}
 				case "tfdt":
 					var tfdt mp4.Tfdt
@@ -333,29 +357,22 @@ func parseMoof(frag *Fragment, data []byte, base int64, segment string, init *In
 	if len(trafs) == 0 {
 		return fault.New(fault.KindMissingBox, segment, "traf", frag.MoofOffset, "moof contains no traf")
 	}
-	if !defaultBaseIsMoof {
-		// CMAF media segments place sample data relative to moof start unless
-		// a tfhd explicitly overrides the base data offset.
+	if !explicitBase {
 		baseOffset = frag.MoofOffset
 	}
 
-	cursor := baseOffset
 	for _, pt := range trafs {
 		if pt.tfhd == nil {
 			return fault.New(fault.KindMissingBox, segment, "tfhd", frag.MoofOffset, "traf has no tfhd")
 		}
 		track, err := init.TrackByID(pt.tfhd.TrackID)
 		if err != nil {
-			fe, _ := fault.As(err)
-			fe.Offset = frag.MoofOffset
+			if fe, ok := fault.As(err); ok {
+				fe.Offset = frag.MoofOffset
+			}
 			return err
 		}
-		traf := Traf{TrackID: pt.tfhd.TrackID}
-		if pt.tfdt != nil {
-			traf.HasTfdt = true
-			traf.TfdtVersion = pt.tfdt.GetVersion()
-			traf.BaseDecodeTime = pt.tfdt.GetBaseMediaDecodeTime()
-		} else {
+		if pt.tfdt == nil {
 			return fault.New(fault.KindMissingBox, segment, "tfdt", frag.MoofOffset,
 				fmt.Sprintf("traf for track %d has no tfdt", pt.tfhd.TrackID))
 		}
@@ -363,17 +380,23 @@ func parseMoof(frag *Fragment, data []byte, base int64, segment string, init *In
 			return fault.New(fault.KindMissingBox, segment, "trun", frag.MoofOffset,
 				fmt.Sprintf("traf for track %d has no trun", pt.tfhd.TrackID))
 		}
-		cursor = baseOffset
+		traf := Traf{
+			TrackID:        pt.tfhd.TrackID,
+			HasTfdt:        true,
+			TfdtVersion:    pt.tfdt.GetVersion(),
+			BaseDecodeTime: pt.tfdt.GetBaseMediaDecodeTime(),
+		}
+		cursor := baseOffset
 		for _, ptn := range pt.truns {
 			tr := ptn.trun
 			if ptn.flags&0x000001 != 0 {
 				cursor = baseOffset + int64(tr.DataOffset)
 			}
+			if tr.SampleCount > 0 && len(tr.Entries) < int(tr.SampleCount) {
+				return fault.New(fault.KindShortRead, segment, "trun", ptn.base,
+					fmt.Sprintf("trun declares %d samples but decodes %d entries", tr.SampleCount, len(tr.Entries)))
+			}
 			for i := 0; i < int(tr.SampleCount); i++ {
-				if i >= len(tr.Entries) {
-					return fault.New(fault.KindShortRead, segment, "trun", ptn.base,
-						fmt.Sprintf("trun declares %d samples but decodes %d entries", tr.SampleCount, len(tr.Entries)))
-				}
 				e := tr.Entries[i]
 				duration := resolveDuration(e, ptn.flags, pt.tfhd, track)
 				size := resolveSize(e, ptn.flags, pt.tfhd, track)
@@ -386,8 +409,7 @@ func parseMoof(frag *Fragment, data []byte, base int64, segment string, init *In
 					return fault.New(fault.KindMalformed, segment, "trun", ptn.base,
 						fmt.Sprintf("sample %d of track %d has zero size", i, track.ID))
 				}
-				if cursor < frag.MdatPayload || cursor > frag.MdatEnd ||
-					int64(size) > frag.MdatEnd-cursor {
+				if cursor < frag.MdatPayload || cursor > frag.MdatEnd || int64(size) > frag.MdatEnd-cursor {
 					return fault.New(fault.KindOutOfBounds, segment, "trun", ptn.base,
 						fmt.Sprintf("sample %d of track %d range [%d,%d) escapes mdat payload [%d,%d)",
 							i, track.ID, cursor, cursor+int64(size), frag.MdatPayload, frag.MdatEnd))

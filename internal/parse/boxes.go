@@ -105,7 +105,12 @@ func WalkFile(f *os.File, segment string, fn func(Header, io.ReadSeeker) error) 
 	if err != nil {
 		return fault.Wrap(err, fault.KindShortRead, segment, "", 0, "stat failed")
 	}
-	fileSize := info.Size()
+	return WalkReader(f, info.Size(), segment, fn)
+}
+
+// WalkReader streams top-level boxes from an arbitrary reader of known size.
+func WalkReader(r io.ReadSeeker, fileSize int64, segment string, fn func(Header, io.ReadSeeker) error) error {
+	f := r
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return fault.Wrap(err, fault.KindShortRead, segment, "", 0, "seek failed")
 	}
