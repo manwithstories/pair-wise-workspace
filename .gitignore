@@ -71,3 +71,13 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- medi模拟运行产物 ----
+/artifacts/
+/artifacts-*/
+
+# ---- 本地运行/测试产物（任何层级）----
+**/artifacts/
+**/artifacts-*/
+**/fixtures/*.mp4
+**/frames/*.png
