@@ -54,7 +54,9 @@ type Options struct {
 	VideoTrackID, AudioTrackID uint32
 }
 
-// DefaultOptions returns a compact, deterministic 2-track fixture.
+// DefaultOptions returns a compact, deterministic 2-track fixture. Sample
+// sizes are chosen so the program runs near 1950 kbps over its 1.024 s
+// timeline, which puts the demo's default 2000 kbps target inside tolerance.
 func DefaultOptions() Options {
 	return Options{
 		Seed:            41,

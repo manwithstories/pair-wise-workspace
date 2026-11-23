@@ -35,13 +35,13 @@ func BuildMP4(o Options) (*Mp4Bundle, error) {
 	audioTimescale := uint32(o.SampleRate)
 
 	for i := 0; i < o.VideoFrames; i++ {
-		size := sampleSize(o.Seed, o.VideoTrackID, i, 900, 600)
+		size := sampleSize(o.Seed, o.VideoTrackID, i, 6400, 600)
 		p := Payload(o.Seed, o.VideoTrackID, i, size)
 		b.VideoSizes = append(b.VideoSizes, size)
 		b.VideoPayloads = append(b.VideoPayloads, p)
 	}
 	for i := 0; i < o.AudioSamples; i++ {
-		size := sampleSize(o.Seed, o.AudioTrackID, i, 180, 60)
+		size := sampleSize(o.Seed, o.AudioTrackID, i, 980, 64)
 		p := Payload(o.Seed, o.AudioTrackID, i, size)
 		b.AudioSizes = append(b.AudioSizes, size)
 		b.AudioPayloads = append(b.AudioPayloads, p)
