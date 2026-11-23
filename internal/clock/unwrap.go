@@ -29,13 +29,13 @@ type Packet struct {
 
 // PacketTime is the fully resolved timing for one packet.
 type PacketTime struct {
-	ArrivalIdx   int    // position in the input arrival-order slice
-	Seq          uint16 // original sequence number
-	SeqWrapped   int64  // sequence number with 16-bit wrap removed
-	TS           uint32 // original RTP timestamp
-	TSUnwrapped  uint64 // timestamp with 32-bit wrap removed
-	Ticks        int64  // TSUnwrapped mapped onto the unified microsecond grid
-	Ambiguous    bool   // true when the wrap direction could not be decided
+	ArrivalIdx  int    // position in the input arrival-order slice
+	Seq         uint16 // original sequence number
+	SeqWrapped  int64  // sequence number with 16-bit wrap removed
+	TS          uint32 // original RTP timestamp
+	TSUnwrapped uint64 // timestamp with 32-bit wrap removed
+	Ticks       int64  // TSUnwrapped mapped onto the unified microsecond grid
+	Ambiguous   bool   // true when the wrap direction could not be decided
 }
 
 // AmbiguitySpan is a contiguous run of packets whose timestamp jumps could

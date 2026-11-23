@@ -12,14 +12,14 @@ import (
 
 // Spec is the deterministic description of a demo run.
 type Spec struct {
-	Seed         int64
-	Tracks       int
-	Frames       int
-	CorruptAt    int64
-	Timescale    int64
-	KeyEvery     int
-	KeyGapLimit  int64 // ticks
-	DriftLimit   int64 // ticks
+	Seed          int64
+	Tracks        int
+	Frames        int
+	CorruptAt     int64
+	Timescale     int64
+	KeyEvery      int
+	KeyGapLimit   int64 // ticks
+	DriftLimit    int64 // ticks
 	SegmentFrames int64
 }
 
@@ -83,11 +83,11 @@ func Build(s Spec) (*Media, error) {
 		uint32(s.Timescale / 24),
 	}
 	data := mp4.BuildFixture(mp4.FixtureSpec{
-		Tracks:    s.Tracks,
-		Frames:    s.Frames,
-		Timescale: s.Timescale,
+		Tracks:       s.Tracks,
+		Frames:       s.Frames,
+		Timescale:    s.Timescale,
 		VFRDurations: vfr,
-		KeyEvery:  s.KeyEvery,
+		KeyEvery:     s.KeyEvery,
 	})
 	return &Media{Spec: s, Bytes: data, Digest: hexEncode(sum256(data))}, nil
 }

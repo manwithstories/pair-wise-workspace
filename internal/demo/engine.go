@@ -33,11 +33,11 @@ type Result struct {
 
 // RunConfig controls a single scan invocation.
 type RunConfig struct {
-	Media        *Media
-	Checkpoint   string
-	Resume       bool
-	CancelAfter  int64 // cancel once this many frames are processed; <=0 = off
-	Pool         pipeline.Limits
+	Media       *Media
+	Checkpoint  string
+	Resume      bool
+	CancelAfter int64 // cancel once this many frames are processed; <=0 = off
+	Pool        pipeline.Limits
 }
 
 // Engine runs the deterministic scan with checkpoint/resume support.

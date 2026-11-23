@@ -7,9 +7,9 @@ import (
 // FixtureSpec describes a deterministic synthetic ISO BMFF byte stream.
 // Everything is generated in-process; no external files are referenced.
 type FixtureSpec struct {
-	Tracks     int
-	Frames     int // samples per track
-	Timescale  int64
+	Tracks    int
+	Frames    int // samples per track
+	Timescale int64
 	// VFRDurations, when non-empty, is repeated cyclically as per-sample
 	// timescale deltas, producing a variable frame rate track. When nil a
 	// constant delta is used.

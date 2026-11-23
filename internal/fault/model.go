@@ -78,8 +78,8 @@ type Fault struct {
 	Ticks int64 `json:"ticks"`
 	// SpanFrames / SpanBytes describe the damaged extent starting at
 	// FrameIndex/OffsetBytes. Zero means a point fault.
-	SpanFrames int64 `json:"span_frames,omitempty"`
-	SpanBytes  int64 `json:"span_bytes,omitempty"`
+	SpanFrames int64  `json:"span_frames,omitempty"`
+	SpanBytes  int64  `json:"span_bytes,omitempty"`
 	Message    string `json:"message"`
 }
 

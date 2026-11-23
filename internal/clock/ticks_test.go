@@ -99,7 +99,7 @@ func exactRef(v, num, den int64) int64 {
 }
 
 func TestScaleRoundHalfAway(t *testing.T) {
-	r := Rational{Num: 10, Den: 4} // 2.5 per unit
+	r := Rational{Num: 10, Den: 4}           // 2.5 per unit
 	if got, _ := r.ScaleRound(1); got != 3 { // 2.5 -> 3
 		t.Fatalf("positive half: got %d want 3", got)
 	}
@@ -123,14 +123,14 @@ func TestNewRationalRejectsBadDen(t *testing.T) {
 
 func TestMul64Boundaries(t *testing.T) {
 	cases := []struct {
-		a, b     int64
-		want     int64
-		wantOK   bool
+		a, b   int64
+		want   int64
+		wantOK bool
 	}{
 		{-1, 10, -10, true},
 		{math.MinInt64, 1, math.MinInt64, true},
 		{1, math.MinInt64, math.MinInt64, true},
-		{math.MinInt64, -1, 0, false},   // 2^63 does not fit
+		{math.MinInt64, -1, 0, false}, // 2^63 does not fit
 		{math.MinInt64, 2, 0, false},
 		{math.MaxInt64, 2, 0, false},
 		{math.MaxInt64, math.MaxInt64, 0, false},

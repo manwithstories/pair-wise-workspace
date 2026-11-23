@@ -244,7 +244,7 @@ func BuildTracks(data []byte, roots []*Box, lim Limits) ([]TrackInfo, []fault.Fa
 			}
 			samples[i] = Sample{
 				Index:         i,
-				IsKeyframe:   len(keySet) == 0 || keySet[i+1],
+				IsKeyframe:    len(keySet) == 0 || keySet[i+1],
 				Size:          sizes[i],
 				Offset:        chunkFor(i, chunks),
 				DurationTicks: dt,

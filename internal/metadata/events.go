@@ -26,18 +26,18 @@ const (
 type DriftDirection string
 
 const (
-	DriftNone  DriftDirection = "none"
-	DriftAhead DriftDirection = "ahead" // observed clock is ahead of reference
+	DriftNone   DriftDirection = "none"
+	DriftAhead  DriftDirection = "ahead" // observed clock is ahead of reference
 	DriftBehind DriftDirection = "behind"
 )
 
 // RawEvent is an event expressed in its source track timescale.
 type RawEvent struct {
-	Kind       EventKind
-	ID         string
-	TimeUnits  int64 // presentation time in track timescale units
+	Kind          EventKind
+	ID            string
+	TimeUnits     int64 // presentation time in track timescale units
 	DurationUnits int64
-	Payload    string
+	Payload       string
 }
 
 // Event is a RawEvent mapped onto the unified microsecond grid.
@@ -65,11 +65,11 @@ type DriftPoint struct {
 
 // DriftReport summarizes a track's drift against the reference timeline.
 type DriftReport struct {
-	TrackID          uint32
-	ThresholdTicks   int64
-	MaxAbsDeviation  int64
-	FirstExceedance  *DriftPoint
-	Points           []DriftPoint
+	TrackID         uint32
+	ThresholdTicks  int64
+	MaxAbsDeviation int64
+	FirstExceedance *DriftPoint
+	Points          []DriftPoint
 }
 
 // ErrNoEvents is returned when normalization receives an empty event list.

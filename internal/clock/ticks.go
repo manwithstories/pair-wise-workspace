@@ -18,7 +18,7 @@ const TicksPerSecond int64 = 1_000_000
 // Standard RTP clock rates (RFC 3551).
 const (
 	RTPVideo90k int64 = 90_000 // video / RFC 3551 90 kHz clock
-	RTPCDR8k   int64 = 8_000  // PCM/telephone audio 8 kHz
+	RTPCDR8k    int64 = 8_000  // PCM/telephone audio 8 kHz
 )
 
 // MaxTimescale bounds accepted MP4 timescales and RTP clock rates. A value

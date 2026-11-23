@@ -17,31 +17,31 @@ import (
 // Params is the subset of run configuration that influences results. It is
 // part of the canonical digest so changing any parameter changes the hash.
 type Params struct {
-	Seed       int64  `json:"seed"`
-	Tracks     int    `json:"tracks"`
-	Frames     int    `json:"frames"`
-	CorruptAt  int64  `json:"corrupt_at"`
-	Timescale  int64  `json:"timescale"`
-	MaxKeyGap  int64  `json:"max_key_gap_ticks"`
-	DriftLimit int64  `json:"drift_limit_ticks"`
+	Seed       int64 `json:"seed"`
+	Tracks     int   `json:"tracks"`
+	Frames     int   `json:"frames"`
+	CorruptAt  int64 `json:"corrupt_at"`
+	Timescale  int64 `json:"timescale"`
+	MaxKeyGap  int64 `json:"max_key_gap_ticks"`
+	DriftLimit int64 `json:"drift_limit_ticks"`
 }
 
 // Summary is the stable, human-readable scan outcome.
 type Summary struct {
-	Tracks        int    `json:"tracks"`
-	Frames        int    `json:"frames"`
-	FaultCount    int    `json:"fault_count"`
-	FirstBadFrame int64  `json:"first_bad_frame"`
-	OffsetBytes   int64  `json:"offset_bytes"`
+	Tracks        int   `json:"tracks"`
+	Frames        int   `json:"frames"`
+	FaultCount    int   `json:"fault_count"`
+	FirstBadFrame int64 `json:"first_bad_frame"`
+	OffsetBytes   int64 `json:"offset_bytes"`
 	// LocalizationErrorFrames is always zero on a correctly located fault:
 	// the reported frame must equal the injected corruption point.
 	LocalizationErrorFrames int64 `json:"localization_error_frames"`
 	// ResumeMs counts time spent recomputing after a checkpoint resume;
 	// zero on a full run.
-	ResumeMs       int64          `json:"resume_ms"`
-	RecomputedFrames int64        `json:"recomputed_frames"`
-	TopFaults      []fault.Fault  `json:"top_faults"`
-	SHA256         string         `json:"sha256"`
+	ResumeMs         int64         `json:"resume_ms"`
+	RecomputedFrames int64         `json:"recomputed_frames"`
+	TopFaults        []fault.Fault `json:"top_faults"`
+	SHA256           string        `json:"sha256"`
 }
 
 // Canonical renders params plus the ordered fault slice into stable bytes.

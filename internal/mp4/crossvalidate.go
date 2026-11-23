@@ -11,14 +11,14 @@ import (
 // external go-mp4 library. It is compared against the in-tree scanner so the
 // two independent parsers must agree on structure and offsets.
 type BoxCount struct {
-	Total  int
-	Traks  int
-	Mdats  int
-	Stts   int
-	Stss   int
-	Stsz   int
-	Stco   int
-	Co64   int
+	Total int
+	Traks int
+	Mdats int
+	Stts  int
+	Stss  int
+	Stsz  int
+	Stco  int
+	Co64  int
 }
 
 // CrossValidate parses data with github.com/abema/go-mp4 and asserts that its
