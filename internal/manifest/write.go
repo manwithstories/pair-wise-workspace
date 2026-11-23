@@ -135,12 +135,24 @@ func buildTrack(in TrackInput) (TrackTimeline, []float64, error) {
 	duration := clock.Rational{Num: num, Den: den}
 	tl.DurationMs = duration.Millis()
 
-	// Ideal grid: sample i is expected at i * frameDuration (or i/sampleRate).
-	var frameNum, frameDen int64
-	if in.FrameRateNum > 0 && in.FrameRateDen > 0 {
-		frameNum, frameDen = in.FrameRateNum, in.FrameRateDen
-	} else {
-		frameNum, frameDen = int64(tr.Timescale), 1
+	// Ideal grid: sample i is expected at i * nominalSampleDuration. The
+	// nominal duration is the declared edit unit (one frame for video, one
+	// access unit for audio), which keeps non-integral frame rates exact.
+	// The grid is computed in ticks and compared in milliseconds.
+	var nominalTicks int64
+	if in.FrameRateNum > 0 && in.FrameRateDen > 0 && tr.Timescale%uint32(in.FrameRateNum) == 0 {
+		nominalTicks = int64(tr.Timescale) / in.FrameRateNum * in.FrameRateDen
+	}
+	if nominalTicks <= 0 {
+		for i := range tr.Samples {
+			if tr.Samples[i].Duration > 0 {
+				nominalTicks = tr.Samples[i].Duration
+				break
+			}
+		}
+	}
+	if nominalTicks <= 0 {
+		nominalTicks = 1
 	}
 	var errs []float64
 	for i := range tr.Samples {
@@ -149,7 +161,10 @@ func buildTrack(in TrackInput) (TrackTimeline, []float64, error) {
 		if err != nil {
 			return TrackTimeline{}, nil, err
 		}
-		idealSec := clock.Must(frameDen, frameNum).MulInt(int64(i))
+		idealSec, err := clock.FromTicks(int64(i)*nominalTicks, tr.Timescale)
+		if err != nil {
+			return TrackTimeline{}, nil, err
+		}
 		diff := clock.AbsDiffMs(declaredSec, idealSec)
 		if math.IsNaN(diff) || math.IsInf(diff, 0) {
 			return TrackTimeline{}, nil, model.NewError(model.ErrUnrecoverable, tr.ID, 0, "alignment produced a non-finite value")
