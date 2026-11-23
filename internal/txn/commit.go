@@ -65,8 +65,9 @@ func (m *Manager) Resume(recs []Record) {
 				continue
 			}
 			if actual, err := HashFile(r.Temp); err == nil && actual == r.OutputHash {
-				m.checkpoints[r.Stage] = r.OutputHash
-				m.order = append(m.order, r.Stage)
+				// observeCheckpoint keeps order free of duplicates when a
+				// stage was committed more than once in the same log.
+				m.observeCheckpoint(r.Stage, r.OutputHash)
 			}
 		case RecRollback:
 			delete(m.checkpoints, r.Stage)
