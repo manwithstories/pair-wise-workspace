@@ -152,14 +152,14 @@ func avc1Payload(spec FixtureSpec) []byte {
 	_ = binary.Write(buf, binary.BigEndian, uint16(1))
 	_ = binary.Write(buf, binary.BigEndian, uint16(0)) // pre_defined
 	_ = binary.Write(buf, binary.BigEndian, uint16(0)) // reserved
-	buf.Write(make([]byte, 12)) // pre_defined[3]
+	buf.Write(make([]byte, 12))                        // pre_defined[3]
 	_ = binary.Write(buf, binary.BigEndian, uint16(spec.Width))
 	_ = binary.Write(buf, binary.BigEndian, uint16(spec.Height))
 	_ = binary.Write(buf, binary.BigEndian, uint32(0x00480000)) // h/v res
 	_ = binary.Write(buf, binary.BigEndian, uint32(0x00480000))
-	_ = binary.Write(buf, binary.BigEndian, uint32(0)) // reserved
-	_ = binary.Write(buf, binary.BigEndian, uint16(1)) // frame count
-	buf.Write(make([]byte, 32))                        // compressor name
+	_ = binary.Write(buf, binary.BigEndian, uint32(0))      // reserved
+	_ = binary.Write(buf, binary.BigEndian, uint16(1))      // frame count
+	buf.Write(make([]byte, 32))                             // compressor name
 	_ = binary.Write(buf, binary.BigEndian, uint16(0x0018)) // depth
 	_ = binary.Write(buf, binary.BigEndian, int16(-1))      // pre_defined
 	return buf.Bytes()

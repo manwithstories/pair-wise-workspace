@@ -14,29 +14,29 @@ import (
 type CrashPoint string
 
 const (
-	CrashNone        CrashPoint = ""
-	CrashAfterWrite  CrashPoint = "write"
-	CrashAfterVerify CrashPoint = "verify"
+	CrashNone         CrashPoint = ""
+	CrashAfterWrite   CrashPoint = "write"
+	CrashAfterVerify  CrashPoint = "verify"
 	CrashBeforeCommit CrashPoint = "commit"
 )
 
 // CommitResult reports what one segment run did.
 type CommitResult struct {
-	SegmentID    string
-	OutputPath   string
-	Hash         string
-	RolledBack   bool
-	Reused       bool // idempotent replay reused a committed artifact
+	SegmentID  string
+	OutputPath string
+	Hash       string
+	RolledBack bool
+	Reused     bool // idempotent replay reused a committed artifact
 }
 
 // Committer coordinates the temp area, journal and atomic rename for
 // one working directory.
 type Committer struct {
-	root    string // workspace root
-	tmpDir  string // uncommitted artifacts live here
+	root     string // workspace root
+	tmpDir   string // uncommitted artifacts live here
 	finalDir string // committed artifacts live here
-	journal *Journal
-	crash   CrashPoint
+	journal  *Journal
+	crash    CrashPoint
 	// RollbackCount increments whenever an uncommitted temp artifact
 	// is discarded during recovery or verification failure.
 	RollbackCount int

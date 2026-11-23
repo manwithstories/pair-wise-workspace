@@ -15,6 +15,7 @@ import (
 	"github.com/example/mediad/internal/ingest"
 	"github.com/example/mediad/internal/model"
 	rtppkg "github.com/example/mediad/internal/rtp"
+	"github.com/example/mediad/internal/safeio"
 	"github.com/example/mediad/internal/sync"
 	"github.com/example/mediad/internal/txn"
 	"github.com/example/mediad/internal/verify"
@@ -22,10 +23,10 @@ import (
 
 // Result bundles metrics, the manifest and quarantine records.
 type Result struct {
-	Metrics   Metrics
-	Manifest  *verify.Manifest
-	Rejected  []verify.SegmentRecord
-	WorkDir   string
+	Metrics  Metrics
+	Manifest *verify.Manifest
+	Rejected []verify.SegmentRecord
+	WorkDir  string
 }
 
 // Run executes one full, self-contained delivery pipeline.
@@ -33,7 +34,29 @@ func Run(opts Options) (*Result, error) {
 	if opts.VideoSamples == 0 {
 		opts.VideoSamples = 12
 	}
-	work, err := filepath.Abs(opts.WorkDir)
+	absWork, err := filepath.Abs(opts.WorkDir)
+	if err != nil {
+		return nil, err
+	}
+	root := opts.Root
+	if root == "" {
+		// No explicit boundary: confine to the work dir's own parent.
+		root = filepath.Dir(absWork)
+	} else if !filepath.IsAbs(opts.WorkDir) {
+		// Relative work dirs are interpreted against the workspace root.
+		absWork = filepath.Join(root, opts.WorkDir)
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+	absWork, err = filepath.Abs(absWork)
+	if err != nil {
+		return nil, err
+	}
+	// Every path the pipeline touches must resolve inside the workspace
+	// root; symlink escapes are rejected before any I/O.
+	work, err := safeio.Resolve(absRoot, absWork)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +172,7 @@ func Run(opts Options) (*Result, error) {
 		res.Manifest.Segments = append(res.Manifest.Segments,
 			verify.SegmentRecord{
 				ID: segID, Path: cr.OutputPath, SHA256: cr.Hash,
-				Size: int64(len(payload)),
+				Size:          int64(len(payload)),
 				KeyframeCount: countKeyframesForSegment(i, actual),
 				SampleCount:   1, TrackID: 1,
 			})

@@ -10,7 +10,7 @@ func writeVideoMinf(w *mp4.Writer, spec FixtureSpec) {
 	_, _ = w.StartBox(&mp4.BoxInfo{Type: mp4.BoxTypeMinf()})
 
 	_, _ = w.StartBox(&mp4.BoxInfo{Type: mp4.BoxTypeVmhd()})
-	_, _ = mp4.Marshal(w, &mp4.Vmhd{FullBox: mp4.FullBox{Flags: [3]byte{0,0,1}}}, mp4.Context{})
+	_, _ = mp4.Marshal(w, &mp4.Vmhd{FullBox: mp4.FullBox{Flags: [3]byte{0, 0, 1}}}, mp4.Context{})
 	_, _ = w.EndBox()
 
 	writeDinf(w)
@@ -50,7 +50,7 @@ func writeDinf(w *mp4.Writer) {
 	_, _ = w.StartBox(&mp4.BoxInfo{Type: mp4.BoxTypeDref()})
 	_, _ = mp4.Marshal(w, &mp4.Dref{EntryCount: 1}, mp4.Context{})
 	_, _ = w.StartBox(&mp4.BoxInfo{Type: mp4.BoxTypeUrl()})
-	_, _ = mp4.Marshal(w, &mp4.Url{FullBox: mp4.FullBox{Flags: [3]byte{0,0,1}}}, mp4.Context{}) // self-contained
+	_, _ = mp4.Marshal(w, &mp4.Url{FullBox: mp4.FullBox{Flags: [3]byte{0, 0, 1}}}, mp4.Context{}) // self-contained
 	_, _ = w.EndBox()
 	_, _ = w.EndBox() // dref
 	_, _ = w.EndBox() // dinf

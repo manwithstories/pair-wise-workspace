@@ -12,10 +12,10 @@ import (
 // supportedLayouts is the allow-list of channel label orders the
 // pipeline can map without an external downmix/upmix engine.
 var supportedLayouts = map[string]bool{
-	"M":        true, // mono
-	"L|R":      true, // stereo
-	"L|R|C":    true, // 3.0
-	"L|R|LFE":  true, // 2.1
+	"M":         true, // mono
+	"L|R":       true, // stereo
+	"L|R|C":     true, // 3.0
+	"L|R|LFE":   true, // 2.1
 	"L|R|C|LFE": true, // 3.1
 }
 

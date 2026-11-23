@@ -7,28 +7,28 @@ package ingest
 type MXFTag uint16
 
 const (
-	MXFTagPreface         MXFTag = 0x0101
-	MXFTagEssenceTrack    MXFTag = 0x0201
-	MXFTagTrackID         MXFTag = 0x0202
-	MXFTagTrackName       MXFTag = 0x0203
-	MXFTagEditRate        MXFTag = 0x0204
-	MXFTagDuration        MXFTag = 0x0205
-	MXFTagSampleRate      MXFTag = 0x0206
-	MXFTagChannels        MXFTag = 0x0207
-	MXFTagChannelLayout   MXFTag = 0x0208
-	MXFTagWidth           MXFTag = 0x0209
-	MXFTagHeight          MXFTag = 0x020a
-	MXFTagCodec           MXFTag = 0x020b
-	MXFTagPictureEssence  MXFTag = 0x020c
-	MXFTagSoundEssence    MXFTag = 0x020d
-	MXFTagRotation        MXFTag = 0x0301
-	MXFTagCrop            MXFTag = 0x0302
-	MXFTagColorPrimaries  MXFTag = 0x0303
-	MXFTagColorTransfer   MXFTag = 0x0304
-	MXFTagColorMatrix     MXFTag = 0x0305
-	MXFTagColorICC        MXFTag = 0x0306
-	MXFTagKeyframeIndex   MXFTag = 0x0401
-	MXFTagCorruptMarker   MXFTag = 0x0f01 // test-only: force parse failure
+	MXFTagPreface        MXFTag = 0x0101
+	MXFTagEssenceTrack   MXFTag = 0x0201
+	MXFTagTrackID        MXFTag = 0x0202
+	MXFTagTrackName      MXFTag = 0x0203
+	MXFTagEditRate       MXFTag = 0x0204
+	MXFTagDuration       MXFTag = 0x0205
+	MXFTagSampleRate     MXFTag = 0x0206
+	MXFTagChannels       MXFTag = 0x0207
+	MXFTagChannelLayout  MXFTag = 0x0208
+	MXFTagWidth          MXFTag = 0x0209
+	MXFTagHeight         MXFTag = 0x020a
+	MXFTagCodec          MXFTag = 0x020b
+	MXFTagPictureEssence MXFTag = 0x020c
+	MXFTagSoundEssence   MXFTag = 0x020d
+	MXFTagRotation       MXFTag = 0x0301
+	MXFTagCrop           MXFTag = 0x0302
+	MXFTagColorPrimaries MXFTag = 0x0303
+	MXFTagColorTransfer  MXFTag = 0x0304
+	MXFTagColorMatrix    MXFTag = 0x0305
+	MXFTagColorICC       MXFTag = 0x0306
+	MXFTagKeyframeIndex  MXFTag = 0x0401
+	MXFTagCorruptMarker  MXFTag = 0x0f01 // test-only: force parse failure
 )
 
 // mxfValueType discriminates the encoded payload of a local tag.
@@ -57,9 +57,9 @@ type mxfField struct {
 
 // MXFTrack is the decoded body of one essence-track local set.
 type MXFTrack struct {
-	ID       uint32
-	Name     string
-	Fields   []mxfField
+	ID     uint32
+	Name   string
+	Fields []mxfField
 }
 
 // MXFFile is the decoded, fixture-level MXF representation.

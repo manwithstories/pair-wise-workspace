@@ -75,13 +75,13 @@ const (
 
 // AlignedUnit is a unit plus the correction applied to it.
 type AlignedUnit struct {
-	TrackID     uint32
-	Original    clock.Micros
-	Corrected   clock.Micros
-	Shift       clock.Micros
-	IsAudio     bool
-	Decision    Decision
-	WithinTol   bool
+	TrackID   uint32
+	Original  clock.Micros
+	Corrected clock.Micros
+	Shift     clock.Micros
+	IsAudio   bool
+	Decision  Decision
+	WithinTol bool
 }
 
 // Align shifts audio units by -offset so they coincide with video. The

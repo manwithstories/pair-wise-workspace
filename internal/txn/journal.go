@@ -15,10 +15,10 @@ import (
 
 // Stage names recorded in the journal.
 const (
-	StagePlan    = "plan"
-	StageWrite   = "write"
-	StageVerify  = "verify"
-	StageCommit  = "commit"
+	StagePlan   = "plan"
+	StageWrite  = "write"
+	StageVerify = "verify"
+	StageCommit = "commit"
 )
 
 // Entry is one write-ahead log record.

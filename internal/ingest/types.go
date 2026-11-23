@@ -28,12 +28,12 @@ type Color struct {
 
 // AudioTrackLayout summarizes one audio track's rate/channel layout.
 type AudioTrackLayout struct {
-	TrackID      uint32
-	Codec        string // pcm | aac
-	SampleRate   uint32
-	Channels     uint16
+	TrackID       uint32
+	Codec         string // pcm | aac
+	SampleRate    uint32
+	Channels      uint16
 	ChannelLayout []string // ordered channel labels, e.g. L,R,C,LFE
-	SampleCount  uint64
+	SampleCount   uint64
 }
 
 // VideoTrackSummary carries the descriptors needed for timeline planning.
@@ -52,11 +52,11 @@ type VideoTrackSummary struct {
 // Track is the normalized result: raw descriptor values plus the
 // adjudicated values a downstream stage is allowed to act on.
 type Track struct {
-	Kind         string // video | audio
-	Video        *VideoTrackSummary
-	Audio        *AudioTrackLayout
-	ContainerRot Rotation // rotation declared at movie level (mvhd)
-	TrackRot     Rotation // rotation declared at track level (tkhd)
+	Kind          string // video | audio
+	Video         *VideoTrackSummary
+	Audio         *AudioTrackLayout
+	ContainerRot  Rotation // rotation declared at movie level (mvhd)
+	TrackRot      Rotation // rotation declared at track level (tkhd)
 	ContainerCrop *Crop
 	// Adjudicated fields, filled by conflict resolution.
 	AppliedRotation Rotation

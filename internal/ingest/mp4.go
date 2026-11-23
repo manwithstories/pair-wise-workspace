@@ -11,12 +11,12 @@ import (
 
 // parseState carries per-track context while walking the box tree.
 type parseState struct {
-	summary      *Summary
-	track        *Track // current trak
-	video        *VideoTrackSummary
-	audio        *AudioTrackLayout
-	containerRot Rotation
-	movieColor   *Color
+	summary        *Summary
+	track          *Track // current trak
+	video          *VideoTrackSummary
+	audio          *AudioTrackLayout
+	containerRot   Rotation
+	movieColor     *Color
 	pendingTrackID uint32
 }
 

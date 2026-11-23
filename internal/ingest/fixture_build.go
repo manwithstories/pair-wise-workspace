@@ -89,11 +89,11 @@ func writeVideoTrak(w *mp4.Writer, spec FixtureSpec) {
 	// tkhd with track-level rotation
 	_, _ = w.StartBox(&mp4.BoxInfo{Type: mp4.BoxTypeTkhd()})
 	_, _ = mp4.Marshal(w, &mp4.Tkhd{
-		TrackID:     1,
-		DurationV0:  spec.VideoSamples * spec.VideoTimescale / 30,
-		Matrix:      matrixFor(spec.TrackRotation),
-		Width:       int32u16(spec.Width),
-		Height:      int32u16(spec.Height),
+		TrackID:    1,
+		DurationV0: spec.VideoSamples * spec.VideoTimescale / 30,
+		Matrix:     matrixFor(spec.TrackRotation),
+		Width:      int32u16(spec.Width),
+		Height:     int32u16(spec.Height),
 	}, mp4.Context{})
 	_, _ = w.EndBox()
 

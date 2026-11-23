@@ -232,9 +232,9 @@ func decodeField(tag MXFTag, typ mxfValueType, v []byte) (mxfField, error) {
 			return f, io.ErrUnexpectedEOF
 		}
 		f.Crop = Crop{
-			X: int64(binary.BigEndian.Uint32(v[0:4])),
-			Y: int64(binary.BigEndian.Uint32(v[4:8])),
-			Width: int64(binary.BigEndian.Uint32(v[8:12])),
+			X:      int64(binary.BigEndian.Uint32(v[0:4])),
+			Y:      int64(binary.BigEndian.Uint32(v[4:8])),
+			Width:  int64(binary.BigEndian.Uint32(v[8:12])),
 			Height: int64(binary.BigEndian.Uint32(v[12:16])),
 		}
 	case mxfBytes:

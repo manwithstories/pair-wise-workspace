@@ -28,8 +28,8 @@ func TestRTPReorderNoWrap(t *testing.T) {
 
 func TestToMicros(t *testing.T) {
 	c := NewRTPClock(90000, 1_000_000) // anchor at +1s
-	c.Unwrap(0)                       // pin RTP timestamp 0 to the anchor
-	got := c.Convert(90000)           // exactly one RTP second after origin
+	c.Unwrap(0)                        // pin RTP timestamp 0 to the anchor
+	got := c.Convert(90000)            // exactly one RTP second after origin
 	if got != 2_000_000 {
 		t.Fatalf("micros = %d, want 2000000", got)
 	}

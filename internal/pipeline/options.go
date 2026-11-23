@@ -14,6 +14,9 @@ const MaxSegmentBytes = 256 << 20
 
 // Options controls one demo/processing run.
 type Options struct {
+	// Root is the workspace boundary every path must stay inside.
+	// Defaults to the current working directory when empty.
+	Root       string
 	WorkDir    string
 	Seed       int64
 	Loss       int    // burst packets initially withheld, then late
@@ -51,9 +54,9 @@ func (m Metrics) ReportLine() string {
 
 // FixtureSet is the generated input material for one run.
 type FixtureSet struct {
-	GoodMP4     string
-	GoodMXF     string
-	DamagedMP4  string
+	GoodMP4      string
+	GoodMXF      string
+	DamagedMP4   string
 	BadLayoutMP4 string
 }
 
@@ -69,10 +72,10 @@ func generateFixtures(dir string, samples uint32) (FixtureSet, error) {
 		Width: 1920, Height: 1080, VideoTimescale: 30000,
 		VideoSamples: samples, KeyframeEvery: 3,
 		ContainerRotation: 90, TrackRotation: 270,
-		ContainerCrop: &ingest.Crop{X: 0, Y: 0, Width: 1600, Height: 900},
-		TrackCrop:     &ingest.Crop{X: 10, Y: 20, Width: 1280, Height: 720},
-		ContainerColor: &ingest.Color{Primaries: 1, Transfer: 1, Matrix: 1},
-		TrackColor:     &ingest.Color{Primaries: 1, Transfer: 1, Matrix: 1},
+		ContainerCrop:   &ingest.Crop{X: 0, Y: 0, Width: 1600, Height: 900},
+		TrackCrop:       &ingest.Crop{X: 10, Y: 20, Width: 1280, Height: 720},
+		ContainerColor:  &ingest.Color{Primaries: 1, Transfer: 1, Matrix: 1},
+		TrackColor:      &ingest.Color{Primaries: 1, Transfer: 1, Matrix: 1},
 		AudioSampleRate: 48000, AudioChannels: 2,
 		AudioLayout: []string{"L", "R"},
 	}

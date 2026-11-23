@@ -11,21 +11,21 @@ import (
 func TestGenerateAndParseMP4(t *testing.T) {
 	dir := t.TempDir()
 	spec := FixtureSpec{
-		Path:            filepath.Join(dir, "cam1.mp4"),
-		Width:           1920,
-		Height:          1080,
-		VideoTimescale:  30000,
-		VideoSamples:    12,
-		KeyframeEvery:   3,
+		Path:              filepath.Join(dir, "cam1.mp4"),
+		Width:             1920,
+		Height:            1080,
+		VideoTimescale:    30000,
+		VideoSamples:      12,
+		KeyframeEvery:     3,
 		ContainerRotation: 90,
-		TrackRotation:   270,
-		ContainerCrop:   &Crop{X: 0, Y: 0, Width: 1600, Height: 900},
-		TrackCrop:       &Crop{X: 10, Y: 20, Width: 1280, Height: 720},
-		ContainerColor:  &Color{Primaries: 1, Transfer: 1, Matrix: 1},
-		TrackColor:      &Color{Primaries: 1, Transfer: 1, Matrix: 1},
-		AudioSampleRate: 48000,
-		AudioChannels:   2,
-		AudioLayout:     []string{"L", "R"},
+		TrackRotation:     270,
+		ContainerCrop:     &Crop{X: 0, Y: 0, Width: 1600, Height: 900},
+		TrackCrop:         &Crop{X: 10, Y: 20, Width: 1280, Height: 720},
+		ContainerColor:    &Color{Primaries: 1, Transfer: 1, Matrix: 1},
+		TrackColor:        &Color{Primaries: 1, Transfer: 1, Matrix: 1},
+		AudioSampleRate:   48000,
+		AudioChannels:     2,
+		AudioLayout:       []string{"L", "R"},
 	}
 	if _, err := GenerateMP4(spec); err != nil {
 		t.Fatal(err)

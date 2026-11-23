@@ -10,24 +10,24 @@ import (
 type Kind string
 
 const (
-	KindTransient  Kind = "transient"  // retryable: jitter, temporary I/O interruption
-	KindCorrupt    Kind = "corrupt"    // input data is damaged; the source segment must be isolated
-	KindConflict   Kind = "conflict"   // metadata descriptions cannot be safely reconciled
+	KindTransient   Kind = "transient"   // retryable: jitter, temporary I/O interruption
+	KindCorrupt     Kind = "corrupt"     // input data is damaged; the source segment must be isolated
+	KindConflict    Kind = "conflict"    // metadata descriptions cannot be safely reconciled
 	KindUnsupported Kind = "unsupported" // layout/rate cannot be handled safely
-	KindChecksum   Kind = "checksum"   // hash verification failed
-	KindState      Kind = "state"      // journal/transaction state inconsistency
-	KindArgument   Kind = "argument"   // bad CLI arguments / path escape
+	KindChecksum    Kind = "checksum"    // hash verification failed
+	KindState       Kind = "state"       // journal/transaction state inconsistency
+	KindArgument    Kind = "argument"    // bad CLI arguments / path escape
 )
 
 // Error is a classified, retryable-aware pipeline error.
 type Error struct {
-	Kind    Kind
-	Stage   string // ingest | rtp | sync | audio | txn | verify
-	Op      string // short operation name
-	Resource string
-	Detail  string
+	Kind      Kind
+	Stage     string // ingest | rtp | sync | audio | txn | verify
+	Op        string // short operation name
+	Resource  string
+	Detail    string
 	Retryable bool
-	Cause   error
+	Cause     error
 }
 
 func (e *Error) Error() string {

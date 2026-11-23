@@ -9,31 +9,31 @@ import (
 
 // Config tunes the jitter buffer. All windows are expressed in packets.
 type Config struct {
-	ClockRate       uint32 // RTP clock rate, e.g. 90000 for video
-	WindowSize      uint16 // reorder / late-packet recovery window
-	MaxPackets      int    // hard capacity bounding per-stream memory
-	SegmentOf       func(seq uint16) string
+	ClockRate  uint32 // RTP clock rate, e.g. 90000 for video
+	WindowSize uint16 // reorder / late-packet recovery window
+	MaxPackets int    // hard capacity bounding per-stream memory
+	SegmentOf  func(seq uint16) string
 }
 
 // Unit is an ordered media element on the unified timeline.
 type Unit struct {
-	Seq        uint16
-	Timestamp  uint32
-	Time       clock.Micros
-	Marker     bool
+	Seq         uint16
+	Timestamp   uint32
+	Time        clock.Micros
+	Marker      bool
 	PayloadType uint8
-	SSRC       uint32
-	Payload    []byte
+	SSRC        uint32
+	Payload     []byte
 }
 
 // Stats summarises one buffer run.
 type Stats struct {
-	Received            int
-	Duplicates          int
-	Reordered           int
-	Recovered           int // gaps closed by a late packet inside the window
+	Received             int
+	Duplicates           int
+	Reordered            int
+	Recovered            int // gaps closed by a late packet inside the window
 	UnrecoverablePackets int // gaps that expired without the packet
-	QuarantinedSegments []string
+	QuarantinedSegments  []string
 }
 
 // Buffer reorders RTP packets, removes duplicates, drives the finite

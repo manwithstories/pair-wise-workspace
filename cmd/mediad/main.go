@@ -44,11 +44,12 @@ func run(args []string) int {
 
 func printUsage() {
 	fmt.Fprintln(os.Stderr,
-		"usage: mediad demo --seed N --loss N [--crash-after write|verify|commit] [--work-dir DIR]\n"+
+		"usage: mediad demo --seed N --loss N [--crash-after write|verify|commit] [--root DIR] [--work-dir DIR]\n"+
 			"       mediad verify --manifest PATH")
 }
 
 type demoFlags struct {
+	root       string
 	seed       int64
 	loss       int
 	crashAfter string
@@ -68,6 +69,8 @@ func parseDemoFlags(args []string) (demoFlags, error) {
 		}
 		var err error
 		switch a {
+		case "--root":
+			f.root, err = need()
 		case "--seed":
 			v, err := need()
 			if err != nil {
@@ -110,6 +113,7 @@ func runDemo(args []string) int {
 		return exitArgument
 	}
 	res, err := pipeline.Run(pipeline.Options{
+		Root:         flags.root,
 		WorkDir:      flags.workDir,
 		Seed:         flags.seed,
 		Loss:         flags.loss,
