@@ -1,4 +1,0 @@
-# archivecheck fault corpus
-init init.mp4
-media truncated.m4s
-media badlength.m4s
