@@ -16,7 +16,7 @@ func TestDriftAnchorsUseVideoTrack(t *testing.T) {
 	if len(media.Segments) == 0 {
 		t.Fatal("no segments")
 	}
-	j := runJitter(s, recoverRTP(s))
+	j := runJitter(s)
 	anchors := anchorsFor(s, j)
 	if len(anchors) < 4 {
 		t.Fatalf("anchors = %d, need at least 4", len(anchors))

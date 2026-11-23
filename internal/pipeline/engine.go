@@ -181,7 +181,7 @@ func Run(cfg Config) (Result, error) {
 	res.FinalGaps = rtpOut.FinalGaps
 
 	// Stage 4: jitter buffer commits.
-	jitOut := runJitter(plan, rtpOut)
+	jitOut := runJitter(plan)
 	if err := commit(mgr, txn.Stage{
 		Name: "jitter", Cursor: fmt.Sprintf("intervals:%d", len(jitOut.Intervals)),
 		Input: mustJSON(rtpOut), Output: mustJSON(jitOut),

@@ -186,7 +186,7 @@ type jitterDoc struct {
 	Dropped   int               `json:"dropped"`
 }
 
-func runJitter(s *sample, r rtpDoc) jitterDoc {
+func runJitter(s *sample) jitterDoc {
 	b := buffer.New("video", buffer.DefaultConfig())
 	step := int64(40_000_000) // 25 observations per second
 	var n int64

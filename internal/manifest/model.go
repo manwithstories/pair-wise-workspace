@@ -46,16 +46,6 @@ type Media struct {
 	Segments    []Segment
 }
 
-// TrackStartNS returns the axis position of the first segment on a track.
-func (m *Media) TrackStartNS(track string) (int64, bool) {
-	for _, s := range m.Segments {
-		if s.Track == track {
-			return s.StartNS, true
-		}
-	}
-	return 0, false
-}
-
 // trajectory walks a per-track cursor forward and enforces that every start
 // is exactly the previous start plus the previous duration. A gap is
 // represented by an explicit segment with a negative duration marker at the

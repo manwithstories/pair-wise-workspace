@@ -20,8 +20,7 @@ func TestDriftFitScopedToSample(t *testing.T) {
 	if len(media.Segments) == 0 {
 		t.Fatal("no segments")
 	}
-	rtpOut := recoverRTP(s)
-	j := runJitter(s, rtpOut)
+	j := runJitter(s)
 	syncOut := runSync(s, j)
 	if syncOut.Drift == nil {
 		t.Fatalf("drift not fitted: %s", syncOut.DriftErr)
