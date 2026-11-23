@@ -86,3 +86,27 @@ func TestVerifyRepeatableSHA(t *testing.T) {
 		t.Fatal("repeated runs produced different outputs")
 	}
 }
+
+func TestResumeTwiceIsIdempotent(t *testing.T) {
+	work := filepath.Join(t.TempDir(), "archive")
+	if code := run([]string{"demo", "--work", work}); code != exitOK {
+		t.Fatalf("fresh demo exit = %d", code)
+	}
+	first, err := os.ReadFile(filepath.Join(work, "output.acx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := run([]string{"demo", "--work", work, "--resume"}); code != exitOK {
+		t.Fatalf("resume-after-complete exit = %d", code)
+	}
+	second, err := os.ReadFile(filepath.Join(work, "output.acx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(first) != string(second) {
+		t.Fatal("resume after completion changed the output")
+	}
+	if code := run([]string{"verify", "--work", work}); code != exitOK {
+		t.Fatalf("verify exit = %d", code)
+	}
+}

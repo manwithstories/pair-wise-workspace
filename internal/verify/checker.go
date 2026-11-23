@@ -102,16 +102,20 @@ func scanBytes(data []byte, path string, expectTrailer bool) (*Scan, error) {
 		case tagEnd:
 			complete = true
 			pos++
+			sum := sha256.Sum256(data[:pos])
 			if !expectTrailer {
-				// The caller deliberately limited the scan to a committed
-				// prefix; a trailer inside that prefix is still validated.
-				_ = complete
+				// The caller limited the scan to a checkpoint's committed
+				// prefix, which ends exactly at this marker and therefore has
+				// no trailer. The digest still covers everything up to it.
+				s.ContentDigest = hex.EncodeToString(sum[:])
+				s.ContentBytes = int64(pos)
+				pos = len(data)
+				continue
 			}
 			if len(data)-pos != sha256.Size {
 				return nil, fault.New(fault.KindOutput, path, "", int64(pos),
 					fmt.Sprintf("trailer length %d, want %d", len(data)-pos, sha256.Size))
 			}
-			sum := sha256.Sum256(data[:pos])
 			if !bytes.Equal(sum[:], data[pos:]) {
 				return nil, fault.New(fault.KindOutput, path, "", int64(pos), "content digest mismatch")
 			}

@@ -143,3 +143,23 @@ func TestCheckDetectsRegressionAndBadOffset(t *testing.T) {
 		t.Fatalf("expected invalid offset report, got %+v", rep)
 	}
 }
+
+func TestScanLimitedCompletedOutput(t *testing.T) {
+	path, _, _ := writeFixture(t)
+	full, err := ScanFile(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A checkpoint of a completed run stores the content byte length, which
+	// ends at the end marker and excludes the trailing digest.
+	limited, err := ScanFile(path, full.ContentBytes)
+	if err != nil {
+		t.Fatalf("limited scan of completed output failed: %v", err)
+	}
+	if limited.ContentDigest != full.ContentDigest {
+		t.Fatalf("limited digest %s != full %s", limited.ContentDigest, full.ContentDigest)
+	}
+	if len(limited.Entries) != len(full.Entries) {
+		t.Fatalf("limited entries %d != %d", len(limited.Entries), len(full.Entries))
+	}
+}

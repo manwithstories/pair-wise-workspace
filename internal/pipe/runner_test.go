@@ -414,3 +414,24 @@ func itoa(v int) string {
 	}
 	return string(b)
 }
+
+// TestResumeAfterCompletedRunIsNoop re-validates a finished checkpoint: the
+// committed prefix of a completed output (which excludes the trailing digest)
+// must still re-read cleanly, and re-running claims nothing new.
+func TestResumeAfterCompletedRunIsNoop(t *testing.T) {
+	f := setup(t)
+	if _, err := f.run(t, f.start(), pipe.Options{QueueCapacity: 4}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	cp, err := index.Load(pipe.CheckpointPath(f.work))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := pipe.ResumeStartFor(f.loaded.Manifest, cp, pipe.OutputPath(f.work))
+	if err != nil {
+		t.Fatalf("completed checkpoint rejected: %v", err)
+	}
+	if st.Committed != cp.FragmentsTotal {
+		t.Fatalf("committed %d != total %d", st.Committed, cp.FragmentsTotal)
+	}
+}
