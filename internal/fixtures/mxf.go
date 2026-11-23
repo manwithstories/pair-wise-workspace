@@ -71,6 +71,9 @@ const (
 	tagMapEditRate       = uint16(0x7f06)
 )
 
+// BERLength exposes the BER length encoder for MXF reader tests.
+func BERLength(n int) []byte { return berLength(n) }
+
 // klv frames a 16-byte key, BER length and value.
 func klv(key, value []byte) []byte {
 	out := make([]byte, 0, 16+5+len(value))

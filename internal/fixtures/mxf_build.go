@@ -202,17 +202,25 @@ func buildEssenceMap(vid, aud MxfTrackInfo) []byte {
 	return v
 }
 
-// buildPartitionPack writes the 16-byte UL, BER length and the fixed partition
-// pack fields: version pair, KAG size, partition offset and section lengths.
-func buildPartitionPack(ul []byte, offset, headerLen, indexLen, bodyLen uint64, footer bool) []byte {
+// buildPartitionPack writes the 16-byte UL, BER length and the fixed
+// 84-byte partition pack fields defined by SMPTE 377M: version pair, KAG size,
+// this/previous/footer partition offsets, header and index byte counts, index
+// SID, body offset, body SID, operational pattern and essence container count.
+func buildPartitionPack(ul []byte, thisPart, headerLen, indexLen, bodyLen uint64, footer bool) []byte {
 	val := []byte{0x00, 0x03, 0x00, 0x04}
-	val = append(val, uint32Value(1)...) // KAG size in bytes
-	val = append(val, uint64Value(offset)...)
-	val = append(val, uint64Value(headerLen)...)
-	val = append(val, uint64Value(indexLen)...)
-	val = append(val, uint64Value(bodyLen)...)
+	val = append(val, uint32Value(1)...)         // KAG size
+	val = append(val, uint64Value(thisPart)...)  // this partition
+	val = append(val, uint64Value(0)...)         // previous partition
+	val = append(val, uint64Value(0)...)         // footer partition
+	val = append(val, uint64Value(headerLen)...) // header byte count
+	val = append(val, uint64Value(indexLen)...)  // index byte count
+	val = append(val, uint32Value(0)...)         // index SID
+	val = append(val, uint64Value(bodyLen)...)   // body offset
+	val = append(val, uint32Value(0)...)         // body SID
+	val = append(val, ulEssenceMap...)           // operational pattern (private)
+	val = append(val, uint32Value(0)...)         // essence container count
 	if footer {
-		val = append(val, 0x00)
+		// Footer packs carry no essence; still 84 bytes.
 	}
 	return klv(ul, val)
 }
