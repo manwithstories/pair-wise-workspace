@@ -50,8 +50,11 @@ type Result struct {
 	Received  int
 	Duplicate int
 	// OutOfOrder counts packets whose sequence number was below the highest
-	// already seen for their SSRC.
+	// already seen for their SSRC, in arrival order.
 	OutOfOrder int
+	// TimestampConflicts counts duplicate sequence numbers whose RTP timestamp
+	// differed from the first copy.
+	TimestampConflicts int
 }
 
 // DecodeStream reads the length-prefixed packet file the demo and tests use.
@@ -151,19 +154,26 @@ func recoverOne(ssrc uint32, pkts []*rtp.Packet) (Result, error) {
 
 	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].extSeq < ordered[j].extSeq })
 
-	seen := make(map[uint32]bool, len(ordered))
+	seen := make(map[uint32]*rtp.Packet, len(ordered))
 	first := true
 	var minExt, maxExt uint32
 	for _, e := range ordered {
-		if seen[e.extSeq] {
+		if prev, ok := seen[e.extSeq]; ok {
 			res.Duplicate++
+			// A repeated sequence number with a different timestamp is a
+			// conflict, not a clean duplicate: the sender's clock disagrees
+			// with its sequencing. Count it once but flag it rather than
+			// silently trusting either copy.
+			if prev.Timestamp != e.pkt.Timestamp {
+				res.TimestampConflicts++
+			}
 			res.Packets = append(res.Packets, Packet{
 				Seq: e.pkt.SequenceNumber, Timestamp: e.pkt.Timestamp, SSRC: ssrc,
 				Marker: e.pkt.Marker, Duplicate: true,
 			})
 			continue
 		}
-		seen[e.extSeq] = true
+		seen[e.extSeq] = e.pkt
 		if first {
 			minExt = e.extSeq
 			first = false
@@ -178,11 +188,14 @@ func recoverOne(ssrc uint32, pkts []*rtp.Packet) (Result, error) {
 	// Gaps: contiguous runs of missing extended sequences between the first and
 	// last packet seen. The range names the missing sequences themselves.
 	for extSeq := minExt + 1; extSeq <= maxExt; extSeq++ {
-		if seen[extSeq] {
+		if _, ok := seen[extSeq]; ok {
 			continue
 		}
 		start := extSeq
-		for extSeq+1 <= maxExt && !seen[extSeq+1] {
+		for {
+			if _, ok := seen[extSeq+1]; ok || extSeq+1 > maxExt {
+				break
+			}
 			extSeq++
 		}
 		gap := Gap{

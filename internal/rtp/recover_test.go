@@ -3,6 +3,8 @@ package rtprecover
 import (
 	"testing"
 
+	"github.com/pion/rtp"
+
 	"mediasync/internal/fixtures"
 	"mediasync/internal/model"
 )
@@ -232,5 +234,35 @@ func TestRecoverRejectsGarbage(t *testing.T) {
 	_, err := Recover([][]byte{{0x01, 0x02}})
 	if err == nil {
 		t.Fatal("expected parse error")
+	}
+}
+
+func TestDuplicateWithDifferentTimestampIsConflict(t *testing.T) {
+	// Build a small clean stream, then append a packet that repeats a
+	// sequence number with a different timestamp.
+	st, err := fixtures.BuildRTP(fixtures.DefaultRTPOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkts := append([][]byte{}, st.Packets...)
+	var dup rtp.Packet
+	if err := dup.Unmarshal(pkts[3]); err != nil {
+		t.Fatal(err)
+	}
+	dup.Timestamp += 999
+	raw, err := dup.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkts = append(pkts, raw)
+	res, err := Recover(pkts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res[0].TimestampConflicts != 1 {
+		t.Fatalf("timestamp conflicts = %d, want 1", res[0].TimestampConflicts)
+	}
+	if res[0].Duplicate != 1 {
+		t.Fatalf("duplicates = %d, want 1", res[0].Duplicate)
 	}
 }
