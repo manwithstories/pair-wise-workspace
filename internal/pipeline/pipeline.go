@@ -44,14 +44,20 @@ func ParseInject(s string) (track int, sample int64, err error) {
 	if s == "" {
 		return 0, 0, nil
 	}
-	var kind string
-	if _, err := fmt.Sscanf(s, "%[^:]:track%d:sample%d", &kind, &track, &sample); err != nil {
+	fail := func() (int, int64, error) {
 		return 0, 0, fmt.Errorf("invalid --inject %q (want truncate:trackN:sampleM)", s)
 	}
-	if kind != "truncate" || track < 1 || sample < 1 {
-		return 0, 0, fmt.Errorf("invalid --inject %q (want truncate:trackN:sampleM)", s)
+	parts := strings.Split(s, ":")
+	if len(parts) != 3 || parts[0] != "truncate" ||
+		!strings.HasPrefix(parts[1], "track") || !strings.HasPrefix(parts[2], "sample") {
+		return fail()
 	}
-	return track, sample, nil
+	t, err1 := strconv.Atoi(strings.TrimPrefix(parts[1], "track"))
+	n, err2 := strconv.ParseInt(strings.TrimPrefix(parts[2], "sample"), 10, 64)
+	if err1 != nil || err2 != nil || t < 1 || n < 1 {
+		return fail()
+	}
+	return t, n, nil
 }
 
 // FixtureSpec builds the deterministic generator spec for one representation:
