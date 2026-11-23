@@ -47,7 +47,7 @@ func planSequence(n, burst int) []uint16 {
 // runTransport pushes a fixed-length RTP sequence through the bounded
 // pipe to a slow consumer and measures per-packet delivery latency. The
 // reorder window is 8; loss recovery is verified by the reorderer stats.
-func runTransport(ctx context.Context, opts demoOpts) (transportOut, error) {
+func runTransport(ctx context.Context, opts demoOpts) (*transportOut, error) {
 	const (
 		n       = 400 // fixed-length sequence
 		payload = 1200
@@ -90,11 +90,11 @@ func runTransport(ctx context.Context, opts demoOpts) (transportOut, error) {
 			break
 		}
 		if err != nil {
-			return transportOut{}, err
+			return nil, err
 		}
 		p, err := stream.DecodePacket(b)
 		if err != nil {
-			return transportOut{}, err
+			return nil, err
 		}
 		for _, q := range re.Push(p) {
 			mu.Lock()
@@ -109,9 +109,9 @@ func runTransport(ctx context.Context, opts demoOpts) (transportOut, error) {
 		mu.Unlock()
 	}
 	if err := <-prodDone; err != nil {
-		return transportOut{}, err
+		return nil, err
 	}
-	return transportOut{
+	return &transportOut{
 		stats: re.Stats, p95ms: percentile95(lat), pipePeak: pipe.Peak(),
 		packetN: n, payloadB: payload,
 	}, nil

@@ -85,18 +85,46 @@ func writeMP4(path string, m *manifest.Manifest, seed int64) ([][]uint64, error)
 	if err := addBox(w, mp4.BoxTypeFtyp(), ftyp); err != nil {
 		return nil, media.New(media.KindInternal, "fixture.mp4", "", -1, "write ftyp", err)
 	}
-	// mdat: all samples, track by track; record absolute offsets.
+	// Layout: ftyp, moov, mdat. moov comes first so that truncating the
+	// file cuts media data while the sample tables stay intact — the
+	// truncated-media fixture exercises exactly that case. moov is written
+	// once with placeholder stco to learn its size, then rewritten in
+	// place with the real offsets (identical size: one uint32 per stco).
+	moovStart, err := w.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return nil, media.New(media.KindInternal, "fixture.mp4", "", -1, "seek", err)
+	}
+	placeholder := make([][]uint64, len(m.Tracks))
+	if err := writeMoov(w, m, placeholder); err != nil {
+		return nil, err
+	}
+	mdatStart, err := w.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return nil, media.New(media.KindInternal, "fixture.mp4", "", -1, "seek", err)
+	}
+	offsets := make([][]uint64, len(m.Tracks))
+	pos := uint64(mdatStart) + 8 // 8-byte mdat header
+	for ti, tr := range m.Tracks {
+		for _, s := range tr.Samples {
+			offsets[ti] = append(offsets[ti], pos)
+			pos += uint64(s.Size)
+		}
+	}
+	if _, err := w.Seek(moovStart, io.SeekStart); err != nil {
+		return nil, media.New(media.KindInternal, "fixture.mp4", "", -1, "rewind moov", err)
+	}
+	if err := writeMoov(w, m, offsets); err != nil {
+		return nil, err
+	}
+	if _, err := w.Seek(mdatStart, io.SeekStart); err != nil {
+		return nil, media.New(media.KindInternal, "fixture.mp4", "", -1, "seek mdat", err)
+	}
+	// mdat: all samples, track by track.
 	if _, err := w.StartBox(&mp4.BoxInfo{Type: mp4.BoxTypeMdat()}); err != nil {
 		return nil, media.New(media.KindInternal, "fixture.mp4", "", -1, "start mdat", err)
 	}
-	offsets := make([][]uint64, len(m.Tracks))
 	for ti, tr := range m.Tracks {
 		for si, s := range tr.Samples {
-			off, err := w.Seek(0, io.SeekCurrent)
-			if err != nil {
-				return nil, media.New(media.KindInternal, "fixture.mp4", tr.ID, int64(si), "seek", err)
-			}
-			offsets[ti] = append(offsets[ti], uint64(off))
 			buf := make([]byte, s.Size)
 			for bi := range buf {
 				buf[bi] = sampleByte(seed, ti, si, bi)
@@ -108,9 +136,6 @@ func writeMP4(path string, m *manifest.Manifest, seed int64) ([][]uint64, error)
 	}
 	if _, err := w.EndBox(); err != nil {
 		return nil, media.New(media.KindInternal, "fixture.mp4", "", -1, "end mdat", err)
-	}
-	if err := writeMoov(w, m, offsets); err != nil {
-		return nil, err
 	}
 	return offsets, nil
 }
