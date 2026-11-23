@@ -63,6 +63,18 @@ func (m *memWS) Seek(off int64, whence int) (int64, error) {
 	return abs, nil
 }
 
+// writeLeaf writes a complete leaf box (header + payload).
+func writeLeaf(mw *mp4.Writer, box mp4.IImmutableBox) error {
+	if _, err := mw.StartBox(&mp4.BoxInfo{Type: box.GetType()}); err != nil {
+		return err
+	}
+	if _, err := mp4.Marshal(mw, box, mp4.Context{}); err != nil {
+		return err
+	}
+	_, err := mw.EndBox()
+	return err
+}
+
 var matrix = [9]int32{0x00010000, 0, 0, 0, 0x00010000, 0, 0, 0, 0x40000000}
 
 // MuxBytes muxes tracks into an in-memory MP4 (moov before mdat).
@@ -79,7 +91,7 @@ func MuxBytes(src io.ReaderAt, tracks []TrackMux) ([]byte, error) {
 func Mux(w io.WriteSeeker, src io.ReaderAt, tracks []TrackMux) error {
 	ftyp := &mp4.Ftyp{MajorBrand: [4]byte{'i', 's', 'o', 'm'}, MinorVersion: 1}
 	fs := &memWS{}
-	if _, err := mp4.Marshal(fs, ftyp, mp4.Context{}); err != nil {
+	if err := writeLeaf(mp4.NewWriter(fs), ftyp); err != nil {
 		return err
 	}
 	// Pass 1: measure moov with zero chunk offsets.
@@ -101,7 +113,7 @@ func Mux(w io.WriteSeeker, src io.ReaderAt, tracks []TrackMux) error {
 			cur += int64(s.Size)
 		}
 	}
-	if _, err := mp4.Marshal(w, ftyp, mp4.Context{}); err != nil {
+	if err := writeLeaf(mp4.NewWriter(w), ftyp); err != nil {
 		return err
 	}
 	if err := writeMoov(w, tracks, offsets); err != nil {
@@ -129,7 +141,6 @@ func writeMoov(w io.WriteSeeker, tracks []TrackMux, chunkOffs [][]int64) error {
 	if _, err := mw.StartBox(&mp4.BoxInfo{Type: mp4.BoxTypeMoov()}); err != nil {
 		return err
 	}
-	ctx := mp4.Context{}
 	var maxDur int64
 	for _, t := range tracks {
 		var d int64
@@ -141,14 +152,14 @@ func writeMoov(w io.WriteSeeker, tracks []TrackMux, chunkOffs [][]int64) error {
 			maxDur = ms
 		}
 	}
-	if _, err := mp4.Marshal(mw, &mp4.Mvhd{
+	if err := writeLeaf(mw, &mp4.Mvhd{
 		Timescale: 1000, DurationV0: uint32(maxDur),
 		Rate: 0x00010000, Volume: 0x0100, Matrix: matrix, NextTrackID: uint32(len(tracks) + 1),
-	}, ctx); err != nil {
+	}); err != nil {
 		return err
 	}
 	for i, t := range tracks {
-		if err := writeTrak(mw, t, chunkOffs[i][0], ctx); err != nil {
+		if err := writeTrak(mw, t, chunkOffs[i][0]); err != nil {
 			return err
 		}
 	}
@@ -156,7 +167,7 @@ func writeMoov(w io.WriteSeeker, tracks []TrackMux, chunkOffs [][]int64) error {
 	return err
 }
 
-func writeTrak(mw *mp4.Writer, t TrackMux, chunkOff int64, ctx mp4.Context) error {
+func writeTrak(mw *mp4.Writer, t TrackMux, chunkOff int64) error {
 	var dur int64
 	for _, s := range t.Samples {
 		dur += int64(s.Duration)
@@ -168,18 +179,18 @@ func writeTrak(mw *mp4.Writer, t TrackMux, chunkOff int64, ctx mp4.Context) erro
 	if _, err := mw.StartBox(&mp4.BoxInfo{Type: mp4.BoxTypeTrak()}); err != nil {
 		return err
 	}
-	if _, err := mp4.Marshal(mw, &mp4.Tkhd{
+	if err := writeLeaf(mw, &mp4.Tkhd{
 		TrackID: uint32(t.ID), DurationV0: uint32(media.Time{Value: dur, Timescale: t.Timescale}.ToTimescale(1000).Value),
 		Volume: volume, Matrix: matrix,
-	}, ctx); err != nil {
+	}); err != nil {
 		return err
 	}
 	if _, err := mw.StartBox(&mp4.BoxInfo{Type: mp4.BoxTypeMdia()}); err != nil {
 		return err
 	}
-	if _, err := mp4.Marshal(mw, &mp4.Mdhd{
+	if err := writeLeaf(mw, &mp4.Mdhd{
 		Timescale: t.Timescale, DurationV0: uint32(dur), Language: [3]byte{'u', 'n', 'd'},
-	}, ctx); err != nil {
+	}); err != nil {
 		return err
 	}
 	hdlr := &mp4.Hdlr{Name: "VideoHandler"}
@@ -188,36 +199,36 @@ func writeTrak(mw *mp4.Writer, t TrackMux, chunkOff int64, ctx mp4.Context) erro
 	} else {
 		hdlr.HandlerType = [4]byte{'v', 'i', 'd', 'e'}
 	}
-	if _, err := mp4.Marshal(mw, hdlr, ctx); err != nil {
+	if err := writeLeaf(mw, hdlr); err != nil {
 		return err
 	}
 	if _, err := mw.StartBox(&mp4.BoxInfo{Type: mp4.BoxTypeMinf()}); err != nil {
 		return err
 	}
 	if t.Kind == media.TrackAudio {
-		if _, err := mp4.Marshal(mw, &mp4.Smhd{}, ctx); err != nil {
+		if err := writeLeaf(mw, &mp4.Smhd{}); err != nil {
 			return err
 		}
 	} else {
-		if _, err := mp4.Marshal(mw, &mp4.Vmhd{}, ctx); err != nil {
+		if err := writeLeaf(mw, &mp4.Vmhd{}); err != nil {
 			return err
 		}
 	}
 	if _, err := mw.StartBox(&mp4.BoxInfo{Type: mp4.BoxTypeDinf()}); err != nil {
 		return err
 	}
-	if _, err := mp4.Marshal(mw, &mp4.Dref{EntryCount: 1}, ctx); err != nil {
+	if err := writeLeaf(mw, &mp4.Dref{EntryCount: 1}); err != nil {
 		return err
 	}
 	url := &mp4.Url{}
 	url.AddFlag(0x000001) // self-contained
-	if _, err := mp4.Marshal(mw, url, ctx); err != nil {
+	if err := writeLeaf(mw, url); err != nil {
 		return err
 	}
 	if _, err := mw.EndBox(); err != nil { // dinf
 		return err
 	}
-	if err := writeStbl(mw, t, chunkOff, ctx); err != nil {
+	if err := writeStbl(mw, t, chunkOff); err != nil {
 		return err
 	}
 	if _, err := mw.EndBox(); err != nil { // minf
@@ -230,7 +241,7 @@ func writeTrak(mw *mp4.Writer, t TrackMux, chunkOff int64, ctx mp4.Context) erro
 	return err
 }
 
-func writeStbl(mw *mp4.Writer, t TrackMux, chunkOff int64, ctx mp4.Context) error {
+func writeStbl(mw *mp4.Writer, t TrackMux, chunkOff int64) error {
 	if _, err := mw.StartBox(&mp4.BoxInfo{Type: mp4.BoxTypeStbl()}); err != nil {
 		return err
 	}
@@ -244,24 +255,24 @@ func writeStbl(mw *mp4.Writer, t TrackMux, chunkOff int64, ctx mp4.Context) erro
 		}
 	}
 	stts.EntryCount = uint32(len(stts.Entries))
-	if _, err := mp4.Marshal(mw, &stts, ctx); err != nil {
+	if err := writeLeaf(mw, &stts); err != nil {
 		return err
 	}
 	stsc := &mp4.Stsc{EntryCount: 1, Entries: []mp4.StscEntry{
 		{FirstChunk: 1, SamplesPerChunk: uint32(len(t.Samples)), SampleDescriptionIndex: 1},
 	}}
-	if _, err := mp4.Marshal(mw, stsc, ctx); err != nil {
+	if err := writeLeaf(mw, stsc); err != nil {
 		return err
 	}
 	stsz := &mp4.Stsz{SampleCount: uint32(len(t.Samples))}
 	for _, s := range t.Samples {
 		stsz.EntrySize = append(stsz.EntrySize, s.Size)
 	}
-	if _, err := mp4.Marshal(mw, stsz, ctx); err != nil {
+	if err := writeLeaf(mw, stsz); err != nil {
 		return err
 	}
 	stco := &mp4.Stco{EntryCount: 1, ChunkOffset: []uint32{uint32(chunkOff)}}
-	if _, err := mp4.Marshal(mw, stco, ctx); err != nil {
+	if err := writeLeaf(mw, stco); err != nil {
 		return err
 	}
 	if t.Kind == media.TrackVideo {
@@ -272,7 +283,7 @@ func writeStbl(mw *mp4.Writer, t TrackMux, chunkOff int64, ctx mp4.Context) erro
 			}
 		}
 		stss.EntryCount = uint32(len(stss.SampleNumber))
-		if _, err := mp4.Marshal(mw, &stss, ctx); err != nil {
+		if err := writeLeaf(mw, &stss); err != nil {
 			return err
 		}
 	}
