@@ -8,8 +8,8 @@ import (
 	"strings"
 )
 
-// FaultNames maps CLI fault words to the Faults struct.
-func ParseFaultNames(s string) (Faults, error) {
+// ParseFaults maps CLI fault words to the Faults struct.
+func ParseFaults(s string) (Faults, error) {
 	var f Faults
 	for _, part := range strings.Split(s, ",") {
 		switch strings.ToLower(strings.TrimSpace(part)) {
@@ -33,7 +33,8 @@ func ParseFaultNames(s string) (Faults, error) {
 }
 
 // FormatRates renders the terminal summary lines the acceptance check reads.
-// Values are rounded down so "0.99+" cannot be a lie printed as 0.98.
+// Rates are printed to four decimals; the thresholds are asserted on the
+// underlying values, not on the rounded text.
 func (r Result) FormatRates() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "roundtrip_rate=%.4f\n", r.RoundtripRate)
@@ -67,3 +68,10 @@ func DigestInputs(seed int64, segments int, durNS int64) string {
 
 // Round3 rounds a fraction to three decimals without float formatting drift.
 func Round3(v float64) float64 { return math.Round(v*1000) / 1000 }
+
+// Acceptance thresholds, exported so the CLI and tests agree on one source.
+const (
+	MinRoundtripRate    = 0.99
+	MinKeyframeHitRate  = 0.98
+	MinSegmentHashMatch = 0.999999
+)
