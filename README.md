@@ -124,6 +124,7 @@ go build -o mediasync ./cmd/mediasync
 | `--corrupt` | none | `truncated-mp4` or `invalid-klv` |
 | `--rotation` | unset | explicit rotation override (0, 90, 180, 270) |
 | `--work-dir` | temp | keep the generated inputs and package on disk |
+| `--source` | auto | force the container reader: `mp4` or `mxf` |
 
 ## Packages
 
