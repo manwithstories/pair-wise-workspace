@@ -24,6 +24,7 @@ type DemoFlags struct {
 	// default zero is distinguishable from an explicit 0.
 	RotationSet bool
 	WorkDir     string
+	Source      string
 }
 
 // ParseDemo reads the demo flags. Errors are returned rather than exiting.
@@ -42,6 +43,7 @@ func ParseDemo(args []string, stderr io.Writer) (*DemoFlags, error) {
 	fs.StringVar(&f.Corrupt, "corrupt", "", "damaged input fixture")
 	fs.IntVar(&f.Rotation, "rotation", 0, "explicit rotation override")
 	fs.StringVar(&f.WorkDir, "work-dir", "", "working directory (default: temp)")
+	fs.StringVar(&f.Source, "source", "", "force container reader: mp4 or mxf")
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
@@ -75,6 +77,11 @@ func (f *DemoFlags) Validate() error {
 	case "", "truncated-mp4", "invalid-klv":
 	default:
 		return fmt.Errorf("unknown corrupt fixture %q", f.Corrupt)
+	}
+	switch f.Source {
+	case "", "mp4", "mxf":
+	default:
+		return fmt.Errorf("unknown source %q", f.Source)
 	}
 	return nil
 }

@@ -58,6 +58,7 @@ func TestValidateRejects(t *testing.T) {
 		{"--rotation", "45"},
 		{"--rotation", "360"},
 		{"--corrupt", "bogus"},
+		{"--source", "avi"},
 	}
 	for _, args := range cases {
 		f, err := ParseDemo(args, &bytes.Buffer{})

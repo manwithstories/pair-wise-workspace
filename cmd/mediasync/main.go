@@ -96,6 +96,7 @@ func runDemo(args []string, stdout, stderr io.Writer) int {
 		Duplicate:         f.Duplicate,
 		Reorder:           f.Reorder,
 		Corrupt:           f.Corrupt,
+		Source:            f.Source,
 	}
 	if f.RotationSet {
 		rot := f.Rotation
