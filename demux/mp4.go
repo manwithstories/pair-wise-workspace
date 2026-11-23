@@ -5,6 +5,7 @@ package demux
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 
@@ -21,8 +22,25 @@ type boxHdr struct {
 	hsize int64 // header size (8 or 16)
 }
 
-func (h boxHdr) payloadOff() int64 { return h.off + h.hsize }
+func (h boxHdr) payloadOff() int64  { return h.off + h.hsize }
 func (h boxHdr) payloadSize() int64 { return h.size - h.hsize }
+
+// classifyKind maps a classified parse error to the shared issue taxonomy.
+// trackID is -1 when the fault is not tied to a track (0 means unknown too,
+// since track IDs are positive).
+func classifyKind(err error, trackID int) media.IssueKind {
+	switch {
+	case errors.Is(err, media.ErrTruncated):
+		return media.IssueTruncated
+	case errors.Is(err, media.ErrBrokenBox):
+		return media.IssueBrokenBox
+	case errors.Is(err, media.ErrMissingMoov):
+		return media.IssueMissingMoov
+	case errors.Is(err, media.ErrIncompleteIndex):
+		return media.IssueIncompleteIndex
+	}
+	return media.IssueBrokenBox
+}
 
 // readBoxHdr reads one box header at off. A box whose declared size runs
 // past end is a truncation when it is media data, a broken box otherwise.
@@ -68,6 +86,7 @@ func readBoxHdr(r io.ReaderAt, off, end int64) (boxHdr, error) {
 type rawTrack struct {
 	id        int
 	kind      media.TrackKind
+	kindSet   bool
 	timescale uint32
 	duration  int64
 	stts      *mp4.Stts
@@ -77,6 +96,7 @@ type rawTrack struct {
 	co64      *mp4.Co64
 	stss      *mp4.Stss
 	ctts      *mp4.Ctts
+	stsd      []byte // raw stsd box payload, preserved for remux
 }
 
 // File is a demuxed input: the shared media.File view plus the raw sample
@@ -98,6 +118,7 @@ func Parse(r io.ReaderAt, size int64, path string) (*File, error) {
 		h, err := readBoxHdr(r, off, size)
 		if err != nil {
 			f.Damaged = append(f.Damaged, media.Range{Start: off, End: size, Reason: err.Error()})
+			f.AddIssue(media.Issue{Kind: classifyKind(err, 0), Offset: off, TrackID: -1, Detail: err.Error()})
 			firstErr = err
 			break
 		}
@@ -110,6 +131,7 @@ func Parse(r io.ReaderAt, size int64, path string) (*File, error) {
 		off = h.off + h.size
 	}
 	if !haveMoov {
+		f.AddIssue(media.Issue{Kind: media.IssueMissingMoov, Offset: -1, TrackID: -1, Detail: "no moov box"})
 		return f, media.Fatal("demux.parse", media.ErrMissingMoov)
 	}
 	if err := buildAllSamples(f, size); err != nil && firstErr == nil {
@@ -135,18 +157,19 @@ func parseMoov(r io.ReaderAt, moov boxHdr, f *File) error {
 				}
 				rt.id = int(tk.TrackID)
 			case "mdia":
-				return parseMdia(r, c, rt)
+				return parseMdia(r, c, rt, f)
 			}
 			return nil
 		})
 		if err != nil {
 			return err
 		}
-		if rt.kind == -1 {
-			return nil
+		if !rt.kindSet {
+			return nil // unsupported or unidentifiable track kind: skipped
 		}
 		f.Tracks = append(f.Tracks, media.Track{
 			ID: rt.id, Kind: rt.kind, Timescale: rt.timescale, Duration: rt.duration,
+			CodecEntry: rt.stsd,
 		})
 		f.raw = append(f.raw, rt)
 		return nil
@@ -154,7 +177,7 @@ func parseMoov(r io.ReaderAt, moov boxHdr, f *File) error {
 }
 
 // parseMdia handles mdhd/hdlr directly and descends into minf/stbl.
-func parseMdia(r io.ReaderAt, mdia boxHdr, rt *rawTrack) error {
+func parseMdia(r io.ReaderAt, mdia boxHdr, rt *rawTrack, f *File) error {
 	return walkChildren(r, mdia, func(c boxHdr) error {
 		switch c.typ {
 		case "mdhd":
@@ -174,11 +197,15 @@ func parseMdia(r io.ReaderAt, mdia boxHdr, rt *rawTrack) error {
 			}
 			switch string(hd.HandlerType[:]) {
 			case "vide":
-				rt.kind = media.TrackVideo
+				rt.kind, rt.kindSet = media.TrackVideo, true
 			case "soun":
-				rt.kind = media.TrackAudio
+				rt.kind, rt.kindSet = media.TrackAudio, true
 			default:
-				rt.kind = -1 // unsupported track kind: skipped
+				rt.kindSet = false // unsupported track kind: skipped
+				f.AddIssue(media.Issue{
+					Kind: media.IssueUnsupportedTrak, Offset: c.off, TrackID: rt.id,
+					Detail: fmt.Sprintf("handler %q not audio/video", hd.HandlerType[:]),
+				})
 			}
 		case "minf":
 			return walkChildren(r, c, func(stbl boxHdr) error {
@@ -218,6 +245,8 @@ func parseStbl(r io.ReaderAt, stbl boxHdr, rt *rawTrack) error {
 		case "ctts":
 			rt.ctts = new(mp4.Ctts)
 			err = unmarshalBox(r, h, rt.ctts)
+		case "stsd":
+			rt.stsd, err = readSampleEntry(r, h)
 		}
 		if err != nil {
 			return media.Recoverable("demux.stbl", h.off,
@@ -247,4 +276,33 @@ func unmarshalBox(r io.ReaderAt, h boxHdr, dst mp4.IBox) error {
 	sr := io.NewSectionReader(r, h.payloadOff(), h.payloadSize())
 	_, err := mp4.Unmarshal(sr, uint64(h.payloadSize()), dst, mp4.Context{})
 	return err
+}
+
+// readBoxBytes copies a whole box (header included) so it can be re-emitted
+// byte-for-byte in a remuxed file.
+func readBoxBytes(r io.ReaderAt, h boxHdr) ([]byte, error) {
+	buf := make([]byte, h.size)
+	if _, err := r.ReadAt(buf, h.off); err != nil {
+		return nil, err
+	}
+	return buf, nil
+}
+
+// readSampleEntry returns the first sample-entry box inside stsd (header
+// included), with the stsd container itself stripped. Callers rebuild the
+// stsd framing, so storing the child keeps the bytes comparable across a
+// remux. A truncated or empty stsd yields no entry rather than an error:
+// codec configuration is optional for the timeline work.
+func readSampleEntry(r io.ReaderAt, stsd boxHdr) ([]byte, error) {
+	// FullBox(4) + EntryCount(4), then the entries.
+	first := stsd.payloadOff() + 8
+	end := stsd.off + stsd.size
+	if first+8 > end {
+		return nil, nil
+	}
+	h, err := readBoxHdr(r, first, end)
+	if err != nil {
+		return nil, nil // malformed stsd: keep parsing sample tables
+	}
+	return readBoxBytes(r, h)
 }

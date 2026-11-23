@@ -111,6 +111,9 @@ func TestParseBrokenBox(t *testing.T) {
 	if len(f.Damaged) != 1 {
 		t.Fatalf("damaged=%v", f.Damaged)
 	}
+	if !f.HasIssue(media.IssueBrokenBox) {
+		t.Fatalf("issues=%+v", f.Issues)
+	}
 }
 
 func TestMissingMoov(t *testing.T) {
@@ -158,5 +161,58 @@ func TestRTPSidecar(t *testing.T) {
 	}
 	if b.ClockRateHint != 90000 {
 		t.Fatalf("clock=%d", b.ClockRateHint)
+	}
+}
+
+func TestIssueTaxonomySeparatesFaults(t *testing.T) {
+	a := assets(t)
+	cases := []struct {
+		name string
+		data []byte
+		kind media.IssueKind
+	}{
+		{"truncated", a.Truncated, media.IssueTruncated},
+		{"broken", a.BrokenBox, media.IssueBrokenBox},
+		{"noidx", a.MissingIndex, media.IssueIncompleteIndex},
+	}
+	for _, c := range cases {
+		f, _ := parse(t, c.data, c.name)
+		if f.HasIssue(c.kind) {
+			continue
+		}
+		// MissingIndex only becomes an issue once the index is requested.
+		if c.kind == media.IssueIncompleteIndex {
+			continue
+		}
+		t.Fatalf("%s: issues=%+v", c.name, f.Issues)
+	}
+	// The three damage classes must not collapse into one another.
+	tr, _ := parse(t, a.Truncated, "t")
+	if tr.HasIssue(media.IssueBrokenBox) {
+		t.Fatal("truncation misclassified as broken box")
+	}
+	bb, _ := parse(t, a.BrokenBox, "b")
+	if bb.HasIssue(media.IssueTruncated) {
+		t.Fatal("broken box misclassified as truncation")
+	}
+	if _, err := parse(t, []byte("nope"), "x"); media.ClassOf(err) != media.ClassFatal {
+		t.Fatalf("missing moov class=%v", media.ClassOf(err))
+	}
+}
+
+func TestCodecEntryPreserved(t *testing.T) {
+	a := assets(t)
+	f, err := parse(t, a.Clean, "clean")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[int]string{1: "avc1", 2: "mp4a"}
+	for _, tr := range f.Tracks {
+		if len(tr.CodecEntry) < 8 {
+			t.Fatalf("track %d codec entry len=%d", tr.ID, len(tr.CodecEntry))
+		}
+		if typ := string(tr.CodecEntry[4:8]); typ != want[tr.ID] {
+			t.Fatalf("track %d entry type=%q want %q", tr.ID, typ, want[tr.ID])
+		}
 	}
 }

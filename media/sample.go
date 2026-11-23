@@ -60,14 +60,59 @@ type File struct {
 	Tracks  []Track
 	Samples []Sample
 	Damaged []Range
+	Issues  []Issue
+}
+
+// IssueKind classifies a structural fault. Unlike Damaged, which always
+// names a byte range that could not be salvaged, an Issue may describe a
+// missing structure (e.g. no stss) without claiming any bytes are corrupt.
+type IssueKind string
+
+const (
+	IssueTruncated       IssueKind = "truncated"
+	IssueBrokenBox       IssueKind = "broken_box"
+	IssueMissingMoov     IssueKind = "missing_moov"
+	IssueIncompleteIndex IssueKind = "incomplete_index"
+	IssueUnsupportedTrak IssueKind = "unsupported_track"
+)
+
+// Issue is one structural fault tied to an optional byte offset and track.
+type Issue struct {
+	Kind    IssueKind
+	Offset  int64 // first affected offset, -1 when not applicable
+	TrackID int
+	Detail  string
+}
+
+// AddIssue appends an issue unless an identical one already exists; the
+// parser can encounter the same fault from several sample tables.
+func (f *File) AddIssue(iss Issue) {
+	for _, e := range f.Issues {
+		if e.Kind == iss.Kind && e.Offset == iss.Offset && e.TrackID == iss.TrackID {
+			return
+		}
+	}
+	f.Issues = append(f.Issues, iss)
+}
+
+// HasIssue reports whether any issue of kind k was recorded.
+func (f *File) HasIssue(k IssueKind) bool {
+	for _, e := range f.Issues {
+		if e.Kind == k {
+			return true
+		}
+	}
+	return false
 }
 
 // Track describes one elementary stream.
 type Track struct {
-	ID        int
-	Kind      TrackKind
-	Timescale uint32
-	Duration  int64 // in track timescale
+	ID         int
+	Kind       TrackKind
+	Timescale  uint32
+	Duration   int64          // in track timescale
+	CodecEntry []byte         // raw stsd sample-description box, copied verbatim
+	IndexFrom  KeyframeSource // how the keyframe index was established
 }
 
 // TrackByKind returns the first track of the given kind.

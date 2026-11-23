@@ -23,14 +23,18 @@ func buildAllSamples(f *File, fileSize int64) error {
 
 func buildTrackSamples(f *File, rt *rawTrack, fileSize int64) error {
 	if rt.stts == nil || rt.stsz == nil || rt.stsc == nil || (rt.stco == nil && rt.co64 == nil) {
-		return media.Recoverable("demux.index", -1,
+		err := media.Recoverable("demux.index", -1,
 			fmt.Errorf("%w: track %d missing stts/stsz/stsc/stco", media.ErrIncompleteIndex, rt.id))
+		f.AddIssue(media.Issue{Kind: media.IssueIncompleteIndex, Offset: -1, TrackID: rt.id, Detail: err.Error()})
+		return err
 	}
 	deltas := expandStts(rt.stts)
 	sizes := sampleSizes(rt)
 	if len(deltas) != len(sizes) {
-		return media.Recoverable("demux.index", -1,
+		err := media.Recoverable("demux.index", -1,
 			fmt.Errorf("%w: track %d stts=%d stsz=%d", media.ErrIncompleteIndex, rt.id, len(deltas), len(sizes)))
+		f.AddIssue(media.Issue{Kind: media.IssueIncompleteIndex, Offset: -1, TrackID: rt.id, Detail: err.Error()})
+		return err
 	}
 	ctsOff := cttsOffsets(rt, len(deltas))
 	chunkOffs := chunkOffsets(rt)
@@ -81,12 +85,18 @@ func buildTrackSamples(f *File, rt *rawTrack, fileSize int64) error {
 			Start: truncAt, End: fileSize,
 			Reason: fmt.Sprintf("track %d: %s", rt.id, media.ErrTruncated),
 		})
+		f.AddIssue(media.Issue{
+			Kind: media.IssueTruncated, Offset: truncAt, TrackID: rt.id,
+			Detail: fmt.Sprintf("%v: sample payload runs past end %d", media.ErrTruncated, fileSize),
+		})
 		f.Samples = append(f.Samples, samples...)
 		return media.Recoverable("demux.samples", truncAt, media.ErrTruncated)
 	}
 	if idx < len(sizes) {
-		return media.Recoverable("demux.index", -1,
+		err := media.Recoverable("demux.index", -1,
 			fmt.Errorf("%w: track %d chunks cover %d of %d samples", media.ErrIncompleteIndex, rt.id, idx, len(sizes)))
+		f.AddIssue(media.Issue{Kind: media.IssueIncompleteIndex, Offset: -1, TrackID: rt.id, Detail: err.Error()})
+		return err
 	}
 	f.Samples = append(f.Samples, samples...)
 	return nil
@@ -114,15 +124,20 @@ func sampleSizes(rt *rawTrack) []uint32 {
 	return rt.stsz.EntrySize
 }
 
-func cttsOffsets(rt *rawTrack, n int) []uint32 {
-	out := make([]uint32, n)
+func cttsOffsets(rt *rawTrack, n int) []int64 {
+	out := make([]int64, n)
 	if rt.ctts == nil {
 		return out
 	}
+	v1 := rt.ctts.GetVersion() == 1
 	i := 0
 	for _, e := range rt.ctts.Entries {
+		off := int64(e.SampleOffsetV0)
+		if v1 {
+			off = int64(e.SampleOffsetV1) // signed: may precede decode time
+		}
 		for k := uint32(0); k < e.SampleCount && i < n; k++ {
-			out[i] = e.SampleOffsetV0
+			out[i] = off
 			i++
 		}
 	}

@@ -26,6 +26,9 @@ type TrackMux struct {
 	Kind      media.TrackKind
 	Timescale uint32
 	Samples   []SampleRef
+	// CodecEntry is a whole stsd box copied from the source. When empty a
+	// synthesized entry is written (fixture generation only).
+	CodecEntry []byte
 }
 
 // memWS is an in-memory io.WriteSeeker.
@@ -269,6 +272,9 @@ func writeStbl(mw *mp4.Writer, t TrackMux, chunkOff int64) error {
 		stsz.EntrySize = append(stsz.EntrySize, s.Size)
 	}
 	if err := writeLeaf(mw, stsz); err != nil {
+		return err
+	}
+	if err := writeStsd(mw, t); err != nil {
 		return err
 	}
 	stco := &mp4.Stco{EntryCount: 1, ChunkOffset: []uint32{uint32(chunkOff)}}
