@@ -54,7 +54,7 @@ type Report struct {
 	Incomplete          []manifest.Interval
 	Warnings            []string
 	// RTP tuning statistics, reported for the transfer operator.
-	RTPReceived, RTPDuplicates, RTPOutOfOrder int
+	RTPReceived, RTPDuplicates, RTPOutOfOrder, RTPTimestampConflicts int
 	// Tracks carries per-track sample, byte and hash accounting.
 	Tracks []TrackReport
 	// BitrateNote explains any target/actual divergence.

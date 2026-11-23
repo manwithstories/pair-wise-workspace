@@ -50,6 +50,7 @@ func printReport(w io.Writer, rep *pipeline.Report, resumed bool) {
 	fmt.Fprintf(w, "rtp_received=%d\n", rep.RTPReceived)
 	fmt.Fprintf(w, "rtp_duplicates=%d\n", rep.RTPDuplicates)
 	fmt.Fprintf(w, "rtp_out_of_order=%d\n", rep.RTPOutOfOrder)
+	fmt.Fprintf(w, "rtp_timestamp_conflicts=%d\n", rep.RTPTimestampConflicts)
 	fmt.Fprintf(w, "incomplete_intervals=%d\n", len(rep.Incomplete))
 	if rep.CheckpointRecovered {
 		fmt.Fprintf(w, "checkpoint_recovered=%d\n", rep.RecoveredBlocks)

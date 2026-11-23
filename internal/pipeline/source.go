@@ -75,6 +75,7 @@ func recoverRTP(opt Options, rep *Report) ([]manifest.Interval, error) {
 		rep.RTPReceived += r.Received
 		rep.RTPDuplicates += r.Duplicate
 		rep.RTPOutOfOrder += r.OutOfOrder
+		rep.RTPTimestampConflicts += r.TimestampConflicts
 		for _, g := range r.Gaps {
 			gaps = append(gaps, manifest.Interval{Start: int(g.ExtFrom), End: int(g.ExtTo) + 1})
 		}
