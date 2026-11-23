@@ -44,18 +44,18 @@ func StandardSampleLayout() (InitSpec, []FragmentSpec) {
 		for s := range samples {
 			samples[s] = SampleSpec{Duration: 3000, Size: 512, Sync: s == 0, CTO: 0}
 		}
-		spec := FragmentSpec{
-			Seq:      uint32(i + 1),
+		seq := uint32(i + 1)
+		if i >= 6 {
+			// Simulate an archive mfhd gap: sequence 7 is absent, so the
+			// seventh fragment is numbered 8 and later ones shift by one.
+			seq = uint32(i + 2)
+		}
+		frags = append(frags, FragmentSpec{
+			Seq:      seq,
 			TrackID:  1,
 			BaseTime: base,
 			Samples:  samples,
-		}
-		if i == 6 {
-			// Simulate an archive mfhd gap: sequence 7 is absent and the next
-			// present number is 8.
-			spec.Seq = 8
-		}
-		frags = append(frags, spec)
+		})
 	}
 	return init, frags
 }
