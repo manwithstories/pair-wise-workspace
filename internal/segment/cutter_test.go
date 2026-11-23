@@ -116,3 +116,37 @@ func TestSnapToleranceClampedToFrameInterval(t *testing.T) {
 		t.Fatalf("snap error %d exceeds interval %d", res.MaxSnapErrorNS, res.MaxFrameIntervalNS)
 	}
 }
+
+func TestMinSegmentFoldsShortFragments(t *testing.T) {
+	tl := twoTrackTimeline(t)
+	// A 1s timeline with 350ms windows: the last fragment is 300ms. With a
+	// 400ms minimum it must fold into the preceding segment, and the plan must
+	// still end exactly at the timeline end.
+	res, err := Plan(tl, nil, Options{WindowNS: 350_000_000, MinSegmentNS: 400_000_000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, seg := range res.Segments {
+		if seg.EndNS-seg.StartNS < 400_000_000 && i != len(res.Segments)-1 {
+			t.Fatalf("segment %d is %d ns, below the minimum", i, seg.EndNS-seg.StartNS)
+		}
+	}
+	if last := res.Segments[len(res.Segments)-1]; last.EndNS != tl.EndNS {
+		t.Fatalf("last segment ends at %d, want %d", last.EndNS, tl.EndNS)
+	}
+}
+
+func TestSnappedCutNeverExceedsTimeline(t *testing.T) {
+	tl := twoTrackTimeline(t)
+	// A window that nearly reaches the end would snap to a frame edge past it
+	// without the clamp.
+	res, err := Plan(tl, nil, Options{WindowNS: 960_000_000, SnapToleranceNS: 80_000_000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, seg := range res.Segments {
+		if seg.EndNS > tl.EndNS {
+			t.Fatalf("segment ends at %d, past timeline end %d", seg.EndNS, tl.EndNS)
+		}
+	}
+}

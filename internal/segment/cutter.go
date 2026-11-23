@@ -110,6 +110,20 @@ func Plan(tl *clock.Timeline, silence []audio.Range, opt Options) (*Result, erro
 	if len(bounds) == 0 || bounds[len(bounds)-1] < end {
 		bounds = append(bounds, end)
 	}
+	if opt.MinSegmentNS > 0 && len(bounds) > 2 {
+		// Fold boundaries that would leave a too-short interior fragment into
+		// the following segment. The final boundary is always preserved so the
+		// plan still covers the whole timeline.
+		folded := []int64{bounds[0]}
+		for i := 1; i < len(bounds)-1; i++ {
+			if bounds[i]-folded[len(folded)-1] < opt.MinSegmentNS {
+				continue
+			}
+			folded = append(folded, bounds[i])
+		}
+		folded = append(folded, bounds[len(bounds)-1])
+		bounds = folded
+	}
 	if len(bounds) < 2 {
 		return nil, model.New(model.KindInvariant, "segment.Plan", "produced fewer than two boundaries")
 	}
@@ -119,12 +133,6 @@ func Plan(tl *clock.Timeline, silence []audio.Range, opt Options) (*Result, erro
 		s, e := bounds[i], bounds[i+1]
 		if e <= s {
 			return nil, model.New(model.KindInvariant, "segment.Plan", "non-increasing segment bounds")
-		}
-		if opt.MinSegmentNS > 0 && i+2 < len(bounds) && e-s < opt.MinSegmentNS {
-			// Fragments are merged forward by extending the next boundary; in
-			// practice snapping already keeps windows within a frame of
-			// nominal, so this branch only guards pathological tolerances.
-			continue
 		}
 		seg := Segment{Index: len(res.Segments), StartNS: s, EndNS: e}
 		for t := range tl.Tracks {
