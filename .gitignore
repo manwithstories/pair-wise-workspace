@@ -71,3 +71,8 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 本项目运行产物 ----
+.tmp/
+*.out
+mediacore-bin
