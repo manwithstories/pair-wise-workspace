@@ -18,16 +18,33 @@ func readSource(opt Options) ([]*model.Track, []model.TrackStats, string, error)
 	switch opt.Corrupt {
 	case "":
 		mp4Path := filepath.Join(opt.InputDir, "studio.mp4")
-		in, err := mp4.ReadFile(mp4Path)
-		if err == nil {
-			return in.Tracks, in.Stats, mp4Path, nil
-		}
 		mxfPath := filepath.Join(opt.InputDir, "field.mxf")
-		mx, merr := readMXF(mxfPath)
-		if merr == nil {
+		switch opt.Source {
+		case "mxf":
+			mx, err := readMXF(mxfPath)
+			if err != nil {
+				return nil, nil, mxfPath, err
+			}
 			return mx.Tracks, mx.Stats, mxfPath, nil
+		case "mp4":
+			in, err := mp4.ReadFile(mp4Path)
+			if err != nil {
+				return nil, nil, mp4Path, err
+			}
+			return in.Tracks, in.Stats, mp4Path, nil
+		case "":
+			in, err := mp4.ReadFile(mp4Path)
+			if err == nil {
+				return in.Tracks, in.Stats, mp4Path, nil
+			}
+			mx, merr := readMXF(mxfPath)
+			if merr == nil {
+				return mx.Tracks, mx.Stats, mxfPath, nil
+			}
+			return nil, nil, "", err
+		default:
+			return nil, nil, "", model.NewError(model.ErrParamInvalid, 0, 0, "unknown source %q", opt.Source)
 		}
-		return nil, nil, "", err
 	case "truncated-mp4":
 		path := filepath.Join(opt.InputDir, "truncated.mp4")
 		in, err := mp4.ReadFile(path)

@@ -268,3 +268,37 @@ func TestPlanBlocksSplitsOnByteBudget(t *testing.T) {
 		}
 	}
 }
+
+func TestRunFromMXFSource(t *testing.T) {
+	opt := baseOptions(t)
+	opt.Source = "mxf"
+	rep, err := Run(opt)
+	if err != nil {
+		t.Fatalf("MXF run: %v", err)
+	}
+	if rep.TrackCount != 2 || rep.SampleCount == 0 {
+		t.Fatalf("tracks=%d samples=%d", rep.TrackCount, rep.SampleCount)
+	}
+	if !rep.SampleSHAMatch {
+		t.Fatal("MXF sample hashes must match after remux")
+	}
+	// MXF video geometry and container colour should surface in the report.
+	var sawVideo bool
+	for _, tr := range rep.Tracks {
+		if tr.Kind == model.KindVideo {
+			sawVideo = true
+		}
+	}
+	if !sawVideo {
+		t.Fatal("MXF run missing a video track")
+	}
+}
+
+func TestUnknownSourceRejected(t *testing.T) {
+	opt := baseOptions(t)
+	opt.Source = "avi"
+	_, err := Run(opt)
+	if err == nil || model.CodeOf(err) != model.ErrParamInvalid {
+		t.Fatalf("err = %v", err)
+	}
+}

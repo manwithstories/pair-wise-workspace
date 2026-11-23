@@ -34,6 +34,9 @@ type Options struct {
 	LossBurst, Duplicate, Reorder int
 	// Corrupt selects a damaged input fixture by name.
 	Corrupt string
+	// Source forces a container reader: "mp4", "mxf", or empty to prefer MP4
+	// and fall back to MXF.
+	Source string
 }
 
 // Report is the run summary the CLI prints.
