@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"mediarun/internal/clock"
@@ -78,14 +79,18 @@ func ParseDASH(r io.Reader, limits Limits) (*Media, error) {
 	}
 	media := &Media{Kind: "dash"}
 	entries := 0
-
+	// Track labels must be unique across all AdaptationSets in all Periods:
+	// two video sets otherwise share the "video" namespace and emit
+	// colliding segment ids and URIs. The label is the declared id when
+	// present, and a disambiguated fallback otherwise.
+	used := map[string]int{}
 	for pi, p := range doc.Periods {
 		if len(p.AdaptSet) == 0 {
 			return nil, clock.New(clock.KindInvalid, clock.CodeUnsupported,
 				fmt.Sprintf("period-%d", pi), "no AdaptationSet")
 		}
-		for _, as := range p.AdaptSet {
-			track := dashTrack(as)
+		for ai, as := range p.AdaptSet {
+			track := uniqueTrack(used, dashTrack(as), ai)
 			ts := as.Timescale
 			if ts == 0 {
 				ts = 1000
@@ -230,6 +235,17 @@ func ParseDASH(r io.Reader, limits Limits) (*Media, error) {
 		}
 	}
 	return media, nil
+}
+
+// uniqueTrack returns a label unique among all across the document. It keeps
+// the declared id verbatim when that id is still free and otherwise appends a
+// deterministic suffix, so segment ids never collide.
+func uniqueTrack(used map[string]int, want string, index int) string {
+	if want == "" || used[want] > 0 {
+		want = want + "-" + strconv.Itoa(index)
+	}
+	used[want]++
+	return want
 }
 
 func dashTrack(as dashAdaptationSet) string {
