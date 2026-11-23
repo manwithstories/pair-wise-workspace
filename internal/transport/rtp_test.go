@@ -163,6 +163,41 @@ func TestSequenceWrap(t *testing.T) {
 	}
 }
 
+func TestTimestampWrap(t *testing.T) {
+	// RTP timestamps near the 32-bit wrap point must pass through
+	// untouched; gap bounds record the raw neighbour values.
+	pkts := mkSeq(Config{}, 6, 0)
+	for i, p := range pkts {
+		p.Timestamp = uint32(4294960000 + i*3000) // wraps past 2^32
+	}
+	var kept []*rtp.Packet
+	for _, p := range pkts {
+		if p.SequenceNumber == 2 {
+			continue // unrecoverable single-packet loss
+		}
+		kept = append(kept, p)
+	}
+	r := NewReorderer(Config{MaxQueue: 3})
+	out := feed(r, kept)
+	if len(out) != 5 {
+		t.Fatalf("got %d, want 5", len(out))
+	}
+	gaps := r.Gaps()
+	if len(gaps) != 1 || gaps[0].FromSeq != 2 {
+		t.Fatalf("gaps %+v", gaps)
+	}
+	// Bounds are the wrapped raw timestamps of seq 1 and seq 3.
+	wantStart := uint32(4294960000 + 3000)
+	wantEnd := uint32(4294960000+9000-4294967296) // wrapped value
+	if gaps[0].StartTS != wantStart || gaps[0].EndTS != wantEnd {
+		t.Fatalf("gap bounds %+v, want [%d,%d]", gaps[0], wantStart, wantEnd)
+	}
+	// Emitted timestamps keep their original (wrapped) values.
+	if out[4].Timestamp != uint32(4294960000+15000-4294967296) {
+		t.Fatalf("ts wrap corrupted: %d", out[4].Timestamp)
+	}
+}
+
 func TestQueueLimitRejected(t *testing.T) {
 	pkts := mkSeq(Config{}, 10, 0)
 	r := NewReorderer(Config{MaxQueue: 2})
