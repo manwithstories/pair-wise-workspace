@@ -242,6 +242,15 @@ func TestPipelineRepairsCorruptionOnce(t *testing.T) {
 	if len(out.Segments) == 0 {
 		t.Fatal("repaired run produced no segments")
 	}
+	// The repaired run must key the read node on the repaired bytes, so a
+	// subsequent run is a pure cache hit rather than another re-execution.
+	again, err := Run(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Run.ReusedNodes != 6 || again.Run.ExecutedNodes != 0 {
+		t.Fatalf("post-repair rerun executed %d nodes, reused %d", again.Run.ExecutedNodes, again.Run.ReusedNodes)
+	}
 }
 
 func TestPipelineRejectsBadConfig(t *testing.T) {

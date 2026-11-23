@@ -120,6 +120,14 @@ func Run(cfg Config) (*Outcome, error) {
 				if rerr := cfg.OnCorrupt(corruptErr); rerr != nil {
 					return nil, rerr
 				}
+				// The repair changed the source bytes, so the read node's key
+				// must be recomputed; otherwise it would record repaired
+				// content under a digest that describes the damaged file.
+				corruptErr = nil
+				inputDigest, err = digestFile(cfg.WorkDir, cfg.InputPath)
+				if err != nil {
+					return nil, err
+				}
 				continue
 			}
 			if corruptErr != nil && cfg.OnCorrupt == nil {
