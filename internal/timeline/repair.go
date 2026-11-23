@@ -79,7 +79,7 @@ func Repair(tr *manifest.RawTrack, movieTimescale uint32) (*RepairedTrack, error
 					// fabricated for it.
 					rep.DTS = prevDTS + 1
 					rep.CTS = rep.DTS + (cts - u)
-					rt.Unlocatable = append(rt.Unlocatable, [2]int64{u, prevDTS})
+					rt.Unlocatable = append(rt.Unlocatable, [2]int64{u, rep.DTS})
 					rt.Decisions = append(rt.Decisions, Decision{
 						Index: i, Kind: "unlocatable", Original: u, Repaired: rep.DTS})
 				} else {
@@ -102,9 +102,14 @@ func Repair(tr *manifest.RawTrack, movieTimescale uint32) (*RepairedTrack, error
 // ProgramMicros maps a repaired sample to program time in microseconds via
 // the edit list (media time = unified + shift).
 func (rt *RepairedTrack) ProgramMicros(i int) (int64, error) {
-	s := rt.Samples[i]
-	return MediaToProgram(s.DTS+rt.Shift, rt.Timescale, rt.edits, rt.movieTS,
-		Loc{Track: rt.TrackID, Offset: int64(i)})
+	return rt.ProgramMicrosOf(rt.Samples[i].DTS, int64(i))
+}
+
+// ProgramMicrosOf maps an arbitrary unified tick value (e.g. a CTS) to
+// program time in microseconds. offset only feeds error reporting.
+func (rt *RepairedTrack) ProgramMicrosOf(unified int64, offset int64) (int64, error) {
+	return MediaToProgram(unified+rt.Shift, rt.Timescale, rt.edits, rt.movieTS,
+		Loc{Track: rt.TrackID, Offset: offset})
 }
 
 // InUnlocatable reports whether a unified tick falls in an unlocatable range.
