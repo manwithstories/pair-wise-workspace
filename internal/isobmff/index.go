@@ -28,13 +28,13 @@ type Index struct {
 func (si *SampleIndex) MediaTimeOf(sample int64) int64 {
 	var dts, n int64
 	for _, e := range si.Track.Stts {
-		for i := uint32(0); i < e.SampleCount; i++ {
-			n++
-			if n == sample {
-				return dts
-			}
-			dts += int64(e.SampleDelta)
+		cnt, delta := int64(e.SampleCount), int64(e.SampleDelta)
+		if sample > n+cnt {
+			dts += cnt * delta
+			n += cnt
+			continue
 		}
+		return dts + (sample-n-1)*delta
 	}
 	return dts
 }
@@ -44,13 +44,16 @@ func (si *SampleIndex) MediaTimeOf(sample int64) int64 {
 func (si *SampleIndex) SampleAtMediaTime(mt int64) int64 {
 	var dts, n int64
 	for _, e := range si.Track.Stts {
-		for i := uint32(0); i < e.SampleCount; i++ {
-			n++
-			if mt < dts+int64(e.SampleDelta) {
-				return n
+		cnt, delta := int64(e.SampleCount), int64(e.SampleDelta)
+		span := cnt * delta
+		if span > 0 && mt < dts+span {
+			if delta == 0 {
+				return n + 1
 			}
-			dts += int64(e.SampleDelta)
+			return n + (mt-dts)/delta + 1
 		}
+		dts += span
+		n += cnt
 	}
 	return n + 1
 }
