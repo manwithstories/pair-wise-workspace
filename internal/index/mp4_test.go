@@ -23,8 +23,8 @@ func TestIndexEveryOffsetVerifies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	if len(idx.Keyframes) != 20 {
-		t.Fatalf("keyframes = %d", len(idx.Keyframes))
+	if len(idx.Keyframes) != 4 {
+		t.Fatalf("keyframes = %d, want 4", len(idx.Keyframes))
 	}
 	if idx.Roundtrip != 1.0 {
 		t.Fatalf("roundtrip = %v", idx.Roundtrip)
@@ -46,9 +46,9 @@ func TestIndexOffsetsSortedAndContiguous(t *testing.T) {
 			t.Fatalf("times not increasing at %d", i)
 		}
 	}
-	// Samples in the first chunk are contiguous, so sample 1 and 11 differ
-	// by ten sample sizes.
-	if idx.Keyframes[1].Offset-idx.Keyframes[0].Offset != 10*64 {
+	// Sync samples are 1 and 51 (a 50-sample, 2-second GOP), and both fall
+	// in the first chunk, so their offsets differ by 50 sample sizes.
+	if idx.Keyframes[1].Offset-idx.Keyframes[0].Offset != 50*64 {
 		t.Fatalf("first-chunk offsets not contiguous: %+v", idx.Keyframes[:2])
 	}
 }
@@ -72,7 +72,7 @@ func TestIndexRejectsCorruptOffset(t *testing.T) {
 		t.Fatalf("last keyframe already out of file")
 	}
 	// Hand-verify a bogus offset through the same checker the builder uses.
-	tracks, mdats, err := parseTracks(mustOpen(t, path))
+	tracks, mdats, _, err := parseTracks(mustOpen(t, path))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}

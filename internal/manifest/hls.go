@@ -15,6 +15,16 @@ import (
 // duration form (#EXTINF) and the byte-range form, and validates every URI
 // against the path-escaping rules before returning.
 func ParseHLS(r io.Reader, limits Limits) (*Media, error) {
+	return ParseHLSForTrack(r, limits, "video")
+}
+
+// ParseHLSForTrack parses a media playlist and labels its segments with the
+// given track name. HLS media playlists carry no track identity, so the
+// caller (one playlist per camera or per rendition) supplies it.
+func ParseHLSForTrack(r io.Reader, limits Limits, track string) (*Media, error) {
+	if track == "" {
+		track = "video"
+	}
 	if limits.MaxEntries <= 0 {
 		limits = DefaultLimits()
 	}
@@ -36,7 +46,6 @@ func ParseHLS(r io.Reader, limits Limits) (*Media, error) {
 	// HLS declares durations in seconds; we represent them in ms ticks and
 	// convert to the unified axis with timescale 1000.
 	tr := newTrajectory(1000)
-	track := "video"
 
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())

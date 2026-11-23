@@ -88,9 +88,16 @@ func BuildMP4(path string, samples int, timescale uint32, sampleDur uint32) erro
 	stts.u32(uint32(samples))
 	stts.u32(sampleDur)
 
+	// One sync sample every 50 samples (2 seconds at 25 fps), which is also
+	// 2 seconds at the fixture's usual 30kHz timescale. Small fixtures keep
+	// at least two keyframes so offset math is exercised.
+	syncInterval := 50
+	if samples < 2*syncInterval {
+		syncInterval = 10
+	}
 	stss := u32buf{}
 	var syncs []uint32
-	for i := 1; i <= samples; i += 10 {
+	for i := 1; i <= samples; i += syncInterval {
 		syncs = append(syncs, uint32(i))
 	}
 	stss.u32(uint32(len(syncs)))

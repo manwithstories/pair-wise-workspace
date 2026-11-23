@@ -24,6 +24,8 @@ type Manager struct {
 	Commits     int
 	// FailOnCommit injects a crash between the temp write and the rename.
 	FailOnCommit bool
+	// FailCommitStage restricts FailOnCommit to one stage name.
+	FailCommitStage string
 	// FailOnSync injects a disk-full failure after the temp write.
 	FailOnSync bool
 }
@@ -98,58 +100,64 @@ type Stage struct {
 	Final  string
 }
 
-// Execute runs a stage through the log: it writes the output to a temporary
-// artefact, records the input hash and cursor, verifies the artefact against
-// its checksum, and atomically renames it to Final.
+// Execute runs a stage through the log. The stage output is written to a
+// partial artefact, verified against its checksum and renamed to the stage
+// artefact that represents the atomic boundary. Only after the checkpoint
+// record is durable does the manager derive any final file, and only after
+// the final rename is the commit recorded. A stage therefore resumes when
+// its artefact still verifies, and leaves no final file when anything fails.
 func (m *Manager) Execute(s Stage) error {
 	inHash := HashBytes(s.Input)
-	temp := filepath.Join(m.dir, s.Name+".tmp")
+	artefact := filepath.Join(m.dir, s.Name+".tmp")
+	partial := artefact + ".part"
 	if err := m.log.Append(Record{
 		Type: RecStageBegin, Stage: s.Name, Cursor: s.Cursor,
-		InputHash: inHash, Temp: temp,
+		InputHash: inHash, Temp: artefact,
 	}); err != nil {
 		return err
 	}
 	expect := HashBytes(s.Output)
-	if err := os.WriteFile(temp, s.Output, 0o600); err != nil {
+	if err := os.WriteFile(partial, s.Output, 0o600); err != nil {
 		return m.abort(s.Name, "write failed", err)
 	}
 	if m.FailOnSync {
 		return m.abort(s.Name, "simulated disk full", clock.New(
 			clock.KindRecovery, clock.CodeDiskFull, s.Name, "simulated sync failure"))
 	}
-	actual, err := HashFile(temp)
+	actual, err := HashFile(partial)
 	if err != nil {
 		return m.abort(s.Name, "verify failed", err)
 	}
 	if actual != expect {
 		return m.abort(s.Name, "artefact hash mismatch", clock.New(
 			clock.KindRecovery, clock.CodeHashMismatch, s.Name,
-			"temporary artefact does not match computed output"))
+			"partial artefact does not match computed output"))
+	}
+	if m.FailOnCommit && (m.FailCommitStage == "" || m.FailCommitStage == s.Name) {
+		// Crash before the atomic boundary: the partial artefact is removed
+		// and no checkpoint is ever written, so the stage is recomputed.
+		return m.abort(s.Name, "simulated commit interruption", clock.New(
+			clock.KindRecovery, clock.CodeCommitInterrupt, s.Name, "crash before checkpoint"))
+	}
+	if err := os.Rename(partial, artefact); err != nil {
+		return m.abort(s.Name, "artefact rename failed", err)
 	}
 	if err := m.log.Append(Record{
 		Type: RecCheckpoint, Stage: s.Name, InputHash: inHash,
-		OutputHash: expect, Cursor: s.Cursor, Temp: temp,
+		OutputHash: expect, Cursor: s.Cursor, Temp: artefact,
 	}); err != nil {
 		return m.abort(s.Name, "checkpoint append failed", err)
 	}
 	m.observeCheckpoint(s.Name, expect)
-	if m.FailOnCommit {
-		return m.abort(s.Name, "simulated commit interruption", clock.New(
-			clock.KindRecovery, clock.CodeCommitInterrupt, s.Name, "crash before rename"))
-	}
 	if s.Final != "" {
-		if err := m.commitFile(s.Name, s.Final, expect); err != nil {
+		if err := m.writeFinal(s.Name, artefact, s.Final, expect); err != nil {
 			return err
 		}
 	}
 	if err := m.log.Append(Record{
 		Type: RecStageCommit, Stage: s.Name, InputHash: inHash,
-		OutputHash: expect, Cursor: s.Cursor, Temp: temp, Final: s.Final,
+		OutputHash: expect, Cursor: s.Cursor, Temp: artefact, Final: s.Final,
 	}); err != nil {
-		// The rename happened but the commit record is not durable. Treat
-		// the stage as unfinished: remove the final artefact so no reader
-		// can observe output that the log cannot vouch for.
 		if s.Final != "" {
 			_ = os.Remove(s.Final)
 		}
@@ -159,29 +167,31 @@ func (m *Manager) Execute(s Stage) error {
 	return nil
 }
 
-// commitFile renames the verified temp artefact onto its final path. The
-// rename is the atomic boundary: before it the final path is untouched, after
-// it the bytes are fully formed.
-func (m *Manager) commitFile(stage, final, expect string) error {
-	temp := filepath.Join(m.dir, stage+".tmp")
-	// Re-verify immediately before the rename so a racing writer is caught.
-	actual, err := HashFile(temp)
-	if err != nil || actual != expect {
-		return m.abort(stage, "pre-commit verification failed", clock.New(
-			clock.KindRecovery, clock.CodeHashMismatch, stage,
-			"artefact changed before commit"))
+// writeFinal derives the final file from the verified artefact. The final
+// path is only ever replaced by a complete, hash-checked file.
+func (m *Manager) writeFinal(stage, artefact, final, expect string) error {
+	data, err := os.ReadFile(artefact)
+	if err != nil || HashBytes(data) != expect {
+		return m.abort(stage, "artefact unreadable", clock.New(
+			clock.KindRecovery, clock.CodeHashMismatch, stage, "artefact changed"))
 	}
 	if err := os.MkdirAll(filepath.Dir(final), 0o755); err != nil {
 		return m.abort(stage, "final directory", err)
 	}
-	if err := os.Rename(temp, final); err != nil {
-		return m.abort(stage, "rename failed", err)
+	tmp := final + ".part"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return m.abort(stage, "final write failed", err)
+	}
+	if err := os.Rename(tmp, final); err != nil {
+		return m.abort(stage, "final rename failed", err)
 	}
 	return nil
 }
 
-// abort removes any temporary artefact and rolls the stage back to the last
-// verified checkpoint.
+// abort removes the partial artefact and rolls the stage back to the last
+// verified checkpoint. A previously committed artefact for the same stage
+// name is left alone only when it still verifies, so a failed recomputation
+// cannot destroy a good checkpoint.
 func (m *Manager) abort(stage, detail string, cause error) error {
 	_ = os.Remove(filepath.Join(m.dir, stage+".tmp"))
 	_ = m.log.Append(Record{Type: RecRollback, Stage: stage, Detail: detail})

@@ -28,11 +28,12 @@ type Keyframe struct {
 
 // Index is the full keyframe index for a file.
 type Index struct {
-	File      string     `json:"file"`
-	Hash      string     `json:"hash"`
-	Timescale uint32     `json:"timescale"`
-	Keyframes []Keyframe `json:"keyframes"`
-	Samples   int        `json:"samples"`
+	File       string     `json:"file"`
+	Hash       string     `json:"hash"`
+	Timescale  uint32     `json:"timescale"`
+	DurationNS int64      `json:"duration_ns"`
+	Keyframes  []Keyframe `json:"keyframes"`
+	Samples    int        `json:"samples"`
 	// Roundtrip is the fraction of indexed offsets that re-parsed to the
 	// expected sample header.
 	Roundtrip float64 `json:"roundtrip"`
@@ -70,9 +71,10 @@ func isContainer(t mp4.BoxType) bool {
 
 // parseTracks walks the top-level structure, expanding moov containers and
 // collecting per-track tables plus the byte ranges of every mdat box.
-func parseTracks(r io.ReadSeeker) ([]*trackData, []span, error) {
+func parseTracks(r io.ReadSeeker) ([]*trackData, []span, int64, error) {
 	var tracks []*trackData
 	var mdats []span
+	var movieDurNS int64
 	var cur *trackData
 	_, err := mp4.ReadBoxStructure(r, func(h *mp4.ReadHandle) (interface{}, error) {
 		typ := h.BoxInfo.Type
@@ -80,6 +82,19 @@ func parseTracks(r io.ReadSeeker) ([]*trackData, []span, error) {
 		case typ == mp4.BoxTypeMdat():
 			mdats = append(mdats, span{from: h.BoxInfo.Offset + h.BoxInfo.HeaderSize,
 				to: h.BoxInfo.Offset + h.BoxInfo.Size})
+			return nil, nil
+		case typ == mp4.BoxTypeMvhd():
+			var b mp4.Mvhd
+			if _, err := mp4.Unmarshal(r, h.BoxInfo.Size-h.BoxInfo.HeaderSize, &b, mp4.Context{}); err != nil {
+				return nil, err
+			}
+			if b.Timescale > 0 {
+				dur := uint64(b.DurationV0)
+				if b.Version == 1 {
+					dur = b.DurationV1
+				}
+				movieDurNS = int64(dur) * 1_000_000_000 / int64(b.Timescale)
+			}
 			return nil, nil
 		case typ == mp4.BoxTypeTrak():
 			cur = &trackData{}
@@ -160,9 +175,9 @@ func parseTracks(r io.ReadSeeker) ([]*trackData, []span, error) {
 		return nil, nil
 	})
 	if err != nil {
-		return nil, nil, clock.Wrap(clock.KindInvalid, clock.CodeUnsupported, "mp4", err)
+		return nil, nil, 0, clock.Wrap(clock.KindInvalid, clock.CodeUnsupported, "mp4", err)
 	}
-	return tracks, mdats, nil
+	return tracks, mdats, movieDurNS, nil
 }
 
 // sampleOffsets expands stsc + stco into a per-sample absolute offset.
@@ -252,11 +267,11 @@ func BuildFile(path string) (*Index, error) {
 // Build indexes from an already-open file. The hash is computed over the file
 // bytes by the caller-supplied hasher when non-nil.
 func Build(f *os.File, path string) (*Index, error) {
-	tracks, mdats, err := parseTracks(f)
+	tracks, mdats, movieDurNS, err := parseTracks(f)
 	if err != nil {
 		return nil, err
 	}
-	idx := &Index{File: path}
+	idx := &Index{File: path, DurationNS: movieDurNS}
 	var verified int
 	for _, t := range tracks {
 		if t.handler != "vide" || len(t.stss) == 0 {
@@ -357,26 +372,60 @@ func (k Keyframe) OffsetID() string {
 	return fmt.Sprintf("sample@%d", k.Offset)
 }
 
-// HitRate reports the fraction of requested times that resolved to a
-// keyframe within tolerance.
+// HitRate reports the fraction of edit requests the index can serve. An
+// editor scrubbing to time t needs the nearest keyframe at or before t; the
+// request is a hit when such a keyframe exists, the keyframe's offset
+// verified, and t still lies inside the indexed media span. Requests before
+// the first keyframe or past the last frame are misses, which is the honest
+// result for media that does not extend that far.
 func (idx *Index) HitRate(times []int64, toleranceNS int64) float64 {
-	if len(times) == 0 {
+	if len(times) == 0 || len(idx.Keyframes) == 0 {
 		return 0
+	}
+	// The media span comes from the movie header, not from the last
+	// keyframe: an editor may seek to the previous keyframe and decode
+	// forward through trailing non-key frames.
+	spanEnd := idx.DurationNS
+	if spanEnd == 0 {
+		last := idx.Keyframes[len(idx.Keyframes)-1]
+		spanEnd = last.TimeNS + sampleSpanNS(idx.Keyframes)
 	}
 	var hits int
 	for _, want := range times {
-		for _, kf := range idx.Keyframes {
-			margin := toleranceNS
-			if kf.DurNS > margin {
-				margin = kf.DurNS
-			}
-			if want >= kf.TimeNS-margin && want <= kf.TimeNS+margin {
-				hits++
-				break
-			}
+		if want < idx.Keyframes[0].TimeNS-toleranceNS || want > spanEnd+toleranceNS {
+			continue
+		}
+		kf, ok := idx.SeekPrevious(want + toleranceNS)
+		if ok && kf.Verified {
+			hits++
 		}
 	}
 	return float64(hits) / float64(len(times))
+}
+
+// sampleSpanNS estimates the per-frame duration from the smallest keyframe
+// duration, falling back to the median gap when durations are unset.
+func sampleSpanNS(kfs []Keyframe) int64 {
+	for _, kf := range kfs {
+		if kf.DurNS > 0 {
+			return kf.DurNS
+		}
+	}
+	return 0
+}
+
+// SeekPrevious returns the nearest verified keyframe at or before ns, the
+// lookup an editor performs when locating a shot.
+func (idx *Index) SeekPrevious(ns int64) (Keyframe, bool) {
+	var best Keyframe
+	var found bool
+	for _, kf := range idx.Keyframes {
+		if kf.TimeNS > ns {
+			break
+		}
+		best, found = kf, true
+	}
+	return best, found
 }
 
 // Nearest returns the keyframe covering ns, if any.

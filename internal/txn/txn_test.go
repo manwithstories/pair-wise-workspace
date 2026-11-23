@@ -37,9 +37,14 @@ func TestCommitWritesFinalAtomically(t *testing.T) {
 	if string(got) != "output-bytes" {
 		t.Fatalf("final = %q", got)
 	}
-	// Temp artefact must be renamed away, not copied.
-	if _, err := os.Stat(filepath.Join(dir, "art", "parse.tmp")); !os.IsNotExist(err) {
-		t.Fatalf("temp artefact left behind: %v", err)
+	// The verified stage artefact is retained as the resume point, and no
+	// partial file may survive.
+	art, err := os.ReadFile(filepath.Join(dir, "art", "parse.tmp"))
+	if err != nil || string(art) != "output-bytes" {
+		t.Fatalf("stage artefact not retained: %q err=%v", art, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "art", "parse.tmp.part")); !os.IsNotExist(err) {
+		t.Fatalf("partial artefact left behind: %v", err)
 	}
 	if m.Commits != 1 || m.Rollbacks != 0 {
 		t.Fatalf("commits=%d rollbacks=%d", m.Commits, m.Rollbacks)

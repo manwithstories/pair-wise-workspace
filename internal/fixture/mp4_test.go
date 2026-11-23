@@ -18,14 +18,15 @@ func TestBuildMP4Indexable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	if len(idx.Keyframes) != 10 {
-		t.Fatalf("keyframes = %d, want 10", len(idx.Keyframes))
+	// 100 samples with a 50-sample GOP: samples 1 and 51.
+	if len(idx.Keyframes) != 2 {
+		t.Fatalf("keyframes = %d, want 2", len(idx.Keyframes))
 	}
 	if idx.Timescale != 30_000 {
 		t.Fatalf("timescale = %d", idx.Timescale)
 	}
-	// The second indexed sample is sample 11: 10000 ticks at 30kHz = 333.33ms.
-	if idx.Keyframes[1].TimeNS != 333_333_333 {
+	// The second indexed sample is sample 51: 50000 ticks at 30kHz.
+	if idx.Keyframes[1].TimeNS != 1_666_666_666 {
 		t.Fatalf("second keyframe time = %d", idx.Keyframes[1].TimeNS)
 	}
 	for _, kf := range idx.Keyframes {
