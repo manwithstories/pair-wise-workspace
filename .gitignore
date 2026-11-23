@@ -77,3 +77,11 @@ AGENTS.md.local
 /artifacts-run/
 *.part
 *.tmp
+
+# ---- 任何运行期工作目录（含测试残留）----
+**/input/cam-*.mp4
+**/input/cam-*.mxf
+**/quarantine/
+**/segments/
+**/tmp/
+**/txn/journal.jsonl
