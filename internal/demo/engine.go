@@ -100,7 +100,19 @@ func (e *Engine) Run(ctx context.Context, cfg RunConfig) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("exit %d: track build: %w", ExitCorrupt, err)
 	}
-	_ = tracks
+	// Structural consistency: the parsed container must expose exactly the
+	// requested track and frame counts, otherwise the deterministic engine
+	// would scan a different input than the digests describe.
+	if len(tracks) != e.spec.Tracks {
+		return nil, fmt.Errorf("exit %d: parsed %d tracks, spec says %d",
+			ExitCorrupt, len(tracks), e.spec.Tracks)
+	}
+	for i, tr := range tracks {
+		if len(tr.Samples) != e.spec.Frames {
+			return nil, fmt.Errorf("exit %d: track %d has %d samples, want %d",
+				ExitCorrupt, i+1, len(tr.Samples), e.spec.Frames)
+		}
+	}
 
 	totalSeg := e.segmentCount()
 	pool, err := pipeline.NewPool(cfg.Pool)

@@ -40,8 +40,6 @@ func (e *Engine) scanSegment(start, end int64) []fault.Fault {
 			if int(track) == s.Tracks-1 {
 				dev := e.driftDeviation(frame)
 				if abs(dev) > s.DriftLimit {
-					dir := fault.KindClockDrift
-					_ = dir
 					out = append(out, fault.New(
 						fault.KindClockDrift, fault.SeverityWarning, track+1,
 						frame, -1, e.frameTicks(track, frame),
