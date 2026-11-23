@@ -104,14 +104,18 @@ func runDemo(args []string, stdout, stderr io.Writer) int {
 	return runOnce(opts, false, stdout)
 }
 
-// runWithResume interrupts the first pass, then resumes to completion. It proves
-// that a resumed run reaches the same final hash as an uninterrupted one.
+// runWithResume interrupts the first pass, then resumes to completion. It runs
+// both passes through the checkpoint store, so an already-complete store simply
+// finishes without a second interruption, while a fresh one stops after two new
+// blocks and continues from there.
 func runWithResume(opts pipeline.Options, stdout io.Writer) int {
+	opts.Resume = true
 	opts.InterruptAfter = 2
 	first, err := pipeline.Run(opts)
 	if err == nil {
-		// Too few blocks to interrupt; rerun without the stop.
-		return runOnce(opts, false, stdout)
+		// Fewer than two blocks were pending; the run already finished.
+		printReport(stdout, first, true)
+		return exitOK
 	}
 	var ie *pipeline.InterruptError
 	if !errors.As(err, &ie) {
@@ -120,10 +124,8 @@ func runWithResume(opts pipeline.Options, stdout io.Writer) int {
 	fmt.Fprintf(stdout, "interrupted_after_blocks=%d\n", ie.After)
 	fmt.Fprintf(stdout, "interrupt_hash=%s\n", first.FinalHash)
 
-	opts2 := opts
-	opts2.InterruptAfter = 0
-	opts2.Resume = true
-	return runOnce(opts2, true, stdout)
+	opts.InterruptAfter = 0
+	return runOnce(opts, true, stdout)
 }
 
 func runOnce(opts pipeline.Options, resumed bool, stdout io.Writer) int {
