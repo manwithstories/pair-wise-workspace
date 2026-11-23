@@ -13,7 +13,7 @@ import (
 )
 
 // CheckpointVersion is bumped whenever the on-disk checkpoint layout changes.
-const CheckpointVersion = 1
+const CheckpointVersion = 2
 
 // Checkpoint captures everything needed to prove resumability: input manifest
 // digest, committed-output digest, and the index plus timeline state.
@@ -21,6 +21,7 @@ type Checkpoint struct {
 	Version            int               `json:"version"`
 	InputDigest        string            `json:"input_digest"`
 	CommittedDigest    string            `json:"committed_digest"`
+	Committed          int               `json:"committed"`
 	CommittedFragments []string          `json:"committed_fragments"`
 	LastCommitted      string            `json:"last_committed"`
 	FragmentsTotal     int               `json:"fragments_total"`
@@ -32,36 +33,32 @@ type Checkpoint struct {
 	Checksum           string            `json:"checksum"`
 }
 
-// indexDigest hashes the committed state excluding the checksum field itself.
-func (c *Checkpoint) indexDigest() (string, error) {
+func (c *Checkpoint) canonicalBytes() ([]byte, error) {
 	clone := *c
 	clone.Checksum = ""
 	clone.Index = nil
 	raw, err := json.Marshal(&clone)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	var idxRaw []byte
-	if c.Index != nil {
-		idxRaw, err = json.Marshal(c.Index)
-		if err != nil {
-			return "", err
-		}
+	if c.Index == nil {
+		return raw, nil
 	}
-	h := sha256.New()
-	h.Write(raw)
-	h.Write([]byte{0})
-	h.Write(idxRaw)
-	return hex.EncodeToString(h.Sum(nil)), nil
+	idxRaw, err := json.Marshal(c.Index)
+	if err != nil {
+		return nil, err
+	}
+	return append(raw, idxRaw...), nil
 }
 
 // Seal computes and stores the checkpoint checksum.
 func (c *Checkpoint) Seal() error {
-	sum, err := c.indexDigest()
+	raw, err := c.canonicalBytes()
 	if err != nil {
 		return err
 	}
-	c.Checksum = sum
+	sum := sha256.Sum256(raw)
+	c.Checksum = hex.EncodeToString(sum[:])
 	return nil
 }
 
@@ -69,13 +66,19 @@ func (c *Checkpoint) Seal() error {
 func (c *Checkpoint) Verify() error {
 	if c.Version != CheckpointVersion {
 		return fault.New(fault.KindCheckpoint, "", "", 0,
-			fmt.Sprintf("checkpoint version %d unsupported", c.Version))
+			fmt.Sprintf("checkpoint version %d unsupported (want %d)", c.Version, CheckpointVersion))
 	}
-	want, err := c.indexDigest()
+	if c.Checksum == "" {
+		return fault.New(fault.KindCheckpoint, "", "", 0, "checkpoint has no checksum")
+	}
+	want := c.Checksum
+	c.Checksum = ""
+	err := c.Seal()
+	c.Checksum = want
 	if err != nil {
 		return fault.Wrap(err, fault.KindCheckpoint, "", "", 0, "cannot digest checkpoint")
 	}
-	if want != c.Checksum {
+	if c.Checksum != want {
 		return fault.New(fault.KindCheckpoint, "", "", 0, "checkpoint checksum mismatch")
 	}
 	return nil
@@ -104,8 +107,8 @@ func Decode(raw []byte) (*Checkpoint, error) {
 }
 
 // Save writes a checkpoint via a temp file in the same directory, fsyncs it
-// and atomically renames it into place. A crash never leaves a partial file at
-// the destination.
+// and atomically renames it into place, so a crash never leaves a partial
+// checkpoint at the destination.
 func Save(path string, c *Checkpoint) error {
 	raw, err := Encode(c)
 	if err != nil {

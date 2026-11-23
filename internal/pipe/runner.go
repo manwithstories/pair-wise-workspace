@@ -82,6 +82,7 @@ type TimelineEvent struct {
 
 // Start describes the committed state a run begins from.
 type Start struct {
+	InputDigest     string
 	Resuming        bool
 	Committed       int
 	CommittedDigest string
@@ -94,6 +95,7 @@ type Start struct {
 
 // Result is the resumable state at the end of a run, successful or not.
 type Result struct {
+	InputDigest  string
 	Checkpoint   *index.Checkpoint
 	PeakQueue    int64
 	CommittedAt  int
@@ -145,7 +147,8 @@ func Run(ctx context.Context, workDir string, init *parse.Init, fragments []*par
 		return nil, fmt.Errorf("resume boundary %d outside %d fragments", start.Committed, len(fragments))
 	}
 	res := &Result{OutputPath: OutputPath(workDir), CommittedAt: start.Committed,
-		RepairedTfdt: start.RepairedTfdt, MissingMfhd: start.MissingMfhd}
+		RepairedTfdt: start.RepairedTfdt, MissingMfhd: start.MissingMfhd,
+		InputDigest: start.InputDigest}
 	builder, err := repair.NewBuilder(init)
 	if err != nil {
 		return res, err
@@ -371,6 +374,8 @@ func (r *Result) seal(builder *repair.Builder, out *verify.Writer, entries []ind
 	}
 	cp := &index.Checkpoint{
 		Version:            index.CheckpointVersion,
+		InputDigest:        r.InputDigest,
+		Committed:          r.CommittedAt,
 		CommittedDigest:    out.Digest(),
 		CommittedFragments: names,
 		FragmentsTotal:     total,
