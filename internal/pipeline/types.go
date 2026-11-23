@@ -7,6 +7,10 @@ import (
 )
 
 // Options configure a run.
+// maxBlockBytes is the per-block memory budget shared with the checkpoint store.
+const maxBlockBytes = 64 << 20
+
+// Options configure a run.
 type Options struct {
 	// InputDir holds the generated fixtures.
 	InputDir string

@@ -110,6 +110,12 @@ func Run(opt Options) (*Report, error) {
 		if err != nil {
 			return rep, err
 		}
+		// The block budget is 64 MiB of coded bytes; refuse before allocating
+		// or writing anything larger.
+		if len(buf) > maxBlockBytes {
+			return rep, model.NewError(model.ErrSizeLimit, blk.trackID, int64(blk.start),
+				"checkpoint block covers %d bytes, over the %d byte budget", len(buf), maxBlockBytes)
+		}
 		est.ObserveBlock(len(buf), blockDuration(blk))
 		if _, err := store.AppendSamples(blk.trackID, buf, blk.samples); err != nil {
 			return rep, err
