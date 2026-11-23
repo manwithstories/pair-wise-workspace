@@ -193,13 +193,32 @@ func demonstrateChecksumRejection(work, input string) error {
 	if err != nil {
 		return model.Wrap(model.KindInput, "medpipe.demo", err)
 	}
-	// Locate a byte past the header and flip it. Any payload byte changes the
-	// record checksum, which the reader must catch.
-	if len(data) < 200 {
-		return model.New(model.KindInvariant, "medpipe.demo", "sequence too small to corrupt")
+	// Flip one payload byte of a real frame. The record layout puts the
+	// payload 35 bytes after the record start (track index, sequence, raw
+	// timestamp, flags, dimensions, energy count, payload length), and the
+	// payload is covered by the integrity checksum, so the reader must
+	// reject it rather than skip it.
+	parsed, err := sequence.Parse(data)
+	if err != nil {
+		return err
+	}
+	var target *model.Frame
+	for _, tr := range parsed.Header.Tracks {
+		if fs := parsed.Frames[tr.ID]; len(fs) > 0 && len(fs[0].Payload) > 0 {
+			target = &fs[0]
+			break
+		}
+	}
+	if target == nil {
+		return model.New(model.KindInvariant, "medpipe.demo", "sequence has no payload to corrupt")
+	}
+	const recordHeaderBytes = 4 + 8 + 8 + 1 + 2 + 2 + 2 + 8
+	pos := int(target.Offset) + recordHeaderBytes
+	if pos >= len(data) {
+		return model.New(model.KindInvariant, "medpipe.demo", "payload offset outside file")
 	}
 	tampered := append([]byte(nil), data...)
-	tampered[len(tampered)/2] ^= 0xff
+	tampered[pos] ^= 0xff
 	copyPath := filepath.Join(work, "tampered.medpseq")
 	if err := os.WriteFile(copyPath, tampered, 0o644); err != nil {
 		return model.Wrap(model.KindInput, "medpipe.demo", err)

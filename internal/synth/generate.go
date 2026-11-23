@@ -48,6 +48,19 @@ func Generate(opt Options) (*Capture, error) {
 			bits = 64
 		}
 	}
+	// A counter that cannot hold at least two nominal steps cannot be
+	// unwrapped unambiguously; reject it here with a clear input error rather
+	// than letting the clock stage fail later.
+	if opt.WrapAt > 0 {
+		largestStep := 3000.0
+		if opt.VFR {
+			largestStep *= 1.5
+		}
+		if largestStep*(1+opt.DriftPPM/1e6) >= float64(opt.WrapAt)/2 {
+			return nil, model.New(model.KindInput, "synth.Generate",
+				fmt.Sprintf("wrap-at %d is too small for a nominal step of %.0f ticks", opt.WrapAt, largestStep))
+		}
+	}
 	rng := rand.New(rand.NewSource(opt.Seed))
 	c := &Capture{Frames: make(map[string][]model.Frame, opt.Tracks)}
 	for t := 0; t < opt.Tracks; t++ {

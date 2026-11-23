@@ -98,6 +98,10 @@ func Plan(tl *clock.Timeline, silence []audio.Range, opt Options) (*Result, erro
 	nominal := start
 	for nominal < end {
 		b := snap(nominal, edges, opt.SnapToleranceNS)
+		// A snap must never carry a cut past the timeline it is cutting.
+		if b > end {
+			b = end
+		}
 		if len(bounds) == 0 || b > bounds[len(bounds)-1] {
 			bounds = append(bounds, b)
 		}

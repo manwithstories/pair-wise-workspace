@@ -108,7 +108,7 @@ func Run(cfg Config) (*Outcome, error) {
 	var outcome *Outcome
 	for attempt := 0; attempt < 2; attempt++ {
 		art = &Artifacts{}
-		sched, err := buildGraph(cfg, store, art, &corruptErr, inputDigest)
+		sched, g, err := buildGraph(cfg, store, art, &corruptErr, inputDigest)
 		if err != nil {
 			return nil, err
 		}
@@ -141,6 +141,12 @@ func Run(cfg Config) (*Outcome, error) {
 				Run:   res,
 			}
 		}
+		// A fully cached run never executes a node, so artifacts are empty.
+		// Rebuild them from the persisted digests rather than handing callers
+		// a hollow outcome.
+		if err := g.rehydrate(res); err != nil {
+			return nil, err
+		}
 		outcome = &Outcome{
 			Run: res, File: art.file, Timeline: art.timeline, Keyframes: art.keyframe,
 			Silence: art.silence, Segments: art.segs, Fingerprints: art.fps,
@@ -172,15 +178,17 @@ func AsFailure(err error) (*Failure, bool) {
 	return f, ok
 }
 
+// graph holds one run's shared artifacts. audioDone distinguishes "no silent
+// ranges found" from "not yet computed", which rehydration depends on.
 type graph struct {
-	cfg   Config
-	store *dag.Store
-	art   *Artifacts
-	// corrupt captures a typed corruption error for the repair hook.
-	corrupt **model.Error
+	cfg       Config
+	store     *dag.Store
+	art       *Artifacts
+	corrupt   **model.Error
+	audioDone bool
 }
 
-func buildGraph(cfg Config, store *dag.Store, art *Artifacts, corrupt **model.Error, inputDigest string) (*dag.Scheduler, error) {
+func buildGraph(cfg Config, store *dag.Store, art *Artifacts, corrupt **model.Error, inputDigest string) (*dag.Scheduler, *graph, error) {
 	g := &graph{cfg: cfg, store: store, art: art, corrupt: corrupt}
 	params := func(v any) any { return v }
 	nodes := []*dag.Node{
@@ -199,7 +207,48 @@ func buildGraph(cfg Config, store *dag.Store, art *Artifacts, corrupt **model.Er
 		{Name: NodeSegment, Deps: []string{NodeIndex, NodeAudio, NodeRead}, Params: params(map[string]any{"window": cfg.WindowNS}), Run: g.runSegment},
 		{Name: NodeFingerprint, Deps: []string{NodeSegment, NodeRead}, Params: params(map[string]any{"sidecar": cfg.SidecarPath != ""}), Run: g.runFingerprint},
 	}
-	return dag.New(nodes, store, dag.Options{MaxAttempts: cfg.MaxAttempts, RetryFailedDeps: cfg.RetryFailedDeps})
+	sched, err := dag.New(nodes, store, dag.Options{MaxAttempts: cfg.MaxAttempts, RetryFailedDeps: cfg.RetryFailedDeps})
+	if err != nil {
+		return nil, nil, err
+	}
+	return sched, g, nil
+}
+
+// rehydrate recomputes any artifact a cached run left empty. The node
+// functions are pure with respect to their key, so invoking them again
+// reproduces exactly the values the recorded digests describe; results are
+// verified against the persisted digest to catch store corruption.
+func (g *graph) rehydrate(res *dag.RunResult) error {
+	steps := []struct {
+		name string
+		run  func(string) (dag.Summary, error)
+		done func() bool
+	}{
+		{NodeRead, g.runRead, func() bool { return g.art.file != nil }},
+		{NodeNormalize, g.runNormalize, func() bool { return g.art.timeline != nil }},
+		{NodeAudio, g.runAudio, func() bool { return g.audioDone }},
+		{NodeIndex, g.runIndex, func() bool { return g.art.keyframe != nil }},
+		{NodeSegment, g.runSegment, func() bool { return g.art.segs != nil }},
+		{NodeFingerprint, g.runFingerprint, func() bool { return g.art.fps != nil }},
+	}
+	for _, step := range steps {
+		r, ok := res.Results[step.name]
+		if !ok {
+			continue
+		}
+		if r.State != dag.StateReused || step.done() {
+			continue
+		}
+		sum, err := step.run(r.Key)
+		if err != nil {
+			return err
+		}
+		if sum.Digest != r.Digest {
+			return model.New(model.KindCorrupt, "pipeline.rehydrate",
+				fmt.Sprintf("node %s recomputed to a different digest than the stored result", step.name))
+		}
+	}
+	return nil
 }
 
 func (g *graph) runRead(key string) (dag.Summary, error) {
@@ -268,6 +317,7 @@ func (g *graph) runAudio(key string) (dag.Summary, error) {
 		return dag.Summary{}, err
 	}
 	g.art.silence = ranges
+	g.audioDone = true
 	return dag.Summary{Digest: digestOfSilence(ranges), Detail: fmt.Sprintf("silent_ranges=%d", len(ranges))}, nil
 }
 
