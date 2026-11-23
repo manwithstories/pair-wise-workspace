@@ -16,11 +16,11 @@ import (
 // RawSample is one sample as declared by the manifest, in track timescale
 // ticks. Values are unverified until timeline repair.
 type RawSample struct {
-	DTS       int64 `json:"dts"`
-	CTSOffset int64 `json:"cts_offset"`
-	Duration  int64 `json:"duration"`
+	DTS       int64  `json:"dts"`
+	CTSOffset int64  `json:"cts_offset"`
+	Duration  int64  `json:"duration"`
 	Size      uint32 `json:"size"`
-	Keyframe  bool  `json:"keyframe"`
+	Keyframe  bool   `json:"keyframe"`
 }
 
 // RawEdit is one edit-list entry. MediaTime -1 means an empty (dwell) edit;
