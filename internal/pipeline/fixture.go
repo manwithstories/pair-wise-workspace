@@ -128,7 +128,7 @@ func genTrack(inputs string, params RunParams, t int) (*TrackSpec, int64, error)
 			ts += d
 		}
 		rawTS := uint64(ts) & ((uint64(1) << spec.TsBits) - 1)
-		payload := randPayload(rng, 6000+rng.Intn(6000))
+		payload := randPayload(rng, 48000+rng.Intn(48000))
 		sample := encodeSample(spec.Codec, i%30 == 0, payload)
 		offsets = append(offsets, int64(len(stream)))
 		entries = append(entries, bitstream.IndexEntry{
@@ -146,8 +146,8 @@ func genTrack(inputs string, params RunParams, t int) (*TrackSpec, int64, error)
 			if err != nil {
 				return nil, -1, err
 			}
-			var rec [2]byte
-			binary.BigEndian.PutUint16(rec[:], uint16(len(b)))
+			var rec [4]byte
+			binary.BigEndian.PutUint32(rec[:], uint32(len(b)))
 			capture = append(capture, rec[:]...)
 			capture = append(capture, b...)
 			seq++
@@ -201,7 +201,9 @@ func genTrack(inputs string, params RunParams, t int) (*TrackSpec, int64, error)
 }
 
 // randPayload returns n deterministic bytes with no 0x000001 or
-// 0x00000001 sequence (so Annex-B start codes stay unambiguous).
+// 0x00000001 sequence (so Annex-B start codes stay unambiguous): no
+// two consecutive zero bytes, and no trailing zero (which would merge
+// with the next start code's leading zeros).
 func randPayload(rng *rand.Rand, n int) []byte {
 	b := make([]byte, n)
 	for i := range b {
@@ -210,6 +212,9 @@ func randPayload(rng *rand.Rand, n int) []byte {
 			v = 0x10
 		}
 		b[i] = v
+	}
+	if n > 0 && b[n-1] == 0 {
+		b[n-1] = 0x10
 	}
 	return b
 }

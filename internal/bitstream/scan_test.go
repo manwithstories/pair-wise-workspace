@@ -189,8 +189,8 @@ func TestDepacketizeRTP(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		var rec [2]byte
-		binary.BigEndian.PutUint16(rec[:], uint16(len(b)))
+		var rec [4]byte
+		binary.BigEndian.PutUint32(rec[:], uint32(len(b)))
 		cap = append(cap, rec[:]...)
 		cap = append(cap, b...)
 	}
@@ -222,8 +222,8 @@ func TestDepacketizeRTPTruncated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var rec [2]byte
-	binary.BigEndian.PutUint16(rec[:], uint16(len(b)))
+	var rec [4]byte
+	binary.BigEndian.PutUint32(rec[:], uint32(len(b)))
 	cap := append(rec[:], b[:len(b)-2]...) // truncated packet
 	_, _, err = DepacketizeRTP(cap, "t")
 	mustErrOffset(t, err, int64(len(cap)))

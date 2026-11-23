@@ -219,7 +219,7 @@ type RTPSample struct {
 	LostBefore int   // packets lost before this sample (sequence gap)
 }
 
-// DepacketizeRTP reads a length-prefixed RTP packet capture (2-byte
+// DepacketizeRTP reads a length-prefixed RTP packet capture (4-byte
 // big-endian length + marshalled RTP packet per record), concatenates
 // the payloads into an elementary stream and returns it together with
 // per-sample RTP metadata. Sequence numbers are extended through the
@@ -230,18 +230,18 @@ func DepacketizeRTP(data []byte, track string) ([]byte, []RTPSample, error) {
 	var lastExtSeq int64
 	seqWrap := seqExt{}
 	for off := 0; off < len(data); {
-		if off+2 > len(data) {
+		if off+4 > len(data) {
 			return nil, nil, mediaerr.New(mediaerr.Scan, track, int64(off), mediaerr.NA, true,
 				"truncated rtp record length")
 		}
-		n := int(binary.BigEndian.Uint16(data[off:]))
-		if off+2+n > len(data) {
+		n := int(binary.BigEndian.Uint32(data[off:]))
+		if off+4+n > len(data) {
 			return nil, nil, mediaerr.New(mediaerr.Scan, track, int64(len(data)), mediaerr.NA, true,
 				"truncated rtp packet: want %d bytes", n)
 		}
 		var pkt rtp.Packet
-		if err := pkt.Unmarshal(data[off+2 : off+2+n]); err != nil {
-			return nil, nil, mediaerr.New(mediaerr.Scan, track, int64(off+2), mediaerr.NA, true,
+		if err := pkt.Unmarshal(data[off+4 : off+4+n]); err != nil {
+			return nil, nil, mediaerr.New(mediaerr.Scan, track, int64(off+4), mediaerr.NA, true,
 				"rtp unmarshal: %v", err)
 		}
 		ext := seqWrap.extend(uint64(pkt.SequenceNumber))
@@ -258,7 +258,7 @@ func DepacketizeRTP(data []byte, track string) ([]byte, []RTPSample, error) {
 			LostBefore: lost,
 		})
 		es = append(es, pkt.Payload...)
-		off += 2 + n
+		off += 4 + n
 	}
 	if len(out) == 0 {
 		return nil, nil, mediaerr.New(mediaerr.Scan, track, 0, mediaerr.NA, true, "no rtp packets")
