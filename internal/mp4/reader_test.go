@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"mediasync/internal/fixtures"
+	"mediasync/internal/metadata"
 	"mediasync/internal/model"
 )
 
@@ -50,8 +51,17 @@ func TestReadFixtureTracksAndHashes(t *testing.T) {
 	if v.Codec != "avc1" || v.Width != 1920 || v.Height != 1080 {
 		t.Fatalf("video metadata = %s %dx%d", v.Codec, v.Width, v.Height)
 	}
-	if v.Meta.Rotation != 90 || v.Meta.RotationSrc != model.SourceMP4 {
-		t.Fatalf("rotation = %d from %s", v.Meta.Rotation, v.Meta.RotationSrc)
+	// Rotation from the tkhd matrix is a container-layer claim; arbitration in
+	// the metadata package resolves it to a concrete value.
+	if v.Meta.ContainerRotation == nil || *v.Meta.ContainerRotation != 90 {
+		t.Fatalf("container rotation = %v", v.Meta.ContainerRotation)
+	}
+	meta, err := metadata.Normalize(v, metadata.Overrides{})
+	if err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	if meta.Rotation != 90 || meta.RotationSrc != model.SourceMP4 {
+		t.Fatalf("resolved rotation = %d from %s", meta.Rotation, meta.RotationSrc)
 	}
 	// Verify coded bytes really are the fixture payloads, byte for byte.
 	f, err := os.Open(p)

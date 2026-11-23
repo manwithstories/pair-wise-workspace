@@ -152,11 +152,12 @@ func (r *Reader) readTrak(trak hdr, mdat hdr) (*model.Track, model.TrackStats, e
 		}
 	}
 
-	// Matrix-derived rotation is a container-level claim.
+	// Matrix-derived rotation is a container-level claim: the tkhd matrix is a
+	// file-structure assertion that a track-level or explicit claim may
+	// override. Record it in the container slot so arbitration stays honest.
 	rot, okRot := rotationFromMatrix(tkhd.Matrix)
 	if okRot {
-		tr.Meta.Rotation = rot
-		tr.Meta.RotationSrc = model.SourceMP4
+		tr.Meta.ContainerRotation = &rot
 		tr.Meta.Claims = append(tr.Meta.Claims, model.Claim{
 			Field: "rotation", Value: fmt.Sprintf("%d", rot), Layer: model.LayerContainer, Source: model.SourceMP4,
 		})
