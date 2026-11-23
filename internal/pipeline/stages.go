@@ -139,16 +139,13 @@ func recoverRTP(s *sample) rtpDoc {
 	if len(s.Packets) == 0 {
 		return doc
 	}
-	cfg := rtp.DefaultConfig()
-	r := rtp.NewReorderer("video", 0, cfg)
-	ext := &wire.Extender{}
-	// Every RTP observation is marshalled into a real datagram and parsed
-	// back through pion/rtp, so the header handling under test is the same
-	// one a live feed uses.
-	hook := func(g rtp.Gap) (rtp.Packet, bool) {
-		// A retransmit is available for every gap inside the window.
-		return rtp.Packet{Seq: g.First, Track: g.Track}, true
+	// Marshal every observation through pion/rtp and parse it back, so the
+	// header handling exercised here is the same code a live feed uses.
+	type obs struct {
+		seq uint16
+		ts  uint32
 	}
+	parsed := make([]obs, 0, len(s.Packets))
 	for _, p := range s.Packets {
 		dgram, err := (&pionrtp.Packet{Header: pionrtp.Header{
 			Version: 2, SequenceNumber: p.Seq, Timestamp: p.Timestamp,
@@ -158,13 +155,35 @@ func recoverRTP(s *sample) rtpDoc {
 			s.rtpErr = err
 			return doc
 		}
-		wireSeq, ts, _, err := wire.ParsePacket(dgram)
+		seq, ts, _, err := wire.ParsePacket(dgram)
 		if err != nil {
 			s.rtpErr = err
 			return doc
 		}
-		extSeq := ext.Extend(wireSeq)
-		_, _, _ = r.Push(rtp.Packet{Seq: extSeq, Timestamp: ts, Track: p.Track}, hook)
+		parsed = append(parsed, obs{seq: seq, ts: ts})
+	}
+	ext := &wire.Extender{}
+	first := ext.Extend(parsed[0].seq)
+	r := rtp.NewReorderer("video", first, rtp.DefaultConfig())
+	// A retransmission can only supply bytes that still exist upstream.
+	// When the sample's faults model genuinely lost data (drop/truncate),
+	// the venue has nothing to resend and the gap must stay final.
+	retransmitAvailable := !s.faults.Drop && !s.faults.Truncate
+	hook := func(g rtp.Gap) (rtp.Packet, bool) {
+		if !retransmitAvailable {
+			return rtp.Packet{}, false
+		}
+		return rtp.Packet{Seq: g.First, Track: g.Track}, true
+	}
+	for i, o := range parsed {
+		var extSeq uint64
+		if i == 0 {
+			extSeq = first
+		} else {
+			extSeq = ext.Extend(o.seq)
+		}
+		_, _, _ = r.Push(rtp.Packet{Seq: extSeq, Timestamp: o.ts,
+			Track: s.Packets[i].Track}, hook)
 	}
 	_, _ = r.Close(hook)
 	doc.Delivered = r.Stats.Delivered
