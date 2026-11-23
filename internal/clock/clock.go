@@ -135,8 +135,144 @@ func (o Options) withDefaults() Options {
 // are quarantined rather than spliced into the timeline.
 func Build(observed []Observed, opts Options) Map {
 	opts = opts.withDefaults()
-	m := Map{Entries: make([]Repair, 0, len(observed))}
-	m.Digest = digestMap(m.Entries)
+	entries := make([]Repair, 0, len(observed))
+	warnings := make([]string, 0, 4)
+	unavailable := make([]string, 0, 4)
+
+	var cursor int64 // expected start of the next segment, nanoseconds
+	haveCursor := false
+	var prevExt int64 // previous extended raw value, raw units
+	havePrevExt := false
+	var prevRaw uint64
+	havePrevRaw := false
+	var sawWrap bool
+
+	for _, obs := range observed {
+		dur := obs.Duration
+		if dur < 0 {
+			dur = 0
+		}
+		maxShift := opts.MaxShiftNs
+		if maxShift <= 0 {
+			maxShift = 4 * dur
+			if maxShift < 500_000_000 {
+				maxShift = 500_000_000
+			}
+		}
+
+		ext, hasTs, wrapped := int64(0), false, false
+		if obs.HasStart {
+			r := int64(obs.Start % uint64(opts.Modulus))
+			if !havePrevExt {
+				ext = r
+			} else {
+				// Extend into the same epoch. A raw decrease of more than half
+				// the modulus is a counter wrap; anything smaller is a real
+				// backward jump and must stay negative relative to the grid.
+				ext = prevExt - int64(prevRaw) + r
+				if prevRaw > uint64(r) && prevRaw-uint64(r) > uint64(opts.Modulus/2) {
+					ext += opts.Modulus
+					wrapped = true
+				}
+			}
+			hasTs = true
+		}
+
+		entry := Repair{ID: obs.ID, Duration: dur, Action: ActionOK, Available: true}
+		if wrapped {
+			sawWrap = true
+		}
+
+		switch {
+		case !obs.Valid:
+			entry.Available = false
+			entry.Action = ActionUnavailable
+			entry.Note = "corrupt segment header"
+
+		case !hasTs:
+			switch {
+			case haveCursor && dur > 0:
+				entry.Start = cursor
+				entry.Action = ActionGap
+				entry.Note = "missing timestamp inferred from the established grid"
+			default:
+				entry.Available = false
+				entry.Action = ActionUnavailable
+				entry.Note = "missing timestamp with no established time base"
+			}
+
+		case !haveCursor:
+			entry.Start = NanosDelta(ext, opts.Timescale)
+			if wrapped {
+				entry.Action = ActionUnwrapped
+				entry.Note = "wraparound expanded at time-base start"
+			}
+
+		default:
+			obsNs := NanosDelta(ext, opts.Timescale)
+			diff := obsNs - cursor
+			dup := havePrevRaw && obs.Start == prevRaw
+
+			switch {
+			case dup:
+				entry.Start = cursor
+				entry.Action = ActionDuplicate
+				entry.Note = "duplicate timestamp re-slotted"
+			case abs64(diff) <= opts.ToleranceNs:
+				entry.Start = cursor
+				if wrapped {
+					entry.Action = ActionUnwrapped
+					entry.Note = "33-bit wraparound expanded"
+				}
+			case diff < 0:
+				if -diff <= maxShift {
+					entry.Start = cursor
+					entry.Action = ActionShifted
+					entry.Note = fmt.Sprintf("backward jump of %dns repaired", -diff)
+				} else {
+					entry.Available = false
+					entry.Action = ActionUnavailable
+					entry.Note = fmt.Sprintf("backward jump of %dns exceeds repair limit", -diff)
+				}
+			default: // forward
+				if diff <= 2*opts.ToleranceNs {
+					entry.Start = cursor
+					entry.Action = ActionSnapped
+					entry.Note = fmt.Sprintf("forward jitter of %dns snapped", diff)
+				} else {
+					// A deliberate discontinuity: honour the observed time and
+					// re-anchor the grid here instead of hiding the gap.
+					entry.Start = obsNs
+					entry.Action = ActionGap
+					entry.Note = fmt.Sprintf("forward discontinuity of %dns preserved", diff)
+					warnings = append(warnings, fmt.Sprintf("%s: forward discontinuity %dns preserved", obs.ID, diff))
+				}
+			}
+		}
+
+		if entry.Available || entry.Action == ActionGap {
+			cursor = entry.Start + dur
+			haveCursor = true
+		} else if haveCursor {
+			cursor += dur
+		}
+		if hasTs {
+			prevExt = ext
+			havePrevExt = true
+			prevRaw = obs.Start
+			havePrevRaw = true
+		}
+		if !entry.Available {
+			unavailable = append(unavailable, obs.ID)
+		}
+		entries = append(entries, entry)
+	}
+
+	m := Map{Entries: entries, Unavailable: unavailable, Warnings: warnings}
+	if sawWrap {
+		m.Warnings = append(m.Warnings, "wraparound observed and expanded deterministically")
+	}
+	m.Digest = digestMap(entries)
 	return m
 }
 
