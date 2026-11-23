@@ -72,13 +72,6 @@ AGENTS.md.local
 .agent*/
 .ai*/
 
-# 每题的 A/B worktree 目录（git worktree，各自一条分支）；父仓忽略以保持 status 干净
-# 注意是 [0-9]* 而非 [0-9][0-9]*：后者要求「两个数字开头」，一位数题号（1/ ~ 9/）会漏掉
-/[0-9]*/
-
-# ---- 题目过程产物（工作流生成的 <题号>/.result/：prompt/logs/traces/recordings/report）----
-.result/
-
-# ---- GSB 流水线隔离环境（含指向真实 HOME 的软链与 auth.json 凭据，绝不提交）----
-.codex-isolated/
-.DS_Store
+# ---- build artefacts (never delivered) ----
+/archive
+*.test
