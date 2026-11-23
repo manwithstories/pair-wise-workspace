@@ -59,7 +59,7 @@ func Build(s Spec) (*Artifact, error) {
 		moovAbs = int64(len(ftyp))
 		mdatAbs = moovAbs + int64(moovSize)
 		out.Write(ftyp)
-		out.Write(buildMoov(gts, s, mdatAbs))
+		out.Write(buildMoov(gts, s, mdatAbs+8))
 		out.Write(mdatHeader)
 		out.Write(mdatBytes)
 	} else {
@@ -68,7 +68,7 @@ func Build(s Spec) (*Artifact, error) {
 		out.Write(ftyp)
 		out.Write(mdatHeader)
 		out.Write(mdatBytes)
-		out.Write(buildMoov(gts, s, mdatAbs))
+		out.Write(buildMoov(gts, s, mdatAbs+8))
 	}
 	art.MdatOffset = mdatAbs + 8
 	art.Tracks = make([]TrackTruth, len(gts))
