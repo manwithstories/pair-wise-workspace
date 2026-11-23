@@ -164,6 +164,18 @@ func ResumeStart(m *Manifest, cp *index.Checkpoint) (Start, error) {
 	return start, nil
 }
 
+// ResumeStartFor validates both the manifest match and the on-disk index state.
+func ResumeStartFor(m *Manifest, cp *index.Checkpoint, outPath string) (Start, error) {
+	start, err := ResumeStart(m, cp)
+	if err != nil {
+		return start, err
+	}
+	if err := ValidateResumeState(outPath, cp); err != nil {
+		return start, err
+	}
+	return start, nil
+}
+
 func countMedia(m *Manifest) int {
 	n := 0
 	for _, g := range m.Groups {

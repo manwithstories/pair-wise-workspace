@@ -114,7 +114,7 @@ func resumeFromCheckpoint(cfg demoConfig, s *session) int {
 		fmt.Fprintf(os.Stderr, "archivecheck: cannot load checkpoint: %v\n", err)
 		return exitIncompatible
 	}
-	st, err := pipe.ResumeStart(s.manifest, cp)
+	st, err := pipe.ResumeStartFor(s.manifest, cp, pipe.OutputPath(cfg.work))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "archivecheck: incompatible resume state: %v\n", err)
 		return exitIncompatible

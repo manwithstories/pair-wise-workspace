@@ -290,3 +290,40 @@ func TestBadMdatLengthRejectedAtProbe(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestResumeRejectsCheckpointIndexMismatch(t *testing.T) {
+	f := setup(t)
+	if _, err := f.run(t, f.start(), pipe.Options{QueueCapacity: 4, InterruptAfter: 5}); !pipe.IsCancelled(err) {
+		t.Fatal("expected interrupt cancellation")
+	}
+	cp, err := index.Load(pipe.CheckpointPath(f.work))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A checkpoint that claims a different index than the committed bytes is
+	// incompatible even though the manifest and prefix digest still match.
+	cp.Index.Entries[0].DTS++
+	if err := cp.Seal(); err != nil {
+		t.Fatal(err)
+	}
+	if err := index.Save(pipe.CheckpointPath(f.work), cp); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pipe.ResumeStartFor(f.loaded.Manifest, cp, pipe.OutputPath(f.work)); err == nil {
+		t.Fatal("mismatched checkpoint index accepted")
+	}
+}
+
+func TestResumeAcceptsMatchingCheckpoint(t *testing.T) {
+	f := setup(t)
+	if _, err := f.run(t, f.start(), pipe.Options{QueueCapacity: 4, InterruptAfter: 5}); !pipe.IsCancelled(err) {
+		t.Fatal("expected interrupt cancellation")
+	}
+	cp, err := index.Load(pipe.CheckpointPath(f.work))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pipe.ResumeStartFor(f.loaded.Manifest, cp, pipe.OutputPath(f.work)); err != nil {
+		t.Fatalf("matching checkpoint rejected: %v", err)
+	}
+}
