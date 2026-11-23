@@ -3,6 +3,15 @@ package main
 
 import "os"
 
+// demoOpts carries the demo flags.
+type demoOpts struct {
+	seed            int64
+	memoryMiB       int
+	consumerDelayMs int
+	lossBurst       int
+	fixture         string
+}
+
 func main() {
 	os.Exit(realMain(os.Args))
 }
