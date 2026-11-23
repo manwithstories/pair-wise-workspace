@@ -145,15 +145,50 @@ func (r *fileResolver) finish() {
 	}
 }
 
-// resolveTrack is added with the sample resolver; until then headers alone
-// determine whether a track can be indexed at all.
-func (r *fileResolver) resolveTrack(td *trackDraft) Track {
-	if !td.hasStsz && !td.hasStco && !td.hasStsc {
-		r.info.Indexed = false
-		r.info.Gaps = append(r.info.Gaps, Gap{
-			Kind: GapMissingIndex, TrackID: td.ID, Recovery: clock.RecoveredResync,
-			Detail: "stsz/stco/stsc absent",
-		})
+// classifyBadRun distinguishes a file that ends early (truncation, recoverable
+// by scanning a later boundary) from a corrupt run inside the file.
+func classifyBadRun(run []Sample, fileSize int64) (GapKind, clock.Recovery) {
+	for _, s := range run {
+		if s.Reason == "byte range outside mdat or beyond EOF" || s.Reason == "truncated sample bytes" {
+			return GapTruncatedTable, clock.RecoveredPrefix
+		}
 	}
-	return td.Track
+	return GapCorruptSample, clock.RecoveredSkipped
+}
+
+// chunkOffsets lays the uniform or per-sample sizes across chunks.
+func chunkOffsets(stsz stszData, stco stcoData, stsc stscData) ([]int64, []uint32) {
+	var offsets []int64
+	var sizes []uint32
+	idx := 0
+	want := int(stsz.count)
+	for ci, chunkOff := range stco.offsets {
+		samplesPerChunk := uint32(0)
+		for _, e := range stsc.entries {
+			if int(e.firstChunk) <= ci+1 {
+				samplesPerChunk = e.samplesPerChunk
+			}
+		}
+		if samplesPerChunk == 0 {
+			continue
+		}
+		off := int64(chunkOff)
+		for k := uint32(0); k < samplesPerChunk; k++ {
+			size := stsz.sampleSize
+			if size == 0 {
+				if idx >= len(stsz.sizes) {
+					return offsets, sizes
+				}
+				size = stsz.sizes[idx]
+			}
+			if stsz.sampleSize != 0 && len(stsz.sizes) == 0 && idx >= want {
+				return offsets, sizes
+			}
+			offsets = append(offsets, off)
+			sizes = append(sizes, size)
+			off += int64(size)
+			idx++
+		}
+	}
+	return offsets, sizes
 }
