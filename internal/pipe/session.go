@@ -35,11 +35,19 @@ func (l *LoadedInput) Close() {
 	}
 }
 
+// ErrMultipleInitGroups is returned by LoadInputs when a manifest mixes init
+// groups; a single restored program must map to exactly one track layout.
+var ErrMultipleInitGroups = fault.New(fault.KindPath, "", "moov", 0,
+	"manifest mixes multiple init segments; restore one program per run")
+
 // LoadInputs opens and validates the manifest entries. Init segments are
 // fully parsed; media fragments are probed only far enough to read mfhd
 // ordering. Full fragment validation happens in the streaming parse stage so
 // faults flow through the pipeline and into the resumable checkpoint.
 func LoadInputs(m *Manifest) (*LoadedInput, error) {
+	if len(m.Groups) != 1 {
+		return nil, ErrMultipleInitGroups
+	}
 	in := &LoadedInput{
 		Manifest: m, Files: map[string]*os.File{},
 		Probes: map[string]parse.Probe{}, OwnerInit: map[string]*parse.Init{},
@@ -52,12 +60,7 @@ func LoadInputs(m *Manifest) (*LoadedInput, error) {
 			return nil, fault.Wrap(err, fault.KindNotRegular, g.Init.Name, "", 0, "cannot open init")
 		}
 		in.Files[g.Init.Name] = f
-		info, err := f.Stat()
-		if err != nil {
-			closeAll()
-			return nil, fault.Wrap(err, fault.KindShortRead, g.Init.Name, "", 0, "cannot stat init")
-		}
-		init, err := parse.ParseInitReader(f, info.Size(), g.Init.Name)
+		init, err := parse.ParseInitReader(f, g.Init.Name)
 		if err != nil {
 			closeAll()
 			return nil, err
@@ -113,7 +116,8 @@ func (l *LoadedInput) Tasks(ord *repair.Ordered) []Task {
 	return tasks
 }
 
-// InitFor returns the init segment that owns the given media segment.
+// InitFor returns the init segment that owns the given media segment. Since a
+// restored program has exactly one init group, this is always Inits[0].
 func (l *LoadedInput) InitFor(segment string) *parse.Init {
 	if init, ok := l.OwnerInit[segment]; ok {
 		return init

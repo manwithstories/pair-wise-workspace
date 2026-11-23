@@ -272,15 +272,20 @@ func Run(ctx context.Context, workDir string, init *parse.Init, tasks []Task, l 
 	wg.Wait()
 
 	stageErr := fault.get()
-	if commitErr == nil && stageErr != nil && !errors.Is(stageErr, context.Canceled) && !errors.Is(stageErr, ErrClosed) {
+	// A real stage fault always wins over the cancellation it triggered, so a
+	// truncated or malformed input is reported as input failure, not exit 4.
+	if stageErr != nil && !errors.Is(stageErr, context.Canceled) && !errors.Is(stageErr, ErrClosed) {
 		commitErr = stageErr
 	}
 	if commitErr != nil && !errors.Is(commitErr, ErrClosed) {
-		// Persist every fully committed fragment (with a stable digest of the
-		// committed prefix) before reporting the fault.
-		if err := out.Sync(); err == nil {
+		// Preserve the best committed checkpoint. A fault never regresses an
+		// existing checkpoint: if this run committed less than what is already
+		// on disk, the older (larger) boundary stays authoritative.
+		if err := out.Sync(); err == nil && res.CommittedAt > 0 {
 			if cp := res.seal(out, entries, nextBase, total); cp != nil {
-				if err := index.Save(CheckpointPath(workDir), cp); err == nil {
+				if prev, perr := index.Load(CheckpointPath(workDir)); perr == nil && prev.Committed >= cp.Committed {
+					res.Checkpoint = prev
+				} else if err := index.Save(CheckpointPath(workDir), cp); err == nil {
 					res.Checkpoint = cp
 				}
 			}

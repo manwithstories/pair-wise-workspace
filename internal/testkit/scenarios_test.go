@@ -54,8 +54,7 @@ func TestFaultCorpusBadMdatLength(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer initF.Close()
-	info, _ := initF.Stat()
-	init, err := parse.ParseInitReader(initF, info.Size(), "init.mp4")
+	init, err := parse.ParseInitReader(initF, "init.mp4")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -100,6 +100,11 @@ func TestLoadManifestMultipleGroups(t *testing.T) {
 	if len(m.Digest) != 64 {
 		t.Fatalf("digest = %q", m.Digest)
 	}
+	// A restored program maps to one init layout; the pipeline rejects mixed
+	// groups rather than silently interleaving incompatible tracks.
+	if _, err := pipe.LoadInputs(m); !fault.IsKind(err, fault.KindPath) {
+		t.Fatalf("LoadInputs err = %v, want unsafe-path fault", err)
+	}
 }
 
 func TestManifestDigestChangesWithContent(t *testing.T) {

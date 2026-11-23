@@ -87,15 +87,19 @@ func unmarshalChild(payload []byte, base int64, segment, typ string, dst mp4.IBo
 
 // ParseInit reads ftyp and moov from an initialization segment file.
 func ParseInit(f *os.File, segment string) (*Init, error) {
-	info, err := f.Stat()
-	if err != nil {
-		return nil, fault.Wrap(err, fault.KindShortRead, segment, "", 0, "stat failed")
-	}
-	return ParseInitReader(f, info.Size(), segment)
+	return ParseInitReader(f, segment)
 }
 
 // ParseInitReader reads ftyp and moov from an arbitrary reader.
-func ParseInitReader(r io.ReadSeeker, size int64, segment string) (*Init, error) {
+func ParseInitReader(r io.ReadSeeker, segment string) (*Init, error) {
+	pos, err := r.Seek(0, io.SeekEnd)
+	if err != nil {
+		return nil, fault.Wrap(err, fault.KindShortRead, segment, "", 0, "cannot determine init size")
+	}
+	return parseInitReader(r, pos, segment)
+}
+
+func parseInitReader(r io.ReadSeeker, size int64, segment string) (*Init, error) {
 	init := &Init{Segment: segment, Tracks: map[uint32]*Track{}}
 	type pending struct {
 		id        uint32

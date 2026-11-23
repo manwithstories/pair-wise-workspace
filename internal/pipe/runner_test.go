@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"archivecheck/internal/fault"
 	"archivecheck/internal/index"
 	"archivecheck/internal/pipe"
 	"archivecheck/internal/repair"
@@ -198,5 +199,94 @@ func TestPeakQueueBoundedAndCancelReleases(t *testing.T) {
 	}
 	if res.PeakQueue > 2 {
 		t.Fatalf("peak queue = %d > 2", res.PeakQueue)
+	}
+}
+
+// TestFaultFailsPipelineAtParseStage drives a corrupted corpus through the real
+// pipeline and asserts the process fails at the parse stage, with no checkpoint
+// published and no output committed beyond the magic header.
+func TestFaultFailsPipelineAtParseStage(t *testing.T) {
+	work := t.TempDir()
+	fl, err := testkit.WriteFaultInputs(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Generate a segment whose moof is valid (so probing succeeds) but whose
+	// trun sample ranges exceed the mdat. Only full validation inside the
+	// pipeline rejects it.
+	shorts := []testkit.SampleSpec{{Duration: 3000, Size: 256, Sync: true}, {Duration: 3000, Size: 256}}
+	data := testkit.BuildShortMdatFragment(1, 0, shorts)
+	shortPath := filepath.Join(fl.Dir, "short-mdat.m4s")
+	if err := os.WriteFile(shortPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(fl.Dir, "pipeline-manifest.txt")
+	content := "init init.mp4\nmedia short-mdat.m4s\n"
+	if err := os.WriteFile(manifestPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := pipe.LoadManifest(fl.Dir, manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := pipe.LoadInputs(m)
+	if err != nil {
+		t.Fatalf("probe of the short-mdat segment should succeed, got %v", err)
+	}
+	defer loaded.Close()
+	ord, err := repair.Order(loaded.OrderItems())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks := loaded.Tasks(ord)
+	res, err := pipe.Run(context.Background(), work, loaded.Inits[0], tasks, loaded, loaded.StartFor(ord), pipe.Options{QueueCapacity: 2})
+	if err == nil {
+		t.Fatalf("corrupted corpus completed: %+v", res)
+	}
+	fe, ok := fault.As(err)
+	if !ok {
+		t.Fatalf("err = %v", err)
+	}
+	if fe.Kind != fault.KindOutOfBounds || fe.BoxType != "trun" {
+		t.Fatalf("fault = %+v", fe)
+	}
+	if res.CommittedAt != 0 {
+		t.Fatalf("committed %d fragments despite parse failure", res.CommittedAt)
+	}
+	if _, statErr := os.Stat(pipe.CheckpointPath(work)); !os.IsNotExist(statErr) {
+		t.Fatalf("checkpoint published after a parse fault: %v", statErr)
+	}
+	info, statErr := os.Stat(pipe.OutputPath(work))
+	if statErr != nil {
+		t.Fatalf("output missing: %v", statErr)
+	}
+	if info.Size() != int64(len(verify.Magic)) {
+		t.Fatalf("output size = %d, want only the %d-byte magic", info.Size(), len(verify.Magic))
+	}
+}
+
+// TestBadMdatLengthRejectedAtProbe asserts an invalid declared length is an
+// offset-bearing out-of-bounds fault before any output is created.
+func TestBadMdatLengthRejectedAtProbe(t *testing.T) {
+	work := t.TempDir()
+	fl, err := testkit.WriteFaultInputs(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(fl.Dir, "bad-manifest.txt")
+	content := "init init.mp4\nmedia badlength.m4s\n"
+	if err := os.WriteFile(manifestPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := pipe.LoadManifest(fl.Dir, manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = pipe.LoadInputs(m)
+	if err == nil {
+		t.Fatal("bad declared mdat length accepted")
+	}
+	if !fault.IsKind(err, fault.KindOutOfBounds) {
+		t.Fatalf("err = %v", err)
 	}
 }

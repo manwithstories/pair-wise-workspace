@@ -97,6 +97,10 @@ type FragmentSpec struct {
 	Samples    []SampleSpec
 	TruncateAt int  // if >0, emit an mdat truncated to this payload length
 	BadMdatLen bool // if true, declare an mdat size that overflows the file
+	// ShortMdat shrinks the mdat payload so sample ranges in trun exceed it.
+	// The moof stays valid, so probing succeeds and only full validation
+	// rejects the segment.
+	ShortMdat bool
 }
 
 func buildFragment(spec FragmentSpec) []byte {
@@ -105,6 +109,17 @@ func buildFragment(spec FragmentSpec) []byte {
 	mdatPayloadLen := len(samples)
 	if spec.TruncateAt > 0 {
 		mdatPayloadLen = spec.TruncateAt
+	}
+	if spec.ShortMdat && mdatPayloadLen > 0 {
+		// Drop half of the last sample's bytes, keeping the rest aligned so the
+		// mdat header stays valid and only sample range validation fails.
+		last := len(spec.Samples) - 1
+		short := int(spec.Samples[last].Size) / 2
+		mdatPayloadLen -= short
+		samples = bytes.Join(buildSampleBytes(spec.Samples[:last]), nil)
+		lastBytes := make([]byte, int(spec.Samples[last].Size)-short)
+		copy(lastBytes, buildSampleBytes([]SampleSpec{spec.Samples[last]})[0])
+		samples = append(samples, lastBytes...)
 	}
 
 	build := func(dataOffset int32) []byte {

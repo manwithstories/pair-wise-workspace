@@ -95,3 +95,11 @@ func boxHeader(typ string, size int) []byte {
 	copy(b[4:], typ)
 	return b
 }
+
+// BuildShortMdatFragment builds a segment whose moof is valid but whose mdat
+// payload is too small for the declared sample sizes.
+func BuildShortMdatFragment(trackID uint32, baseTime uint64, samples []SampleSpec) []byte {
+	return buildFragment(FragmentSpec{
+		Seq: 1, TrackID: trackID, BaseTime: baseTime, Samples: samples, ShortMdat: true,
+	})
+}
