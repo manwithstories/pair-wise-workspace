@@ -75,3 +75,22 @@ const (
 	MinKeyframeHitRate  = 0.98
 	MinSegmentHashMatch = 0.999999
 )
+
+// Invariants collects the acceptance thresholds and the boolean guarantees
+// the demo must not soften.
+type Invariants struct {
+	Roundtrip     float64
+	KeyframeHit   float64
+	SegmentHashes float64
+	ResumeEqual   bool
+	Provenance    bool
+}
+
+// Pass reports whether every documented invariant holds.
+func (v Invariants) Pass() bool {
+	return v.Roundtrip >= MinRoundtripRate &&
+		v.KeyframeHit >= MinKeyframeHitRate &&
+		v.SegmentHashes >= MinSegmentHashMatch &&
+		v.ResumeEqual &&
+		v.Provenance
+}

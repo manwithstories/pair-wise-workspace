@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"fmt"
 
+	pionrtp "github.com/pion/rtp"
+
 	"mediarun/internal/buffer"
 	"mediarun/internal/fixture"
 	"mediarun/internal/manifest"
 	"mediarun/internal/rtp"
+	"mediarun/internal/rtp/wire"
 	"mediarun/internal/sync"
 	"mediarun/internal/txn"
 )
@@ -134,14 +137,31 @@ func recoverRTP(s *sample) rtpDoc {
 		return doc
 	}
 	cfg := rtp.DefaultConfig()
-	r := rtp.NewReorderer("video", s.Packets[0].Extended, cfg)
+	r := rtp.NewReorderer("video", 0, cfg)
+	ext := &wire.Extender{}
+	// Every RTP observation is marshalled into a real datagram and parsed
+	// back through pion/rtp, so the header handling under test is the same
+	// one a live feed uses.
 	hook := func(g rtp.Gap) (rtp.Packet, bool) {
 		// A retransmit is available for every gap inside the window.
 		return rtp.Packet{Seq: g.First, Track: g.Track}, true
 	}
 	for _, p := range s.Packets {
-		_, _, _ = r.Push(rtp.Packet{Seq: p.Extended, Timestamp: p.Timestamp,
-			Track: p.Track}, hook)
+		dgram, err := (&pionrtp.Packet{Header: pionrtp.Header{
+			Version: 2, SequenceNumber: p.Seq, Timestamp: p.Timestamp,
+			SSRC: 0x1234,
+		}, Payload: []byte{byte(p.Extended)}}).Marshal()
+		if err != nil {
+			s.rtpErr = err
+			return doc
+		}
+		wireSeq, ts, _, err := wire.ParsePacket(dgram)
+		if err != nil {
+			s.rtpErr = err
+			return doc
+		}
+		extSeq := ext.Extend(wireSeq)
+		_, _, _ = r.Push(rtp.Packet{Seq: extSeq, Timestamp: ts, Track: p.Track}, hook)
 	}
 	_, _ = r.Close(hook)
 	doc.Delivered = r.Stats.Delivered

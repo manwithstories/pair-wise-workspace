@@ -11,7 +11,7 @@ import (
 )
 
 // Packet is one RTP payload observation. Seq is the sequence number already
-// extended past 16-bit wrap by the caller.
+// extended past 16-bit wrap; see internal/rtp/wire for the wire adapter.
 type Packet struct {
 	Seq        uint64
 	Timestamp  uint32

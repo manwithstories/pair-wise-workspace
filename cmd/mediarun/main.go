@@ -159,13 +159,12 @@ func runDemo(args []string) int {
 		return code
 	}
 
-	check := Invariants{
+	check := pipeline.Invariants{
 		Roundtrip:     res.RoundtripRate,
 		KeyframeHit:   res.KeyframeHitRate,
 		SegmentHashes: res.SegmentHashMatch,
 		ResumeEqual:   res.ResumeHashEqual,
 		Provenance:    res.ProvenanceComplete,
-		RecoveredGaps: res.RecoveredGaps,
 	}
 	fmt.Print(res.FormatRates())
 	ok := check.Pass()
@@ -175,25 +174,6 @@ func runDemo(args []string) int {
 	}
 	fmt.Println("invariants=ok")
 	return exitOK
-}
-
-// Invariants collects the acceptance thresholds.
-type Invariants struct {
-	Roundtrip     float64
-	KeyframeHit   float64
-	SegmentHashes float64
-	ResumeEqual   bool
-	Provenance    bool
-	RecoveredGaps int
-}
-
-// Pass applies the documented acceptance thresholds.
-func (v Invariants) Pass() bool {
-	return v.Roundtrip >= pipeline.MinRoundtripRate &&
-		v.KeyframeHit >= pipeline.MinKeyframeHitRate &&
-		v.SegmentHashes >= pipeline.MinSegmentHashMatch &&
-		v.ResumeEqual &&
-		v.Provenance
 }
 
 func runValidate(args []string) int {
