@@ -63,6 +63,11 @@ func run(args []string) int {
 	}
 	if *slowWorkers > 0 {
 		cfg.WorkerDelay = *slowWorkers
+	} else if *cancelAfter > 0 {
+		// A small per-job delay keeps the run alive past the cancel deadline so
+		// --cancel-after reliably lands mid-processing on fast machines. It is
+		// far smaller than the deadline, so exit still happens well within 3s.
+		cfg.WorkerDelay = *cancelAfter / 4
 	}
 	if *cancelAfter > 0 {
 		t := time.AfterFunc(*cancelAfter, cancel)
