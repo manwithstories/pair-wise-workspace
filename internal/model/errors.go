@@ -6,16 +6,16 @@ import "fmt"
 type ErrorCode string
 
 const (
-	ErrHeader         ErrorCode = "header_invalid"
-	ErrTruncated      ErrorCode = "record_truncated"
-	ErrChecksum       ErrorCode = "record_checksum_mismatch"
-	ErrKind           ErrorCode = "record_kind_unknown"
-	ErrIndexDigest    ErrorCode = "index_digest_mismatch"
+	ErrHeader          ErrorCode = "header_invalid"
+	ErrTruncated       ErrorCode = "record_truncated"
+	ErrChecksum        ErrorCode = "record_checksum_mismatch"
+	ErrKind            ErrorCode = "record_kind_unknown"
+	ErrIndexDigest     ErrorCode = "index_digest_mismatch"
 	ErrIndexIncomplete ErrorCode = "index_incomplete"
-	ErrIndexField     ErrorCode = "index_field_missing"
-	ErrTimeline       ErrorCode = "timeline_unrecoverable"
-	ErrCancelled      ErrorCode = "pipeline_cancelled"
-	ErrWrite          ErrorCode = "sink_write_failed"
+	ErrIndexField      ErrorCode = "index_field_missing"
+	ErrTimeline        ErrorCode = "timeline_unrecoverable"
+	ErrCancelled       ErrorCode = "pipeline_cancelled"
+	ErrWrite           ErrorCode = "sink_write_failed"
 )
 
 // LocatableError carries a machine-readable code together with the byte

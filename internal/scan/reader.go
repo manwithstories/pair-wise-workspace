@@ -14,23 +14,23 @@ import (
 // corruption and a tail truncation: callers inspect FirstCorruption to decide
 // whether the input is still usable.
 type Result struct {
-	Frames             []*model.Frame
-	Audio              []*model.AudioBlock
-	FrameOffsets       []int64
-	FirstCorruption    *model.LocatableError // first bad record, mid-stream
-	TailTruncated      bool                  // last record ran past EOF
-	RecoverableOffset  int64                 // offset of last complete record end
-	RecoveredFrameNum  int                   // complete records kept at the tail
-	TotalRecords       int
-	CompleteRecords    int
+	Frames            []*model.Frame
+	Audio             []*model.AudioBlock
+	FrameOffsets      []int64
+	FirstCorruption   *model.LocatableError // first bad record, mid-stream
+	TailTruncated     bool                  // last record ran past EOF
+	RecoverableOffset int64                 // offset of last complete record end
+	RecoveredFrameNum int                   // complete records kept at the tail
+	TotalRecords      int
+	CompleteRecords   int
 }
 
 // Header mirrors the 16-byte container header.
 type Header struct {
-	Version      byte
-	RecordCount  uint32
-	Flags        uint32
-	Offset       int64
+	Version     byte
+	RecordCount uint32
+	Flags       uint32
+	Offset      int64
 }
 
 // Reader consumes a seekable source once. Use NewReader followed by Scan.

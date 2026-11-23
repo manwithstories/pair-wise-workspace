@@ -45,11 +45,11 @@ type AudioBlock struct {
 
 // VideoMeta is the JSON metadata attached to a video record.
 type VideoMeta struct {
-	Width     int    `json:"width"`
-	Height    int    `json:"height"`
-	Color     string `json:"color"`
-	Keyframe  bool   `json:"keyframe"`
-	FrameNum  uint32 `json:"frame_num"`
+	Width    int    `json:"width"`
+	Height   int    `json:"height"`
+	Color    string `json:"color"`
+	Keyframe bool   `json:"keyframe"`
+	FrameNum uint32 `json:"frame_num"`
 }
 
 // AudioMeta is the JSON metadata attached to an audio record.

@@ -33,16 +33,16 @@ func DefaultConfig() Config {
 
 // TrackState is the observable per-track outcome.
 type TrackState struct {
-	Stopped          bool
-	Wraps            int
-	Duplicates       int
-	LastSeq          uint32
-	LastRaw          int64
-	LastNormalized   int64
-	Failure          *model.LocatableError
-	AffectedStartNS  int64
-	AffectedEndNS    int64
-	recent           map[uint32]int64
+	Stopped         bool
+	Wraps           int
+	Duplicates      int
+	LastSeq         uint32
+	LastRaw         int64
+	LastNormalized  int64
+	Failure         *model.LocatableError
+	AffectedStartNS int64
+	AffectedEndNS   int64
+	recent          map[uint32]int64
 }
 
 // Timeline keeps independent wrap counters but one shared epoch.

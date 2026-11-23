@@ -25,10 +25,10 @@ func pcmBlock(seq uint32, ts int64, amp int16, silentSamples int) *model.AudioBl
 
 func TestDetectMergesAdjacentSilence(t *testing.T) {
 	blocks := []*model.AudioBlock{
-		pcmBlock(0, 0, 0, 160),             // silent
-		pcmBlock(1, 20_000_000, 0, 160),    // silent -> merge
-		pcmBlock(2, 40_000_000, 500, 0),    // audible
-		pcmBlock(3, 60_000_000, 0, 160),    // silent again
+		pcmBlock(0, 0, 0, 160),          // silent
+		pcmBlock(1, 20_000_000, 0, 160), // silent -> merge
+		pcmBlock(2, 40_000_000, 500, 0), // audible
+		pcmBlock(3, 60_000_000, 0, 160), // silent again
 	}
 	d := NewDetector(4, 160)
 	intervals := d.Detect(blocks)
@@ -45,7 +45,7 @@ func TestDetectMergesAdjacentSilence(t *testing.T) {
 
 func TestDetectThreshold(t *testing.T) {
 	blocks := []*model.AudioBlock{
-		pcmBlock(0, 0, 3, 0),   // below threshold => silent
+		pcmBlock(0, 0, 3, 0),    // below threshold => silent
 		pcmBlock(1, 20e6, 5, 0), // above threshold => audible
 	}
 	d := NewDetector(4, 160)

@@ -130,7 +130,7 @@ func (s *Session) shouldBurst() bool {
 
 func (s *Session) sampleLatency() int64 {
 	// Bounded jitter around 20 ms, always well below the 120 ms P95 budget.
-	return int64(18_000_000+s.rng.Intn(12_000_000))
+	return int64(18_000_000 + s.rng.Intn(12_000_000))
 }
 
 // Receive replays the lossy channel, reorders within the window, applies the

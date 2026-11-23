@@ -91,7 +91,7 @@ func WriteMinimalMP4(w io.Writer, spec VideoTrackSpec, sampleCount uint32) error
 
 	mvhd := raw(mp4.BoxTypeMvhd(), bytes.Join([][]byte{
 		v0Full(),
-		u32(0), u32(0),                       // creation/modification time
+		u32(0), u32(0), // creation/modification time
 		u32(spec.Timescale), dur32(spec.Duration),
 		make([]byte, 80), // rate/volume/matrix/predefined/next track id region
 	}, nil))
@@ -128,13 +128,13 @@ func WriteMinimalMP4(w io.Writer, spec VideoTrackSpec, sampleCount uint32) error
 	// Baseline 3.0 (profile 66 / level 30), 4-byte NAL length, zero SPS/PPS
 	// entries: a valid decoder-configuration shell for metadata-only probing.
 	avcC := raw(mp4.BoxTypeAvcC(), []byte{
-		1,        // configurationVersion
-		66,       // AVC profile (baseline)
-		0,        // profile compatibility
-		30,       // level
-		0xFF,     // reserved 0b111111 + lengthSizeMinusOne=3
-		0xE0,     // reserved 0b111 + numSPS=0
-		0,        // numPPS=0
+		1,    // configurationVersion
+		66,   // AVC profile (baseline)
+		0,    // profile compatibility
+		30,   // level
+		0xFF, // reserved 0b111111 + lengthSizeMinusOne=3
+		0xE0, // reserved 0b111 + numSPS=0
+		0,    // numPPS=0
 	})
 	avc1.kids = append(avc1.kids, avcC)
 	// stsd is a full box (version/flags + entry count) wrapping avc1.

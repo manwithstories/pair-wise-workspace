@@ -17,7 +17,7 @@ func mkFrames(n int, stepNS int64) []*model.Frame {
 func mkAudio(n int, stepNS int64) []*model.AudioBlock {
 	out := make([]*model.AudioBlock, n)
 	for i := range out {
-		out[i] = &model.AudioBlock{Seq: uint32(i), TimestampNS: int64(i)*stepNS, Samples: 160}
+		out[i] = &model.AudioBlock{Seq: uint32(i), TimestampNS: int64(i) * stepNS, Samples: 160}
 	}
 	return out
 }

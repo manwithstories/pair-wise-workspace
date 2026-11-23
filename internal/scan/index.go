@@ -10,12 +10,12 @@ import (
 
 // FrameIndexEntry locates one video record inside the container.
 type FrameIndexEntry struct {
-	Seq       uint32 `json:"seq"`
-	Offset    int64  `json:"offset"`
-	StartNS   int64  `json:"start_ns"`
-	EndNS     int64  `json:"end_ns"`
-	Keyframe  bool   `json:"keyframe"`
-	Digest    string `json:"digest"`
+	Seq      uint32 `json:"seq"`
+	Offset   int64  `json:"offset"`
+	StartNS  int64  `json:"start_ns"`
+	EndNS    int64  `json:"end_ns"`
+	Keyframe bool   `json:"keyframe"`
+	Digest   string `json:"digest"`
 }
 
 // ScanIndex is the digest-bound summary produced after a successful scan.
