@@ -86,12 +86,12 @@ func writeAvc1(w io.Writer, gt genTrack) {
 		u16(w, 0xFFFF)
 		// Minimal but valid avcC (SPS/PPS NAL units, synthetic only).
 		return Box("avcC", func(w io.Writer) error {
-			u8(w, 1)       // configuration version
-			u8(w, 66)      // profile
-			u8(w, 0)       // compatibility
-			u8(w, 30)      // level
-			u8(w, 0xFF)    // length size minus one = 3 (4 bytes)
-			u8(w, 0xE1)    // one SPS
+			u8(w, 1)    // configuration version
+			u8(w, 66)   // profile
+			u8(w, 0)    // compatibility
+			u8(w, 30)   // level
+			u8(w, 0xFF) // length size minus one = 3 (4 bytes)
+			u8(w, 0xE1) // one SPS
 			sps := []byte{0x67, 0x42, 0x00, 0x1E, 0xAB, 0x40}
 			u16(w, uint16(len(sps)))
 			raw(w, sps)
@@ -134,7 +134,7 @@ func writeESDS(w io.Writer) error {
 		u8(w, 0x40) // audio object type stream
 		u8(w, 0x15) // AAC LC + up-stream
 		raw(w, make([]byte, 3))
-		u32(w, 0)   // max bitrate... buffer size DB (3) + max (4) + avg (4)
+		u32(w, 0) // max bitrate... buffer size DB (3) + max (4) + avg (4)
 		u32(w, 64000)
 		u32(w, 64000)
 		u8(w, 0x05) // DecoderSpecificInfo
@@ -149,8 +149,8 @@ func writeESDS(w io.Writer) error {
 
 func writeDOps(w io.Writer, gt genTrack) error {
 	return Box("dOps", func(w io.Writer) error {
-		u8(w, 0) // output gain/coupling header byte
-		u8(w, 2) // channels
+		u8(w, 0)                                  // output gain/coupling header byte
+		u8(w, 2)                                  // channels
 		u16(w, uint16(gt.spec.Timescale/1000*20)) // pre-skip (synthetic)
 		u32(w, gt.spec.Timescale)
 		u16(w, 0) // gain

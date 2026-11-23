@@ -42,9 +42,9 @@ type Spec struct {
 
 // Artifact is a generated input plus the ground truth used to verify it.
 type Artifact struct {
-	Bytes       []byte
-	Variant     int
-	Tracks      []TrackTruth
+	Bytes   []byte
+	Variant int
+	Tracks  []TrackTruth
 	// MdatOffset is the absolute offset of the mdat payload.
 	MdatOffset int64
 	// CorruptOffset is the exact byte flipped/claimed, or -1.
@@ -75,16 +75,21 @@ func DefaultSpec(seed int64, variant int) Spec {
 			{Codec: sample.CodecAAC, Timescale: 44100, Samples: 24, Delta: 1024, KeyEvery: 0},
 			{Codec: sample.CodecOpus, Timescale: 48000, Samples: 24, Delta: 960, KeyEvery: 0},
 		},
-		Mode:          ModeOK,
-		CorruptIndex:  10,
+		Mode:         ModeOK,
+		CorruptIndex: 10,
 	}
 }
 
 // rng is a tiny deterministic LCG so fixture bytes are reproducible by seed.
 type rng struct{ state uint64 }
 
-func newRNG(seed int64) *rng { return &rng{state: uint64(seed)*6364136223846793005 + 1442695040888963407} }
-func (r *rng) byte() byte     { r.state = r.state*6364136223846793005 + 1442695040888963407; return byte(r.state >> 33) }
+func newRNG(seed int64) *rng {
+	return &rng{state: uint64(seed)*6364136223846793005 + 1442695040888963407}
+}
+func (r *rng) byte() byte {
+	r.state = r.state*6364136223846793005 + 1442695040888963407
+	return byte(r.state >> 33)
+}
 
 // payload builds deterministic, seed-dependent compressed sample bytes.
 func payload(rng *rng, codec sample.Codec, seq int) []byte {

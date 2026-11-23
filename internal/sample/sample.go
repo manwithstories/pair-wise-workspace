@@ -27,15 +27,15 @@ const (
 
 // Sample is one compressed sample in unified 90 kHz time.
 type Sample struct {
-	TrackIndex int           // 0-based source trak index
-	TrackID    uint32        // mvhd track ID
-	Codec      Codec         // codec tag after mapping
-	Seq        int           // 0-based sample sequence within its source track
-	PTS        clock.Tick    // presentation time in unified ticks
-	Duration   clock.Tick    // duration in unified ticks
-	Offset     int64         // absolute file offset of the frame header
-	Data       []byte        // compressed sample bytes (copied, retained)
-	Keyframe   bool          // sync sample flag
+	TrackIndex int        // 0-based source trak index
+	TrackID    uint32     // mvhd track ID
+	Codec      Codec      // codec tag after mapping
+	Seq        int        // 0-based sample sequence within its source track
+	PTS        clock.Tick // presentation time in unified ticks
+	Duration   clock.Tick // duration in unified ticks
+	Offset     int64      // absolute file offset of the frame header
+	Data       []byte     // compressed sample bytes (copied, retained)
+	Keyframe   bool       // sync sample flag
 }
 
 // Frame wraps sample bytes with the on-disk framing header.

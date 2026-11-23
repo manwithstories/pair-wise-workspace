@@ -44,9 +44,9 @@ type TrackMeta struct {
 	Samples   int
 	Keyframes map[int]bool
 	// chunkOff/sizes are the resolved per-sample absolute offsets.
-	chunkOff  []int64
-	sizes     []uint32
-	sttsRuns  []sttsRun
+	chunkOff []int64
+	sizes    []uint32
+	sttsRuns []sttsRun
 }
 
 type sttsRun struct {

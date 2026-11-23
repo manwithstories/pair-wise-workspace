@@ -22,7 +22,7 @@ func FullBox(typ string, version byte, flags uint32, fn func(w io.Writer) error)
 	return func(w io.Writer) error { return writeOne(w, t, int(version), flags, fn) }
 }
 
-func u8(w io.Writer, v uint8)  { _, _ = w.Write([]byte{v}) }
+func u8(w io.Writer, v uint8) { _, _ = w.Write([]byte{v}) }
 func u16(w io.Writer, v uint16) {
 	var b [2]byte
 	binary.BigEndian.PutUint16(b[:], v)
@@ -71,6 +71,6 @@ func writeOne(w io.Writer, typ [4]byte, version int, flags uint32, fn func(w io.
 
 type memBuf struct{ b []byte }
 
-func newBuffer() *memBuf                    { return &memBuf{} }
+func newBuffer() *memBuf                      { return &memBuf{} }
 func (m *memBuf) Write(p []byte) (int, error) { m.b = append(m.b, p...); return len(p), nil }
-func (m *memBuf) Bytes() []byte             { return m.b }
+func (m *memBuf) Bytes() []byte               { return m.b }

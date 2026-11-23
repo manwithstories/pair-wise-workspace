@@ -27,12 +27,12 @@ type TrackProfile struct {
 
 // Metrics summarizes a remux run.
 type Metrics struct {
-	Tracks       int
-	Samples      int
-	RTPpackets   int
-	Bytes        int64
-	SHA256       string
-	PerTrack     map[uint32]int
+	Tracks     int
+	Samples    int
+	RTPpackets int
+	Bytes      int64
+	SHA256     string
+	PerTrack   map[uint32]int
 }
 
 // Writer consumes ordered samples and emits the transport container.

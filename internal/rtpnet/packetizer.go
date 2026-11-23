@@ -21,16 +21,16 @@ const rtpFixedHeader = 12
 
 // TrackConfig fixes the static RTP parameters for one mapped track.
 type TrackConfig struct {
-	SSRC       uint32
+	SSRC        uint32
 	PayloadType uint8
-	ClockRate  uint32
+	ClockRate   uint32
 }
 
 // Packetizer emits a deterministic RTP stream per track.
 type Packetizer struct {
-	cfg      TrackConfig
-	seq      uint16
-	mtu      int
+	cfg TrackConfig
+	seq uint16
+	mtu int
 }
 
 // NewPacketizer starts a packetizer at sequence number zero.

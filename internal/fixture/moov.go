@@ -56,9 +56,18 @@ func writeMvhd(w io.Writer, gts []genTrack) {
 
 func identityMatrix() []byte {
 	m := make([]byte, 36)
-	m[0] = 0x00; m[1] = 0x01; m[2] = 0x00; m[3] = 0x00
-	m[16] = 0x00; m[17] = 0x01; m[18] = 0x00; m[19] = 0x00
-	m[32] = 0x40; m[33] = 0x00; m[34] = 0x00; m[35] = 0x00
+	m[0] = 0x00
+	m[1] = 0x01
+	m[2] = 0x00
+	m[3] = 0x00
+	m[16] = 0x00
+	m[17] = 0x01
+	m[18] = 0x00
+	m[19] = 0x00
+	m[32] = 0x40
+	m[33] = 0x00
+	m[34] = 0x00
+	m[35] = 0x00
 	return m
 }
 
@@ -92,8 +101,8 @@ func writeTkhd(w io.Writer, gt genTrack, idx int) {
 			u16(w, 0x0100)
 		}
 		raw(w, identityMatrix())
-		u32(w, 320 << 16)
-		u32(w, 180 << 16)
+		u32(w, 320<<16)
+		u32(w, 180<<16)
 		_ = idx
 		return nil
 	})(w)

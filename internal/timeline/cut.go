@@ -19,8 +19,8 @@ type Cut struct {
 // duration extending backward from the next cut's start. Samples wholly inside
 // the window are annotated but never split.
 type Transition struct {
-	AfterCut int         // index of the cut before this transition
-	Duration clock.Tick  // window length in ticks
+	AfterCut int        // index of the cut before this transition
+	Duration clock.Tick // window length in ticks
 }
 
 // Plan is a validated edit plan.
