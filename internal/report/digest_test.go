@@ -70,10 +70,10 @@ func TestBuildSummaryAndRender(t *testing.T) {
 	if s.Tracks != 4 || s.Frames != 1200 {
 		t.Fatalf("header wrong: %+v", s)
 	}
-	// Earliest frame among faults is 5 (drift), but truncation offset 4096
-	// must still be surfaced.
-	if s.FirstBadFrame != 5 {
-		t.Fatalf("first bad frame=%d want 5", s.FirstBadFrame)
+	// Only a truncation fault populates the localization frame/offset; the
+	// other fault families (gap/drift) must not leak into first_bad_frame.
+	if s.FirstBadFrame != 731 {
+		t.Fatalf("first bad frame=%d want 731 (truncation only)", s.FirstBadFrame)
 	}
 	if s.OffsetBytes != 4096 {
 		t.Fatalf("offset=%d want 4096", s.OffsetBytes)

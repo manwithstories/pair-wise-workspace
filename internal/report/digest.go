@@ -80,17 +80,10 @@ func Build(p Params, tracks, frames int, faults []fault.Fault,
 		TopFaults:        topN(faults, 10),
 	}
 	if f, ok := fault.FirstByKind(faults, fault.KindTruncatedBox); ok {
-		// Truncation faults use byte offsets; the frame is derived by the
-		// adapter when it localizes the corrupt sample, passed separately.
+		// Truncation faults carry the localized byte offset. The frame is
+		// attached by the adapter; here we only surface the byte position.
 		s.OffsetBytes = f.OffsetBytes
-	}
-	for _, f := range faults {
-		if f.FrameIndex >= 0 && (s.FirstBadFrame < 0 || f.FrameIndex < s.FirstBadFrame) {
-			s.FirstBadFrame = f.FrameIndex
-			if s.OffsetBytes < 0 {
-				s.OffsetBytes = f.OffsetBytes
-			}
-		}
+		s.FirstBadFrame = f.FrameIndex
 	}
 	s.SHA256 = Digest(p, faults)
 	return s

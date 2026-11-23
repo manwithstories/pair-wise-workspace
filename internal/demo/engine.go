@@ -90,6 +90,12 @@ func (e *Engine) Run(ctx context.Context, cfg RunConfig) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("exit %d: container scan: %w", ExitCorrupt, err)
 	}
+	// Independent cross-validation with the abema/go-mp4 library: both
+	// parsers must agree on box types, counts and header offsets.
+	if _, err := mp4.CrossValidate(e.media.Bytes, roots); err != nil {
+		return nil, fmt.Errorf("exit %d: cross-validation disagreement: %w",
+			ExitCorrupt, err)
+	}
 	tracks, _, err := mp4.BuildTracks(e.media.Bytes, roots, e.lim)
 	if err != nil {
 		return nil, fmt.Errorf("exit %d: track build: %w", ExitCorrupt, err)
