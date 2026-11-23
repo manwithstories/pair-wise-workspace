@@ -131,7 +131,7 @@ func assemble(blocks []Block) []byte {
 		wElem(&tracks, ebml.IDTrackEntry, e.Bytes())
 	}
 	wElem(&b, ebml.IDTracks, tracks.Bytes())
-	clusterStart := int64(-1)
+	clusterStart := int64(-ClusterSpan - 1) // 强制首个块开启新 Cluster
 	for _, blk := range blocks {
 		ms := blk.AbsNs / 1_000_000
 		if ms < clusterStart || ms >= clusterStart+ClusterSpan {
