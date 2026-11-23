@@ -93,6 +93,12 @@ func fingerprintSegment(seg segment.Segment, tracks map[string]*clock.TrackTimel
 		h.Write([]byte{0})
 		binary.BigEndian.PutUint64(b[:], uint64(sl.FrameCount))
 		h.Write(b[:])
+		// The dedupe stream is prefixed with the track and frame count so two
+		// different splits of an identical payload run are not conflated.
+		dedupe.Write([]byte(sl.TrackID))
+		dedupe.Write([]byte{0})
+		binary.BigEndian.PutUint64(b[:], uint64(sl.FrameCount))
+		dedupe.Write(b[:])
 		for k := 0; k < sl.FrameCount; k++ {
 			idx := sl.FirstFrame + k
 			fr := &fs[idx]
