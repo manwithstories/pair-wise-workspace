@@ -40,9 +40,10 @@ func Ladder(srcBitrate, n int) []Rung {
 
 // LayerResult holds one rung's recovered packets and recovery stats.
 type LayerResult struct {
-	Rung    Rung
-	Packets []rtp.Packet
-	Stats   mrtp.Stats
+	Rung     Rung
+	Packets  []rtp.Packet
+	Stats    mrtp.Stats
+	LostSeqs map[uint16]bool // sequence numbers dropped on the wire
 }
 
 // FanOut transmits the source packets over one independent simulated
@@ -72,7 +73,7 @@ func FanOut(pkts []rtp.Packet, rungs []Rung, lossBurst int) []LayerResult {
 			out = append(out, rec.Drain()...)
 		}
 		out = append(out, rec.Finish()...)
-		results[i] = LayerResult{Rung: rung, Packets: out, Stats: rec.Stats}
+		results[i] = LayerResult{Rung: rung, Packets: out, Stats: rec.Stats, LostSeqs: wire.Lost}
 	}
 	return results
 }
