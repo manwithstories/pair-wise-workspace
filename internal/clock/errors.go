@@ -87,6 +87,7 @@ const (
 	CodePathEscape      = "manifest.path_escape"
 	CodeDuplicateSeq    = "manifest.duplicate_sequence"
 	CodeEntryLimit      = "manifest.entry_limit"
+	CodeSizeLimit       = "manifest.size_limit"
 	CodeInvalidDuration = "manifest.invalid_duration"
 	CodeUnsupported     = "manifest.unsupported"
 	CodeWrap            = "clock.timestamp_wrap"

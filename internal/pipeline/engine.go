@@ -248,7 +248,7 @@ func Run(cfg Config) (Result, error) {
 	res.DriftSlopePPB = driftSlope(syncOut)
 
 	// Stage 7: final manifest and provenance chain.
-	hashMatch, hashErrs := checkSegmentHashes(plan)
+	hashMatch, hashErrs := checkSegmentHashes(plan, manifest.DefaultLimits())
 	res.SegmentHashMatch = hashMatch
 
 	tr := provenance.NewTrace()

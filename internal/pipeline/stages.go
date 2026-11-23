@@ -323,13 +323,17 @@ func runSync(s *sample, j jitterDoc) syncDoc {
 
 // checkSegmentHashes recomputes each segment hash from its bytes and compares
 // it with the commitment carried by the manifest.
-func checkSegmentHashes(s *sample) (float64, []error) {
+func checkSegmentHashes(s *sample, limits manifest.Limits) (float64, []error) {
 	var match int
 	var errs []error
 	for _, seg := range s.media.Segments {
 		body, ok := s.payloads[seg.ID]
 		if !ok {
 			errs = append(errs, fmt.Errorf("segment %s missing payload", seg.ID))
+			continue
+		}
+		if err := limits.CheckSegment(seg.ID, int64(len(body))); err != nil {
+			errs = append(errs, err)
 			continue
 		}
 		h := txn.HashBytes(body)

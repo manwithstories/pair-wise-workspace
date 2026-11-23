@@ -208,11 +208,12 @@ func isHex(s string) bool {
 }
 
 // ParseHLSBytes is a convenience wrapper that additionally rejects a
-// manifest whose declared size exceeds the configured byte ceiling.
+// manifest whose own size exceeds the configured ceiling, so an oversized
+// document is refused before it is tokenised.
 func ParseHLSBytes(data []byte, limits Limits) (*Media, error) {
 	if limits.MaxSegmentBytes > 0 && int64(len(data)) > limits.MaxSegmentBytes {
-		return nil, clock.New(clock.KindInvalid, clock.CodeEntryLimit, "",
-			"manifest exceeds byte ceiling")
+		return nil, clock.New(clock.KindInvalid, clock.CodeSizeLimit, "",
+			"manifest exceeds size ceiling")
 	}
 	return ParseHLS(bytes.NewReader(data), limits)
 }

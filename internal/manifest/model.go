@@ -25,6 +25,21 @@ func DefaultLimits() Limits {
 	return Limits{MaxEntries: 100_000, MaxSegmentBytes: 256 << 20}
 }
 
+// CheckSegment rejects a media segment whose bytes exceed the per-segment
+// ceiling. A segment is validated before its hash is trusted, so oversized
+// input is rejected rather than buffered.
+func (l Limits) CheckSegment(id string, size int64) error {
+	if size < 0 {
+		return clock.New(clock.KindInvalid, clock.CodeSizeLimit, id,
+			"negative segment size")
+	}
+	if l.MaxSegmentBytes > 0 && size > l.MaxSegmentBytes {
+		return clock.New(clock.KindInvalid, clock.CodeSizeLimit, id,
+			"segment exceeds size ceiling")
+	}
+	return nil
+}
+
 // Segment is the neutral, format-independent view of one media segment.
 type Segment struct {
 	ID            string
