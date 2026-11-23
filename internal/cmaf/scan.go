@@ -67,6 +67,10 @@ type Sample struct {
 	Truncated       bool   `json:"truncated"`
 	TimeKnown       bool   `json:"time_known"`
 	Flags           uint32 `json:"flags"`
+	// FlagsConflict is set when a fragment's first-sample sync flag and the
+	// per-sample sync flag disagree; the scanner records both readings rather
+	// than choosing one.
+	FlagsConflict bool `json:"flags_conflict"`
 }
 
 // Fragment is one moof+mdat pair. Samples from every traf in the moof are

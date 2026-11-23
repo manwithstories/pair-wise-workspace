@@ -150,10 +150,17 @@ func (s *Scanner) parseTraf(buf []byte, trafBox, moof Box, frag *Fragment, segId
 				sz = entry.SampleSize
 			}
 			flags := sampleFlags
-			if i == 0 && trun.CheckFlag(0x000004) {
-				flags = trun.FirstSampleFlags
-			} else if trun.CheckFlag(0x000400) {
+			conflict := false
+			if trun.CheckFlag(0x000400) {
 				flags = entry.SampleFlags
+			}
+			if i == 0 && trun.CheckFlag(0x000004) {
+				if trun.CheckFlag(0x000400) {
+					firstSync := trun.FirstSampleFlags&0x00010000 == 0
+					perSync := entry.SampleFlags&0x00010000 == 0
+					conflict = firstSync != perSync
+				}
+				flags = trun.FirstSampleFlags
 			}
 			nonSync := flags&0x00010000 != 0
 			sample := Sample{
@@ -168,6 +175,7 @@ func (s *Scanner) parseTraf(buf []byte, trafBox, moof Box, frag *Fragment, segId
 				NonSync:         nonSync,
 				TimeKnown:       timeKnown,
 				Flags:           flags,
+				FlagsConflict:   conflict,
 			}
 			frag.Samples = append(frag.Samples, sample)
 			curTicks += uint64(dur)
