@@ -83,7 +83,7 @@ func sign(v int64) int64 {
 	}
 	return 0
 }
-func cmpInt(a, b int64) int   { return int(sign(a - b)) }
+func cmpInt(a, b int64) int { return int(sign(a - b)) }
 func cmpUint(a, b uint64) int {
 	if a < b {
 		return -1

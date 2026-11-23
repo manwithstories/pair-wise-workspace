@@ -24,11 +24,11 @@ const (
 // Fault is one located defect in an input asset.
 type Fault struct {
 	Kind        Kind     `json:"kind"`
-	Track       int      `json:"track"`            // 1-based track number; 0 = file-level
-	Sample      int64    `json:"sample"`           // first affected sample; -1 if n/a
-	Offset      int64    `json:"offset"`           // byte offset in file; -1 if n/a
-	Chain       []string `json:"chain"`            // affected nodes, Chain[0] = first blocked dependency
-	Recoverable bool     `json:"recoverable"`      // true if the pipeline may continue on the recoverable range
+	Track       int      `json:"track"`       // 1-based track number; 0 = file-level
+	Sample      int64    `json:"sample"`      // first affected sample; -1 if n/a
+	Offset      int64    `json:"offset"`      // byte offset in file; -1 if n/a
+	Chain       []string `json:"chain"`       // affected nodes, Chain[0] = first blocked dependency
+	Recoverable bool     `json:"recoverable"` // true if the pipeline may continue on the recoverable range
 	Message     string   `json:"message"`
 }
 
