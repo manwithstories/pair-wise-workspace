@@ -2,6 +2,7 @@ package mxf
 
 import (
 	"crypto/sha256"
+	"fmt"
 
 	"mediasync/internal/model"
 )
@@ -97,15 +98,146 @@ func (r *Reader) Read() (*Input, error) {
 		}
 	}
 
+	// Essence descriptors (CDCI for video, Wave for audio) carry geometry.
+	geom := parseDescriptors(primer, packets)
+
 	for _, e := range entries {
 		tr, stats, err := buildTrack(e, essencePackets, in)
 		if err != nil {
 			return in, err
 		}
+		if e.kind == model.KindVideo {
+			applyVideoDescriptor(tr, geom)
+		} else if e.kind == model.KindAudio {
+			applyAudioDescriptor(tr, geom)
+		}
 		in.Tracks = append(in.Tracks, tr)
 		in.Stats = append(in.Stats, stats)
 	}
 	return in, nil
+}
+
+// descriptorGeometry is the display geometry declared by MXF essence
+// descriptors. Zero values mean "not asserted".
+type descriptorGeometry struct {
+	storedW, storedH   int
+	displayW, displayH int
+	frameLayout        int
+	haveFrameLayout    bool
+	sampleRate         int
+	channels           int
+}
+
+// parseDescriptors reads the CDCI and Wave sets once; they describe every video
+// and audio track respectively in this profile. The descriptors are nested
+// inside the source package, so the package's local properties are scanned for
+// sub-KLVs whose key is CDCI or Wave.
+func parseDescriptors(primer primerMap, packets []KLV) descriptorGeometry {
+	var g descriptorGeometry
+	for _, outer := range packets {
+		if outer.Key != setSourcePackage {
+			continue
+		}
+		for _, inner := range subKLV(primer, outer.Value) {
+			absorbDescriptor(inner, &g)
+		}
+	}
+	return g
+}
+
+// subKLV enumerates KLV packets inside a local-set value. Properties are framed
+// as (tag, length, value); when the primer maps a tag to a set UL the value is
+// itself a nested set, which this returns as a packet whose key is that UL.
+func subKLV(primer primerMap, value []byte) []KLV {
+	var out []KLV
+	ls := newLocalSet(primer, value)
+	for {
+		tag, v, ok := ls.next()
+		if !ok {
+			break
+		}
+		if ul, has := primer[tag]; has && len(v) > 0 && isSetUL(ul) {
+			out = append(out, KLV{Key: ul, Value: v})
+		}
+	}
+	return out
+}
+
+func isSetUL(ul UL) bool {
+	return ul == setCDCI || ul == setWave || ul == setTrack || ul == setSequence
+}
+
+// absorbDescriptor folds one CDCI or Wave set into the geometry record.
+func absorbDescriptor(k KLV, g *descriptorGeometry) {
+	props, err := newLocalSet(nil, k.Value).all()
+	if err != nil {
+		return
+	}
+	switch k.Key {
+	case setCDCI:
+		if v, ok := uint32Of(props[tagStoredWidth]); ok {
+			g.storedW = int(v)
+		}
+		if v, ok := uint32Of(props[tagStoredHeight]); ok {
+			g.storedH = int(v)
+		}
+		if v, ok := uint32Of(props[tagDisplayWidth]); ok {
+			g.displayW = int(v)
+		}
+		if v, ok := uint32Of(props[tagDisplayHeight]); ok {
+			g.displayH = int(v)
+		}
+		if v := props[tagFrameLayout]; len(v) == 1 {
+			g.frameLayout = int(v[0])
+			g.haveFrameLayout = true
+		}
+	case setWave:
+		if v, ok := editRateOf(props[tagAudioSampling]); ok && v.Den == 1 {
+			g.sampleRate = int(v.Num)
+		}
+		if v, ok := uint32Of(props[tagChannelCount]); ok {
+			g.channels = int(v)
+		}
+	}
+}
+
+// applyVideoDescriptor records coded geometry and a container-layer colour
+// default. MXF CDCI essence is implicitly Rec.709 for the fixtures' 1920x1080;
+// it is a container claim, so a track or explicit claim can override it.
+func applyVideoDescriptor(tr *model.Track, g descriptorGeometry) {
+	if g.storedW > 0 {
+		tr.Width = g.storedW
+		tr.Meta.SourceWidth = g.storedW
+	}
+	if g.storedH > 0 {
+		tr.Height = g.storedH
+		tr.Meta.SourceHeight = g.storedH
+	}
+	if g.displayW > 0 && g.storedW > 0 && g.displayW != g.storedW {
+		tr.Meta.Warnings = append(tr.Meta.Warnings,
+			fmt.Sprintf("MXF display width %d differs from stored %d; coded samples are unchanged", g.displayW, g.storedW))
+	}
+	if g.haveFrameLayout && g.frameLayout != 0 {
+		tr.Meta.Warnings = append(tr.Meta.Warnings,
+			fmt.Sprintf("MXF frame layout %d is interlaced/segmented; pass-through preserves it", g.frameLayout))
+	}
+	if g.storedW > 0 && g.storedH > 0 {
+		colour := &model.Colour{Primaries: 1, Transfer: 1, Matrix: 1, Known: true}
+		tr.Meta.ContainerColour = colour
+		tr.Meta.Claims = append(tr.Meta.Claims, model.Claim{
+			Field: "colour", Value: "mxf-cdci/1/1/1", Layer: model.LayerContainer, Source: model.SourceMXF,
+		})
+	}
+}
+
+// applyAudioDescriptor records the sampling rate and channel count.
+func applyAudioDescriptor(tr *model.Track, g descriptorGeometry) {
+	if g.sampleRate > 0 {
+		tr.SampleRate = g.sampleRate
+	}
+	if g.channels > 0 {
+		tr.Channels = g.channels
+	}
 }
 
 // parseEssenceMap reads the mediasync profile set into per-track placements.

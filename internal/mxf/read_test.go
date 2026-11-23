@@ -147,3 +147,52 @@ func TestBERLength(t *testing.T) {
 		}
 	}
 }
+
+func TestVideoDescriptorGeometry(t *testing.T) {
+	b, err := fixtures.BuildMXF(fixtures.DefaultMxfOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, err := NewReader(b.Data).Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vid *model.Track
+	for _, tr := range in.Tracks {
+		if tr.Kind == model.KindVideo {
+			vid = tr
+		}
+	}
+	if vid == nil {
+		t.Fatal("video track missing")
+	}
+	if vid.Width != 1920 || vid.Height != 1080 {
+		t.Fatalf("geometry = %dx%d, want 1920x1080", vid.Width, vid.Height)
+	}
+	if vid.Meta.SourceWidth != 1920 || vid.Meta.SourceHeight != 1080 {
+		t.Fatalf("source geometry = %dx%d", vid.Meta.SourceWidth, vid.Meta.SourceHeight)
+	}
+	if vid.Meta.ContainerColour == nil || !vid.Meta.ContainerColour.Known {
+		t.Fatal("expected a known container colour from the CDCI descriptor")
+	}
+}
+
+func TestAudioDescriptorGeometry(t *testing.T) {
+	b, err := fixtures.BuildMXF(fixtures.DefaultMxfOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, err := NewReader(b.Data).Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tr := range in.Tracks {
+		if tr.Kind == model.KindAudio {
+			if tr.SampleRate != 48000 || tr.Channels != 2 {
+				t.Fatalf("audio = %d Hz %d ch", tr.SampleRate, tr.Channels)
+			}
+			return
+		}
+	}
+	t.Fatal("audio track missing")
+}
