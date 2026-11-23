@@ -18,8 +18,6 @@ import (
 type State string
 
 const (
-	StatePending State = "pending"
-	StateReady   State = "ready"
 	StateDone    State = "done"
 	StateFailed  State = "failed"
 	StateBlocked State = "blocked"
@@ -63,10 +61,10 @@ type Result struct {
 
 // Options tunes scheduler behavior.
 type Options struct {
-	// MaxAttempts bounds retries per node. Zero means 1 (no retry).
+	// MaxAttempts bounds retries per node. Zero means 1 (no retry). Typed
+	// corruption and input errors are never retried, since retrying them
+	// reproduces the same failure; transient errors are.
 	MaxAttempts int
-	// RetryFailedDeps retries failed dependencies before blocking successors.
-	RetryFailedDeps bool
 }
 
 // Scheduler owns the node graph and the persistent result cache.

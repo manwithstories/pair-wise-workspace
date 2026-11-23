@@ -50,8 +50,6 @@ type Config struct {
 	SilenceThreshold float64
 	// MaxAttempts bounds per-node retries.
 	MaxAttempts int
-	// RetryFailedDeps is passed to the scheduler.
-	RetryFailedDeps bool
 	// OnCorrupt, when set, is invoked once if the input is corrupt, allowing
 	// a caller to repair the file and resume.
 	OnCorrupt func(*model.Error) error
@@ -207,7 +205,7 @@ func buildGraph(cfg Config, store *dag.Store, art *Artifacts, corrupt **model.Er
 		{Name: NodeSegment, Deps: []string{NodeIndex, NodeAudio, NodeRead}, Params: params(map[string]any{"window": cfg.WindowNS}), Run: g.runSegment},
 		{Name: NodeFingerprint, Deps: []string{NodeSegment, NodeRead}, Params: params(map[string]any{"sidecar": cfg.SidecarPath != ""}), Run: g.runFingerprint},
 	}
-	sched, err := dag.New(nodes, store, dag.Options{MaxAttempts: cfg.MaxAttempts, RetryFailedDeps: cfg.RetryFailedDeps})
+	sched, err := dag.New(nodes, store, dag.Options{MaxAttempts: cfg.MaxAttempts})
 	if err != nil {
 		return nil, nil, err
 	}

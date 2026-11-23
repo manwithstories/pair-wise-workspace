@@ -197,17 +197,6 @@ type BlockedDep struct {
 	Dep  string
 }
 
-// CountRuns sums actual Run invocations across the scheduler.
-func (s *Scheduler) CountRuns() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	total := 0
-	for _, n := range s.runs {
-		total += n
-	}
-	return total
-}
-
 func inputStrings(in InputDigests) []string {
 	out := make([]string, len(in))
 	copy(out, in)
