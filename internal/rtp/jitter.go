@@ -127,8 +127,9 @@ func (b *Buffer) Push(pkt *rtp.Packet) error {
 	return nil
 }
 
-// drain emits every contiguous packet available at the base, expiring
-// gaps that have fallen outside the recovery window.
+// drain emits every contiguous packet available at the base. It stops
+// when the base packet has not arrived yet (a gap or an in-flight
+// reorder), unless the gap's recovery window has elapsed.
 func (b *Buffer) drain() {
 	for {
 		if pkt, ok := b.store[b.base]; ok {
@@ -137,16 +138,21 @@ func (b *Buffer) drain() {
 			b.base++
 			continue
 		}
-		// No packet at base: expire the gap once the window has passed.
-		if forwardDist(b.base, b.maxSeq) >= int(b.cfg.WindowSize) {
-			for _, s := range b.rec.expire(b.maxSeq) {
-				b.stats.UnrecoverablePackets++
-				b.quarantine(s)
-			}
-			b.base++
-			continue
+		g, open := b.rec.gaps[b.base]
+		if !open {
+			// Base packet is simply in flight; wait for it.
+			return
 		}
-		return
+		if forwardDist(g.deadline, b.maxSeq) < 0 {
+			// Window still open: a late packet may still repair it.
+			return
+		}
+		// Window elapsed: declare unrecoverable and skip the seq.
+		for _, s := range b.rec.expireAt(b.base) {
+			b.stats.UnrecoverablePackets++
+			b.quarantine(s)
+		}
+		b.base++
 	}
 }
 
@@ -189,15 +195,18 @@ func (b *Buffer) Pop() (*Unit, bool) {
 // Flush forces every still-open gap to expire and returns the remaining
 // ordered units. It is called at end-of-stream.
 func (b *Buffer) Flush() []*Unit {
-	for len(b.store) > 0 || b.rec.pending() > 0 {
+	// One past the highest sequence number the buffer may ever emit.
+	limit := b.maxSeq + 1
+	for b.base != limit {
 		if _, ok := b.store[b.base]; ok {
 			b.drain()
 			continue
 		}
 		// No packet will ever arrive for base: expire and move on.
-		delete(b.rec.gaps, b.base)
-		b.stats.UnrecoverablePackets++
-		b.quarantine(b.base)
+		for _, s := range b.rec.expireAt(b.base) {
+			b.stats.UnrecoverablePackets++
+			b.quarantine(s)
+		}
 		b.base++
 	}
 	b.drain()

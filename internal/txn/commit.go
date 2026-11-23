@@ -63,6 +63,13 @@ func (c *Committer) Prepare() error {
 	return nil
 }
 
+// SetJournal swaps the journal handle after crash recovery reopens it.
+func (c *Committer) SetJournal(j *Journal) { c.journal = j }
+
+// ClearCrash disables the injected interruption after the first crash
+// has been recovered so subsequent segments run to completion.
+func (c *Committer) ClearCrash() { c.crash = CrashNone }
+
 // Run executes the write -> verify -> commit flow for one segment.
 // payload produces the artifact bytes; verifier may reject them. A
 // crash point aborts the process model by returning ErrInjectedCrash.

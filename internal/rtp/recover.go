@@ -5,13 +5,13 @@ import "github.com/example/mediad/internal/model"
 // gap is one missing sequence number with its recovery deadline.
 type gap struct {
 	seq      uint16
-	deadline uint16 // sequence number at/after which recovery is abandoned
+	deadline uint16 // once the stream reaches this seq, recovery is over
 }
 
 // recoverer implements the finite recovery policy: a missing packet may
 // only be repaired while the stream has advanced fewer than window
 // packets past it. Repair means the original packet arriving late;
-// beyond the window the gap is declared unrecoverable.
+// beyond the deadline the gap is declared unrecoverable.
 type recoverer struct {
 	window uint16
 	gaps   map[uint16]gap
@@ -31,7 +31,7 @@ func (r *recoverer) registerGap(prev, cur uint16) {
 }
 
 // noteLate reports that the packet for a missing seq has arrived.
-// It returns false once the gap has already expired (or never existed).
+// It returns false once the gap has expired (or never existed).
 func (r *recoverer) noteLate(seq uint16) bool {
 	if _, ok := r.gaps[seq]; !ok {
 		return false
@@ -40,12 +40,12 @@ func (r *recoverer) noteLate(seq uint16) bool {
 	return true
 }
 
-// expire removes and returns every gap whose recovery window has
-// elapsed relative to the highest sequence number observed.
+// expire removes and returns gaps whose deadlines the stream has now
+// reached (or passed), given the highest sequence number observed.
 func (r *recoverer) expire(maxSeq uint16) []uint16 {
 	var out []uint16
-	for seq := range r.gaps {
-		if forwardDist(seq, maxSeq) >= int(r.window) {
+	for seq, g := range r.gaps {
+		if forwardDist(g.deadline, maxSeq) >= 0 {
 			out = append(out, seq)
 			delete(r.gaps, seq)
 		}
@@ -53,13 +53,17 @@ func (r *recoverer) expire(maxSeq uint16) []uint16 {
 	return out
 }
 
-// expireAll abandons every still-open gap. Used at end of stream.
-func (r *recoverer) expireAll() []uint16 {
-	out := make([]uint16, 0, len(r.gaps))
-	for seq := range r.gaps {
-		out = append(out, seq)
+// expireAt forces expiration of all gaps at or below seq regardless of
+// their remaining window. Used when the buffer must advance past a
+// blocked base position.
+func (r *recoverer) expireAt(seq uint16) []uint16 {
+	var out []uint16
+	for s := range r.gaps {
+		if forwardDist(s, seq) <= 0 {
+			out = append(out, s)
+			delete(r.gaps, s)
+		}
 	}
-	r.gaps = map[uint16]gap{}
 	return out
 }
 
@@ -69,7 +73,7 @@ func (r *recoverer) pending() int { return len(r.gaps) }
 type RecoveryOutcome string
 
 const (
-	OutcomeRecovered    RecoveryOutcome = "recovered"
+	OutcomeRecovered     RecoveryOutcome = "recovered"
 	OutcomeUnrecoverable RecoveryOutcome = "unrecoverable"
 )
 
