@@ -197,3 +197,47 @@ func TestPackageVerifyDetectsTampering(t *testing.T) {
 		t.Fatal("essence should not be empty")
 	}
 }
+
+func TestResumeAfterCorruptIndexRebuildsAndMatches(t *testing.T) {
+	opt := baseOptions(t)
+	full, err := Run(opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	opt2 := baseOptions(t)
+	opt2.InterruptAfter = 2
+	if _, err := Run(opt2); err == nil {
+		t.Fatal("expected interrupt")
+	}
+	// Damage the index; blocks are intact and self-describing.
+	idx := filepath.Join(checkpointDirForTest(opt2.InputDir), "index.bin")
+	data, err := os.ReadFile(idx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(idx, data[:12], 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	opt2.InterruptAfter = 0
+	opt2.Resume = true
+	rep, err := Run(opt2)
+	if err != nil {
+		t.Fatalf("resume after index damage: %v", err)
+	}
+	if !rep.CheckpointRecovered {
+		t.Fatal("expected the damaged index to be reported as recovered")
+	}
+	if rep.RecoveredBlocks != 2 {
+		t.Fatalf("recovered blocks = %d, want 2", rep.RecoveredBlocks)
+	}
+	if rep.FinalHash != full.FinalHash {
+		t.Fatalf("hash %s != full %s", rep.FinalHash, full.FinalHash)
+	}
+}
+
+// checkpointDirForTest mirrors the package-internal checkpoint location.
+func checkpointDirForTest(inputDir string) string {
+	return filepath.Join(inputDir, "checkpoints")
+}
