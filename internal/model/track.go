@@ -107,11 +107,11 @@ func (t *Track) MediaDurationNum() (num, den int64) {
 
 // TrackStats is the per-track accounting a reader or remuxer reports.
 type TrackStats struct {
-	TrackID uint32     `json:"track_id"`
-	Kind    TrackKind  `json:"kind"`
-	Samples int        `json:"samples"`
-	Bytes   int64      `json:"bytes"`
-	SHA256  [32]byte   `json:"-"`
+	TrackID uint32    `json:"track_id"`
+	Kind    TrackKind `json:"kind"`
+	Samples int       `json:"samples"`
+	Bytes   int64     `json:"bytes"`
+	SHA256  [32]byte  `json:"-"`
 }
 
 // Crop is a display crop in pixels removed from each source edge.
@@ -171,6 +171,12 @@ type Claim struct {
 }
 
 // DisplayMeta carries every display-related claim plus the resolved result.
+//
+// The *Container fields hold file-level claims (from a moov header, an MXF
+// package or similar). The unscoped Rotation/Crop/Colour fields hold track-level
+// claims (from a trak or a sample entry). Explicit CLI overrides are supplied to
+// Normalize and take precedence over both. Keeping the layers separate lets the
+// arbiter record the losing claim with its source instead of overwriting it.
 type DisplayMeta struct {
 	Rotation    int
 	RotationSrc Source
@@ -178,6 +184,11 @@ type DisplayMeta struct {
 	CropSrc     Source
 	Colour      *Colour
 	ColourSrc   Source
+
+	// Container-layer claims. Nil means the container asserted nothing.
+	ContainerRotation *int
+	ContainerCrop     *Crop
+	ContainerColour   *Colour
 	// Claims preserves the full arbitration history in arrival order.
 	Claims []Claim
 	// Warnings are non-fatal notes (unknown colour, default rotation, ...).
