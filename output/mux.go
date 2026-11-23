@@ -5,6 +5,7 @@ package output
 import (
 	"fmt"
 	"io"
+	"math"
 
 	"bcast/media"
 
@@ -32,6 +33,11 @@ type TrackMux struct {
 	// CodecEntry is a whole stsd box copied from the source. When empty a
 	// synthesized entry is written (fixture generation only).
 	CodecEntry []byte
+	// StartOffset is the presentation time of the first sample in track
+	// units. A segment cut from the middle of a program keeps its absolute
+	// position by writing a leading empty edit of StartOffset; zero starts at
+	// presentation time 0.
+	StartOffset int64
 }
 
 // memWS is an in-memory io.WriteSeeker.
@@ -149,7 +155,8 @@ func writeMoov(w io.WriteSeeker, tracks []TrackMux, chunkOffs [][]int64) error {
 	}
 	var maxDur int64
 	for _, t := range tracks {
-		var d int64
+		// The movie timeline spans the leading offset plus the media itself.
+		d := t.StartOffset
 		for _, s := range t.Samples {
 			d += int64(s.Duration)
 		}
@@ -186,9 +193,12 @@ func writeTrak(mw *mp4.Writer, t TrackMux, chunkOff int64) error {
 		return err
 	}
 	if err := writeLeaf(mw, &mp4.Tkhd{
-		TrackID: uint32(t.ID), DurationV0: uint32(media.Time{Value: dur, Timescale: t.Timescale}.ToTimescale(1000).Value),
+		TrackID: uint32(t.ID), DurationV0: uint32(media.Time{Value: dur + t.StartOffset, Timescale: t.Timescale}.ToTimescale(1000).Value),
 		Volume: volume, Matrix: matrix,
 	}); err != nil {
+		return err
+	}
+	if err := writeEdts(mw, t, dur); err != nil {
 		return err
 	}
 	if _, err := mw.StartBox(&mp4.BoxInfo{Type: mp4.BoxTypeMdia()}); err != nil {
@@ -303,8 +313,40 @@ func writeStbl(mw *mp4.Writer, t TrackMux, chunkOff int64) error {
 	return err
 }
 
-// writeCtts emits a version-1 composition offset table when the track has
-// non-zero decode-to-composition offsets. Version 1 is chosen because it is
+// writeEdts writes a leading empty edit when the track starts after
+// presentation time 0, so a segment cut from mid-program keeps its absolute
+// position. Empty-edit durations are expressed in the movie timescale (1000).
+func writeEdts(mw *mp4.Writer, t TrackMux, dur int64) error {
+	if t.StartOffset <= 0 {
+		return nil
+	}
+	emptyMS := uint64(media.Time{Value: t.StartOffset, Timescale: t.Timescale}.ToTimescale(1000).Value)
+	mediaMS := uint64(media.Time{Value: dur, Timescale: t.Timescale}.ToTimescale(1000).Value)
+	if _, err := mw.StartBox(&mp4.BoxInfo{Type: mp4.BoxTypeEdts()}); err != nil {
+		return err
+	}
+	if emptyMS > math.MaxUint32 || mediaMS > math.MaxUint32 {
+		el := &mp4.Elst{FullBox: mp4.FullBox{Version: 1}, EntryCount: 2, Entries: []mp4.ElstEntry{
+			{SegmentDurationV1: emptyMS, MediaTimeV1: -1},
+			{SegmentDurationV1: mediaMS, MediaTimeV1: 0},
+		}}
+		if err := writeLeaf(mw, el); err != nil {
+			return err
+		}
+	} else {
+		el := &mp4.Elst{EntryCount: 2, Entries: []mp4.ElstEntry{
+			{SegmentDurationV0: uint32(emptyMS), MediaTimeV0: -1},
+			{SegmentDurationV0: uint32(mediaMS), MediaTimeV0: 0},
+		}}
+		if err := writeLeaf(mw, el); err != nil {
+			return err
+		}
+	}
+	_, err := mw.EndBox()
+	return err
+}
+
+// writeCtts emits a version-1 composition offset table when the track has// non-zero decode-to-composition offsets. Version 1 is chosen because it is
 // signed, so negative offsets (B-frames) survive verbatim.
 func writeCtts(mw *mp4.Writer, t TrackMux) error {
 	nonzero := false
