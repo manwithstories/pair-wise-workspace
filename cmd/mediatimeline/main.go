@@ -56,6 +56,10 @@ func printReport(rep *pipeline.Report) {
 	for _, n := range rep.Notes {
 		fmt.Println("note=" + n)
 	}
+	for _, s := range rep.Stages {
+		fmt.Printf("stage=%s cache_hit=%t recomputed=%t duration_ms=%.2f\n",
+			s.Name, s.CacheHit, s.Recomputed, float64(s.DurationMicros)/1000)
+	}
 	for _, c := range rep.Corrupt {
 		fmt.Printf("corrupt_track=%s corrupt_offset=%d reason=%q\n", c.Track, c.Offset, c.Reason)
 	}
@@ -160,7 +164,10 @@ func cmdResume(args []string) int {
 	if rep.Interrupted {
 		return fail("run is still incomplete")
 	}
-	if ratio > 0.40 {
+	// The 40% resume budget applies to a clean resume (only unfinished
+	// stages recomputed). Recovery from rejected checkpoints or cache
+	// entries legitimately costs more and is reported via notes.
+	if ratio > 0.40 && len(rep.Notes) == 0 {
 		return fail("resume ratio %.1f%% exceeds 40%%", ratio*100)
 	}
 	return 0

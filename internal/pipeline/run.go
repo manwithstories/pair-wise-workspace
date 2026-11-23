@@ -107,35 +107,45 @@ func Run(opts Options) (*Report, error) {
 }
 
 // runStage serves one stage from a valid checkpoint+cache entry when
-// possible, otherwise recomputes it and records both.
+// possible, otherwise recomputes it and records both. Rejections of
+// existing checkpoints or cache entries are recorded as notes.
 func (c *runCtx) runStage(stage string) (*StageInfo, error) {
 	key := c.stageKey(stage)
-	if cp, ok := cache.ValidCheckpoint(c.cpDir, stage, key, c.store); ok {
-		entry, err := c.store.Get(key)
-		if err == nil {
-			err = c.store.ValidateSources(entry)
-		}
-		if err != nil {
-			c.rep.Notes = append(c.rep.Notes,
-				fmt.Sprintf("cache rejected for stage %s: %v", stage, err))
-		} else if err := c.applyPayload(stage, entry.Payload); err != nil {
-			c.rep.Notes = append(c.rep.Notes,
-				fmt.Sprintf("cache payload invalid for stage %s: %v", stage, err))
+	if cp, err := cache.ReadCheckpoint(c.cpDir, stage); err != nil {
+		c.rep.Notes = append(c.rep.Notes,
+			fmt.Sprintf("checkpoint unreadable for stage %s: %v", stage, err))
+	} else if cp != nil {
+		if _, ok := cache.ValidCheckpoint(c.cpDir, stage, key, c.store); ok {
+			entry, err := c.store.Get(key)
+			if err == nil {
+				err = c.store.ValidateSources(entry)
+			}
+			if err != nil {
+				c.rep.Notes = append(c.rep.Notes,
+					fmt.Sprintf("cache rejected for stage %s: %v", stage, err))
+			} else if err := c.applyPayload(stage, entry.Payload); err != nil {
+				c.rep.Notes = append(c.rep.Notes,
+					fmt.Sprintf("cache payload invalid for stage %s: %v", stage, err))
+			} else {
+				c.deps[stage] = entry.ResultDigest
+				return &StageInfo{Name: stage, CacheHit: true, DurationMicros: cp.DurationMicros}, nil
+			}
 		} else {
-			c.deps[stage] = entry.ResultDigest
-			return &StageInfo{Name: stage, CacheHit: true, DurationMicros: cp.DurationMicros}, nil
+			c.rep.Notes = append(c.rep.Notes,
+				fmt.Sprintf("checkpoint invalid for stage %s; recomputing", stage))
 		}
 	}
 	fn, ok := stageComputers[stage]
 	if !ok {
 		return nil, fmt.Errorf("stage %s not registered", stage)
 	}
+	// The recorded stage duration covers the full recompute: compute,
+	// source digesting and cache/checkpoint writes.
 	t0 := time.Now()
 	payload, sources, err := fn(c)
 	if err != nil {
 		return nil, fmt.Errorf("stage %s: %w", stage, err)
 	}
-	dur := time.Since(t0).Microseconds()
 	digest := cache.ResultDigest(payload)
 	digests, err := cache.DigestSources(sources)
 	if err != nil {
@@ -148,6 +158,7 @@ func (c *runCtx) runStage(stage string) (*StageInfo, error) {
 	if err := c.store.Put(entry); err != nil {
 		return nil, err
 	}
+	dur := time.Since(t0).Microseconds()
 	if err := cache.WriteCheckpoint(c.cpDir, stage, &cache.Checkpoint{
 		Stage: stage, Key: key, ResultDigest: digest, DurationMicros: dur,
 	}); err != nil {

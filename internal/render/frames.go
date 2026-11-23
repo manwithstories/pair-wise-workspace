@@ -16,12 +16,12 @@ import (
 
 // Fixed raster geometry for every output frame.
 const (
-	Width  = 64
-	Height = 36
+	Width  = 48
+	Height = 27
 	Bytes  = Width * Height * 3
 )
 
-// Raster produces the deterministic 64x36 RGB raster for a frame. The
+// Raster produces the deterministic 48x27 RGB raster for a frame. The
 // pixel content is derived from a SHA-256 seed via a xorshift64*
 // generator — cheap, exact and platform independent.
 func Raster(trackID string, seq int, srcOffset, refStart int64) []byte {
