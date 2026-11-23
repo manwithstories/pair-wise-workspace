@@ -263,10 +263,13 @@ func Run(ctx context.Context, workDir string, init *parse.Init, tasks []Task, l 
 		commitErr = stageErr
 	}
 	if commitErr != nil && !errors.Is(commitErr, ErrClosed) {
-		// Persist every fully committed fragment before reporting the fault.
-		if cp := res.seal(out, entries, nextBase, total); cp != nil {
-			if err := index.Save(CheckpointPath(workDir), cp); err == nil {
-				res.Checkpoint = cp
+		// Persist every fully committed fragment (with a stable digest of the
+		// committed prefix) before reporting the fault.
+		if err := out.Sync(); err == nil {
+			if cp := res.seal(out, entries, nextBase, total); cp != nil {
+				if err := index.Save(CheckpointPath(workDir), cp); err == nil {
+					res.Checkpoint = cp
+				}
 			}
 		}
 		out.Close()
@@ -276,6 +279,10 @@ func Run(ctx context.Context, workDir string, init *parse.Init, tasks []Task, l 
 		return res, commitErr
 	}
 	if interrupted {
+		if err := out.Sync(); err != nil {
+			out.Close()
+			return res, err
+		}
 		cp := res.seal(out, entries, nextBase, total)
 		if cp == nil {
 			out.Close()
