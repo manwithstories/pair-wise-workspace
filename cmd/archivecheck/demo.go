@@ -41,7 +41,15 @@ func runDemo(args []string) int {
 		return fail(err)
 	}
 	begin := time.Now()
-	s, err := newSession(cfg.work)
+	var s *session
+	var err error
+	if cfg.resume && cfg.interrupt == 0 {
+		// An explicit resume must observe the corpus exactly as it is on disk:
+		// a regenerated or edited input would silently change its digest.
+		s, err = loadSession(cfg.work, filepath.Join(cfg.work, "in"), filepath.Join(cfg.work, "in", "manifest.txt"))
+	} else {
+		s, err = newSession(cfg.work)
+	}
 	if err != nil {
 		return fail(err)
 	}
@@ -50,6 +58,13 @@ func runDemo(args []string) int {
 	if cfg.resume && cfg.interrupt == 0 {
 		// Explicit continuation of a checkpoint left by a previous process.
 		if code := resumeFromCheckpoint(cfg, s); code != exitOK {
+			return code
+		}
+		return reportFinal(cfg, s, begin)
+	}
+	if cfg.interrupt == 0 && !cfg.resume {
+		// Plain fresh run: no checkpoint involvement at all.
+		if code := runSegment(cfg, s, s.loaded.StartFor(s.ord), 0); code != exitOK {
 			return code
 		}
 		return reportFinal(cfg, s, begin)
