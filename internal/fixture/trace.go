@@ -11,19 +11,22 @@ import (
 
 // 传输参数。
 const (
-	MTU                 = 1200
-	payloadHeader       = 4 // frameIdx(2) + frag(1) + frags(1)
-	VideoClockRate      = 90000
-	AudioClockRate      = 48000
-	VideoSSRC           = 0x1001
-	AudioSSRC           = 0x1002
-	RetransmitCapacity  = 4 // 重传缓存容量（每轨）
-	jitterBaseMs        = 5
-	jitterSpreadMs      = 25
-	spikeProbability    = 0.02
-	spikeExtraMs        = 120
-	lossBurstStartPct   = 45 // 突发丢包起点（全局序号百分比）
+	MTU                = 1200
+	payloadHeader      = 4 // frameIdx(2) + frag(1) + frags(1)
+	VideoClockRate     = 90000
+	AudioClockRate     = 48000
+	VideoSSRC          = 0x1001
+	AudioSSRC          = 0x1002
+	RetransmitCapacity = 4 // 重传缓存容量（每轨）
+	jitterBaseMs       = 5
+	jitterSpreadMs     = 25
+	spikeProbability   = 0.02
+	spikeExtraMs       = 120
+	lossBurstStartPct  = 45 // 突发丢包起点（全局序号百分比）
 )
+
+// PayloadChunk 是单个 RTP 负载携带的媒体字节数。
+const PayloadChunk = MTU - payloadHeader
 
 // Packet 是一个待传输的 RTP 包及其网络轨迹。
 type Packet struct {

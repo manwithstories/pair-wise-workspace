@@ -12,11 +12,12 @@ import (
 
 // Checkpoint 记录一个处理阶段的输入/输出摘要与来源。
 type Checkpoint struct {
-	Stage        string    `json:"stage"`
-	InputDigest  string    `json:"input_digest"`
-	OutputDigest string    `json:"output_digest"`
-	Source       string    `json:"source"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	Stage        string            `json:"stage"`
+	InputDigest  string            `json:"input_digest"`
+	OutputDigest string            `json:"output_digest"`
+	Source       string            `json:"source"`
+	Stages       map[string]string `json:"stages,omitempty"` // 各阶段输出摘要
+	UpdatedAt    time.Time         `json:"updated_at"`
 }
 
 // Store 管理磁盘上的检查点文件。
