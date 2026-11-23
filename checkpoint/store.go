@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"mediad/diag"
 )
@@ -29,8 +31,9 @@ type Record struct {
 	Cursors map[string]int64 `json:"cursors"`
 	// LastSegment is the index of the last fully completed segment, or -1.
 	LastSegment int `json:"last_segment"`
-	// SegmentHashes maps segment index to the hex sha256 of its output file.
-	SegmentHashes map[int]string `json:"segment_hashes"`
+	// SegmentHashes maps "rep#index" to the hex sha256 of that rep's segment
+	// file, so every bitrate layer's output is verified independently.
+	SegmentHashes map[string]string `json:"segment_hashes"`
 	// ManifestHash is the hash of the manifest produced so far.
 	ManifestHash string `json:"manifest_hash"`
 }
@@ -121,30 +124,46 @@ func HashFile(path string) (string, error) {
 
 // VerifyCommitted re-checks every segment listed in the record against its
 // stored hash. It returns the index of the first segment that is missing or
-// mismatched (the redo point), or -1 when all committed segments are intact.
+// mismatched in any representation (the redo point), or -1 when every
+// committed segment file is intact.
 func VerifyCommitted(dir string, rec Record) (redoFrom int, err error) {
-	for idx, want := range rec.SegmentHashes {
-		// Hash map may be sparse after a partial write; only verify indices up
-		// to and including the last completed one.
+	redoFrom = -1
+	for key, want := range rec.SegmentHashes {
+		rep, idx, perr := parseSegKey(key)
+		if perr != nil {
+			return -1, diag.New(diag.EResume, "", "bad segment hash key %q", key)
+		}
 		if idx > rec.LastSegment {
 			continue
 		}
-		rep := firstRep(rec)
 		path := SegmentPath(dir, rep, idx)
 		got, ferr := HashFile(path)
 		if ferr != nil || got != want {
-			return idx, nil // caller redoes from this segment
+			if redoFrom < 0 || idx < redoFrom {
+				redoFrom = idx
+			}
 		}
 	}
-	return -1, nil
+	return redoFrom, nil
 }
 
-// firstRep extracts a stable representative name from cursor keys; segment
-// file naming in this project uses each rep separately, so callers normally
-// verify per representation. This helper covers the single-rep fixture case.
-func firstRep(rec Record) string {
-	for k := range rec.Cursors {
-		return k
+// SegmentKey namespaces a segment hash entry by representation and index.
+func SegmentKey(rep string, idx int) string { return rep + "#" + strconv.Itoa(idx) }
+
+// segKey kept as an unexported alias for internal call sites.
+func segKey(rep string, idx int) string { return SegmentKey(rep, idx) }
+
+// parseSegKey splits a "rep#index" checkpoint key.
+func parseSegKey(key string) (string, int, error) {
+	pos := strings.LastIndexByte(key, '#')
+	if pos <= 0 || pos == len(key)-1 {
+		return "", 0, errBadKey
 	}
-	return "default"
+	idx, err := strconv.Atoi(key[pos+1:])
+	if err != nil {
+		return "", 0, errBadKey
+	}
+	return key[:pos], idx, nil
 }
+
+var errBadKey = diag.New(diag.EResume, "", "malformed segment key")

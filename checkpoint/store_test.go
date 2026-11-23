@@ -18,7 +18,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	rec := Record{
 		Cursors:       map[string]int64{"video": 4096, "sub": 1024},
 		LastSegment:   6,
-		SegmentHashes: map[int]string{0: "aa", 1: "bb"},
+		SegmentHashes: map[string]string{SegmentKey("video", 0): "aa", SegmentKey("video", 1): "bb"},
 		ManifestHash:  "cc",
 	}
 	if err := s.Save(rec); err != nil {
@@ -29,7 +29,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got.LastSegment != 6 || got.Cursors["video"] != 4096 || got.Version != 1 ||
-		got.SegmentHashes[1] != "bb" || got.ManifestHash != "cc" {
+		got.SegmentHashes[SegmentKey("video", 1)] != "bb" || got.ManifestHash != "cc" {
 		t.Fatalf("round trip mismatch: %+v", got)
 	}
 }
@@ -70,7 +70,7 @@ func TestVerifyCommittedSkipsIntactRedoesPartial(t *testing.T) {
 	rec := Record{
 		Cursors:       map[string]int64{"video": 0},
 		LastSegment:   2,
-		SegmentHashes: map[int]string{},
+		SegmentHashes: map[string]string{},
 	}
 	// Write three segment files and record their real hashes.
 	for i := 0; i < 3; i++ {
@@ -85,7 +85,7 @@ func TestVerifyCommittedSkipsIntactRedoesPartial(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		rec.SegmentHashes[i] = h
+		rec.SegmentHashes[segKey("video", i)] = h
 	}
 	redo, err := VerifyCommitted(dir, rec)
 	if err != nil || redo != -1 {
