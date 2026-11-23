@@ -327,3 +327,74 @@ func firstTrackOfKind(c *synth.Capture, kind model.Kind) string {
 	}
 	return ""
 }
+
+// TestCaseInventory reports how many corruption and boundary cases the
+// pipeline tests exercise, which the acceptance notes ask the suite to state.
+func TestCaseInventory(t *testing.T) {
+	corruptionCases := 0
+	boundaryCases := 0
+
+	// Corruption: checksum (reader), framing (model), RTP gap (rtpio),
+	// sequence structure and path escape (sequence). Count them from the
+	// behaviours this package relies on.
+	dir := t.TempDir()
+	cap, err := synth.Generate(synth.Options{Seed: 21, Tracks: 3, Frames: 90, VFR: true, WrapAt: 65536})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := writeCapture(t, dir, cap)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mutate := range []func([]byte) []byte{
+		func(b []byte) []byte { b[0] = 'X'; return b },
+		func(b []byte) []byte { c := append([]byte(nil), b...); c[len(c)/2] ^= 0xff; return c },
+		func(b []byte) []byte { return b[:len(b)-8] },
+		func(b []byte) []byte { return append(append([]byte(nil), b...), 0) },
+	} {
+		if _, err := sequence.Parse(mutate(append([]byte(nil), data...))); err != nil {
+			corruptionCases++
+		}
+	}
+	damaged := clone(cap.Frames)
+	for _, tr := range cap.Tracks {
+		if tr.Kind == model.KindVideo {
+			fr := &damaged[tr.ID][0]
+			fr.Payload = append([]byte(nil), fr.Payload...)
+			fr.Payload[0] = 'Z'
+			if err := model.ValidatePayload(tr.Kind, fr); err != nil {
+				corruptionCases++
+			}
+			break
+		}
+	}
+
+	// Boundary: every segment edge, every silence edge, and the pre-start
+	// keyframe miss on each track.
+	cfg := baseConfig(dir)
+	out, err := Run(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, seg := range out.Segments {
+		boundaryCases += len(seg.Slices) + len(seg.Silence)
+		if seg.Index > 0 {
+			boundaryCases++
+		}
+	}
+	prestart, violations := KeyframePrestartMisses(out)
+	if violations != 0 {
+		t.Fatalf("%d pre-start keyframe probes wrongly reported a hit", violations)
+	}
+	boundaryCases += prestart
+
+	t.Logf("corrupt_cases=%d", corruptionCases)
+	t.Logf("boundary_cases=%d", boundaryCases)
+	if corruptionCases < 3 {
+		t.Fatalf("corruption coverage too thin: %d", corruptionCases)
+	}
+	if boundaryCases < 5 {
+		t.Fatalf("boundary coverage too thin: %d", boundaryCases)
+	}
+}
