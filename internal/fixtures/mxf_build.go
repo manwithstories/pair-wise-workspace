@@ -87,6 +87,8 @@ func buildPrimer() []byte {
 		{uint16Value(tagEventCount), ulSequence},
 		{uint16Value(tagEventEditRate), ulSequence},
 		{uint16Value(tagEssenceDescSets), ulSourcePackage},
+		{uint16Value(tagCDCIDescriptor), ulCDCI},
+		{uint16Value(tagWaveDescriptor), ulWave},
 		{uint16Value(tagFrameLayout), ulCDCI},
 		{uint16Value(tagStoredWidth), ulCDCI},
 		{uint16Value(tagStoredHeight), ulCDCI},
@@ -137,8 +139,8 @@ func buildMetadata(o BuildMxfOptions, vid, aud MxfTrackInfo) []byte {
 	src = append(src, prop(tagPackageUID, uuidValue(o.Seed, 0x55))...)
 	src = append(src, prop(tagTrackCount, uint32Value(2))...)
 	src = append(src, prop(tagEssenceDescSets, uint32Value(2))...)
-	src = append(src, klv(ulCDCI, buildCDCISet(o))...)
-	src = append(src, klv(ulWave, buildWaveSet(o))...)
+	src = append(src, prop(tagCDCIDescriptor, buildCDCISet(o))...)
+	src = append(src, prop(tagWaveDescriptor, buildWaveSet(o))...)
 	meta = append(meta, klv(ulSourcePackage, src)...)
 
 	meta = append(meta, klv(ulEssenceMap, buildEssenceMap(vid, aud))...)

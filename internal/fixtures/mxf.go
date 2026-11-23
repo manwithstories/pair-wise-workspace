@@ -52,6 +52,8 @@ const (
 	tagEventCount        = uint16(0x0501)
 	tagEventEditRate     = uint16(0x0503)
 	tagEssenceDescSets   = uint16(0x4804)
+	tagCDCIDescriptor    = uint16(0x7f10)
+	tagWaveDescriptor    = uint16(0x7f11)
 	tagFrameLayout       = uint16(0x3202)
 	tagStoredWidth       = uint16(0x3203)
 	tagStoredHeight      = uint16(0x3204)
