@@ -15,6 +15,7 @@ type Metrics struct {
 	CorruptedRanges    int      `json:"corrupted_ranges"`
 	UnrecoveredRanges  int      `json:"unrecovered_ranges"`
 	IndexDigest        string   `json:"index_digest"`
+	SyncTableBytes     int      `json:"sync_table_bytes"`
 	AudioIssues        []string `json:"audio_issues,omitempty"`
 	ColorConflicts     []string `json:"color_conflicts,omitempty"`
 	Faults             []string `json:"faults,omitempty"`

@@ -155,6 +155,12 @@ func Run(cfg Config) (report.Metrics, error) {
 	}
 	m.IndexEntries = len(idx.Entries)
 	m.IndexDigest = idx.Digest()
+	syncTable, err := index.ExportSyncTable(idx, frameTicks)
+	if err != nil {
+		m.Faults = append(m.Faults, "index: sync table export: "+err.Error())
+	} else {
+		m.SyncTableBytes = len(syncTable)
+	}
 
 	// Stage 7: audio layout and color metadata checks.
 	norm, audioIssues := audio.Validate(src.Audio)
