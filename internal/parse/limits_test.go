@@ -58,3 +58,26 @@ func TestChildBoxOverflowInsidePayload(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestHugeExtendedSizeDoesNotOverflow(t *testing.T) {
+	// A 64-bit largesize near MaxUint64 must be rejected as out of bounds
+	// without integer overflow or allocation.
+	data := make([]byte, 16)
+	data[3] = 1
+	copy(data[4:], "mdat")
+	for i := 0; i < 8; i++ {
+		data[8+i] = 0xff
+	}
+	f := writeTemp(t, data)
+	walkErr := WalkFile(f, "huge.m4s", func(h Header, r io.ReadSeeker) error { return nil })
+	if walkErr == nil {
+		t.Fatal("huge extended size accepted")
+	}
+	fe, ok := fault.As(walkErr)
+	if !ok || fe.Offset != 0 {
+		t.Fatalf("fault = %v", walkErr)
+	}
+	if fe.Kind != fault.KindOutOfBounds {
+		t.Fatalf("kind = %s, want out_of_bounds", fe.Kind)
+	}
+}
