@@ -117,6 +117,26 @@ func TestVerifySegmentChecksum(t *testing.T) {
 	}
 }
 
+func TestVerifyCommittedOrder(t *testing.T) {
+	cp := sampleCP()
+	// cp.Segments 只有一个分段，构造一致与不一致两种顺序校验。
+	good := []string{cp.Segments[0].Sha256}
+	if _, err := resume.VerifyCommitted(&cp, good); err != nil {
+		t.Fatalf("matching committed list rejected: %v", err)
+	}
+	bad := []string{hex.EncodeToString(bytesOf(99))}
+	idx, err := resume.VerifyCommitted(&cp, bad)
+	if idx != 0 {
+		t.Fatalf("conflict index = %d, want 0", idx)
+	}
+	if fe, ok := fault.As(err); !ok || fe.Kind != fault.KindCheckpointConflict {
+		t.Fatalf("err = %v, want conflict", err)
+	}
+	if _, err := resume.VerifyCommitted(&cp, []string{"a", "b"}); err == nil {
+		t.Fatal("longer committed list than checkpoint should fail")
+	}
+}
+
 func TestDeterministicRepeatedWrite(t *testing.T) {
 	dir1, dir2 := t.TempDir(), t.TempDir()
 	cp := sampleCP()

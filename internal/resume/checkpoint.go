@@ -128,9 +128,14 @@ func Verify(c *Checkpoint, paramDigest string, sources []SourceRef) (int, error)
 	return -1, nil
 }
 
-// VerifySegment 核对单个已提交分段的校验和，返回首个冲突的分段下标。
+// VerifySegment 核对单个已提交分段的校验和（原始 [32]byte 形式），
+// 返回首个冲突的分段下标。
 func VerifySegment(c *Checkpoint, idx uint64, sum [32]byte) (int, error) {
-	wantHex := hex.EncodeToString(sum[:])
+	return VerifySegmentHex(c, idx, hex.EncodeToString(sum[:]))
+}
+
+// VerifySegmentHex 以 64 位十六进制字符串口径核对分段校验和。
+func VerifySegmentHex(c *Checkpoint, idx uint64, wantHex string) (int, error) {
 	for i, seg := range c.Segments {
 		if seg.Index != idx {
 			continue
@@ -143,6 +148,23 @@ func VerifySegment(c *Checkpoint, idx uint64, sum [32]byte) (int, error) {
 		return i, nil
 	}
 	return -1, conflict(int64(idx), fmt.Sprintf("segment %d missing from checkpoint", idx))
+}
+
+// VerifyCommitted 按检查点中的提交顺序逐段核对校验和，
+// 适用于分段序号在各源块内独立计数的场景，返回首个冲突下标。
+func VerifyCommitted(c *Checkpoint, wantHex []string) (int, error) {
+	if len(wantHex) > len(c.Segments) {
+		return len(c.Segments), conflict(int64(len(c.Segments)),
+			"more committed segments than checkpoint records")
+	}
+	for i, want := range wantHex {
+		if c.Segments[i].Sha256 != want {
+			return i, conflict(int64(i), fmt.Sprintf(
+				"committed segment %d checksum mismatch: checkpoint=%s current=%s",
+				i, c.Segments[i].Sha256, want))
+		}
+	}
+	return -1, nil
 }
 
 // Equal 比较两个检查点的可复核内容是否完全一致（用于确定性自检）。
