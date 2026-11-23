@@ -2,11 +2,13 @@ package fingerprint_test
 
 import (
 	"bytes"
+	"errors"
 	"testing"
 
 	"bcast/demux"
 	"bcast/fingerprint"
 	"bcast/internal/fixture"
+	"bcast/media"
 	"bcast/segments"
 )
 
@@ -74,5 +76,57 @@ func TestIdempotencyKey(t *testing.T) {
 	k3 := fingerprint.Key("in", "p", 4)
 	if k1 != k2 || k1 == k3 {
 		t.Fatal("key semantics broken")
+	}
+}
+
+func TestHashRejectsTruncatedPayload(t *testing.T) {
+	a, err := fixture.Generate(fixture.Default(17, 12))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := demux.Parse(bytes.NewReader(a.Clean), int64(len(a.Clean)), "clean")
+	if err != nil {
+		t.Fatal(err)
+	}
+	segs, err := segments.Cut(&f.File, 90000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Present only a prefix: the last segment's payload runs past the end.
+	cut := a.Clean[:len(a.Clean)-4096]
+	_, err = fingerprint.Hash(bytes.NewReader(cut), segs[len(segs)-1])
+	if !errors.Is(err, fingerprint.ErrShortPayload) {
+		t.Fatalf("want ErrShortPayload, got %v", err)
+	}
+}
+
+func TestHashIgnoresTimestampsKeepsContent(t *testing.T) {
+	a, err := fixture.Generate(fixture.Default(17, 12))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := demux.Parse(bytes.NewReader(a.Clean), int64(len(a.Clean)), "clean")
+	if err != nil {
+		t.Fatal(err)
+	}
+	segs, err := segments.Cut(&f.File, 90000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Segments 3 and 7 carry identical content at different positions; their
+	// hashes must match. Shifting timestamps must not change a hash.
+	h3, _ := fingerprint.Hash(bytes.NewReader(a.Clean), segs[3])
+	h7, _ := fingerprint.Hash(bytes.NewReader(a.Clean), segs[7])
+	if h3 != h7 {
+		t.Fatal("duplicate content hashed differently")
+	}
+	moved := segs[3]
+	moved.Video = append([]media.Sample(nil), segs[3].Video...)
+	for i := range moved.Video {
+		moved.Video[i].DTS.Value += 123456
+	}
+	hShift, _ := fingerprint.Hash(bytes.NewReader(a.Clean), moved)
+	if hShift != h3 {
+		t.Fatal("timestamp shift changed content hash")
 	}
 }
