@@ -48,3 +48,29 @@ func TestUnclassifiedBecomesInternal(t *testing.T) {
 		t.Fatal("nil must classify empty")
 	}
 }
+
+func TestListDeduplicatesAndCounts(t *testing.T) {
+	var l List
+	span := Span{Segment: "a", Interval: Interval{Start: 0, End: 10}}
+	l.Add(Errorf(CatSample, span, RecoveredSkipped, "bad sample"))
+	l.Add(Errorf(CatSample, span, RecoveredSkipped, "bad sample")) // duplicate entry
+	l.Add(Errorf(CatIndexGap, span, RecoveredPrefix, "gap"))
+	l.Add(nil)
+	if l.Len() != 2 {
+		t.Fatalf("len=%d", l.Len())
+	}
+	counts := l.CountByCategory()
+	if counts[CatSample] != 1 || counts[CatIndexGap] != 1 {
+		t.Fatalf("counts=%v", counts)
+	}
+	if !l.AnyRecoverable() || l.AnyUnrecoverable() {
+		t.Fatal("recoverability flags wrong")
+	}
+	l.Add(Errorf(CatRender, span, RecoveredNone, "fatal"))
+	if !l.AnyUnrecoverable() {
+		t.Fatal("expected unrecoverable")
+	}
+	if err := l.Err(); err == nil {
+		t.Fatal("Err should be non-nil")
+	}
+}
