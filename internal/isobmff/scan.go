@@ -95,8 +95,24 @@ func Read(path string) (*File, error) {
 			out.Tracks = append(out.Tracks, cur)
 			return h.Expand()
 		case mp4.BoxTypeMdia(), mp4.BoxTypeMinf(), mp4.BoxTypeStbl(),
-			mp4.BoxTypeEdts(), mp4.BoxTypeDinf(), mp4.BoxTypeStsd(),
-			mp4.BoxTypeAvc1(), mp4.BoxTypeHvc1(), mp4.BoxTypeHev1(), mp4.BoxTypeMp4a():
+			mp4.BoxTypeEdts(), mp4.BoxTypeDinf(), mp4.BoxTypeStsd():
+			return h.Expand()
+		case mp4.BoxTypeAvc1(), mp4.BoxTypeHvc1(), mp4.BoxTypeHev1(), mp4.BoxTypeMp4a():
+			// Sample entries carry fixed fields followed by child boxes
+			// (colr, ...): read the payload first, then expand children.
+			if !inTrak {
+				return nil, nil
+			}
+			box, _, err := h.ReadPayload()
+			if err != nil {
+				return nil, fmt.Errorf("track %d box %s: %w", cur.Number, h.BoxInfo.Type, err)
+			}
+			switch b := box.(type) {
+			case *mp4.VisualSampleEntry:
+				cur.Width, cur.Height = int(b.Width), int(b.Height)
+			case *mp4.AudioSampleEntry:
+				cur.Channels, cur.SampleRate = int(b.ChannelCount), int(b.GetSampleRateInt())
+			}
 			return h.Expand()
 		case mp4.BoxTypeMvhd():
 			box, _, err := h.ReadPayload()
@@ -148,10 +164,6 @@ func Read(path string) (*File, error) {
 					MediaTime: mt, Duration: int64(b.GetSegmentDuration(i)), Empty: mt < 0,
 				})
 			}
-		case *mp4.VisualSampleEntry:
-			cur.Width, cur.Height = int(b.Width), int(b.Height)
-		case *mp4.AudioSampleEntry:
-			cur.Channels, cur.SampleRate = int(b.ChannelCount), int(b.GetSampleRateInt())
 		case *mp4.Colr:
 			if string(b.ColourType[:]) == "nclx" {
 				cur.Color = &ColorInfo{Primaries: b.ColourPrimaries, Transfer: b.TransferCharacteristics,

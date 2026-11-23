@@ -177,13 +177,25 @@ func trak(id uint32, movieTS uint32, ts TrackSpec) []byte {
 
 func mdia(ts TrackSpec, mediaDur uint64) []byte {
 	var m []byte
-	p := append([]byte{}, u32(0)...)
-	p = append(p, u32(0)...)
-	p = append(p, u32(ts.Timescale)...)
-	p = append(p, u32(uint32(mediaDur))...)
-	p = append(p, u16(0x55c4)...) // language: und
-	p = append(p, u16(0)...)
-	m = append(m, fullBox("mdhd", 0, 0, p)...)
+	if mediaDur > 0xFFFFFFFF {
+		// version-1 mdhd: 64-bit creation/modification/duration
+		p := append([]byte{}, make([]byte, 16)...)
+		p = append(p, u32(ts.Timescale)...)
+		var b [8]byte
+		binary.BigEndian.PutUint64(b[:], mediaDur)
+		p = append(p, b[:]...)
+		p = append(p, u16(0x55c4)...)
+		p = append(p, u16(0)...)
+		m = append(m, fullBox("mdhd", 1, 0, p)...)
+	} else {
+		p := append([]byte{}, u32(0)...)
+		p = append(p, u32(0)...)
+		p = append(p, u32(ts.Timescale)...)
+		p = append(p, u32(uint32(mediaDur))...)
+		p = append(p, u16(0x55c4)...) // language: und
+		p = append(p, u16(0)...)
+		m = append(m, fullBox("mdhd", 0, 0, p)...)
+	}
 
 	h := append([]byte{}, u32(0)...)
 	h = append(h, []byte(ts.Handler)...)

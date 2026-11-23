@@ -121,9 +121,14 @@ func (idx *Index) checkTrack(si *SampleIndex, lim Limits) {
 	}
 	si.Declared, si.MediaDur = declared, mediaDur
 
-	// Duration limit (24 h) on the shared base.
+	// Duration limit (24 h) on the shared base, against the larger of the
+	// stts-implied and the mdhd-declared media duration.
+	effDur := mediaDur
+	if tr.MediaDuration > effDur {
+		effDur = tr.MediaDuration
+	}
 	if tr.Timescale > 0 {
-		if base, err := clock.ToBase(mediaDur, tr.Timescale); err != nil {
+		if base, err := clock.ToBase(effDur, tr.Timescale); err != nil {
 			add(fault.KindTimestampOverflow, declared, tr.OffStts, false,
 				[]string{"normalize", "segment", "checksum"}, err.Error())
 			return
