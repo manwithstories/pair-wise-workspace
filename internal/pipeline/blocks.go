@@ -19,21 +19,41 @@ type block struct {
 	durationSec  float64
 }
 
-// planBlocks splits every mapped track into fixed-size sample runs.
+// planBlocks splits every mapped track into runs of at most samplesPerBlock
+// samples, cutting early when a run would exceed the 64 MiB block budget. The
+// bound is checked before any read, so a single oversized block is never
+// materialised.
 func planBlocks(m *trackmap.Result, samplesPerBlock int) ([]block, int) {
+	if samplesPerBlock <= 0 {
+		samplesPerBlock = 1
+	}
 	var plan []block
 	total := 0
 	for _, sel := range m.Selections {
 		tr := sel.Track
-		for start := 0; start < len(tr.Samples); start += samplesPerBlock {
-			end := start + samplesPerBlock
-			if end > len(tr.Samples) {
-				end = len(tr.Samples)
+		start := 0
+		for start < len(tr.Samples) {
+			end := start
+			var bytes int64
+			for end < len(tr.Samples) && end-start < samplesPerBlock {
+				size := int64(tr.Samples[end].Size)
+				if bytes+size > maxBlockBytes {
+					break
+				}
+				bytes += size
+				end++
+			}
+			// A single sample larger than the budget cannot be split; let the
+			// read path reject it with a SIZE_LIMIT error rather than emit an
+			// empty block.
+			if end == start {
+				end = start + 1
 			}
 			dur := sampleRunSeconds(tr, start, end)
 			total += end - start
 			plan = append(plan, block{trackID: tr.ID, track: tr, start: start, end: end,
 				samples: end - start, outSampleEnd: total, durationSec: dur})
+			start = end
 		}
 	}
 	return plan, total
