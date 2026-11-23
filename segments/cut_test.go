@@ -6,6 +6,7 @@ import (
 
 	"bcast/demux"
 	"bcast/internal/fixture"
+	"bcast/media"
 	"bcast/segments"
 )
 
@@ -50,16 +51,73 @@ func TestKeyframeDeviation(t *testing.T) {
 	if total != 11 || hit != 10 {
 		t.Fatalf("hit=%d/%d", hit, total)
 	}
-	// Segment 5 opens without a keyframe: deviation to nearest keyframe.
+	// Segment 5 opens on a non-keyframe frame: the distance to the nearest
+	// keyframe is recorded while the cut stays on a real frame start.
 	b := segs[5].Boundary
 	if b.OnKeyframe {
 		t.Fatal("seg 5 boundary should miss keyframe")
 	}
-	if b.Deviation == 0 {
-		t.Fatal("deviation not recorded")
+	if b.KeyframeDist == 0 {
+		t.Fatal("keyframe distance not recorded")
 	}
-	if b.Actual.Value != b.Ideal.Value {
-		t.Fatal("cut must stay frame-exact")
+	for i, s := range segs {
+		if s.Boundary.Ideal.Value == 0 {
+			continue
+		}
+		if s.Boundary.Deviation != s.Boundary.Actual.Value-s.Boundary.Ideal.Value {
+			t.Fatalf("seg %d deviation inconsistent", i)
+		}
+	}
+}
+
+func TestSnapHandlesVFRFrames(t *testing.T) {
+	// Two frames per target second, with a long gap: the cut must land on a
+	// real frame start, never on an interpolated time.
+	f := &media.File{
+		Tracks: []media.Track{{ID: 1, Kind: media.TrackVideo, Timescale: 1000}},
+		Samples: []media.Sample{
+			{TrackID: 1, Kind: media.TrackVideo, DTS: media.Time{Value: 0, Timescale: 1000}, Duration: 400, Keyframe: true},
+			{TrackID: 1, Kind: media.TrackVideo, DTS: media.Time{Value: 400, Timescale: 1000}, Duration: 900},
+			{TrackID: 1, Kind: media.TrackVideo, DTS: media.Time{Value: 1300, Timescale: 1000}, Duration: 400, Keyframe: true},
+			{TrackID: 1, Kind: media.TrackVideo, DTS: media.Time{Value: 1700, Timescale: 1000}, Duration: 300},
+		},
+	}
+	segs, err := segments.Cut(f, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(segs) != 2 {
+		t.Fatalf("segments=%d", len(segs))
+	}
+	if got := segs[1].Start.Value; got != 1300 {
+		t.Fatalf("snapped start=%d want 1300", got)
+	}
+	if got := segs[1].Boundary.Deviation; got != 300 {
+		t.Fatalf("deviation=%d", got)
+	}
+}
+
+func TestTargetShorterThanFrameDoesNotEmitEmpty(t *testing.T) {
+	f := &media.File{
+		Tracks: []media.Track{{ID: 1, Kind: media.TrackVideo, Timescale: 1000}},
+		Samples: []media.Sample{
+			{TrackID: 1, Kind: media.TrackVideo, DTS: media.Time{Value: 0, Timescale: 1000}, Duration: 500, Keyframe: true},
+			{TrackID: 1, Kind: media.TrackVideo, DTS: media.Time{Value: 500, Timescale: 1000}, Duration: 500},
+		},
+	}
+	segs, err := segments.Cut(f, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[int64]bool{}
+	for _, s := range segs {
+		if s.Start.Value >= s.End.Value {
+			t.Fatalf("empty segment %d [%d,%d)", s.Index, s.Start.Value, s.End.Value)
+		}
+		if seen[s.Start.Value] {
+			t.Fatalf("duplicate boundary at %d", s.Start.Value)
+		}
+		seen[s.Start.Value] = true
 	}
 }
 
