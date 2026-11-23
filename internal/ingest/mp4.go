@@ -17,6 +17,7 @@ type parseState struct {
 	audio        *AudioTrackLayout
 	containerRot Rotation
 	movieColor   *Color
+	pendingTrackID uint32
 }
 
 func containsBox(path []string, name string) bool {
@@ -148,6 +149,7 @@ func (st *parseState) startTrack(h *mp4.ReadHandle) (interface{}, error) {
 		ContainerRot: st.containerRot,
 		TrackRot:     rotationFromMatrix(tkhd.Matrix),
 	}
+	st.pendingTrackID = tkhd.TrackID
 	st.video = nil
 	st.audio = nil
 	return nil, nil
@@ -184,7 +186,7 @@ func (st *parseState) readHdlr(h *mp4.ReadHandle) (interface{}, error) {
 	switch string(hdlr.HandlerType[:]) {
 	case "vide":
 		st.track.Kind = "video"
-		st.video = &VideoTrackSummary{}
+		st.video = &VideoTrackSummary{TrackID: st.pendingTrackID}
 		if st.movieColor != nil {
 			c := *st.movieColor
 			st.video.Colors = append(st.video.Colors, c)
@@ -193,7 +195,7 @@ func (st *parseState) readHdlr(h *mp4.ReadHandle) (interface{}, error) {
 		st.summary.Tracks = append(st.summary.Tracks, st.track)
 	case "soun":
 		st.track.Kind = "audio"
-		st.audio = &AudioTrackLayout{Codec: "aac"}
+		st.audio = &AudioTrackLayout{Codec: "aac", TrackID: st.pendingTrackID}
 		st.track.Audio = st.audio
 		st.summary.Tracks = append(st.summary.Tracks, st.track)
 	default:
