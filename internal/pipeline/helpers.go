@@ -27,12 +27,19 @@ func digestOfSeed(seed int64) string {
 }
 
 // timelineSelect runs the whole-sample boundary rule over the mapped samples.
+// The default plan covers the full timeline: a zero start and an end beyond
+// every sample's PTS, so each track retains all of its complete samples.
 func timelineSelect(in []*sample.Sample) []*sample.Sample {
 	if len(in) == 0 {
 		return in
 	}
-	end := in[len(in)-1].PTS + in[len(in)-1].Duration
-	plan := timeline.Plan{Cuts: []timeline.Cut{{Start: 0, End: end}}}
+	var maxEnd clock.Tick
+	for _, s := range in {
+		if end := s.PTS + s.Duration; end > maxEnd {
+			maxEnd = end
+		}
+	}
+	plan := timeline.Plan{Cuts: []timeline.Cut{{Start: 0, End: maxEnd}}}
 	return timeline.Select(in, plan).Samples
 }
 

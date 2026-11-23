@@ -44,33 +44,47 @@ type Result struct {
 }
 
 // Select keeps whole samples whose [PTS, PTS+Duration) intersects a retained
-// cut, snapping each cut boundary to the nearest sample start. Samples are not
-// decoded or trimmed; only complete compressed samples survive.
+// cut, snapping each cut boundary to the nearest sample start *within each
+// track independently*. Cross-track samples that share a PTS are distinct and
+// are never merged. Samples are not decoded or trimmed; only complete
+// compressed samples survive.
 func Select(in []*sample.Sample, plan Plan) Result {
-	starts := make([]clock.Tick, len(in))
-	for i, s := range in {
-		starts[i] = s.PTS
+	byTrack := map[uint32][]*sample.Sample{}
+	var trackOrder []uint32
+	for _, s := range in {
+		if _, ok := byTrack[s.TrackID]; !ok {
+			trackOrder = append(trackOrder, s.TrackID)
+		}
+		byTrack[s.TrackID] = append(byTrack[s.TrackID], s)
 	}
 	res := Result{}
-	kept := map[*sample.Sample]bool{}
-	for _, cut := range plan.Cuts {
-		startTick, devStart := snapAtOrBefore(starts, cut.Start)
-		endTick, devEnd := snapAtOrAfter(starts, cut.End)
-		res.Boundaries = append(res.Boundaries,
-			Boundary{Requested: cut.Start, Snapped: startTick, Deviation: devStart},
-			Boundary{Requested: cut.End, Snapped: endTick, Deviation: devEnd})
-		for _, s := range in {
-			if s.PTS >= startTick && s.PTS < endTick && !kept[s] {
-				res.Samples = append(res.Samples, s)
-				kept[s] = true
+	kept := map[[2]int]bool{}
+	for _, trackID := range trackOrder {
+		trackSamples := byTrack[trackID]
+		starts := make([]clock.Tick, len(trackSamples))
+		for i, s := range trackSamples {
+			starts[i] = s.PTS
+		}
+		for _, cut := range plan.Cuts {
+			startTick, devStart := snapAtOrBefore(starts, cut.Start)
+			endTick, devEnd := snapAtOrAfter(starts, cut.End)
+			res.Boundaries = append(res.Boundaries,
+				Boundary{Requested: cut.Start, Snapped: startTick, Deviation: devStart},
+				Boundary{Requested: cut.End, Snapped: endTick, Deviation: devEnd})
+			for _, s := range trackSamples {
+				key := [2]int{int(s.TrackID), s.Seq}
+				if s.PTS >= startTick && s.PTS < endTick && !kept[key] {
+					res.Samples = append(res.Samples, s)
+					kept[key] = true
+				}
 			}
 		}
 	}
 	return res
 }
 
-// snapAtOrBefore returns the greatest sample start <= requested (or the first
-// start), plus the signed deviation (snapped - requested).
+// snapAtOrBefore returns the greatest sample start <= requested; when every
+// start is later than requested it clamps to the first start.
 func snapAtOrBefore(starts []clock.Tick, requested clock.Tick) (clock.Tick, clock.Tick) {
 	if len(starts) == 0 {
 		return requested, 0
@@ -84,19 +98,20 @@ func snapAtOrBefore(starts []clock.Tick, requested clock.Tick) (clock.Tick, cloc
 	return best, best - requested
 }
 
-// snapAtOrAfter returns the smallest sample start >= requested (or the last
-// start), plus the signed deviation.
+// snapAtOrAfter returns the smallest sample start >= requested; when every
+// start is earlier than requested it clamps to just past the last sample so a
+// full-range cut retains the final sample instead of dropping it.
 func snapAtOrAfter(starts []clock.Tick, requested clock.Tick) (clock.Tick, clock.Tick) {
 	if len(starts) == 0 {
 		return requested, 0
 	}
-	best := starts[len(starts)-1]
-	for i := len(starts) - 1; i >= 0; i-- {
-		if starts[i] >= requested {
-			best = starts[i]
+	for _, s := range starts {
+		if s >= requested {
+			return s, s - requested
 		}
 	}
-	return best, best - requested
+	last := starts[len(starts)-1]
+	return last + 1, (last + 1) - requested
 }
 
 // MaxAbsDeviation returns the largest absolute boundary deviation in ticks,
