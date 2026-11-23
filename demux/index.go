@@ -7,11 +7,12 @@ import (
 	"bcast/media"
 )
 
-// BuildKeyIndex ensures every video sample carries a keyframe flag. When
-// the container declared an stss box the flags are already set; otherwise
-// the index is rebuilt by scanning sample payloads for IDR access units
-// and the samples are marked with KeySrcRebuilt. When payloads cannot be
-// read the downstream is blocked on the sample data dependency.
+// BuildKeyIndex ensures every video sample carries a keyframe flag and
+// records on the track how the index was established. When the container
+// declared an stss box the flags are already set (KeySrcSTSS); otherwise the
+// index is rebuilt by scanning sample payloads for IDR access units
+// (KeySrcRebuilt). If nothing can be recovered the downstream is blocked and
+// the blocking dependency is named in the returned error.
 func BuildKeyIndex(f *File, r io.ReaderAt) error {
 	vt, ok := f.TrackByKind(media.TrackVideo)
 	if !ok {
@@ -19,13 +20,16 @@ func BuildKeyIndex(f *File, r io.ReaderAt) error {
 	}
 	samples := f.SamplesOf(vt.ID)
 	if len(samples) == 0 {
-		return media.Blocked("index.build", "demux.samples",
+		err := media.Blocked("index.build", "demux.samples",
 			fmt.Errorf("%w: video track has no samples", media.ErrIncompleteIndex))
+		f.AddIssue(media.Issue{Kind: media.IssueIncompleteIndex, Offset: -1, TrackID: vt.ID, Detail: err.Error()})
+		return err
 	}
 	if samples[0].KeySource == media.KeySrcSTSS {
+		f.setIndexSource(vt.ID, media.KeySrcSTSS)
 		return nil // container-declared index is authoritative
 	}
-	rebuilt := 0
+	rebuilt, firstBad := 0, int64(-1)
 	for i := range f.Samples {
 		s := &f.Samples[i]
 		if s.TrackID != vt.ID {
@@ -33,8 +37,13 @@ func BuildKeyIndex(f *File, r io.ReaderAt) error {
 		}
 		idr, err := isIDR(r, s.Offset, int64(s.Size))
 		if err != nil {
-			return media.Blocked("index.build", "demux.samples",
-				fmt.Errorf("cannot rebuild keyframe index: %v", err))
+			// A payload that cannot be read is not silently treated as a
+			// non-keyframe: the index stays unknown for this sample.
+			s.Keyframe, s.KeySource = false, media.KeySrcNone
+			if firstBad < 0 {
+				firstBad = s.Offset
+			}
+			continue
 		}
 		s.Keyframe = idr
 		s.KeySource = media.KeySrcRebuilt
@@ -43,10 +52,30 @@ func BuildKeyIndex(f *File, r io.ReaderAt) error {
 		}
 	}
 	if rebuilt == 0 {
-		return media.Blocked("index.build", "demux.samples",
+		err := media.Blocked("index.build", "demux.samples",
 			fmt.Errorf("%w: no keyframes recoverable", media.ErrIncompleteIndex))
+		f.AddIssue(media.Issue{Kind: media.IssueIncompleteIndex, Offset: firstBad, TrackID: vt.ID, Detail: err.Error()})
+		return err
 	}
+	if firstBad >= 0 {
+		// The index is usable for the salvaged prefix but incomplete; record
+		// the damage so the report cannot present it as a clean rebuild.
+		f.AddIssue(media.Issue{
+			Kind: media.IssueTruncated, Offset: firstBad, TrackID: vt.ID,
+			Detail: "keyframe index rebuilt only for readable samples",
+		})
+	}
+	f.setIndexSource(vt.ID, media.KeySrcRebuilt)
 	return nil
+}
+
+// setIndexSource stamps the index provenance on the track entry.
+func (f *File) setIndexSource(trackID int, src media.KeyframeSource) {
+	for i := range f.Tracks {
+		if f.Tracks[i].ID == trackID {
+			f.Tracks[i].IndexFrom = src
+		}
+	}
 }
 
 // isIDR reports whether the sample at [off, off+size) starts with an IDR
@@ -66,18 +95,19 @@ func isIDR(r io.ReaderAt, off, size int64) (bool, error) {
 	return hdr[4]&0x1f == 5, nil
 }
 
-// KeyIndexStats summarizes the keyframe index of the video track.
+// KeyIndexStats summarizes the keyframe index of the video track. Source is
+// the track's recorded provenance (media.KeySrcNone when never built).
 func KeyIndexStats(f *File) (total, keys int, source media.KeyframeSource) {
 	vt, ok := f.TrackByKind(media.TrackVideo)
 	if !ok {
 		return 0, 0, media.KeySrcNone
 	}
+	source = vt.IndexFrom
 	for _, s := range f.SamplesOf(vt.ID) {
 		total++
 		if s.Keyframe {
 			keys++
 		}
-		source = s.KeySource
 	}
 	return total, keys, source
 }

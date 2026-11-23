@@ -216,3 +216,51 @@ func TestCodecEntryPreserved(t *testing.T) {
 		}
 	}
 }
+
+func TestRebuildBlocksWithoutReadableSamples(t *testing.T) {
+	a := assets(t)
+	f, err := parse(t, a.MissingIndex, "noidx.mp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An empty reader stands in for a source that cannot supply payloads:
+	// no keyframe can be recovered, so the index blocks downstream.
+	err = demux.BuildKeyIndex(f, bytes.NewReader(nil))
+	if err == nil {
+		t.Fatal("expected blocked error")
+	}
+	if got := media.FirstBlockingDep(err); got != "demux.samples" {
+		t.Fatalf("blocking dep=%q", got)
+	}
+	if media.ClassOf(err) != media.ClassBlocked {
+		t.Fatalf("class=%v", media.ClassOf(err))
+	}
+	if f.HasIssue(media.IssueIncompleteIndex) == false {
+		t.Fatalf("issues=%+v", f.Issues)
+	}
+}
+
+func TestRebuildRecordsSource(t *testing.T) {
+	a := assets(t)
+	f, err := parse(t, a.MissingIndex, "noidx.mp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := demux.BuildKeyIndex(f, bytes.NewReader(a.MissingIndex)); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, src := demux.KeyIndexStats(f); src != media.KeySrcRebuilt {
+		t.Fatalf("source=%q", src)
+	}
+	// The clean file declares stss and must not be mislabelled as rebuilt.
+	clean, err := parse(t, a.Clean, "clean")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := demux.BuildKeyIndex(clean, bytes.NewReader(a.Clean)); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, src := demux.KeyIndexStats(clean); src != media.KeySrcSTSS {
+		t.Fatalf("clean source=%q", src)
+	}
+}
