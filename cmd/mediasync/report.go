@@ -54,6 +54,13 @@ func printReport(w io.Writer, rep *pipeline.Report, resumed bool) {
 	if rep.CheckpointRecovered {
 		fmt.Fprintf(w, "checkpoint_recovered=%d\n", rep.RecoveredBlocks)
 	}
+	for _, t := range rep.Tracks {
+		fmt.Fprintf(w, "track=name:%s id:%d kind:%s samples:%d bytes:%d sha256:%s\n",
+			t.Name, t.TrackID, t.Kind, t.Samples, t.Bytes, t.SHA256)
+	}
+	if rep.BitrateNote != "" {
+		fmt.Fprintf(w, "bitrate_note=%s\n", sanitize(rep.BitrateNote))
+	}
 	fmt.Fprintf(w, "final_hash=%s\n", rep.FinalHash)
 	for _, warning := range rep.Warnings {
 		fmt.Fprintf(w, "warning=%s\n", sanitize(warning))
