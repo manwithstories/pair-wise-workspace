@@ -140,6 +140,9 @@ func (t *Timeline) Validate() error {
 				fail(err)
 			}
 		}
+		if err := t.validateTrackOverlap(tr); err != nil {
+			fail(err)
+		}
 	}
 	if total > MaxSegments {
 		fail(invalid(clock.CatArgument, clock.Span{}, "segment count %d exceeds limit %d", total, MaxSegments))
@@ -147,6 +150,11 @@ func (t *Timeline) Validate() error {
 	if len(t.Transitions) > MaxTransitions {
 		fail(invalid(clock.CatArgument, clock.Span{}, "transition count %d exceeds %d",
 			len(t.Transitions), MaxTransitions))
+	}
+	for _, tr := range t.Transitions {
+		if err := t.validateTransition(tr, segByID); err != nil {
+			fail(err)
+		}
 	}
 	return errors.Join(errs...)
 }

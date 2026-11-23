@@ -66,6 +66,70 @@ func TestEditPointsMustBeStrictlyInside(t *testing.T) {
 	}
 }
 
+func TestImplicitOverlapRejected(t *testing.T) {
+	_, err := New(base(), []Track{{
+		ID: "v", Kind: TrackVideo,
+		Segments: []Segment{
+			{ID: "a", Start: 0, Duration: 100, Source: "s"},
+			{ID: "b", Start: 90, Duration: 100, Source: "s"},
+		},
+	}}, nil)
+	if !strings.Contains(err.Error(), "implicit overlap of 10 ticks") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestDeclaredOverlapAccepted(t *testing.T) {
+	_, err := New(base(), []Track{{
+		ID: "v", Kind: TrackVideo,
+		Segments: []Segment{
+			{ID: "a", Start: 0, Duration: 100, Source: "s"},
+			{ID: "b", Start: 90, Duration: 100, Source: "s"},
+		},
+	}}, []Transition{{ID: "xf", From: "a", To: "b", Kind: TransCrossfade, Duration: 10}})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTransitionValidation(t *testing.T) {
+	segs := []Track{{
+		ID: "v", Kind: TrackVideo,
+		Segments: []Segment{
+			{ID: "a", Start: 0, Duration: 100, Source: "s"},
+			{ID: "b", Start: 100, Duration: 50, Source: "s"},
+		},
+	}}
+	cases := []struct {
+		name string
+		tr   Transition
+		want clock.Category
+		msg  string
+	}{
+		{"missing from", Transition{ID: "t", From: "zz", To: "b", Kind: TransCut}, clock.CatGraph, "missing segment"},
+		{"missing to", Transition{ID: "t", From: "a", To: "zz", Kind: TransCut}, clock.CatGraph, "missing segment"},
+		{"self", Transition{ID: "t", From: "a", To: "a", Kind: TransCut}, clock.CatGraph, "itself"},
+		{"zero crossfade", Transition{ID: "t", From: "a", To: "b", Kind: TransCrossfade}, clock.CatTimeline, "positive duration"},
+		{"too long", Transition{ID: "t", From: "a", To: "b", Kind: TransCrossfade, Duration: 60}, clock.CatTimeline, "exceeds shorter"},
+		{"negative", Transition{ID: "t", From: "a", To: "b", Kind: TransSlide, Duration: -1}, clock.CatTimeline, "negative duration"},
+		{"bad kind", Transition{ID: "t", From: "a", To: "b", Kind: "wipe"}, clock.CatArgument, "unknown kind"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := New(base(), segs, []Transition{c.tr})
+			if err == nil {
+				t.Fatal("accepted")
+			}
+			if got := clock.Classify(err); got != c.want {
+				t.Fatalf("category=%s want %s (%v)", got, c.want, err)
+			}
+			if !strings.Contains(err.Error(), c.msg) {
+				t.Fatalf("message %q lacks %q", err, c.msg)
+			}
+		})
+	}
+}
+
 func TestLimitsEnforced(t *testing.T) {
 	segs := make([]Segment, 0, MaxSegments+1)
 	for i := 0; i <= MaxSegments; i++ {
