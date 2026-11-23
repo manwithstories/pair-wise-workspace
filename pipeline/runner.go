@@ -10,6 +10,7 @@ import (
 
 	"mediad/checkpoint"
 	"mediad/diag"
+	"mediad/mp4box"
 	"mediad/segment"
 	"mediad/track"
 )
@@ -30,14 +31,20 @@ type OutputWriter interface {
 // FSWriter writes segment payloads under <dir>/segments.
 type FSWriter struct{ Dir string }
 
-// WriteSegment implements OutputWriter with an atomic temp-file+rename.
+// WriteSegment implements OutputWriter with an atomic temp-file+rename. The
+// deterministic payload is first wrapped in a valid fMP4 fragment via mp4box,
+// so each .seg file is a structurally verifiable ISO-BMFF container.
 func (w FSWriter) WriteSegment(rep string, idx int, payload []byte) (string, error) {
 	p := checkpoint.SegmentPath(w.Dir, rep, idx)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return "", diag.New(diag.EOutput, rep, "mkdir: %v", err)
 	}
+	container, err := mp4box.Encode(payload)
+	if err != nil {
+		return "", err
+	}
 	tmp := p + ".part"
-	if err := os.WriteFile(tmp, payload, 0o644); err != nil {
+	if err := os.WriteFile(tmp, container, 0o644); err != nil {
 		return "", diag.New(diag.EOutput, rep, "write %s: %v", tmp, err)
 	}
 	if err := os.Rename(tmp, p); err != nil {
@@ -200,7 +207,13 @@ func (r *Runner) Run(ctx context.Context, feeds []Input) (*Stats, error) {
 				_ = r.persist(rec, si-1, segHashes, manifest.SHA256())
 				return nil, werr
 			}
-			sum := sha256.Sum256(payload)
+			// Hash the exact fMP4 container bytes that landed on disk so the
+			// checkpoint can detect later tampering with the written files.
+			container, cerr := mp4box.Encode(payload)
+			if cerr != nil {
+				return nil, cerr
+			}
+			sum := sha256.Sum256(container)
 			segHashes[segKey(repID, seg.Index)] = hex.EncodeToString(sum[:])
 		}
 		redone++

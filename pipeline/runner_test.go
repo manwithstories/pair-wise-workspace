@@ -9,6 +9,7 @@ import (
 
 	"mediad/checkpoint"
 	"mediad/diag"
+	"mediad/mp4box"
 	"mediad/segment"
 	"mediad/timeline"
 	"mediad/track"
@@ -263,4 +264,32 @@ func TestRunnerCancellation(t *testing.T) {
 
 func writeFile(path string, b []byte) error {
 	return os.WriteFile(path, b, 0o644)
+}
+
+func TestRunnerOutputsValidFMp4Containers(t *testing.T) {
+	dir := t.TempDir()
+	g := newTestGraph(t, []string{"v-600"})
+	r, err := NewRunner(g, 4, FSWriter{Dir: dir}, checkpoint.NewStore(dir), dir,
+		segment.Policy{TargetMS: 3000, MaxDeviationMS: 40})
+	if err != nil {
+		t.Fatal(err)
+	}
+	frames := demoFrames(timeline.FR30, 900, 90, 0)
+	if _, err := r.Run(context.Background(), []Input{{RepID: "v-600", Frames: frames}}); err != nil {
+		t.Fatal(err)
+	}
+	// Every committed segment must decode back through the go-mp4 reader.
+	for i := 0; i < 10; i++ {
+		raw, err := os.ReadFile(checkpoint.SegmentPath(dir, "v-600", i))
+		if err != nil {
+			t.Fatalf("segment %d missing: %v", i, err)
+		}
+		payload, brand, err := mp4box.Decode(raw)
+		if err != nil {
+			t.Fatalf("segment %d is not valid fMP4: %v", i, err)
+		}
+		if brand != "iso5" || len(payload) == 0 {
+			t.Fatalf("segment %d bad brand/payload: %q %d", i, brand, len(payload))
+		}
+	}
 }
