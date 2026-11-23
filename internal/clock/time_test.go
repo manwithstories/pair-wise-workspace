@@ -132,3 +132,25 @@ func FuzzRescaleNoPanic(f *testing.F) {
 		_, _ = RescaleRound(v, Must(fn, td), Must(tn, td), RoundHalfUp)
 	})
 }
+
+func TestMulIntIsExact(t *testing.T) {
+	// Regression: reducing the multiplier against the numerator instead of the
+	// denominator scaled the value (1/2 * 5 must be 5/2, not 5/1).
+	cases := []struct {
+		r    Rational
+		n    int64
+		want Rational
+	}{
+		{Must(1001, 30000), 299, Must(299299, 30000)},
+		{Must(1, 2), 5, Must(5, 2)},
+		{Must(2, 3), 3, Must(2, 1)},
+		{Must(7, 1), 9, Must(63, 1)},
+		{Must(5, 4), 0, Rational{Den: 1}},
+		{Must(5, 4), -2, Rational{Num: -5, Den: 2}},
+	}
+	for _, c := range cases {
+		if got := c.r.MulInt(c.n); got != c.want {
+			t.Fatalf("%v * %d = %v, want %v", c.r, c.n, got, c.want)
+		}
+	}
+}

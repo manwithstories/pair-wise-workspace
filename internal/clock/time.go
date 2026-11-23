@@ -70,12 +70,14 @@ func (r Rational) MulInt(n int64) Rational {
 	if n < 0 {
 		return Rational{Num: -r.MulInt(-n).Num, Den: r.MulInt(-n).Den}
 	}
-	// Reduce before multiplying so int64 does not overflow as easily.
-	a, b := r.Num, r.Den
-	g := gcd(a, n)
-	a /= g
+	// Reduce the multiplier against the denominator, never against the
+	// numerator: n is a numerator factor and cancelling it with Den keeps the
+	// value exact while limiting intermediate size.
+	den := r.Den
+	g := gcd(n, den)
 	n /= g
-	return normalize(a*n, b)
+	den /= g
+	return normalize(r.Num*n, den)
 }
 
 func gcd(a, b int64) int64 {
