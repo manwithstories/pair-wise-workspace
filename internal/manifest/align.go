@@ -71,7 +71,9 @@ func Align(reps []Representation, segDur clock.Time) (*Manifest, error) {
 		t = nt
 	}
 
-	for k := 0; k <= nSeg; k++ {
+	// Snap every segment start (the end of the final segment is the asset
+	// duration itself and needs no keyframe).
+	for k := 0; k < nSeg; k++ {
 		target := clock.Zero
 		for i := 0; i < k; i++ {
 			nt, err := target.Add(segDur)
@@ -126,9 +128,7 @@ func Align(reps []Representation, segDur clock.Time) (*Manifest, error) {
 		if worst > m.MaxBoundarySkewMs {
 			m.MaxBoundarySkewMs = worst
 		}
-		if k < nSeg {
-			m.Segments = append(m.Segments, seg)
-		}
+		m.Segments = append(m.Segments, seg)
 	}
 	return m, nil
 }
