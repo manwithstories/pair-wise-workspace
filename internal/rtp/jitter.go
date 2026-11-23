@@ -41,6 +41,7 @@ type Buffer struct {
 	pkts    map[uint16]entry
 	next    uint16 // 下一个期望输出序号
 	hasNext bool
+	popped  bool // 是否已输出过包
 
 	// Gaps 记录播放时被跳过的缺失序号，交由恢复层处理。
 	Gaps  []uint16
@@ -97,19 +98,25 @@ func (b *Buffer) Push(pkt *pionrtp.Packet, arrival clock.Nanos) {
 	b.observe(pkt.Timestamp, arrival)
 	if b.hasNext {
 		delta := int16(pkt.SequenceNumber - b.next)
-		switch {
-		case delta < 0:
-			b.Stats.Dropped++ // 已输出过的旧包
-			return
-		case int(delta) >= reorderWindow:
-			b.Stats.Dropped++
-			return
-		}
-		if _, dup := b.pkts[pkt.SequenceNumber]; dup {
-			return // 重复派发幂等
-		}
-		if delta > 0 {
+		if delta < 0 && !b.popped {
+			// 启动阶段尚未输出，允许更早序号成为新基准。
+			b.next = pkt.SequenceNumber
 			b.Stats.Reordered++
+		} else {
+			switch {
+			case delta < 0:
+				b.Stats.Dropped++ // 已输出过的旧包
+				return
+			case int(delta) >= reorderWindow:
+				b.Stats.Dropped++
+				return
+			}
+			if _, dup := b.pkts[pkt.SequenceNumber]; dup {
+				return // 重复派发幂等
+			}
+			if delta > 0 {
+				b.Stats.Reordered++
+			}
 		}
 	}
 	if arrival > b.playout(pkt.Timestamp) {
@@ -142,6 +149,7 @@ func (b *Buffer) PopDue(now clock.Nanos) []*pionrtp.Packet {
 		out = append(out, e.pkt)
 		delete(b.pkts, b.next)
 		b.next++
+		b.popped = true
 	}
 	b.Stats.Delivered += len(out)
 	return out
