@@ -112,6 +112,19 @@ func children(buf []byte, parent Box) ([]Box, []Problem) {
 	return kids, problems
 }
 
+// childrenAfter parses children that start after a fixed-length payload
+// prefix (stsd's version/flags + entry_count, for example).
+func childrenAfter(buf []byte, parent Box, prefix int) ([]Box, []Problem) {
+	shifted := parent
+	shifted.HeaderSize += prefix
+	if shifted.Offset+shifted.HeaderSize > shifted.End {
+		return nil, []Problem{{Kind: clock.ErrBoxTruncated, Offset: parent.Offset, Detail: "payload prefix exceeds box"}}
+	}
+	var problems []Problem
+	kids := ParseChildren(buf, shifted, &problems)
+	return kids, problems
+}
+
 func problemToLocated(p Problem, seg int) clock.LocatedError {
 	return clock.LocatedError{Kind: p.Kind, Segment: seg, Offset: uint64(p.Offset), Detail: p.Detail}
 }

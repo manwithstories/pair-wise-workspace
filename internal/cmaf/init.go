@@ -143,16 +143,17 @@ func (s *Scanner) parseMdia(buf []byte, mdia Box, ti *TrackInfo) error {
 					if sb.Type != "stsd" {
 						continue
 					}
-					entryKids, _ := children(buf, sb)
+					entryKids, _ := childrenAfter(buf, sb, 8)
 					for _, e := range entryKids {
+						if e.Type != "avc1" && e.Type != "hvc1" && e.Type != "hev1" && e.Type != "mp4v" {
+							continue
+						}
 						ti.Codec = e.Type
-						if e.Type == "avc1" || e.Type == "hvc1" || e.Type == "hev1" || e.Type == "mp4v" {
-							var vse mp4.VisualSampleEntry
-							vse.Type = mp4.StrToBoxType(e.Type)
-							if err := decodeBox(buf, e, &vse); err == nil {
-								ti.Width = vse.Width
-								ti.Height = vse.Height
-							}
+						var vse mp4.VisualSampleEntry
+						vse.Type = mp4.StrToBoxType(e.Type)
+						if err := decodeBox(buf, e, &vse); err == nil {
+							ti.Width = vse.Width
+							ti.Height = vse.Height
 						}
 						break
 					}
