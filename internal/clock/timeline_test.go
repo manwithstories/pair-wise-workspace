@@ -200,3 +200,56 @@ func TestSequencerClassifies(t *testing.T) {
 		t.Fatalf("dup=%d conflict=%d, want 1/2", dup, conf)
 	}
 }
+
+func TestSnapshotRestoreReproducesUninterruptedRun(t *testing.T) {
+	tb := Timebase{Timescale: 90000, CaptureUPS: 1000}
+	const epoch = 1_700_000_000_000
+	// Include a rollback and a wrap seam so state matters.
+	raw := func(i int64) int64 {
+		switch {
+		case i < 100:
+			return epoch + i
+		case i == 100:
+			return epoch + i - 5000 // large rollback
+		case i > 150:
+			return epoch + i - 5000 + (1 << 40) // force wrap path later
+		default:
+			return epoch + i - 5000
+		}
+	}
+	cont := mustMapper(t, tb, epoch)
+	want := make([]int64, 0, 240)
+	for i := int64(0); i < 240; i++ {
+		pts, _, err := cont.Map(raw(i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want = append(want, pts)
+	}
+
+	first := mustMapper(t, tb, epoch)
+	for i := int64(0); i < 120; i++ {
+		if got, _, _ := first.Map(raw(i)); got != want[i] {
+			t.Fatalf("prefix frame %d: %d != %d", i, got, want[i])
+		}
+	}
+	second, err := NewMapper(tb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Restore(first.Snapshot()); err != nil {
+		t.Fatal(err)
+	}
+	for i := int64(120); i < 240; i++ {
+		got, _, err := second.Map(raw(i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want[i] {
+			t.Fatalf("resumed frame %d: %d != %d", i, got, want[i])
+		}
+	}
+	if second.Repairs() != cont.Repairs() {
+		t.Fatalf("repairs after resume %+v != %+v", second.Repairs(), cont.Repairs())
+	}
+}

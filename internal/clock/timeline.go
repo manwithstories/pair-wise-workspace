@@ -174,8 +174,11 @@ func (m *Mapper) Map(rawUnits int64) (int64, Event, error) {
 				ev = EventClamp
 			}
 		} else {
-			// Shift by the deficit plus one expected step so the jumped frame
-			// continues the cadence instead of colliding with the previous PTS.
+			// Shift the whole device clock forward by the deficit plus one
+			// expected step. The jumped frame's true capture instant is one
+			// cadence step after the last good one, so this keeps PTS aligned
+			// with the declared epoch rather than colliding with the previous
+			// frame.
 			m.offset += deficit + m.lastStep
 			rawTicks += deficit + m.lastStep
 			m.repairs.Rollbacks++
@@ -201,6 +204,68 @@ func (m *Mapper) Map(rawUnits int64) (int64, Event, error) {
 
 // Repairs returns the accumulated repair counters.
 func (m *Mapper) Repairs() Repairs { return m.repairs }
+
+// State is the complete, fixed-size resumable state of a Mapper. Persisting it
+// in a checkpoint lets a restarted run continue mapping exactly where the
+// interrupted one stopped, without re-reading earlier frames.
+type State struct {
+	Epoch    int64
+	Seen     bool
+	LastRaw  int64
+	LastAdj  int64
+	LastStep int64
+	LastPTS  int64
+	WrapAdd  int64
+	Offset   int64
+	Repairs  Repairs
+}
+
+// Snapshot returns the mapper state for persistence. It carries the epoch so a
+// resumed run reconstructs the same timeline without re-reading the track
+// declaration.
+func (m *Mapper) Snapshot() State {
+	return State{
+		Epoch: m.epoch,
+		Seen:  m.seen, LastRaw: m.lastRaw, LastAdj: m.lastAdj,
+		LastStep: m.lastStep, LastPTS: m.lastPTS, WrapAdd: m.wrapAdd,
+		Offset: m.offset, Repairs: m.repairs,
+	}
+}
+
+// Restore replaces the mapper state with a previously snapshotted one. It
+// rejects state from a different timebase so a resumed run cannot silently
+// reinterpret the timeline.
+func (m *Mapper) Restore(s State) error {
+	if err := m.tb.Validate(); err != nil {
+		return err
+	}
+	m.epoch = s.Epoch
+	m.seen, m.lastRaw, m.lastAdj = s.Seen, s.LastRaw, s.LastAdj
+	m.lastStep, m.lastPTS = s.LastStep, s.LastPTS
+	m.wrapAdd, m.offset, m.repairs = s.WrapAdd, s.Offset, s.Repairs
+	m.prevAdj = s.LastAdj
+	return nil
+}
+
+// SeqState is the resumable state of a Sequencer.
+type SeqState struct {
+	Seen     bool
+	Last     uint64
+	LastHash [32]byte
+	Dup      int
+	Conflict int
+}
+
+// Snapshot returns the sequencer state for persistence.
+func (s *Sequencer) Snapshot() SeqState {
+	return SeqState{Seen: s.seen, Last: s.last, LastHash: s.lastHash, Dup: s.dup, Conflict: s.conflict}
+}
+
+// Restore replaces the sequencer state with a snapshotted one.
+func (s *Sequencer) Restore(st SeqState) {
+	s.seen, s.last, s.lastHash = st.Seen, st.Last, st.LastHash
+	s.dup, s.conflict = st.Dup, st.Conflict
+}
 
 // SeqStatus is the classification of a frame-number sequence step.
 type SeqStatus uint8
