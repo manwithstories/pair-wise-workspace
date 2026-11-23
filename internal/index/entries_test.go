@@ -10,7 +10,7 @@ import (
 	"archivecheck/internal/testkit"
 )
 
-func buildTimeline(t *testing.T) (*repair.Timeline, *testkit.Manifest) {
+func buildTimeline(t *testing.T) *repair.Timeline {
 	t.Helper()
 	initSpec, fragSpecs := testkit.StandardSampleLayout()
 	m, err := testkit.Generate(t.TempDir(), initSpec, fragSpecs)
@@ -22,7 +22,7 @@ func buildTimeline(t *testing.T) (*repair.Timeline, *testkit.Manifest) {
 		t.Fatal(err)
 	}
 	defer initFile.Close()
-	init, err := parse.ParseInit(initFile, "init.mp4")
+	in, err := parse.ParseInit(initFile, "init.mp4")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,26 +32,34 @@ func buildTimeline(t *testing.T) (*repair.Timeline, *testkit.Manifest) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		frag, err := parse.ParseFragment(f, s.Name, init)
+		frag, err := parse.ParseFragment(f, s.Name, in)
 		f.Close()
 		if err != nil {
 			t.Fatal(err)
 		}
 		frags = append(frags, frag)
 	}
-	ord, err := repair.Order(frags)
+	items := make([]repair.Item, len(frags))
+	for i, f := range frags {
+		items[i] = repair.Item{Segment: f.Segment, HasMfhd: f.HasMfhd, Sequence: f.Sequence, Index: i}
+	}
+	ord, err := repair.Order(items)
 	if err != nil {
 		t.Fatal(err)
 	}
-	tl, err := repair.Build(ord, init)
+	ordered := make([]*parse.Fragment, len(ord.Items))
+	for i, it := range ord.Items {
+		ordered[i] = frags[it.Index]
+	}
+	tl, err := repair.Build(ordered, in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return tl, m
+	return tl
 }
 
 func TestBuildIndex(t *testing.T) {
-	tl, _ := buildTimeline(t)
+	tl := buildTimeline(t)
 	idx, err := Build(tl)
 	if err != nil {
 		t.Fatal(err)
@@ -81,14 +89,14 @@ func TestIndexMarksUnseekableInterval(t *testing.T) {
 	init := &parse.Init{Segment: "init.mp4", Tracks: map[uint32]*parse.Track{
 		1: {ID: 1, Timescale: 1000},
 	}}
-	ord := &repair.Ordered{Fragments: []*parse.Fragment{{
+	frags := []*parse.Fragment{{
 		Segment: "a", Sequence: 1, HasMfhd: true,
 		Trafs: []parse.Traf{{TrackID: 1, BaseDecodeTime: 0, Samples: []parse.Sample{
 			{TrackID: 1, Duration: 100, Size: 10, Flags: 0x01010000, Offset: 100},
 			{TrackID: 1, Duration: 100, Size: 10, Flags: 0x01010000, Offset: 110},
 		}}},
-	}}}
-	tl, err := repair.Build(ord, init)
+	}}
+	tl, err := repair.Build(frags, init)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +123,7 @@ func TestValidateRejectsBadRange(t *testing.T) {
 }
 
 func TestCheckpointRoundTripAndTamper(t *testing.T) {
-	tl, _ := buildTimeline(t)
+	tl := buildTimeline(t)
 	idx, err := Build(tl)
 	if err != nil {
 		t.Fatal(err)
