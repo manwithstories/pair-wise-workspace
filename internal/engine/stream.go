@@ -297,3 +297,17 @@ func writeCheckpoint(path string, cp *Checkpoint) error {
 	}
 	return nil
 }
+
+// ResetFromSafeBoundary discards an unverifiable checkpoint and its output
+// so the next Stream call recomputes from the beginning (the only safe
+// boundary when the three-way checkpoint verification fails). It is the
+// explicit recovery action a caller takes after a checkpoint_mismatch.
+func ResetFromSafeBoundary(cfg StreamConfig) error {
+	if err := os.Remove(cfg.Checkpoint); err != nil && !os.IsNotExist(err) {
+		return fault.New(fault.CatIO, "remove checkpoint: %v", err)
+	}
+	if err := os.Remove(cfg.OutputPath); err != nil && !os.IsNotExist(err) {
+		return fault.New(fault.CatIO, "remove partial output: %v", err)
+	}
+	return nil
+}

@@ -207,6 +207,92 @@ func TestRepeatedRunsAreDeterministic(t *testing.T) {
 	}
 }
 
+func TestResetFromSafeBoundaryAfterMismatch(t *testing.T) {
+	h := newHarness(t, fixture.DefaultSpec(41))
+	input := h.input(t)
+	rep := scan(t, input, filepath.Join(h.dir, "idx"))
+	outPath := filepath.Join(h.dir, "out.bin")
+	cpPath := filepath.Join(h.dir, "cp.json")
+	streamCfg := engine.StreamConfig{
+		Spec: h.spec, Report: rep, OutputPath: outPath, Checkpoint: cpPath,
+		GapTimeoutNs: 50_000_000, InterruptAfter: 120,
+	}
+	if st := streamOnce(t, h, rep, 120, nil); !st.Interrupted {
+		t.Fatal("expected interruption")
+	}
+	// Tamper the output: resume must refuse.
+	raw, _ := os.ReadFile(outPath)
+	raw[len(raw)-1] ^= 0xff
+	os.WriteFile(outPath, raw, 0o600)
+	if _, err := engine.Stream(streamCfg); err == nil {
+		t.Fatal("tampered output was accepted on resume")
+	}
+	// Reset to the safe boundary and recompute fully.
+	if err := engine.ResetFromSafeBoundary(streamCfg); err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+	if _, err := os.Stat(cpPath); !os.IsNotExist(err) {
+		t.Fatal("checkpoint not removed by reset")
+	}
+	fresh := streamCfg
+	fresh.InterruptAfter = 0
+	st, err := engine.Stream(fresh)
+	if err != nil {
+		t.Fatalf("recompute after reset failed: %v", err)
+	}
+	if st.Committed != h.spec.SampleCount {
+		t.Fatalf("recompute committed %d want %d", st.Committed, h.spec.SampleCount)
+	}
+	// The recomputed output must equal a clean independent run.
+	h2 := newHarness(t, h.spec)
+	fullInput := h2.input(t)
+	fullRep := scan(t, fullInput, filepath.Join(h2.dir, "idx"))
+	full := streamOnce(t, h2, fullRep, 0, nil)
+	if st.OutputSHA256 != full.OutputSHA256 {
+		t.Fatal("safe-boundary recompute hash differs from clean run")
+	}
+}
+
+func TestWraparoundLossPropagatesToSampleDamage(t *testing.T) {
+	// Second fault class: force 16-bit wraparound near the stream start
+	// and drop a burst straddling the wrap boundary.
+	spec := fixture.DefaultSpec(41)
+	spec.DropBurstAt = 65532
+	spec.DropBurstN = 8
+	h := newHarness(t, spec)
+	input := h.input(t)
+	rep := scan(t, input, filepath.Join(h.dir, "idx"))
+	cfg := engine.StreamConfig{
+		Spec: spec, Report: rep,
+		OutputPath:    filepath.Join(h.dir, "wrap.out"),
+		Checkpoint:    filepath.Join(h.dir, "wrap.cp"),
+		StartSeq:      65530,
+		GapTimeoutNs:  50_000_000,
+		BandwidthMbps: []float64{6, 1, 9},
+	}
+	st, err := engine.Stream(cfg)
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+	if len(st.Gaps) == 0 {
+		t.Fatal("wraparound burst produced no gaps")
+	}
+	if len(st.DamagedSamples) == 0 {
+		t.Fatal("wraparound packet loss did not reach sample damage")
+	}
+	// The gap must span the 16-bit wrap (seq values both above and below
+	// the 65535 boundary) yet be tracked as one contiguous interval.
+	g := st.Gaps[0]
+	if g.ExtLast <= g.ExtFirst {
+		t.Fatalf("gap ext ordering wrong: %d..%d", g.ExtFirst, g.ExtLast)
+	}
+	for _, fe := range []error{g.GapFault()} {
+		if fault.AsError(fe).Category != fault.CatPacketGap {
+			t.Fatal("gap did not carry packet_gap category")
+		}
+	}
+}
+
 func TestExitCodes(t *testing.T) {
 	cases := map[fault.Category]int{
 		fault.CatBadArgument:          4,
