@@ -30,9 +30,13 @@ type Packet struct {
 
 // Gap is an explicit incomplete range where packets never arrived.
 type Gap struct {
-	SSRC     uint32
-	FromSeq  uint16
-	ToSeq    uint16
+	SSRC    uint32
+	FromSeq uint16
+	ToSeq   uint16
+	// ExtFrom/ExtTo are the same range in the unwrapped sequence space, which
+	// maps 1:1 to recovered-sample indices.
+	ExtFrom  uint32
+	ExtTo    uint32
 	Missing  int
 	FromTime uint32
 	ToTime   uint32
@@ -183,6 +187,7 @@ func recoverOne(ssrc uint32, pkts []*rtp.Packet) (Result, error) {
 		}
 		gap := Gap{
 			SSRC: ssrc, FromSeq: seqAt(base, start), ToSeq: seqAt(base, extSeq),
+			ExtFrom: start, ExtTo: extSeq,
 			Missing: int(extSeq-start) + 1,
 		}
 		if start > minExt {
