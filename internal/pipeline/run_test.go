@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"mediasync/internal/fixtures"
+	trackmap "mediasync/internal/map"
 	"mediasync/internal/model"
 )
 
@@ -240,4 +241,30 @@ func TestResumeAfterCorruptIndexRebuildsAndMatches(t *testing.T) {
 // checkpointDirForTest mirrors the package-internal checkpoint location.
 func checkpointDirForTest(inputDir string) string {
 	return filepath.Join(inputDir, "checkpoints")
+}
+
+func TestPlanBlocksSplitsOnByteBudget(t *testing.T) {
+	// A run of samples whose total exceeds the block budget must split, never
+	// produce one oversized block.
+	big := make([]model.Sample, 0)
+	const sampleSize = 40 << 20 // 40 MiB each; two exceed 64 MiB
+	for i := 0; i < 3; i++ {
+		big = append(big, model.Sample{Index: i, Size: sampleSize, Duration: 1})
+	}
+	m := &trackmap.Result{Selections: []trackmap.Selection{{
+		Target: trackmap.Target{Name: "v", Kind: model.KindVideo},
+		Track:  &model.Track{ID: 1, Kind: model.KindVideo, Timescale: 30000, Samples: big},
+	}}}
+	plan, total := planBlocks(m, 1000)
+	if total != 3 {
+		t.Fatalf("total = %d", total)
+	}
+	if len(plan) != 3 {
+		t.Fatalf("plan = %d blocks, want 3 (one per oversized sample)", len(plan))
+	}
+	for _, b := range plan {
+		if b.samples != 1 {
+			t.Fatalf("block spans %d samples; must split on budget", b.samples)
+		}
+	}
 }
