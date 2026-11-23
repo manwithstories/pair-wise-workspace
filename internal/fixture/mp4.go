@@ -70,11 +70,18 @@ func BuildMP4(path string, samples int, timescale uint32, sampleDur uint32) erro
 		return fmt.Errorf("invalid mp4 fixture parameters")
 	}
 	const sampleSize = uint32(64)
-	// Sample payloads are plain 64-byte blobs; the indexer treats them as
-	// opaque bytes, so their internal format does not matter.
+	// Sample payloads are length-prefixed NAL units (AVC/HEVC style): a
+	// 4-byte big-endian length followed by that many bytes. The leading byte
+	// is a plausible NAL header (forbidden zero bit clear), so an index that
+	// structurally validates offsets can accept them.
 	sampleBytes := make([]byte, int(sampleSize)*samples)
-	for i := range sampleBytes {
-		sampleBytes[i] = byte(0x40 + i%0x30)
+	for i := 0; i < samples; i++ {
+		off := i * int(sampleSize)
+		binary.BigEndian.PutUint32(sampleBytes[off:off+4], sampleSize-4)
+		sampleBytes[off+4] = 0x65 // IDR-style NAL header
+		for k := off + 5; k < off+int(sampleSize); k++ {
+			sampleBytes[k] = byte(0x40 + k%0x30)
+		}
 	}
 
 	// Chunk layout: first chunk has n1 samples, second has the rest.

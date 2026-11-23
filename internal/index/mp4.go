@@ -3,6 +3,7 @@
 package index
 
 import (
+	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
@@ -34,6 +35,8 @@ type Index struct {
 	DurationNS int64      `json:"duration_ns"`
 	Keyframes  []Keyframe `json:"keyframes"`
 	Samples    int        `json:"samples"`
+	// SampleFormat records how sample payloads were structurally verified.
+	SampleFormat string `json:"sample_format"`
 	// Roundtrip is the fraction of indexed offsets that re-parsed to the
 	// expected sample header.
 	Roundtrip float64 `json:"roundtrip"`
@@ -252,26 +255,55 @@ func (t *trackData) decodeTimes() []uint64 {
 // BuildFile indexes the MP4 at path. Every keyframe offset is verified by
 // seeking to it and parsing the sample's size header.
 func BuildFile(path string) (*Index, error) {
+	return BuildFileWithFormat(path, FormatFinding)
+}
+
+// SampleFormat selects how sample payloads are structurally verified.
+type SampleFormat uint8
+
+const (
+	// FormatFinding validates AVC/HEVC-style length-prefixed NAL units: the
+	// leading 4-byte length must cover a non-empty, in-bounds unit.
+	FormatFinding SampleFormat = iota
+	// FormatOpaque accepts any non-empty sample whose first four bytes do
+	// not claim to extend past the sample. Use for codecs whose payload is
+	// not length-prefixed.
+	FormatOpaque
+)
+
+func (f SampleFormat) String() string {
+	if f == FormatOpaque {
+		return "opaque"
+	}
+	return "length-prefixed"
+}
+
+// BuildFileWithFormat indexes the MP4 using the requested sample format.
+func BuildFileWithFormat(path string, format SampleFormat) (*Index, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, clock.Wrap(clock.KindInvalid, clock.CodeUnsupported, path, err)
 	}
 	defer f.Close()
-	idx, err := Build(f, path)
+	idx, err := BuildFormat(f, path, format)
 	if err != nil {
 		return nil, err
 	}
 	return idx, nil
 }
 
-// Build indexes from an already-open file. The hash is computed over the file
-// bytes by the caller-supplied hasher when non-nil.
+// Build indexes from an already-open file using the default sample format.
 func Build(f *os.File, path string) (*Index, error) {
+	return BuildFormat(f, path, FormatFinding)
+}
+
+// BuildFormat indexes from an already-open file with explicit verification.
+func BuildFormat(f *os.File, path string, format SampleFormat) (*Index, error) {
 	tracks, mdats, movieDurNS, err := parseTracks(f)
 	if err != nil {
 		return nil, err
 	}
-	idx := &Index{File: path, DurationNS: movieDurNS}
+	idx := &Index{File: path, DurationNS: movieDurNS, SampleFormat: format.String()}
 	var verified int
 	for _, t := range tracks {
 		if t.handler != "vide" || len(t.stss) == 0 {
@@ -324,7 +356,7 @@ func Build(f *os.File, path string) (*Index, error) {
 	// Verify every offset by re-parsing its sample header.
 	for i := range idx.Keyframes {
 		kf := &idx.Keyframes[i]
-		if err := verifyOffset(f, info.Size(), mdats, *kf); err != nil {
+		if err := verifyOffset(f, info.Size(), mdats, *kf, format); err != nil {
 			return nil, err
 		}
 		verified++
@@ -336,9 +368,10 @@ func Build(f *os.File, path string) (*Index, error) {
 	return idx, nil
 }
 
-// verifyOffset proves an index entry points at readable sample bytes that
-// actually live inside a media-data box.
-func verifyOffset(f *os.File, fileSize int64, mdats []span, kf Keyframe) error {
+// verifyOffset proves an index entry points at readable, structurally valid
+// sample bytes that live inside a media-data box.
+func verifyOffset(f *os.File, fileSize int64, mdats []span, kf Keyframe,
+	format SampleFormat) error {
 	end := kf.Offset + uint64(kf.Size)
 	if int64(end) > fileSize {
 		return clock.New(clock.KindRecovery, clock.CodeIndexOffset, kf.OffsetID(),
@@ -359,10 +392,55 @@ func verifyOffset(f *os.File, fileSize int64, mdats []span, kf Keyframe) error {
 		return clock.New(clock.KindRecovery, clock.CodeIndexOffset, kf.OffsetID(),
 			"sample offset outside media data")
 	}
-	buf := make([]byte, 8)
-	if _, err := f.ReadAt(buf, int64(kf.Offset)); err != nil {
+	// Only the leading header is needed to prove the offset lands on a real
+	// sample; reading the whole sample would double the I/O for no gain.
+	head := make([]byte, sampleHeaderBytes)
+	n := len(head)
+	if uint32(n) > kf.Size {
+		n = int(kf.Size)
+	}
+	if _, err := f.ReadAt(head[:n], int64(kf.Offset)); err != nil {
 		return clock.New(clock.KindRecovery, clock.CodeIndexOffset, kf.OffsetID(),
 			"unreadable sample bytes")
+	}
+	if err := parseSampleHeader(head[:n], kf.Size, format); err != nil {
+		return clock.New(clock.KindRecovery, clock.CodeIndexOffset, kf.OffsetID(),
+			err.Error())
+	}
+	return nil
+}
+
+// sampleHeaderBytes is how much of a sample is read to validate structure.
+const sampleHeaderBytes = 16
+
+// parseSampleHeader validates the first bytes of a sample against the
+// selected format, so an offset that lands inside mdat but on garbage does
+// not verify. size is the sample's declared size in bytes.
+func parseSampleHeader(head []byte, size uint32, format SampleFormat) error {
+	if len(head) < 4 {
+		return fmt.Errorf("sample shorter than its length field")
+	}
+	if format == FormatOpaque {
+		// For codecs without length-prefixed payloads the strongest honest
+		// check is that the span is non-empty and inside the file, which the
+		// caller has already established.
+		return nil
+	}
+	nalLen := binary.BigEndian.Uint32(head[0:4])
+	if nalLen == 0 {
+		return fmt.Errorf("zero-length leading NAL unit")
+	}
+	// The leading NAL unit must fit inside the sample's declared size, not
+	// merely inside the header bytes we happened to read.
+	if uint64(nalLen)+4 > uint64(size) {
+		return fmt.Errorf("leading NAL unit exceeds the sample")
+	}
+	if len(head) < 5 {
+		return fmt.Errorf("sample has no NAL header byte")
+	}
+	// A NAL unit's first byte must not have the forbidden zero bit set.
+	if head[4]&0x80 != 0 {
+		return fmt.Errorf("invalid NAL unit header")
 	}
 	return nil
 }

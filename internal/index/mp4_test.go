@@ -78,7 +78,7 @@ func TestIndexRejectsCorruptOffset(t *testing.T) {
 	}
 	_ = tracks
 	bad := Keyframe{Offset: uint64(info.Size() + 10), Size: 64}
-	if err := verifyOffset(mustOpen(t, path), info.Size(), mdats, bad); err == nil {
+	if err := verifyOffset(mustOpen(t, path), info.Size(), mdats, bad, FormatOpaque); err == nil {
 		t.Fatalf("offset past EOF verified")
 	}
 }
