@@ -35,7 +35,10 @@ go run ./cmd/archivecheck demo \
 go run ./cmd/archivecheck verify --work ./tmp/archive
 ```
 
-The demo prints the verifiable fields, for example:
+The demo generates `in/` (the 12-fragment program with an mfhd gap and two tfdt
+regressions) and `faults/` (a segment whose `moof` sits at byte 4096 declaring
+more bytes than exist, plus one with an invalid declared `mdat` length). It
+prints the verifiable fields, for example:
 
 ```
 status=cancelled stage=interrupt last_committed=frag-008.m4s committed=7 fragments=12 peak_queue=4
@@ -108,6 +111,11 @@ builder is incremental it can be seeded from a checkpoint and continued.
 and output offset, then cuts sync-delimited intervals. An interval that does not
 begin with a sync sample is marked `seekable=false`, which makes that range
 explicitly non-jumpable. `SeekPoints` returns the minimal random-access set.
+
+**Multiple programs.** A manifest may list several `init`/media groups. Each
+group is an independent program with its own track namespace, mfhd counter and
+decode cursor, so their sequence numbers never collide and every group is
+restored and indexed side by side.
 
 **Bounded pipeline.** `pipe.Run` connects three stages over two bounded channels
 (`QueueCapacity`): parse (reads and validates each fragment), transform (repairs
