@@ -18,11 +18,11 @@ import (
 // SegmentFingerprint is the digest of one segment plus its descriptive
 // fields.
 type SegmentFingerprint struct {
-	Index     int
-	StartNS   int64
-	EndNS     int64
-	Frames    int
-	SHA256    string
+	Index   int
+	StartNS int64
+	EndNS   int64
+	Frames  int
+	SHA256  string
 	// DedupeKey identifies identical content across segments and tracks.
 	// It hashes content digests only, not timing, so a re-timed duplicate is
 	// still found; the full SHA256 additionally binds timing.

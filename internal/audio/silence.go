@@ -181,13 +181,31 @@ func detectTrack(trackID string, samples []EnergySample, targetStart int64, opt 
 		}
 	}
 	sort.Slice(order, func(i, j int) bool { return order[i] < order[j] })
+	// Windows may extend past the media they cover; clamp output ranges to
+	// the actual sample span so a partial window reports only real silence.
+	mediaStart := samples[0].StartNS
+	mediaEnd := samples[0].EndNS
+	for _, s := range samples[1:] {
+		if s.StartNS < mediaStart {
+			mediaStart = s.StartNS
+		}
+		if s.EndNS > mediaEnd {
+			mediaEnd = s.EndNS
+		}
+	}
 	var ranges []Range
 	var cur *Range
 	flush := func() {
 		if cur == nil {
 			return
 		}
-		if cur.EndNS-cur.StartNS >= opt.MinSilenceNS {
+		if cur.StartNS < mediaStart {
+			cur.StartNS = mediaStart
+		}
+		if cur.EndNS > mediaEnd {
+			cur.EndNS = mediaEnd
+		}
+		if cur.EndNS > cur.StartNS && cur.EndNS-cur.StartNS >= opt.MinSilenceNS {
 			ranges = append(ranges, *cur)
 		}
 		cur = nil

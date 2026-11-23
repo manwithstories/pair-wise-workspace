@@ -41,9 +41,9 @@ type TrackTimeline struct {
 
 // Timeline is the whole collection normalized to nanoseconds.
 type Timeline struct {
-	Tracks         []TrackTimeline
-	StartNS        int64
-	EndNS          int64
+	Tracks        []TrackTimeline
+	StartNS       int64
+	EndNS         int64
 	MaxIntervalNS int64
 }
 
@@ -142,7 +142,15 @@ func buildTrack(tr model.Track, fs []model.Frame, opt Options) (TrackTimeline, e
 	}
 	tt.FrameIntervalNS = medianInt64(deltas)
 	if len(deltas) == 0 {
+		// A single-frame track exposes no gap of its own. Fall back to the
+		// declared nominal tick step so its duration is still meaningful;
+		// failing that, give it a nominal one-nanosecond span.
 		tt.FrameIntervalNS = 1
+		if tr.NominalTickDelta > 0 {
+			if ns := RoundTicks(TickSeconds(float64(tr.NominalTickDelta), float64(tr.Timescale)) * 1e9); ns > 0 {
+				tt.FrameIntervalNS = ns
+			}
+		}
 	}
 	for i := 0; i < len(tt.Frames)-1; i++ {
 		if tt.Frames[i].IntervalNS > tt.MaxIntervalNS {
