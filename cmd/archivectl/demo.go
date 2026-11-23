@@ -22,8 +22,15 @@ import (
 // acceptance metrics. It returns the process exit code.
 func runDemo(opts demoOpts, out io.Writer) int {
 	ctx := context.Background()
-	work, err := os.MkdirTemp("", "archivectl-demo-")
-	if err != nil {
+	work := opts.workDir
+	if work == "" {
+		var err error
+		work, err = os.MkdirTemp("", "archivectl-demo-")
+		if err != nil {
+			fmt.Fprintln(out, "error:", err)
+			return 1
+		}
+	} else if err := os.MkdirAll(work, 0o755); err != nil {
 		fmt.Fprintln(out, "error:", err)
 		return 1
 	}

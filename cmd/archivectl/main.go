@@ -18,6 +18,7 @@ type demoOpts struct {
 	consumerDelayMs int
 	lossBurst       int
 	fixture         string
+	workDir         string // tests inject t.TempDir(); empty = temp dir
 }
 
 func main() {
