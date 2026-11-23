@@ -26,11 +26,12 @@ func buildFrames(n int) []*model.Frame {
 }
 
 func buildAudio(n int) []*model.AudioBlock {
-	out := make([]*model.AudioBlock, n)
+	// Two audio blocks per 40 ms video frame, keeping both tracks on one clock.
+	out := make([]*model.AudioBlock, n*2)
 	for i := range out {
 		payload := make([]byte, 320) // 160 silent mono samples
 		out[i] = &model.AudioBlock{
-			Seq: uint32(i), TimestampNS: int64(i) * 80_000_000,
+			Seq: uint32(i), TimestampNS: int64(i) * 20_000_000,
 			SampleRate: 8000, Channels: 1, Samples: 160, Payload: payload,
 		}
 	}

@@ -27,8 +27,11 @@ func (o *Options) Defaults() {
 	if o.Frames <= 0 {
 		o.Frames = 240
 	}
+	if o.AudioPerVideo < 0 {
+		o.AudioPerVideo = 0
+	}
 	if o.AudioPerVideo == 0 {
-		o.AudioPerVideo = 1
+		o.AudioPerVideo = 2 // two 20 ms blocks per 40 ms video frame
 	}
 	if o.Width == 0 {
 		o.Width = 64
@@ -40,7 +43,7 @@ func (o *Options) Defaults() {
 		o.FrameStepNS = 40_000_000 // 25 fps
 	}
 	if o.AudioStepNS == 0 {
-		o.AudioStepNS = 80_000_000 // 12.5 blocks/s at 8 kHz
+		o.AudioStepNS = 20_000_000 // 8 kHz / 160 samples = one block per 20 ms
 	}
 }
 
@@ -52,7 +55,8 @@ func Generate(o Options) ([]byte, error) {
 	if err := model.WriteHeader(&buf, uint32(o.Frames+audioCount), 0); err != nil {
 		return nil, err
 	}
-	// Deterministic LCG so every run with the same seed matches exactly.
+	// Deterministic LCG: distinct seeds shift which audio blocks carry tones,
+	// while video payloads stay periodic for fingerprint dedup coverage.
 	state := uint64(o.Seed)
 	next := func() uint64 {
 		state = state*6364136223846793005 + 1442695040888963407
@@ -65,9 +69,11 @@ func Generate(o Options) ([]byte, error) {
 			Keyframe: i%30 == 0, FrameNum: uint32(i),
 		}
 		raw, _ := json.Marshal(meta)
+		// Frames repeat every 12 indices: identical canonical payloads so
+		// fingerprint dedup merges them while each keeps its own time slot.
 		payload := make([]byte, 64)
-		binary.BigEndian.PutUint32(payload, uint32(i%12)) // periodic duplicate frames
-		binary.BigEndian.PutUint32(payload[4:], uint32(next()))
+		binary.BigEndian.PutUint32(payload, uint32(i%12))
+		binary.BigEndian.PutUint32(payload[4:], uint32(i%12))
 		flags := uint16(0)
 		if meta.Keyframe {
 			flags = model.FlagKeyframe
@@ -81,8 +87,8 @@ func Generate(o Options) ([]byte, error) {
 		meta := model.AudioMeta{SampleRate: 8000, Channels: 1, Samples: 160}
 		raw, _ := json.Marshal(meta)
 		payload := make([]byte, 320)
-		// Every 8th block carries a tone; the rest are digital silence.
-		if i%8 == 0 {
+		// Seeded tone placement; all other blocks are digital silence.
+		if next()%8 == 0 {
 			for s := 0; s < 160; s++ {
 				binary.LittleEndian.PutUint16(payload[2*s:], uint16(int16(2000)))
 			}

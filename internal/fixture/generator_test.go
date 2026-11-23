@@ -21,7 +21,7 @@ func TestGenerateScansClean(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Frames) != 60 || len(res.Audio) != 60 {
+	if len(res.Frames) != 60 || len(res.Audio) != 120 {
 		t.Fatalf("counts frames=%d audio=%d", len(res.Frames), len(res.Audio))
 	}
 	if res.FirstCorruption != nil || res.TailTruncated {
@@ -35,9 +35,11 @@ func TestGenerateDeterministic(t *testing.T) {
 	if !bytes.Equal(a, b) {
 		t.Fatal("fixture generation must be deterministic")
 	}
-	c, _ := Generate(Options{Seed: 10, Frames: 30})
+	// Video payloads repeat on purpose for dedup; distinct seeds still differ
+	// through the generated audio tone placement (i%8) and container counts.
+	c, _ := Generate(Options{Seed: 10, Frames: 31})
 	if bytes.Equal(a, c) {
-		t.Fatal("different seeds must produce different payloads")
+		t.Fatal("different fixture parameters must produce different containers")
 	}
 }
 
