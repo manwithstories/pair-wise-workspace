@@ -4,9 +4,9 @@ import (
 	"fmt"
 
 	"mediasync/internal/manifest"
+	"mediasync/internal/model"
 )
 
-// Options configure a run.
 // maxBlockBytes is the per-block memory budget shared with the checkpoint store.
 const maxBlockBytes = 64 << 20
 
@@ -55,6 +55,20 @@ type Report struct {
 	Warnings            []string
 	// RTP tuning statistics, reported for the transfer operator.
 	RTPReceived, RTPDuplicates, RTPOutOfOrder int
+	// Tracks carries per-track sample, byte and hash accounting.
+	Tracks []TrackReport
+	// BitrateNote explains any target/actual divergence.
+	BitrateNote string
+}
+
+// TrackReport is one track's contribution to the package.
+type TrackReport struct {
+	Name    string
+	TrackID uint32
+	Kind    model.TrackKind
+	Samples int
+	Bytes   int64
+	SHA256  string
 }
 
 // InterruptError signals a deliberate stop after InterruptAfter blocks.
