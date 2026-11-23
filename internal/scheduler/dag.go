@@ -76,7 +76,7 @@ func (s *Scheduler) Run(ctx context.Context) error {
 		return err
 	}
 	var failed map[string]error
-	for _, name := range s.order {
+	for _, name := range s.topoOrder() {
 		n := s.nodes[name]
 		deps := map[string]any{}
 		depKeys := make([]string, 0, len(n.Deps))
@@ -142,6 +142,38 @@ func (s *Scheduler) validate() error {
 		}
 	}
 	return nil
+}
+
+// topoOrder returns node names in dependency order (Kahn), breaking ties
+// by insertion order so scheduling is deterministic.
+func (s *Scheduler) topoOrder() []string {
+	indeg := map[string]int{}
+	for _, name := range s.order {
+		indeg[name] = len(s.nodes[name].Deps)
+	}
+	var out []string
+	ready := []string{}
+	for _, name := range s.order {
+		if indeg[name] == 0 {
+			ready = append(ready, name)
+		}
+	}
+	for len(ready) > 0 {
+		u := ready[0]
+		ready = ready[1:]
+		out = append(out, u)
+		for _, name := range s.order {
+			for _, d := range s.nodes[name].Deps {
+				if d == u {
+					indeg[name]--
+					if indeg[name] == 0 {
+						ready = append(ready, name)
+					}
+				}
+			}
+		}
+	}
+	return out
 }
 
 // blockedErr picks the first (in dependency order) failed node and builds
