@@ -98,9 +98,11 @@ checkpoint_recovered=0
 
 ### A note on `go run` and exit codes
 
-`go run` always exits `1` when the child process exits non-zero — it replaces
-the child's status with its own failure indication. The program itself returns
-`2` for data errors. To observe the real exit code, build first:
+`go help run` states: *"The exit status of Run is not the exit status of the
+compiled binary."* In practice `go run` exits `1` whenever the child is non-zero,
+replacing the real status. The program therefore also prints a final
+`exit_code=N` line on stdout so the true status is machine-readable either way.
+To observe the process status directly, build first:
 
 ```sh
 go build -o mediasync ./cmd/mediasync
