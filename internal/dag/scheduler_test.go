@@ -207,11 +207,12 @@ func TestCorruptFailureIsNotRetried(t *testing.T) {
 func TestConcurrentDuplicateSubmission(t *testing.T) {
 	store := tempStore(t)
 	var calls int32
-	var barrier sync.WaitGroup
-	barrier.Add(1)
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
 	run := func(string) (Summary, error) {
 		atomic.AddInt32(&calls, 1)
-		barrier.Wait() // hold the first execution open so others pile up
+		entered <- struct{}{} // signal that the executor is inside Run
+		<-release             // hold it open so other submissions pile up
 		return Summary{Digest: digestOf("same"), Detail: "ok"}, nil
 	}
 	s, err := New([]*Node{{Name: "read", Run: run}}, store, Options{})
@@ -229,11 +230,10 @@ func TestConcurrentDuplicateSubmission(t *testing.T) {
 			results[i], errs[i] = s.Run()
 		}(i)
 	}
-	// Let one goroutine enter Run before releasing the barrier.
-	for atomic.LoadInt32(&calls) == 0 {
-		// spin until the executor is inside Run
-	}
-	barrier.Done()
+	// Let the single executor enter Run, then release it while the other
+	// submissions are still waiting on the shared key.
+	<-entered
+	close(release)
 	wg.Wait()
 	for i := 0; i < n; i++ {
 		if errs[i] != nil {
