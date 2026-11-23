@@ -46,27 +46,46 @@ type LayerResult struct {
 	LostSeqs map[uint16]bool // sequence numbers dropped on the wire
 }
 
+// BurstWindow returns the deterministic burst-loss window (start index and
+// length) applied to rung rungIdx for a stream of total packets.
+func BurstWindow(total, rungIdx, lossBurst int) (start, length int) {
+	switch rungIdx {
+	case 0:
+		return total / 3, lossBurst
+	case 1:
+		return total / 2, lossBurst / 2
+	default:
+		return total / (2 + rungIdx), lossBurst / (2 * rungIdx)
+	}
+}
+
+// channelParams returns the deterministic per-rung channel disturbance.
+func channelParams(total, i, lossBurst int) (start, blen, dupEvery, reorderEvery int) {
+	start, blen = BurstWindow(total, i, lossBurst)
+	switch i {
+	case 0:
+		reorderEvery = 11
+	case 1:
+		dupEvery = 13
+	default:
+		reorderEvery = 17 + i
+	}
+	if blen == 0 {
+		start = -1
+	}
+	return start, blen, dupEvery, reorderEvery
+}
+
 // FanOut transmits the source packets over one independent simulated
-// channel per rung and recovers each rung on its own. The loss burst is
-// injected on rung 0; other rungs see smaller deterministic disturbances.
-func FanOut(pkts []rtp.Packet, rungs []Rung, lossBurst int) []LayerResult {
+// channel per rung and recovers each rung on its own. recoverySrc is the
+// sender buffer used to answer retransmission requests; packets absent from
+// it are unrecoverable.
+func FanOut(pkts []rtp.Packet, rungs []Rung, lossBurst int, recoverySrc []rtp.Packet) []LayerResult {
 	results := make([]LayerResult, len(rungs))
 	for i, rung := range rungs {
-		burstStart, burstLen := -1, 0
-		dupEvery, reorderEvery := 0, 0
-		switch i {
-		case 0:
-			burstStart, burstLen = len(pkts)/3, lossBurst
-			reorderEvery = 11
-		case 1:
-			burstStart, burstLen = len(pkts)/2, lossBurst/2
-			dupEvery = 13
-		default:
-			burstStart, burstLen = len(pkts)/(2+i), lossBurst/(2*i)
-			reorderEvery = 17 + i
-		}
-		wire := mrtp.Simulate(pkts, burstStart, burstLen, dupEvery, reorderEvery)
-		rec := mrtp.NewRecoverer(pkts, 3, 13.3, 50)
+		start, blen, dupEvery, reorderEvery := channelParams(len(pkts), i, lossBurst)
+		wire := mrtp.Simulate(pkts, start, blen, dupEvery, reorderEvery)
+		rec := mrtp.NewRecoverer(recoverySrc, 3, 13.3, 50)
 		var out []rtp.Packet
 		for _, p := range wire.Packets {
 			rec.Push(p)

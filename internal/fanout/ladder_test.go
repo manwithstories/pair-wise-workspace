@@ -30,7 +30,7 @@ func TestFanOutRecoversEachRung(t *testing.T) {
 	for i := 0; i < 60; i++ {
 		pkts = append(pkts, mrtp.Packetize([]byte{byte(i), 0x80}, 9, &seq, uint32(i*3600), 1200)...)
 	}
-	results := FanOut(pkts, Ladder(6_000_000, 3), 8)
+	results := FanOut(pkts, Ladder(6_000_000, 3), 8, pkts)
 	if len(results) != 3 {
 		t.Fatalf("layers=%d", len(results))
 	}
