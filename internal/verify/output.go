@@ -36,7 +36,7 @@ type Writer struct {
 
 // NewWriter creates or truncates path and writes the container magic.
 func NewWriter(path string) (*Writer, error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0o644)
 	if err != nil {
 		return nil, fault.Wrap(err, fault.KindOutput, path, "", 0, "cannot create output")
 	}
@@ -110,6 +110,13 @@ func (w *Writer) Sync() error {
 
 // Size returns the committed byte length written so far.
 func (w *Writer) Size() int64 { return w.n }
+
+// ReaderAt exposes the committed prefix for independent re-reads.
+func (w *Writer) ReaderAt() io.ReaderAt { return w.f }
+
+// File exposes the underlying file so the verify stage can read committed
+// bytes without buffering them a second time.
+func (w *Writer) File() *os.File { return w.f }
 
 // Digest snapshots the SHA-256 of everything written so far.
 func (w *Writer) Digest() string { return hex.EncodeToString(w.h.Sum(nil)) }

@@ -205,6 +205,7 @@ func Run(ctx context.Context, workDir string, init *parse.Init, tasks []Task, l 
 			fault.record(commitErr)
 			break
 		}
+		spanStart := out.Size()
 		var written []index.Entry
 		for _, entry := range ev.Entries {
 			es, werr := out.WriteFragment(entry, ev.File)
@@ -216,6 +217,18 @@ func Run(ctx context.Context, workDir string, init *parse.Init, tasks []Task, l 
 			written = append(written, es...)
 		}
 		if commitErr != nil {
+			break
+		}
+		// Verify stage: independently re-read the just-written span before the
+		// committed boundary advances. A mismatch fails the run without
+		// publishing a checkpoint that claims the data is good.
+		reRead, verr := verify.ScanSpan(out.ReaderAt(), spanStart, out.Size(), res.OutputPath)
+		if verr == nil {
+			verr = verify.Verify(written, reRead)
+		}
+		if verr != nil {
+			commitErr = verr
+			fault.record(verr)
 			break
 		}
 		entries = append(entries, written...)
