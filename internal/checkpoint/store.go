@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"mediacore/internal/fault"
 )
@@ -51,6 +52,14 @@ func validatePath(path string) error {
 		filepath.IsAbs(clean) && filepath.Dir(clean) == string(filepath.Separator) {
 		return fault.New(fault.KindCheckpoint, fault.Abort, -1,
 			"checkpoint path must name a file, not a root")
+	}
+	// Reject any parent-directory segment so a checkpoint can never escape its
+	// intended directory via traversal.
+	for _, part := range strings.Split(clean, string(filepath.Separator)) {
+		if part == ".." {
+			return fault.New(fault.KindCheckpoint, fault.Abort, -1,
+				"checkpoint path must not contain '..' traversal")
+		}
 	}
 	base := filepath.Base(clean)
 	if base == "." || base == ".." || base == string(filepath.Separator) {
