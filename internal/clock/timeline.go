@@ -109,8 +109,16 @@ func buildTrack(tr model.Track, fs []model.Frame, opt Options) (TrackTimeline, e
 		tt.DriftPPM = ur.DriftPPM
 	}
 	tt.Frames = make([]TimedFrame, len(fs))
+	// OriginNS is the declared wall-clock placement of the track's first
+	// frame; counters typically start at an arbitrary value, so ticks are
+	// measured relative to the first sample. This keeps declared offsets
+	// meaningful while making the mapping independent of counter start.
+	var tickBase float64
+	if len(fs) > 0 {
+		tickBase = CorrectedTicks(ur.Unwrapped[0], tt.DriftPPM)
+	}
 	for i := range fs {
-		corrected := CorrectedTicks(ur.Unwrapped[i], tt.DriftPPM)
+		corrected := CorrectedTicks(ur.Unwrapped[i], tt.DriftPPM) - tickBase
 		ns := float64(tr.OriginNS) + TickSeconds(corrected, float64(tr.Timescale))*1e9
 		tt.Frames[i] = TimedFrame{
 			Index:    i,
