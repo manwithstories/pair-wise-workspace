@@ -1,10 +1,7 @@
 package pipeline
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"math"
 	"strings"
 )
 
@@ -64,16 +61,6 @@ func shortHash(h string) string {
 	}
 	return h
 }
-
-// DigestInputs is a stable fingerprint of the run configuration, used to prove
-// a resumed run consumed the same inputs as the reference run.
-func DigestInputs(seed int64, segments int, durNS int64) string {
-	h := sha256.Sum256([]byte(fmt.Sprintf("%d|%d|%d", seed, segments, durNS)))
-	return hex.EncodeToString(h[:])
-}
-
-// Round3 rounds a fraction to three decimals without float formatting drift.
-func Round3(v float64) float64 { return math.Round(v*1000) / 1000 }
 
 // Acceptance thresholds, exported so the CLI and tests agree on one source.
 const (

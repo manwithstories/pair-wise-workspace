@@ -403,8 +403,8 @@ func (idx *Index) HitRate(times []int64, toleranceNS int64) float64 {
 	return float64(hits) / float64(len(times))
 }
 
-// sampleSpanNS estimates the per-frame duration from the smallest keyframe
-// duration, falling back to the median gap when durations are unset.
+// sampleSpanNS estimates the per-frame duration from the first keyframe with
+// a recorded duration, used only when a movie header duration is absent.
 func sampleSpanNS(kfs []Keyframe) int64 {
 	for _, kf := range kfs {
 		if kf.DurNS > 0 {
