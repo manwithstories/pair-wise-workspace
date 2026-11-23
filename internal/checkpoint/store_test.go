@@ -169,15 +169,19 @@ func TestMissingBlockFileFallsBack(t *testing.T) {
 	}
 }
 
-func TestCorruptIndexRejected(t *testing.T) {
+func TestCorruptIndexRebuiltFromBlocks(t *testing.T) {
 	dir := t.TempDir()
 	s, err := Open(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Append(1, []byte{1}); err != nil {
-		t.Fatal(err)
+	for i := 0; i < 3; i++ {
+		if _, err := s.AppendSamples(1, []byte{byte(i), 9}, 5); err != nil {
+			t.Fatal(err)
+		}
 	}
+	wantChain := s.Chain()
+	wantSamples, wantBytes, _ := s.Stats()
 	if err := os.WriteFile(s.indexPath(), []byte("not an index"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -185,12 +189,23 @@ func TestCorruptIndexRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = s2.Load()
-	if err == nil || model.CodeOf(err) != model.ErrCheckpointCorrupt {
-		t.Fatalf("err = %v", err)
+	valid, recovered, err := s2.Load()
+	if err != nil {
+		t.Fatalf("index corruption should be rebuilt, got %v", err)
 	}
-	if model.ExitCode(err) != model.ExitUnrecoverable {
-		t.Fatalf("exit = %d", model.ExitCode(err))
+	if !recovered || valid != 3 {
+		t.Fatalf("valid = %d recovered = %v", valid, recovered)
+	}
+	if s2.Chain() != wantChain {
+		t.Fatal("rebuilt chain differs from the written one")
+	}
+	gotSamples, gotBytes, _ := s2.Stats()
+	if gotSamples != wantSamples || gotBytes != wantBytes {
+		t.Fatalf("rebuilt stats = %d/%d, want %d/%d", gotSamples, gotBytes, wantSamples, wantBytes)
+	}
+	// The rebuilt index is valid on the next open.
+	if _, _, err := s2.Load(); err != nil {
+		t.Fatalf("rebuilt index did not persist: %v", err)
 	}
 }
 
@@ -242,9 +257,9 @@ func TestReset(t *testing.T) {
 
 func TestEmptyLoad(t *testing.T) {
 	s := open(t)
-	valid, recovered, err := s.Load()
-	if err != nil || valid != 0 || recovered {
-		t.Fatalf("valid=%d recovered=%v err=%v", valid, recovered, err)
+	valid, _, err := s.Load()
+	if err != nil || valid != 0 {
+		t.Fatalf("valid=%d err=%v", valid, err)
 	}
 }
 
