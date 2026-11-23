@@ -166,8 +166,9 @@ func recoverRTP(s *sample) rtpDoc {
 	first := ext.Extend(parsed[0].seq)
 	r := rtp.NewReorderer("video", first, rtp.DefaultConfig())
 	// A retransmission can only supply bytes that still exist upstream.
-	// When the sample's faults model genuinely lost data (drop/truncate),
-	// the venue has nothing to resend and the gap must stay final.
+	// The venue is modelled as having no send-side copy once packets are
+	// dropped or the feed is truncated, so those gaps must stay final.
+	// A pure reorder leaves every byte available, so its gaps recover.
 	retransmitAvailable := !s.faults.Drop && !s.faults.Truncate
 	hook := func(g rtp.Gap) (rtp.Packet, bool) {
 		if !retransmitAvailable {
