@@ -13,6 +13,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"mediascan/internal/fault"
 )
 
 // Segment records one fully completed, already-digested work range.
@@ -23,6 +25,9 @@ type Segment struct {
 	// PartialDigest covers this segment's canonical result bytes, so the
 	// final report digest can be recomputed identically after resume.
 	PartialDigest string `json:"partial_digest"`
+	// Faults holds this segment's findings so a resumed run can rebuild the
+	// complete merged result without recomputing finished frames.
+	Faults []fault.Fault `json:"faults,omitempty"`
 }
 
 // Store is the on-disk checkpoint payload.
