@@ -95,8 +95,57 @@ func TestCropOutOfBoundsRejected(t *testing.T) {
 func TestTrackCropOutOfBoundsRejected(t *testing.T) {
 	tr := videoTrack()
 	tr.Meta.Crop = model.Crop{Top: 600, Bottom: 600}
+	tr.Meta.CropSrc = model.SourceMP4
 	if _, err := Normalize(tr, Overrides{}); err == nil {
-		t.Fatal("container crop that removes the frame should be rejected")
+		t.Fatal("track crop that removes the frame should be rejected")
+	}
+}
+
+func TestContainerLayerLosesToTrackAndIsRecorded(t *testing.T) {
+	tr := videoTrack()
+	container := 180
+	tr.Meta.ContainerRotation = &container
+	tr.Meta.Rotation = 90
+	tr.Meta.RotationSrc = model.SourceMP4
+	meta, err := Normalize(tr, Overrides{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.Rotation != 90 {
+		t.Fatalf("track claim should win over container, got %d", meta.Rotation)
+	}
+	// The container claim is present and marked as superseded.
+	var containerClaim, trackClaim bool
+	for _, c := range meta.Claims {
+		if c.Field != "rotation" {
+			continue
+		}
+		if c.Layer == model.LayerContainer {
+			containerClaim = true
+			if c.Reason == "" {
+				t.Fatal("losing container claim should record a reason")
+			}
+		}
+		if c.Layer == model.LayerTrack {
+			trackClaim = true
+		}
+	}
+	if !containerClaim || !trackClaim {
+		t.Fatalf("both claims should be recorded: %+v", meta.Claims)
+	}
+}
+
+func TestExplicitBeatsAllLayers(t *testing.T) {
+	tr := videoTrack()
+	container := 180
+	tr.Meta.ContainerRotation = &container
+	rot := 270
+	meta, err := Normalize(tr, Overrides{Rotation: &rot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.Rotation != 270 || meta.RotationSrc != model.SourceExplicit {
+		t.Fatalf("rotation = %d from %s", meta.Rotation, meta.RotationSrc)
 	}
 }
 

@@ -23,9 +23,12 @@ type Overrides struct {
 // Normalize returns a copy of tr.Meta with arbitration applied.
 //
 // Rotation: explicit > track > container > default 0.
-// Crop: explicit > track > container > none, and a crop that would remove more
-// than the coded frame is a hard error.
+// Crop: explicit > track > container > none, and a crop that would remove the
+// whole frame is a hard error.
 // Colour: explicit > track > container; unknown codes are preserved and marked.
+//
+// Every competing layer is appended to Claims. A claim that loses carries a
+// Reason naming the winner, so a conflict can be traced to its source.
 func Normalize(tr *model.Track, ov Overrides) (model.DisplayMeta, error) {
 	if tr == nil {
 		return model.DisplayMeta{}, model.NewError(model.ErrParamInvalid, 0, 0, "nil track")
@@ -47,16 +50,31 @@ func Normalize(tr *model.Track, ov Overrides) (model.DisplayMeta, error) {
 		return meta, model.NewError(model.ErrParamInvalid, tr.ID, 0, "video track %d has no usable dimensions", tr.ID)
 	}
 
-	// Rotation.
+	// Rotation: explicit > track > container > default 0.
 	rotation := 0
 	rotationSrc := model.SourceDefault
+	rotationLayer := model.LayerContainer
+	if meta.ContainerRotation != nil {
+		rotation = *meta.ContainerRotation
+		rotationSrc = model.SourceMP4
+		meta.Claims = append(meta.Claims, model.Claim{
+			Field: "rotation", Value: fmt.Sprintf("%d", rotation), Layer: model.LayerContainer, Source: model.SourceMP4,
+		})
+	}
 	if meta.RotationSrc != "" {
+		annotateSuperseded(meta.Claims, "rotation", "track claim")
 		rotation = meta.Rotation
 		rotationSrc = meta.RotationSrc
+		rotationLayer = model.LayerTrack
+		meta.Claims = append(meta.Claims, model.Claim{
+			Field: "rotation", Value: fmt.Sprintf("%d", rotation), Layer: model.LayerTrack, Source: meta.RotationSrc,
+		})
 	}
 	if ov.Rotation != nil {
+		annotateSuperseded(meta.Claims, "rotation", "explicit override")
 		rotation = *ov.Rotation
 		rotationSrc = model.SourceExplicit
+		rotationLayer = model.LayerExplicit
 		meta.Claims = append(meta.Claims, model.Claim{
 			Field: "rotation", Value: fmt.Sprintf("%d", rotation), Layer: model.LayerExplicit, Source: model.SourceExplicit,
 		})
@@ -69,24 +87,48 @@ func Normalize(tr *model.Track, ov Overrides) (model.DisplayMeta, error) {
 	}
 	meta.Rotation = rotation
 	meta.RotationSrc = rotationSrc
+	_ = rotationLayer
 
-	// Crop.
-	crop := meta.Crop
-	cropSrc := meta.CropSrc
+	// Crop: explicit > track > container > none.
+	crop := model.Crop{}
+	var cropSrc model.Source
+	if meta.ContainerCrop != nil {
+		crop = *meta.ContainerCrop
+		cropSrc = model.SourceMP4
+		meta.Claims = append(meta.Claims, model.Claim{
+			Field: "crop", Value: cropString(crop), Layer: model.LayerContainer, Source: model.SourceMP4,
+		})
+	}
+	if meta.CropSrc != "" {
+		annotateSuperseded(meta.Claims, "crop", "track claim")
+		crop = meta.Crop
+		cropSrc = meta.CropSrc
+		meta.Claims = append(meta.Claims, model.Claim{
+			Field: "crop", Value: cropString(crop), Layer: model.LayerTrack, Source: meta.CropSrc,
+		})
+	}
 	if ov.Crop != nil {
+		annotateSuperseded(meta.Claims, "crop", "explicit override")
 		crop = *ov.Crop
 		cropSrc = model.SourceExplicit
 		meta.Claims = append(meta.Claims, model.Claim{
-			Field: "crop", Value: fmt.Sprintf("%d/%d/%d/%d", crop.Left, crop.Right, crop.Top, crop.Bottom),
-			Layer: model.LayerExplicit, Source: model.SourceExplicit,
+			Field: "crop", Value: cropString(crop), Layer: model.LayerExplicit, Source: model.SourceExplicit,
 		})
 	}
 	if err := applyCrop(tr, &meta, w, h, crop, cropSrc); err != nil {
 		return meta, err
 	}
 
-	// Colour.
+	// Colour: explicit > track > container. Track/container already carry their
+	// merged claim from the reader; an explicit override wins over both.
 	colour := meta.Colour
+	if meta.ContainerColour != nil && meta.Colour == nil {
+		colour = meta.ContainerColour
+		meta.ColourSrc = model.SourceMP4
+		meta.Claims = append(meta.Claims, model.Claim{
+			Field: "colour", Value: colourString(colour), Layer: model.LayerContainer, Source: model.SourceMP4,
+		})
+	}
 	if ov.Primaries != nil || ov.Transfer != nil || ov.Matrix != nil || ov.FullRange != nil {
 		c := model.Colour{}
 		if colour != nil {
@@ -110,11 +152,11 @@ func Normalize(tr *model.Track, ov Overrides) (model.DisplayMeta, error) {
 			meta.Warnings = append(meta.Warnings, fmt.Sprintf(
 				"explicit colour override uses unknown codes p=%d t=%d m=%d; preserved", c.Primaries, c.Transfer, c.Matrix))
 		}
+		annotateSuperseded(meta.Claims, "colour", "explicit override")
 		colour = &c
 		meta.ColourSrc = model.SourceExplicit
 		meta.Claims = append(meta.Claims, model.Claim{
-			Field: "colour", Value: fmt.Sprintf("explicit/%d/%d/%d", c.Primaries, c.Transfer, c.Matrix),
-			Layer: model.LayerExplicit, Source: model.SourceExplicit,
+			Field: "colour", Value: colourString(colour), Layer: model.LayerExplicit, Source: model.SourceExplicit,
 		})
 	}
 	meta.Colour = colour
@@ -126,6 +168,30 @@ func Normalize(tr *model.Track, ov Overrides) (model.DisplayMeta, error) {
 		})
 	}
 	return meta, nil
+}
+
+// annotateSuperseded marks the most recent claim for field as losing to winner.
+// It mutates the slice in place; callers append the winning claim afterwards.
+func annotateSuperseded(claims []model.Claim, field, winner string) {
+	for i := len(claims) - 1; i >= 0; i-- {
+		if claims[i].Field == field {
+			if claims[i].Reason == "" {
+				claims[i].Reason = "superseded by " + winner
+			}
+			return
+		}
+	}
+}
+
+func cropString(c model.Crop) string {
+	return fmt.Sprintf("%d/%d/%d/%d", c.Left, c.Right, c.Top, c.Bottom)
+}
+
+func colourString(c *model.Colour) string {
+	if c == nil {
+		return "none"
+	}
+	return fmt.Sprintf("%d/%d/%d", c.Primaries, c.Transfer, c.Matrix)
 }
 
 // applyCrop validates the requested crop against the coded frame and records
