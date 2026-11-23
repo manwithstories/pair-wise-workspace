@@ -71,3 +71,9 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- mediad 运行期产物（演示自动生成，不随源码交付）----
+/artifacts/
+/artifacts-run/
+*.part
+*.tmp
