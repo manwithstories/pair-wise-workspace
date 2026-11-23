@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 )
 
 // Sentinels shared by the timebase and the classified error model.
@@ -110,6 +111,90 @@ func (m Rounding) String() string {
 
 func (m Rounding) valid() bool { return m >= RoundNearest && m <= RoundTowardZero }
 
+// Timebase is a rational number of integer ticks per second.
+type Timebase struct {
+	Rate Rational
+}
+
+// NewTimebase requires a strictly positive rate.
+func NewTimebase(rate Rational) (Timebase, error) {
+	if !rate.validRate() {
+		return Timebase{}, fmt.Errorf("%w: %s", ErrInvalidRate, rate)
+	}
+	return Timebase{Rate: rate}, nil
+}
+
+// MustTimebase is for constants.
+func MustTimebase(num, den int64) Timebase {
+	tb, err := NewTimebase(MustRational(num, den))
+	if err != nil {
+		panic(err)
+	}
+	return tb
+}
+
+// Rescale converts an integer tick count from one timebase to another.
+// The result is exact whenever the rational division is exact; otherwise
+// the supplied rounding policy is applied. Overflow is always reported.
+func Rescale(ticks int64, from, to Rational, mode Rounding) (int64, error) {
+	if !mode.valid() {
+		return 0, fmt.Errorf("%w: %d", ErrInvalidRounding, int(mode))
+	}
+	if !from.validRate() || !to.validRate() {
+		return 0, fmt.Errorf("%w: from=%s to=%s", ErrInvalidRate, from, to)
+	}
+	// ticks/from * to = ticks * to.Num * from.Den / (from.Num * to.Den)
+	num := new(big.Int).Mul(big.NewInt(ticks), big.NewInt(to.Num))
+	num.Mul(num, big.NewInt(from.Den))
+	den := new(big.Int).Mul(big.NewInt(from.Num), big.NewInt(to.Den))
+	return bigToInt64(divRounded(num, den, mode))
+}
+
+func divRounded(num, den *big.Int, mode Rounding) *big.Int {
+	q, r := new(big.Int).QuoRem(num, den, new(big.Int)) // truncates toward zero
+	if r.Sign() == 0 {
+		return q
+	}
+	switch mode {
+	case RoundTowardZero:
+		return q
+	case RoundDown:
+		if num.Sign() < 0 {
+			q.Sub(q, big.NewInt(1))
+		}
+	case RoundUp:
+		if num.Sign() > 0 {
+			q.Add(q, big.NewInt(1))
+		}
+	case RoundNearest:
+		twice := new(big.Int).Abs(r)
+		twice.Lsh(twice, 1)
+		if twice.Cmp(den) >= 0 {
+			if num.Sign() < 0 {
+				q.Sub(q, big.NewInt(1))
+			} else {
+				q.Add(q, big.NewInt(1))
+			}
+		}
+	}
+	return q
+}
+
+func bigToInt64(v *big.Int) (int64, error) {
+	if !v.IsInt64() {
+		return 0, fmt.Errorf("%w: %s", ErrOverflow, v.String())
+	}
+	return v.Int64(), nil
+}
+
+func reduceBig(n, d *big.Int) (*big.Int, *big.Int) {
+	g := new(big.Int).GCD(nil, nil, new(big.Int).Abs(n), d)
+	if g.Sign() == 0 || g.Cmp(big.NewInt(1)) == 0 {
+		return n, d
+	}
+	return new(big.Int).Quo(n, g), new(big.Int).Quo(d, g)
+}
+
 func gcd(a, b int64) int64 {
 	for b != 0 {
 		a, b = b, a%b
@@ -123,3 +208,6 @@ func absInt64(v int64) int64 {
 	}
 	return v
 }
+
+// Positive reports a strictly positive fraction, i.e. a usable rate.
+func (r Rational) Positive() bool { return r.Num > 0 && r.Den > 0 }

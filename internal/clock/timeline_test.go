@@ -21,3 +21,52 @@ func TestRationalNormalizes(t *testing.T) {
 		t.Fatalf("want overflow for MinInt64 denominator, got %v", err)
 	}
 }
+
+func TestRescaleRoundingModes(t *testing.T) {
+	// One tick on a 3 Hz axis is 1/3 s, i.e. 1/3 of a tick on a 1 Hz axis.
+	from := MustRational(3, 1)
+	to := MustRational(1, 1)
+	cases := []struct {
+		mode Rounding
+		want int64
+	}{
+		{RoundNearest, 0}, // 0.333 -> 0
+		{RoundDown, 0},
+		{RoundUp, 1},
+		{RoundTowardZero, 0},
+	}
+	for _, c := range cases {
+		got, err := Rescale(1, from, to, c.mode)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != c.want {
+			t.Errorf("%s: got %d want %d", c.mode, got, c.want)
+		}
+	}
+	// 2/3 -> nearest 1, and negatives mirror the same policies.
+	if got, _ := Rescale(2, from, to, RoundNearest); got != 1 {
+		t.Errorf("2/3 nearest=%d", got)
+	}
+	if got, _ := Rescale(-2, from, to, RoundNearest); got != -1 {
+		t.Errorf("-2/3 nearest=%d", got)
+	}
+	if got, _ := Rescale(-2, from, to, RoundDown); got != -1 {
+		t.Errorf("-2/3 down=%d", got)
+	}
+	if got, _ := Rescale(-2, from, to, RoundUp); got != 0 {
+		t.Errorf("-2/3 up=%d", got)
+	}
+}
+
+func TestRescaleOverflow(t *testing.T) {
+	// Scaling MaxInt64 up by 1000 ticks/s cannot fit in int64.
+	_, err := Rescale(math.MaxInt64, MustRational(1, 1), MustRational(1000, 1), RoundNearest)
+	if !errors.Is(err, ErrOverflow) {
+		t.Fatalf("want overflow, got %v", err)
+	}
+	// The identity conversion is exact and must not overflow.
+	if got, err := Rescale(math.MaxInt64, MustRational(1, 1), MustRational(1, 1), RoundNearest); err != nil || got != math.MaxInt64 {
+		t.Fatalf("identity conversion=%d,%v", got, err)
+	}
+}
