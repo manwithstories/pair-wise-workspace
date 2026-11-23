@@ -22,6 +22,8 @@ Flags:
   --target-kbps int        declared bitrate target (default 2000)
   --checkpoint-samples int samples per checkpoint block (default 120)
   --resume                 interrupt once, then resume from checkpoints
-  --corrupt string         damaged input: truncated-mp4 | invalid-klv
-  --rotation int           explicit rotation override (0, 90, 180, 270)`)
+  --corrupt string         damaged input: truncated-mp4 | invalid-klv | duplicate-track
+  --rotation int           explicit rotation override (0, 90, 180, 270)
+  --source string          force container reader: mp4 | mxf
+  --work-dir string        keep generated inputs and package on disk`)
 }

@@ -86,6 +86,8 @@ checkpoint_recovered=0
 ```
 
 `--corrupt invalid-klv` reports `INVALID_KLV` the same way.
+`--corrupt duplicate-track` reports `TRACK_MAP_DUPLICATE` and writes no package
+files, proving a failed batch leaves no completion marker.
 
 ## Exit codes
 
