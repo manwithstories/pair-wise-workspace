@@ -129,6 +129,9 @@ func (b *Builder) Add(f *parse.Fragment) ([]FragmentTimeline, error) {
 		} else if st.started && traf.BaseDecodeTime > st.next {
 			entry.Reason = ReasonGap
 			b.forward++
+		} else if !st.started && traf.BaseDecodeTime != 0 {
+			entry.Reason = ReasonGap
+			b.forward++
 		}
 		cursor := entry.RepairedBase
 		for i, s := range traf.Samples {
@@ -157,16 +160,13 @@ func (b *Builder) Add(f *parse.Fragment) ([]FragmentTimeline, error) {
 }
 
 // Build repairs an entire ordered archive at once.
-func Build(ord *Ordered, init *parse.Init) (*Timeline, error) {
-	if ord == nil {
-		return nil, fault.New(fault.KindTimeline, "", "tfdt", 0, "nil ordering")
-	}
+func Build(frags []*parse.Fragment, init *parse.Init) (*Timeline, error) {
 	b, err := NewBuilder(init)
 	if err != nil {
 		return nil, err
 	}
 	tl := &Timeline{}
-	for _, f := range ord.Fragments {
+	for _, f := range frags {
 		entries, err := b.Add(f)
 		if err != nil {
 			return nil, err

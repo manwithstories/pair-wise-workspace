@@ -7,7 +7,7 @@ import (
 	"archivecheck/internal/testkit"
 )
 
-func buildFixture(t *testing.T) (*parse.Init, *Ordered) {
+func buildFixture(t *testing.T) ([]*parse.Fragment, *parse.Init) {
 	t.Helper()
 	initSpec, fragSpecs := testkit.StandardSampleLayout()
 	m, err := testkit.Generate(t.TempDir(), initSpec, fragSpecs)
@@ -26,19 +26,24 @@ func buildFixture(t *testing.T) (*parse.Init, *Ordered) {
 		}
 		frags = append(frags, f)
 	}
-	ord, err := Order(frags)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return init, ord
+	return frags, init
 }
 
 func TestTimelineRepairsBackwardTfdt(t *testing.T) {
-	init, ord := buildFixture(t)
-	if ord.Missing != 1 {
-		t.Fatalf("missing = %d, want 1", ord.Missing)
+	frags, init := buildFixture(t)
+	items := make([]Item, len(frags))
+	for i, f := range frags {
+		items[i] = Item{Segment: f.Segment, HasMfhd: f.HasMfhd, Sequence: f.Sequence, Index: i}
 	}
-	tl, err := Build(ord, init)
+	ord, err := Order(items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ordered := make([]*parse.Fragment, len(ord.Items))
+	for i, it := range ord.Items {
+		ordered[i] = frags[it.Index]
+	}
+	tl, err := Build(ordered, init)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,9 +58,9 @@ func TestTimelineRepairsBackwardTfdt(t *testing.T) {
 		if f.RepairedBase < prevEnd {
 			t.Fatalf("fragment %d begins at %d before previous end %d", i, f.RepairedBase, prevEnd)
 		}
-		for j, s := range f.Samples {
-			if s.DTS < prevEnd && j > 0 {
-				t.Fatalf("fragment %d sample %d DTS %d < %d", i, j, s.DTS, prevEnd)
+		for _, s := range f.Samples {
+			if s.DTS < prevEnd {
+				t.Fatalf("fragment %d sample DTS %d < %d", i, s.DTS, prevEnd)
 			}
 			prevEnd = s.EndDTS
 		}
@@ -86,13 +91,13 @@ func TestTimelineRecordsForwardGap(t *testing.T) {
 	init := &parse.Init{Segment: "init.mp4", Tracks: map[uint32]*parse.Track{
 		1: {ID: 1, Timescale: 1000},
 	}}
-	ord := &Ordered{Fragments: []*parse.Fragment{
+	frags := []*parse.Fragment{
 		{Segment: "a", Sequence: 1, HasMfhd: true,
 			Trafs: []parse.Traf{{TrackID: 1, BaseDecodeTime: 0, Samples: []parse.Sample{{TrackID: 1, Duration: 100}}}}},
 		{Segment: "b", Sequence: 2, HasMfhd: true,
 			Trafs: []parse.Traf{{TrackID: 1, BaseDecodeTime: 500, Samples: []parse.Sample{{TrackID: 1, Duration: 100}}}}},
-	}}
-	tl, err := Build(ord, init)
+	}
+	tl, err := Build(frags, init)
 	if err != nil {
 		t.Fatal(err)
 	}

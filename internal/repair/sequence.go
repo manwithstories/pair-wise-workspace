@@ -7,94 +7,83 @@ import (
 	"sort"
 
 	"archivecheck/internal/fault"
-	"archivecheck/internal/parse"
 )
 
-// SequenceIssue records a deterministic ordering decision.
-type SequenceIssue struct {
-	Segment   string
-	Sequence  uint32
-	Index     int
-	Kind      string // "missing", "duplicate", "out_of_order"
-	Detail    string
-	Original  int
-	Duplicate bool
+// Item is one media segment's ordering metadata.
+type Item struct {
+	Segment    string
+	HasMfhd    bool
+	Sequence   uint32
+	MfhdOffset int64
+	Index      int
 }
 
-// Ordered is the deterministic fragment order produced from an input list.
+// Issue records a deterministic ordering decision.
+type Issue struct {
+	Segment  string
+	Sequence uint32
+	Kind     string // "missing", "duplicate", "out_of_order"
+	Detail   string
+	Index    int
+}
+
+// Ordered is the deterministic item order produced from an input list.
 type Ordered struct {
-	Fragments []*parse.Fragment
-	Issues    []SequenceIssue
-	Missing   int
+	Items   []Item
+	Issues  []Issue
+	Missing int
+	Dropped int
 }
 
-type numbered struct {
-	frag  *parse.Fragment
-	index int
-	seq   uint32
-	hasSq bool
-}
-
-// Order builds a deterministic sequence from archive input order. Fragments
-// with mfhd gaps are placed by their declared sequence number; missing numbers
-// are reported exactly once; byte-identical duplicates are dropped; and
-// conflicting duplicates or declared numbers that contradict manifest order
-// are rejected with an offset-bearing fault.
-func Order(frags []*parse.Fragment) (*Ordered, error) {
+// Order builds a deterministic order from archive input order. Fragments with
+// mfhd gaps are placed by declared sequence number, gaps are reported exactly
+// once, identical duplicates are dropped, and conflicting duplicates or a
+// declared sequence that contradicts itself is rejected.
+func Order(items []Item) (*Ordered, error) {
 	out := &Ordered{}
-	seenSeq := map[uint32]int{}
-	items := make([]numbered, 0, len(frags))
-	for i, f := range frags {
-		if f == nil {
-			return nil, fault.New(fault.KindSequence, "", "moof", 0, "nil fragment in input order")
-		}
-		items = append(items, numbered{frag: f, index: i, seq: f.Sequence, hasSq: f.HasMfhd})
+	sorted := append([]Item(nil), items...)
+	for i := range sorted {
+		sorted[i].Index = i
 	}
-	// Stable base ordering: declared sequence first (mfhd-less fragments keep
-	// manifest position), then original manifest position.
-	sort.SliceStable(items, func(a, b int) bool {
-		ai, bi := items[a], items[b]
-		if ai.hasSq && bi.hasSq && ai.seq != bi.seq {
-			return ai.seq < bi.seq
+	sort.SliceStable(sorted, func(a, b int) bool {
+		x, y := sorted[a], sorted[b]
+		if x.HasMfhd && y.HasMfhd && x.Sequence != y.Sequence {
+			return x.Sequence < y.Sequence
 		}
-		if ai.hasSq != bi.hasSq {
-			return ai.hasSq
+		if x.HasMfhd != y.HasMfhd {
+			return x.HasMfhd
 		}
-		return ai.index < bi.index
+		return x.Index < y.Index
 	})
-
-	for _, it := range items {
-		f := it.frag
-		if !it.hasSq {
-			out.Issues = append(out.Issues, SequenceIssue{
-				Segment: f.Segment, Index: it.index, Kind: "missing",
-				Detail:   "fragment has no mfhd; ordered by manifest position",
-				Original: it.index,
+	seen := map[uint32]int{}
+	for _, it := range sorted {
+		if !it.HasMfhd {
+			out.Items = append(out.Items, it)
+			out.Issues = append(out.Issues, Issue{
+				Segment: it.Segment, Kind: "missing", Index: it.Index,
+				Detail: "fragment has no mfhd; ordered by manifest position",
 			})
-			out.Fragments = append(out.Fragments, f)
 			continue
 		}
-		if prev, dup := seenSeq[it.seq]; dup {
-			prevFrag := out.Fragments[prev]
-			if prevFrag == nil || prevFrag.Segment != f.Segment {
-				return nil, fault.New(fault.KindSequence, f.Segment, "mfhd", f.MfhdOffset,
-					fmt.Sprintf("duplicate sequence number %d conflicts with %s", it.seq, prevFrag.Segment))
+		if prev, dup := seen[it.Sequence]; dup {
+			if out.Items[prev].Segment != it.Segment {
+				return nil, fault.New(fault.KindSequence, it.Segment, "mfhd", it.MfhdOffset,
+					fmt.Sprintf("duplicate sequence number %d conflicts with %s", it.Sequence, out.Items[prev].Segment))
 			}
-			out.Issues = append(out.Issues, SequenceIssue{
-				Segment: f.Segment, Sequence: it.seq, Index: it.index, Kind: "duplicate",
-				Detail: "byte-identical duplicate dropped", Original: it.index, Duplicate: true,
+			out.Dropped++
+			out.Issues = append(out.Issues, Issue{
+				Segment: it.Segment, Sequence: it.Sequence, Kind: "duplicate", Index: it.Index,
+				Detail: "byte-identical duplicate dropped",
 			})
 			continue
 		}
-		seenSeq[it.seq] = len(out.Fragments)
-		out.Fragments = append(out.Fragments, f)
+		seen[it.Sequence] = len(out.Items)
+		out.Items = append(out.Items, it)
 	}
-
-	// Detect gaps between the surviving declared sequence numbers.
 	var declared []uint32
-	for _, f := range out.Fragments {
-		if f.HasMfhd {
-			declared = append(declared, f.Sequence)
+	for _, it := range out.Items {
+		if it.HasMfhd {
+			declared = append(declared, it.Sequence)
 		}
 	}
 	for i := 1; i < len(declared); i++ {
@@ -104,31 +93,17 @@ func Order(frags []*parse.Fragment) (*Ordered, error) {
 		}
 		for missing := declared[i-1] + 1; missing < declared[i]; missing++ {
 			out.Missing++
-			out.Issues = append(out.Issues, SequenceIssue{
+			out.Issues = append(out.Issues, Issue{
 				Sequence: missing, Kind: "missing",
-				Detail: fmt.Sprintf("mfhd sequence %d absent; gap between %d and %d",
-					missing, declared[i-1], declared[i]),
+				Detail: fmt.Sprintf("mfhd sequence %d absent; gap between %d and %d", missing, declared[i-1], declared[i]),
 			})
 		}
 	}
-
-	// Any fragment whose manifest position disagrees with the repaired order
-	// is reported, but the repaired order still wins deterministically.
-	for pos, f := range out.Fragments {
-		if !f.HasMfhd {
-			continue
-		}
-		orig := -1
-		for i, cand := range frags {
-			if cand == f {
-				orig = i
-				break
-			}
-		}
-		if orig >= 0 && orig != pos {
-			out.Issues = append(out.Issues, SequenceIssue{
-				Segment: f.Segment, Sequence: f.Sequence, Index: orig, Kind: "out_of_order",
-				Detail: fmt.Sprintf("manifest position %d moved to %d by mfhd order", orig, pos),
+	for pos, it := range out.Items {
+		if it.HasMfhd && it.Index != pos {
+			out.Issues = append(out.Issues, Issue{
+				Segment: it.Segment, Sequence: it.Sequence, Kind: "out_of_order", Index: it.Index,
+				Detail: fmt.Sprintf("manifest position %d moved to %d by mfhd order", it.Index, pos),
 			})
 		}
 	}
@@ -136,12 +111,4 @@ func Order(frags []*parse.Fragment) (*Ordered, error) {
 }
 
 // Duplicates counts dropped duplicate fragments.
-func (o *Ordered) Duplicates() int {
-	n := 0
-	for _, is := range o.Issues {
-		if is.Kind == "duplicate" && is.Duplicate {
-			n++
-		}
-	}
-	return n
-}
+func (o *Ordered) Duplicates() int { return o.Dropped }

@@ -12,11 +12,19 @@ import (
 
 	"archivecheck/internal/index"
 	"archivecheck/internal/pipe"
+	"archivecheck/internal/repair"
 	"archivecheck/internal/testkit"
 	"archivecheck/internal/verify"
 )
 
-func setup(t *testing.T) (string, *pipe.Manifest, []*fragT, map[string]*os.File) {
+type fixture struct {
+	work   string
+	loaded *pipe.LoadedInput
+	ord    *repair.Ordered
+	tasks  []pipe.Task
+}
+
+func setup(t *testing.T) *fixture {
 	t.Helper()
 	work := t.TempDir()
 	layout, err := testkit.WriteDemoInputs(work)
@@ -32,51 +40,52 @@ func setup(t *testing.T) (string, *pipe.Manifest, []*fragT, map[string]*os.File)
 		t.Fatal(err)
 	}
 	t.Cleanup(loaded.Close)
-	return work, m, loaded.Fragments, loaded.Files
-}
-
-type fragT = fragmentAlias
-
-func TestRunCompleteAndVerify(t *testing.T) {
-	work, m, frags, files := setup(t)
-	inits, err := pipe.LoadInputs(m)
+	ord, err := repair.Order(loaded.OrderItems())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer inits.Close()
-	ctx := context.Background()
-	res, err := pipe.Run(ctx, work, inits.Inits[0], frags, files, pipe.Start{InputDigest: m.Digest}, pipe.Options{QueueCapacity: 4})
+	return &fixture{work: work, loaded: loaded, ord: ord, tasks: loaded.Tasks(ord)}
+}
+
+func (f *fixture) start() pipe.Start { return f.loaded.StartFor(f.ord) }
+
+func (f *fixture) run(t *testing.T, start pipe.Start, opts pipe.Options) (*pipe.Result, error) {
+	t.Helper()
+	return pipe.Run(context.Background(), f.work, f.loaded.Inits[0], f.tasks, f.loaded, start, opts)
+}
+
+func TestRunCompleteAndVerify(t *testing.T) {
+	f := setup(t)
+	res, err := f.run(t, f.start(), pipe.Options{QueueCapacity: 4})
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if res.Checkpoint == nil || res.Checkpoint.FragmentsTotal != 12 {
+	if res.Checkpoint.FragmentsTotal != 12 || res.Checkpoint.Committed != 12 {
 		t.Fatalf("checkpoint = %+v", res.Checkpoint)
 	}
 	if len(res.Checkpoint.Index.Entries) != 48 {
 		t.Fatalf("entries = %d", len(res.Checkpoint.Index.Entries))
 	}
+	if res.PeakQueue > 4 {
+		t.Fatalf("peak queue = %d > capacity 4", res.PeakQueue)
+	}
 	rep, err := verify.Check(res.OutputPath, res.Checkpoint)
 	if err != nil || !rep.Verified {
 		t.Fatalf("verify: %v %+v", err, rep)
 	}
-	// Queue occupancy never exceeds the configured capacity.
-	if res.PeakQueue > 4 {
-		t.Fatalf("peak queue = %d > capacity 4", res.PeakQueue)
+	if rep.TimestampRegressions != 0 || rep.InvalidIndexOffsets != 0 {
+		t.Fatalf("report = %+v", rep)
 	}
 }
 
 func TestRunDeterministicAcrossRuns(t *testing.T) {
-	work1, m1, frags1, files1 := setup(t)
-	work2, m2, frags2, files2 := setup(t)
-	in1, _ := pipe.LoadInputs(m1)
-	in2, _ := pipe.LoadInputs(m2)
-	defer in1.Close()
-	defer in2.Close()
-	r1, err := pipe.Run(context.Background(), work1, in1.Inits[0], frags1, files1, pipe.Start{InputDigest: m1.Digest}, pipe.Options{QueueCapacity: 4})
+	f1 := setup(t)
+	f2 := setup(t)
+	r1, err := f1.run(t, f1.start(), pipe.Options{QueueCapacity: 4})
 	if err != nil {
 		t.Fatal(err)
 	}
-	r2, err := pipe.Run(context.Background(), work2, in2.Inits[0], frags2, files2, pipe.Start{InputDigest: m2.Digest}, pipe.Options{QueueCapacity: 4})
+	r2, err := f2.run(t, f2.start(), pipe.Options{QueueCapacity: 4})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,96 +94,109 @@ func TestRunDeterministicAcrossRuns(t *testing.T) {
 	sumA := sha256.Sum256(a)
 	sumB := sha256.Sum256(b)
 	if hex.EncodeToString(sumA[:]) != hex.EncodeToString(sumB[:]) {
-		t.Fatalf("outputs differ: %s vs %s", hex.EncodeToString(sumA[:]), hex.EncodeToString(sumB[:]))
+		t.Fatalf("outputs differ")
 	}
 }
 
 func TestInterruptThenResume(t *testing.T) {
-	work, m, frags, files := setup(t)
-	loaded, err := pipe.LoadInputs(m)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer loaded.Close()
-	res, err := pipe.Run(context.Background(), work, loaded.Inits[0], frags, files, pipe.Start{InputDigest: m.Digest, MissingMfhd: 1}, pipe.Options{
+	f := setup(t)
+	res, err := f.run(t, f.start(), pipe.Options{
 		QueueCapacity: 4, SlowConsumer: time.Millisecond, InterruptAfter: 7,
 	})
-	if err != nil && !pipe.IsCancelled(err) {
-		t.Fatalf("run: %v", err)
-	}
 	if !pipe.IsCancelled(err) {
-		t.Fatal("expected cancellation")
+		t.Fatalf("expected cancellation, got %v", err)
 	}
-	if res.Checkpoint == nil || res.Checkpoint.Committed != 7 {
-		t.Fatalf("checkpoint = %+v", res.Checkpoint)
+	if res.Checkpoint == nil || res.CommittedAt != 7 {
+		t.Fatalf("checkpoint = %+v", res)
 	}
 	if !strings.HasSuffix(res.Checkpoint.LastCommitted, "frag-008.m4s") {
 		t.Fatalf("last committed = %q", res.Checkpoint.LastCommitted)
 	}
-	cp, err := index.Load(pipe.CheckpointPath(work))
+	cp, err := index.Load(pipe.CheckpointPath(f.work))
 	if err != nil {
 		t.Fatal(err)
 	}
-	st, err := pipe.CompatibleStart(m, cp)
+	if cp.Committed != 7 {
+		t.Fatalf("on-disk committed = %d", cp.Committed)
+	}
+	st, err := pipe.ResumeStart(f.loaded.Manifest, cp)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.Committed != 7 {
-		t.Fatalf("resume boundary = %d", st.Committed)
-	}
-	res2, err := pipe.Run(context.Background(), work, loaded.Inits[0], frags, files, st, pipe.Options{QueueCapacity: 4})
+	res2, err := f.run(t, st, pipe.Options{QueueCapacity: 4})
 	if err != nil {
 		t.Fatalf("resume: %v", err)
 	}
-	if res2.Checkpoint.Committed != 12 {
-		t.Fatalf("resumed committed = %d", res2.Checkpoint.Committed)
+	if res2.Checkpoint.Committed != 12 || len(res2.Checkpoint.Index.Entries) != 48 {
+		t.Fatalf("resumed checkpoint = %+v", res2.Checkpoint)
 	}
-	if len(res2.Checkpoint.Index.Entries) != 48 {
-		t.Fatalf("entries = %d", len(res2.Checkpoint.Index.Entries))
-	}
-	rep, err := verify.Check(pipe.OutputPath(work), res2.Checkpoint)
+	rep, err := verify.Check(res2.OutputPath, res2.Checkpoint)
 	if err != nil || !rep.Verified {
 		t.Fatalf("verify after resume: %v %+v", err, rep)
 	}
 }
 
 func TestResumeRejectsChangedInput(t *testing.T) {
-	work, m, frags, files := setup(t)
-	loaded, _ := pipe.LoadInputs(m)
-	defer loaded.Close()
-	_, err := pipe.Run(context.Background(), work, loaded.Inits[0], frags, files, pipe.Start{InputDigest: m.Digest}, pipe.Options{QueueCapacity: 4, InterruptAfter: 5})
+	f := setup(t)
+	_, err := f.run(t, f.start(), pipe.Options{QueueCapacity: 4, InterruptAfter: 5})
 	if !pipe.IsCancelled(err) {
 		t.Fatal("expected interrupt cancellation")
 	}
-	cp, err := index.Load(pipe.CheckpointPath(work))
+	cp, err := index.Load(pipe.CheckpointPath(f.work))
 	if err != nil {
 		t.Fatal(err)
 	}
-	m.Digest = strings.Repeat("0", 64)
-	if _, err := pipe.CompatibleStart(m, cp); err == nil {
+	cp.InputDigest = strings.Repeat("0", 64)
+	if _, err := pipe.ResumeStart(f.loaded.Manifest, cp); err == nil {
 		t.Fatal("changed input digest accepted")
 	}
 }
 
-func TestCancelReleasesAndReportsLastCommitted(t *testing.T) {
-	work, m, frags, files := setup(t)
-	loaded, _ := pipe.LoadInputs(m)
-	defer loaded.Close()
+func TestResumeDoesNotOverwriteChangedOutput(t *testing.T) {
+	f := setup(t)
+	_, err := f.run(t, f.start(), pipe.Options{QueueCapacity: 4, InterruptAfter: 5})
+	if !pipe.IsCancelled(err) {
+		t.Fatal("expected interrupt cancellation")
+	}
+	cp, err := index.Load(pipe.CheckpointPath(f.work))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Corrupt a committed byte in the output; resume must refuse to touch it.
+	out, err := os.OpenFile(pipe.OutputPath(f.work), os.O_RDWR, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := out.WriteAt([]byte{0xff}, 20); err != nil {
+		t.Fatal(err)
+	}
+	out.Close()
+	st, err := pipe.ResumeStart(f.loaded.Manifest, cp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.run(t, st, pipe.Options{QueueCapacity: 4}); err == nil {
+		t.Fatal("resume overwrote output with a mismatched committed prefix")
+	}
+}
+
+func TestPeakQueueBoundedAndCancelReleases(t *testing.T) {
+	f := setup(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
-		time.Sleep(5 * time.Millisecond)
+		time.Sleep(3 * time.Millisecond)
 		cancel()
 	}()
-	res, err := pipe.Run(ctx, work, loaded.Inits[0], frags, files, pipe.Start{InputDigest: m.Digest}, pipe.Options{
-		QueueCapacity: 2, SlowConsumer: 2 * time.Millisecond,
+	res, err := pipe.Run(ctx, f.work, f.loaded.Inits[0], f.tasks, f.loaded, f.start(), pipe.Options{
+		QueueCapacity: 2, SlowConsumer: 3 * time.Millisecond,
 	})
-	if err != nil && !pipe.IsCancelled(err) {
-		t.Fatalf("run: %v", err)
+	if err == nil {
+		return // run finished before cancellation; timing-dependent
 	}
 	if !pipe.IsCancelled(err) {
-		t.Skip("run completed before cancellation; timing-dependent")
+		t.Fatalf("run: %v", err)
 	}
-	if res.CommittedAt < 0 {
-		t.Fatalf("committed = %d", res.CommittedAt)
+	if res.PeakQueue > 2 {
+		t.Fatalf("peak queue = %d > 2", res.PeakQueue)
 	}
 }

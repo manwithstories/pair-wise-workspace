@@ -2,27 +2,40 @@ package main
 
 import (
 	"context"
-	"os"
-	"sort"
+	"path/filepath"
 
 	"archivecheck/internal/parse"
 	"archivecheck/internal/pipe"
 	"archivecheck/internal/repair"
+	"archivecheck/internal/testkit"
 )
 
+// session is the CLI's view of one generated corpus plus its bounded pipeline
+// input. Files stay open for the lifetime of the command.
 type session struct {
+	work     string
 	manifest *pipe.Manifest
-	inits    []*parse.Init
-	frags    []*parse.Fragment
-	files    map[string]*os.File
+	loaded   *pipe.LoadedInput
 	ord      *repair.Ordered
+	tasks    []pipe.Task
 	ctx      context.Context
 	cancel   context.CancelFunc
 }
 
-func openSession(root, manifestPath string) (*session, error) {
+func newSession(work string) (*session, error) {
+	layout, err := testkit.WriteDemoInputs(work)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := testkit.WriteFaultInputs(work); err != nil {
+		return nil, err
+	}
+	return loadSession(work, filepath.Join(work, "in"), layout.ManifestPath)
+}
+
+func loadSession(work, root, manifestPath string) (*session, error) {
 	ctx, cancel := signalContext()
-	s := &session{ctx: ctx, cancel: cancel}
+	s := &session{work: work, ctx: ctx, cancel: cancel}
 	m, err := pipe.LoadManifest(root, manifestPath)
 	if err != nil {
 		cancel()
@@ -33,20 +46,16 @@ func openSession(root, manifestPath string) (*session, error) {
 		cancel()
 		return nil, err
 	}
-	ord, err := repair.Order(loaded.Fragments)
+	ord, err := repair.Order(loaded.OrderItems())
 	if err != nil {
 		loaded.Close()
 		cancel()
 		return nil, err
 	}
-	// Map each ordered fragment back to the init segment it belongs to and
-	// verify all groups share a compatible single-track layout for the demo.
-	sort.SliceStable(ord.Fragments, func(a, b int) bool { return a < b })
 	s.manifest = m
-	s.inits = loaded.Inits
-	s.frags = loaded.Fragments
-	s.files = loaded.Files
+	s.loaded = loaded
 	s.ord = ord
+	s.tasks = loaded.Tasks(ord)
 	return s, nil
 }
 
@@ -54,11 +63,9 @@ func (s *session) Close() {
 	if s.cancel != nil {
 		s.cancel()
 	}
-	for _, f := range s.files {
-		if f != nil {
-			f.Close()
-		}
+	if s.loaded != nil {
+		s.loaded.Close()
 	}
 }
 
-func contextFor(s *session) context.Context { return s.ctx }
+func (s *session) primaryInit() *parse.Init { return s.loaded.Inits[0] }

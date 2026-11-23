@@ -4,17 +4,26 @@ import (
 	"fmt"
 	"os"
 
+	"archivecheck/internal/fault"
 	"archivecheck/internal/index"
 	"archivecheck/internal/parse"
+	"archivecheck/internal/repair"
 )
 
+// Task is one media segment scheduled for streaming parse.
+type Task struct {
+	Segment string
+	Probe   parse.Probe
+}
+
 // LoadedInput is one parsed archive input set: per group, an init segment and
-// its ordered media fragments with open files.
+// the media fragment probes that determine deterministic order.
 type LoadedInput struct {
 	Manifest  *Manifest
 	Inits     []*parse.Init
-	Fragments []*parse.Fragment
+	Probes    map[string]parse.Probe
 	Files     map[string]*os.File
+	OwnerInit map[string]*parse.Init
 }
 
 // Close releases every open segment file.
@@ -26,74 +35,118 @@ func (l *LoadedInput) Close() {
 	}
 }
 
-// LoadInputs resolves and parses every entry in the manifest. It rejects
-// unsafe paths (handled by the loader) and surfaces parser faults with the
-// exact segment, box type and byte offset.
+// LoadInputs opens and validates the manifest entries. Init segments are
+// fully parsed; media fragments are probed only far enough to read mfhd
+// ordering. Full fragment validation happens in the streaming parse stage so
+// faults flow through the pipeline and into the resumable checkpoint.
 func LoadInputs(m *Manifest) (*LoadedInput, error) {
-	in := &LoadedInput{Manifest: m, Files: map[string]*os.File{}}
+	in := &LoadedInput{
+		Manifest: m, Files: map[string]*os.File{},
+		Probes: map[string]parse.Probe{}, OwnerInit: map[string]*parse.Init{},
+	}
+	closeAll := func() { in.Close() }
 	for _, g := range m.Groups {
 		f, err := os.Open(g.Init.Path)
 		if err != nil {
-			in.Close()
-			return nil, fmt.Errorf("open init %s: %w", g.Init.Name, err)
+			closeAll()
+			return nil, fault.Wrap(err, fault.KindNotRegular, g.Init.Name, "", 0, "cannot open init")
 		}
 		in.Files[g.Init.Name] = f
-		init, err := parse.ParseInit(f, g.Init.Name)
+		info, err := f.Stat()
 		if err != nil {
-			in.Close()
+			closeAll()
+			return nil, fault.Wrap(err, fault.KindShortRead, g.Init.Name, "", 0, "cannot stat init")
+		}
+		init, err := parse.ParseInitReader(f, info.Size(), g.Init.Name)
+		if err != nil {
+			closeAll()
 			return nil, err
 		}
 		in.Inits = append(in.Inits, init)
 		for _, media := range g.Media {
 			mf, err := os.Open(media.Path)
 			if err != nil {
-				in.Close()
-				return nil, fmt.Errorf("open media %s: %w", media.Name, err)
+				closeAll()
+				return nil, fault.Wrap(err, fault.KindNotRegular, media.Name, "", 0, "cannot open media")
 			}
 			in.Files[media.Name] = mf
-			frag, err := parse.ParseFragment(mf, media.Name, init)
+			minfo, err := mf.Stat()
 			if err != nil {
-				in.Close()
+				closeAll()
+				return nil, fault.Wrap(err, fault.KindShortRead, media.Name, "", 0, "cannot stat media")
+			}
+			probe, err := parse.ProbeSegment(mf, minfo.Size(), media.Name)
+			if err != nil {
+				closeAll()
 				return nil, err
 			}
-			in.Fragments = append(in.Fragments, frag)
+			in.Probes[media.Name] = probe
+			in.OwnerInit[media.Name] = init
 		}
 	}
 	return in, nil
 }
 
-// InitFor returns the init segment that owns the given fragment.
-func (l *LoadedInput) InitFor(segment string) *parse.Init {
-	for _, g := range l.Manifest.Groups {
-		for _, media := range g.Media {
-			if media.Name == segment {
-				for _, init := range l.Inits {
-					if init.Segment == g.Init.Name {
-						return init
-					}
-				}
-			}
+// OrderItems converts probes into deterministic ordering items in manifest
+// order, preserving duplicate entries for the repair layer to resolve.
+func (l *LoadedInput) OrderItems() []repair.Item {
+	var items []repair.Item
+	for i, e := range l.Manifest.Entries {
+		if e.Kind != KindMedia {
+			continue
 		}
+		p := l.Probes[e.Name]
+		items = append(items, repair.Item{
+			Segment: e.Name, HasMfhd: p.HasMfhd, Sequence: p.Sequence,
+			MfhdOffset: p.MoofOffset, Index: i,
+		})
+	}
+	return items
+}
+
+// Tasks returns streaming parse tasks in the given deterministic order.
+func (l *LoadedInput) Tasks(ord *repair.Ordered) []Task {
+	tasks := make([]Task, 0, len(ord.Items))
+	for _, it := range ord.Items {
+		tasks = append(tasks, Task{Segment: it.Segment, Probe: l.Probes[it.Segment]})
+	}
+	return tasks
+}
+
+// InitFor returns the init segment that owns the given media segment.
+func (l *LoadedInput) InitFor(segment string) *parse.Init {
+	if init, ok := l.OwnerInit[segment]; ok {
+		return init
+	}
+	if len(l.Inits) > 0 {
+		return l.Inits[0]
 	}
 	return nil
 }
 
-// CompatibleStart validates that an on-disk checkpoint belongs to this exact
-// input manifest and that its committed prefix still matches its digest,
-// returning the resumable start state. Any mismatch is an incompatible-resume
-// fault, never a silent restart.
-func CompatibleStart(m *Manifest, cp *index.Checkpoint) (Start, error) {
+// StartFor builds a fresh resumable start state.
+func (l *LoadedInput) StartFor(ord *repair.Ordered) Start {
+	return Start{InputDigest: l.Manifest.Digest, MissingMfhd: ord.Missing}
+}
+
+// ResumeStart validates that an on-disk checkpoint belongs to this exact input
+// manifest and returns the resumable start state. A mismatch is reported as a
+// checkpoint fault so the CLI can exit with code 3 instead of silently
+// restarting and overwriting good output.
+func ResumeStart(m *Manifest, cp *index.Checkpoint) (Start, error) {
 	start := Start{Resuming: true, InputDigest: m.Digest}
-	if cp.InputDigest != m.Digest {
-		return start, fmt.Errorf("checkpoint input digest %s does not match manifest %s",
-			cp.InputDigest, m.Digest)
+	if cp.InputDigest == "" || cp.InputDigest != m.Digest {
+		return start, fault.New(fault.KindCheckpoint, "", "", 0,
+			fmt.Sprintf("checkpoint input digest %q does not match manifest %q", cp.InputDigest, m.Digest))
 	}
-	if cp.FragmentsTotal != countMedia(m) {
-		return start, fmt.Errorf("checkpoint expects %d fragments, manifest has %d",
-			cp.FragmentsTotal, countMedia(m))
+	media := countMedia(m)
+	if cp.FragmentsTotal != media {
+		return start, fault.New(fault.KindCheckpoint, "", "", 0,
+			fmt.Sprintf("checkpoint expects %d fragments, manifest has %d", cp.FragmentsTotal, media))
 	}
-	if cp.Committed > cp.FragmentsTotal {
-		return start, fmt.Errorf("checkpoint committed %d > total %d", cp.Committed, cp.FragmentsTotal)
+	if cp.Committed < 0 || cp.Committed > cp.FragmentsTotal {
+		return start, fault.New(fault.KindCheckpoint, "", "", 0,
+			fmt.Sprintf("checkpoint committed %d outside 0..%d", cp.Committed, cp.FragmentsTotal))
 	}
 	start.Committed = cp.Committed
 	start.CommittedDigest = cp.CommittedDigest

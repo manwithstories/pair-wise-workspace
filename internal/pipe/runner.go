@@ -136,15 +136,15 @@ func (s *stageFault) get() error {
 
 // Run streams fragments through parse -> transform -> verify stages connected
 // by bounded queues and writes a deterministic output plus checkpoint.
-func Run(ctx context.Context, workDir string, init *parse.Init, fragments []*parse.Fragment, files map[string]*os.File, start Start, opts Options) (*Result, error) {
+func Run(ctx context.Context, workDir string, init *parse.Init, tasks []Task, l *LoadedInput, start Start, opts Options) (*Result, error) {
 	if opts.QueueCapacity < 1 {
 		return nil, fmt.Errorf("queue capacity must be at least 1")
 	}
-	if len(fragments) == 0 {
+	if len(tasks) == 0 {
 		return nil, fmt.Errorf("no fragments to process")
 	}
-	if start.Committed < 0 || start.Committed > len(fragments) {
-		return nil, fmt.Errorf("resume boundary %d outside %d fragments", start.Committed, len(fragments))
+	if start.Committed < 0 || start.Committed > len(tasks) {
+		return nil, fmt.Errorf("resume boundary %d outside %d fragments", start.Committed, len(tasks))
 	}
 	res := &Result{OutputPath: OutputPath(workDir), CommittedAt: start.Committed,
 		RepairedTfdt: start.RepairedTfdt, MissingMfhd: start.MissingMfhd,
@@ -177,7 +177,7 @@ func Run(ctx context.Context, workDir string, init *parse.Init, fragments []*par
 	go func() {
 		defer wg.Done()
 		defer parseQ.Close()
-		produceStage(runCtx, parseQ, fragments, files, start.Committed, fault)
+		produceStage(runCtx, parseQ, tasks, l, init, start.Committed, fault)
 	}()
 	go func() {
 		defer wg.Done()
@@ -186,7 +186,12 @@ func Run(ctx context.Context, workDir string, init *parse.Init, fragments []*par
 	}()
 
 	entries := append([]index.Entry(nil), start.Entries...)
-	total := len(fragments)
+	nextBase := make(map[uint32]uint64, len(start.NextDecodeTime))
+	for k, v := range start.NextDecodeTime {
+		nextBase[k] = v
+	}
+	repairedCommitted := start.RepairedTfdt
+	total := len(tasks)
 	interrupted := false
 	var commitErr error
 	for pos := start.Committed; pos < total; pos++ {
@@ -218,8 +223,22 @@ func Run(ctx context.Context, workDir string, init *parse.Init, fragments []*par
 		if ev.Peak > res.PeakQueue {
 			res.PeakQueue = ev.Peak
 		}
-		repaired, _ := builder.Counts()
-		res.RepairedTfdt = start.RepairedTfdt + repaired
+		// Counters and the resume cursor advance only for committed data, so
+		// fragments still in flight when the run is cut short never leak into
+		// the checkpoint.
+		for _, ft := range ev.Entries {
+			if ft.Reason == repair.ReasonBackward {
+				repairedCommitted++
+			}
+			last := nextBase[ft.TrackID]
+			if len(ft.Samples) > 0 {
+				last = ft.Samples[len(ft.Samples)-1].EndDTS
+			} else {
+				last = ft.RepairedBase
+			}
+			nextBase[ft.TrackID] = last
+		}
+		res.RepairedTfdt = repairedCommitted
 		if opts.OnCommit != nil {
 			if cerr := opts.OnCommit(Progress{
 				Index: res.CommittedAt, Total: total, Segment: ev.Segment,
@@ -245,19 +264,19 @@ func Run(ctx context.Context, workDir string, init *parse.Init, fragments []*par
 	}
 	if commitErr != nil && !errors.Is(commitErr, ErrClosed) {
 		// Persist every fully committed fragment before reporting the fault.
-		if cp := res.seal(builder, out, entries, total); cp != nil {
+		if cp := res.seal(out, entries, nextBase, total); cp != nil {
 			if err := index.Save(CheckpointPath(workDir), cp); err == nil {
 				res.Checkpoint = cp
 			}
 		}
 		out.Close()
 		if errors.Is(commitErr, context.Canceled) || errors.Is(commitErr, context.DeadlineExceeded) || errors.Is(commitErr, ErrClosed) {
-			return res, &CancelledError{LastCommitted: res.lastSegment(fragments), Stage: "transform", Err: commitErr}
+			return res, &CancelledError{LastCommitted: res.lastSegment(tasks), Stage: "transform", Err: commitErr}
 		}
 		return res, commitErr
 	}
 	if interrupted {
-		cp := res.seal(builder, out, entries, total)
+		cp := res.seal(out, entries, nextBase, total)
 		if cp == nil {
 			out.Close()
 			return res, fmt.Errorf("cannot seal checkpoint")
@@ -268,13 +287,13 @@ func Run(ctx context.Context, workDir string, init *parse.Init, fragments []*par
 		}
 		res.Checkpoint = cp
 		out.Close()
-		return res, &CancelledError{LastCommitted: res.lastSegment(fragments), Stage: "interrupt", Err: context.Canceled}
+		return res, &CancelledError{LastCommitted: res.lastSegment(tasks), Stage: "interrupt", Err: context.Canceled}
 	}
 	if err := out.Sync(); err != nil {
 		out.Close()
 		return res, err
 	}
-	cp := res.seal(builder, out, entries, total)
+	cp := res.seal(out, entries, nextBase, total)
 	if cp == nil {
 		out.Close()
 		return res, fmt.Errorf("cannot seal checkpoint")
@@ -304,15 +323,29 @@ func Run(ctx context.Context, workDir string, init *parse.Init, fragments []*par
 	return res, nil
 }
 
-func produceStage(ctx context.Context, q *Queue[FragmentEvent], fragments []*parse.Fragment, files map[string]*os.File, skip int, fault *stageFault) {
-	for i := skip; i < len(fragments); i++ {
-		f := fragments[i]
-		file := files[f.Segment]
+func produceStage(ctx context.Context, q *Queue[FragmentEvent], tasks []Task, l *LoadedInput, init *parse.Init, skip int, fault *stageFault) {
+	for i := skip; i < len(tasks); i++ {
+		task := tasks[i]
+		file := l.Files[task.Segment]
 		if file == nil {
-			fault.record(fmt.Errorf("no open file for %s", f.Segment))
+			fault.record(fmt.Errorf("no open file for %s", task.Segment))
 			return
 		}
-		if err := q.Send(ctx, FragmentEvent{Order: i, Fragment: f, File: file}); err != nil {
+		owner := l.InitFor(task.Segment)
+		if owner == nil {
+			owner = init
+		}
+		info, err := file.Stat()
+		if err != nil {
+			fault.record(err)
+			return
+		}
+		frag, err := parse.ParseFragmentReader(file, info.Size(), task.Segment, owner)
+		if err != nil {
+			fault.record(err)
+			return
+		}
+		if err := q.Send(ctx, FragmentEvent{Order: i, Fragment: frag, File: file}); err != nil {
 			if !errors.Is(err, context.Canceled) {
 				fault.record(err)
 			}
@@ -352,14 +385,14 @@ func transformStage(ctx context.Context, in *Queue[FragmentEvent], out *Queue[Ti
 	}
 }
 
-func (r *Result) lastSegment(fragments []*parse.Fragment) string {
-	if r.CommittedAt <= 0 || r.CommittedAt > len(fragments) {
+func (r *Result) lastSegment(tasks []Task) string {
+	if r.CommittedAt <= 0 || r.CommittedAt > len(tasks) {
 		return ""
 	}
-	return fragments[r.CommittedAt-1].Segment
+	return tasks[r.CommittedAt-1].Segment
 }
 
-func (r *Result) seal(builder *repair.Builder, out *verify.Writer, entries []index.Entry, total int) *index.Checkpoint {
+func (r *Result) seal(out *verify.Writer, entries []index.Entry, nextBase map[uint32]uint64, total int) *index.Checkpoint {
 	idx, err := index.Normalize(entries)
 	if err != nil {
 		return nil
@@ -382,7 +415,7 @@ func (r *Result) seal(builder *repair.Builder, out *verify.Writer, entries []ind
 		RepairedTfdt:       r.RepairedTfdt,
 		MissingMfhd:        r.MissingMfhd,
 		OutputBytes:        out.Size(),
-		NextDecodeTime:     builder.Next(),
+		NextDecodeTime:     nextBase,
 		Index:              idx,
 	}
 	if len(names) > 0 {

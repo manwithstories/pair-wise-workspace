@@ -4,39 +4,31 @@ import (
 	"testing"
 
 	"archivecheck/internal/fault"
-	"archivecheck/internal/parse"
 )
 
-func frag(seg string, seq uint32, has bool) *parse.Fragment {
-	return &parse.Fragment{Segment: seg, Sequence: seq, HasMfhd: has}
+func item(seg string, seq uint32, has bool, idx int) Item {
+	return Item{Segment: seg, Sequence: seq, HasMfhd: has, Index: idx}
 }
 
 func TestOrderRepairsGapAndOrder(t *testing.T) {
-	frags := []*parse.Fragment{
-		frag("f3", 3, true),
-		frag("f1", 1, true),
-		frag("f2", 2, true),
-		frag("f5", 5, true),
-		frag("f6", 6, true),
-	}
-	ord, err := Order(frags)
+	ord, err := Order([]Item{
+		item("f3", 3, true, 0),
+		item("f1", 1, true, 1),
+		item("f2", 2, true, 2),
+		item("f5", 5, true, 3),
+		item("f6", 6, true, 4),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var names []string
-	for _, f := range ord.Fragments {
-		names = append(names, f.Segment)
+	if len(ord.Items) != 5 {
+		t.Fatalf("items = %d", len(ord.Items))
 	}
-	want := "f1,f2,f3,f5,f6"
-	got := ""
-	for i, n := range names {
-		if i > 0 {
-			got += ","
+	want := []string{"f1", "f2", "f3", "f5", "f6"}
+	for i, it := range ord.Items {
+		if it.Segment != want[i] {
+			t.Fatalf("item %d = %s, want %s", i, it.Segment, want[i])
 		}
-		got += n
-	}
-	if got != want {
-		t.Fatalf("order = %s, want %s", got, want)
 	}
 	if ord.Missing != 1 {
 		t.Fatalf("missing = %d, want 1", ord.Missing)
@@ -53,12 +45,12 @@ func TestOrderRepairsGapAndOrder(t *testing.T) {
 }
 
 func TestOrderMissingMfhdKeepsManifestSlot(t *testing.T) {
-	ord, err := Order([]*parse.Fragment{frag("a", 1, true), frag("b", 0, false), frag("c", 2, true)})
+	ord, err := Order([]Item{item("a", 1, true, 0), item("b", 0, false, 1), item("c", 2, true, 2)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ord.Fragments) != 3 {
-		t.Fatalf("fragments = %d", len(ord.Fragments))
+	if len(ord.Items) != 3 {
+		t.Fatalf("items = %d", len(ord.Items))
 	}
 	var missing int
 	for _, is := range ord.Issues {
@@ -72,19 +64,18 @@ func TestOrderMissingMfhdKeepsManifestSlot(t *testing.T) {
 }
 
 func TestOrderRejectsConflictingDuplicate(t *testing.T) {
-	_, err := Order([]*parse.Fragment{frag("a", 1, true), frag("b", 1, true)})
+	_, err := Order([]Item{item("a", 1, true, 0), item("b", 1, true, 1)})
 	if err == nil || !fault.IsKind(err, fault.KindSequence) {
 		t.Fatalf("err = %v", err)
 	}
 }
 
 func TestOrderDropsIdenticalDuplicate(t *testing.T) {
-	f := frag("a", 1, true)
-	ord, err := Order([]*parse.Fragment{f, f})
+	ord, err := Order([]Item{item("a", 1, true, 0), item("a", 1, true, 1)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ord.Fragments) != 1 || ord.Duplicates() != 1 {
-		t.Fatalf("fragments = %d duplicates = %d", len(ord.Fragments), ord.Duplicates())
+	if len(ord.Items) != 1 || ord.Duplicates() != 1 {
+		t.Fatalf("items = %d duplicates = %d", len(ord.Items), ord.Duplicates())
 	}
 }
