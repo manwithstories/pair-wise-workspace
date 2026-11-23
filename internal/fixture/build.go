@@ -1,6 +1,64 @@
 package fixture
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"mediasim/internal/clock"
+)
+
+// Build writes a deterministic MP4 for the spec and returns the bytes and
+// the manifest describing what the file should contain.
+func Build(spec Spec) ([]byte, *Manifest, error) {
+	if spec.Cam0 < 0 || spec.Cam1 < 0 || spec.Audio < 0 {
+		return nil, nil, fmt.Errorf("fixture: negative sample count")
+	}
+	if spec.Cam0 > 600 || spec.Cam1 > 600 || spec.Audio > 1200 {
+		return nil, nil, fmt.Errorf("fixture: sample counts exceed limits")
+	}
+	man := manifestFor(spec)
+	m := &builder{spec: spec, man: man}
+	if err := m.build(); err != nil {
+		return nil, nil, err
+	}
+	return m.finish(), man, nil
+}
+
+func manifestFor(spec Spec) *Manifest {
+	man := &Manifest{
+		Name: spec.Name, Seed: spec.Seed,
+		TickRate: clock.MustRational(TickNum, TickDen),
+		FPS:      clock.MustRational(FPSNum, FPSDen),
+		Fault:    spec.Fault,
+	}
+	if spec.Cam0 > 0 {
+		man.Tracks = append(man.Tracks, TrackSpec{
+			ID: TrackCam0, Kind: "video", Source: SourceCam0, Count: spec.Cam0,
+			SampleSize: VideoBytes, FrameTicks: VideoFrameTicks,
+			Timescale: VideoTimescale, Delta: VideoDelta, KeyframeEvery: KeyframeEvery,
+			Codec: "avc1",
+		})
+	}
+	if spec.Cam1 > 0 {
+		man.Tracks = append(man.Tracks, TrackSpec{
+			ID: TrackCam1, Kind: "video", Source: SourceCam1, Count: spec.Cam1,
+			SampleSize: VideoBytes, FrameTicks: VideoFrameTicks,
+			Timescale: VideoTimescale, Delta: VideoDelta, KeyframeEvery: KeyframeEvery,
+			Codec: "avc1",
+		})
+	}
+	if spec.Audio > 0 {
+		man.Tracks = append(man.Tracks, TrackSpec{
+			ID: TrackVoice, Kind: "audio", Source: SourceVoice, Count: spec.Audio,
+			SampleSize: AudioBytes, FrameTicks: AudioChunkTicks,
+			Timescale: AudioTimescale, Delta: AudioDelta, Codec: "mp4a",
+		})
+	}
+	man.TotalTicks = TotalTicks
+	return man
+}
 
 func (b *builder) build() error {
 	// Compute mdat-relative offsets first so stco can be written in one pass.
@@ -116,4 +174,30 @@ func fullbox(typ string, version byte, flags uint32, payload []byte) []byte {
 	pre[2] = byte(flags >> 8)
 	pre[3] = byte(flags)
 	return box(typ, append(pre, payload...))
+}
+
+// Ensure writes the named preset into dir if it is not already present and
+// returns the file path plus its manifest.
+func Ensure(dir, name string) (string, *Manifest, error) {
+	spec, err := PresetSpec(name)
+	if err != nil {
+		return "", nil, err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", nil, err
+	}
+	path := filepath.Join(dir, spec.Name+".mp4")
+	if st, err := os.Stat(path); err == nil && st.Size() > 0 {
+		// Reuse the existing file, but rebuild the manifest deterministically.
+		_, man, err := Build(spec)
+		return path, man, err
+	}
+	data, man, err := Build(spec)
+	if err != nil {
+		return "", nil, err
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return "", nil, err
+	}
+	return path, man, nil
 }
