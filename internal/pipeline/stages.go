@@ -204,13 +204,27 @@ type jitterDoc struct {
 	HeldBytes int64             `json:"held_bytes"`
 	Late      int               `json:"late"`
 	Dropped   int               `json:"dropped"`
+	// Cameras lists the tracks that were buffered, so a downstream stage can
+	// tell which intervals share a clock.
+	Cameras []string `json:"cameras"`
 }
 
+// runJitter buffers every camera independently. Interleaving tracks through
+// one buffer would let one camera's newest arrival freeze another camera's
+// intervals and would corrupt the jitter estimate.
 func runJitter(s *sample) jitterDoc {
-	b := buffer.New("video", buffer.DefaultConfig())
+	doc := jitterDoc{}
+	bufs := map[string]*buffer.Buffer{}
+	var order []string
 	step := int64(40_000_000) // 25 observations per second
 	var n int64
 	for _, seg := range s.media.Segments {
+		b, ok := bufs[seg.Track]
+		if !ok {
+			b = buffer.New(seg.Track, buffer.DefaultConfig())
+			bufs[seg.Track] = b
+			order = append(order, seg.Track)
+		}
 		end := seg.StartNS + seg.DurNS
 		for t := seg.StartNS; t < end; t += step {
 			n++
@@ -227,14 +241,18 @@ func runJitter(s *sample) jitterDoc {
 			b.Push(sample)
 		}
 	}
-	b.Flush()
-	return jitterDoc{
-		Intervals: b.Committed(),
-		TargetNS:  b.TargetNS(),
-		HeldBytes: b.HeldBytes(),
-		Late:      b.LateCount(),
-		Dropped:   b.Dropped(),
+	for _, name := range order {
+		b := bufs[name]
+		b.Flush()
+		doc.Intervals = append(doc.Intervals, b.Committed()...)
+		doc.Late += b.LateCount()
+		doc.Dropped += b.Dropped()
+		if b.TargetNS() > doc.TargetNS {
+			doc.TargetNS = b.TargetNS()
+		}
 	}
+	doc.Cameras = order
+	return doc
 }
 
 // syncDoc is the persisted shape of the alignment stage.

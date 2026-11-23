@@ -143,9 +143,12 @@ func (r *Reorderer) Push(p Packet, hook RetryHook) (out []Packet, closed []Gap, 
 		r.Stats.Late++
 		return nil, nil, StatusLate
 	}
-	if len(r.buf) >= r.cfg.BufferBudget {
+	if p.Seq > r.next && len(r.buf) >= r.cfg.BufferBudget {
+		// Budget exhausted while this packet is out of order. Declaring the
+		// gap immediately bounds memory. This branch must never run for the
+		// next expected sequence: doing so would invent a gap for a packet
+		// that is contiguous and then discard it.
 		r.Stats.Overflows++
-		// Budget exhausted: declare the gap immediately rather than grow.
 		r.finalizeGap(minU64(r.gapLen(), r.cfg.MaxGapRun))
 	}
 	r.buf[p.Seq] = p
