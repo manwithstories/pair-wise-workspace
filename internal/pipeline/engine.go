@@ -113,6 +113,13 @@ func Run(cfg Config) (Result, error) {
 	case InjectCommitCrash:
 		mgr.FailOnCommit = true
 		mgr.FailCommitStage = cfg.InjectStage
+	case InjectLogTruncate:
+		// Simulate a crash that left a partially written final log record.
+		// Replay must discard the torn tail and resume from the last
+		// verified checkpoint rather than trusting the fragment.
+		if err := txn.TruncateTail(logPath); err != nil {
+			return res, err
+		}
 	}
 
 	// Stage 1: parse and validate every manifest.
