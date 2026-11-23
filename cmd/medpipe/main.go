@@ -115,12 +115,9 @@ func runDemo(args []string) error {
 		}
 		work, cleanup = dir, func() { os.RemoveAll(dir) }
 	}
-	if !flags.keep {
-		if flags.work != "" {
-			// An explicit work directory is always kept; only temp dirs are
-			// removed automatically.
-			defer func() {}()
-		}
+	// A temp work directory is removed unless --keep is passed. An explicit
+	// --work directory belongs to the caller and is never deleted.
+	if !flags.keep && flags.work == "" {
 		defer cleanup()
 	}
 	if err := os.MkdirAll(work, 0o755); err != nil {
@@ -267,11 +264,10 @@ func demonstrateRecovery(cfg pipeline.Config, capture *synth.Capture) (*dag.Bloc
 	if _, _, err := sequence.WriteFile(input, capture.Tracks, damagedFrames); err != nil {
 		return nil, reused, err
 	}
-	// The same store is deliberately reused. After the repair the source
-	// bytes are identical to the capture that was processed successfully at
-	// the start, so every node's idempotency key matches its recorded result
-	// and recovery must reuse those outputs instead of appending duplicate
-	// ones.
+	// The same store is reused on purpose. It proves two things at once:
+	// the damaged content must NOT reuse the clean run's results (its keys
+	// differ), and after repair the restored content must reuse them without
+	// appending duplicate records.
 	failedCfg := cfg
 	failedCfg.OnCorrupt = nil
 	_, runErr := pipeline.Run(failedCfg)
@@ -288,6 +284,14 @@ func demonstrateRecovery(cfg pipeline.Config, capture *synth.Capture) (*dag.Bloc
 	if blocked.Dep != pipeline.NodeSegment {
 		return nil, reused, model.New(model.KindInvariant, "medpipe.demo",
 			fmt.Sprintf("expected segment to block its successors, blocked by %s", blocked.Dep))
+	}
+	if r := failure.Run.Results[pipeline.NodeRead]; r.State != dag.StateDone || r.Reused {
+		return nil, reused, model.New(model.KindInvariant, "medpipe.demo",
+			"damaged content reused a stale read result")
+	}
+	if r := failure.Run.Results[pipeline.NodeFingerprint]; r.State != dag.StateBlocked {
+		return nil, reused, model.New(model.KindInvariant, "medpipe.demo",
+			fmt.Sprintf("fingerprint state = %s, want blocked", r.State))
 	}
 	// The failure pass must not have produced a fingerprint result.
 	if err := os.WriteFile(input, good, 0o644); err != nil {
@@ -309,8 +313,8 @@ func demonstrateRecovery(cfg pipeline.Config, capture *synth.Capture) (*dag.Bloc
 		return nil, reused, model.New(model.KindInvariant, "medpipe.demo",
 			"recovery did not reuse any completed node")
 	}
-	// Recovery must not recompute or duplicate anything: every node's key is
-	// back to its pre-damage value, so every node comes back as reused.
+	// With the original bytes restored, every key is back to its pre-damage
+	// value, so recovery must reuse all recorded results and append nothing.
 	for _, name := range []string{pipeline.NodeRead, pipeline.NodeNormalize, pipeline.NodeIndex,
 		pipeline.NodeAudio, pipeline.NodeSegment, pipeline.NodeFingerprint} {
 		if r := out2.Run.Results[name]; r.State != dag.StateReused {
