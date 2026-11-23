@@ -51,16 +51,16 @@ type SegmentRef struct {
 
 // Manifest is the archive manifest for one recovered stream.
 type Manifest struct {
-	Codec        string      `json:"codec"`
-	Channels     int         `json:"channels"`
-	ClockRate    uint32      `json:"clock_rate"`
-	Timebase     int         `json:"timebase"`
+	Codec        string       `json:"codec"`
+	Channels     int          `json:"channels"`
+	ClockRate    uint32       `json:"clock_rate"`
+	Timebase     int          `json:"timebase"`
 	Segments     []SegmentRef `json:"segments"`
-	Gaps         []Gap       `json:"gaps"`
-	Unrepairable []Mark      `json:"unrepairable"`
-	Quarantined  int         `json:"quarantined"`
-	Degraded     []string    `json:"degraded"`
-	TimelineSHA  string      `json:"timeline_sha256"`
+	Gaps         []Gap        `json:"gaps"`
+	Unrepairable []Mark       `json:"unrepairable"`
+	Quarantined  int          `json:"quarantined"`
+	Degraded     []string     `json:"degraded"`
+	TimelineSHA  string       `json:"timeline_sha256"`
 }
 
 // Build assembles the manifest from pipeline outputs.
