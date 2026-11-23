@@ -28,6 +28,7 @@ type SampleStamp struct {
 
 // FragmentTimeline is the repaired timeline for one fragment/track pair.
 type FragmentTimeline struct {
+	Group        int
 	Segment      string
 	TrackID      uint32
 	Sequence     uint32
@@ -50,86 +51,67 @@ type trackState struct {
 	started bool
 }
 
-// Builder incrementally repairs decode times, so callers can stream fragments
-// without retaining the whole archive.
+// Builder incrementally repairs decode times for one track of one init group,
+// so callers can stream fragments without retaining the whole archive. Each
+// init group is an independent program with its own decode clock.
 type Builder struct {
-	init     *parse.Init
-	state    map[uint32]*trackState
-	repaired int
-	forward  int
+	group     int
+	track     uint32
+	timescale uint32
+	state     trackState
+	repaired  int
+	forward   int
 }
 
-// NewBuilder validates the init segment and returns a fresh builder.
-func NewBuilder(init *parse.Init) (*Builder, error) {
-	if init == nil {
-		return nil, fault.New(fault.KindTimeline, "", "tfdt", 0, "nil init input")
+// NewBuilder validates a track and returns a fresh builder for it.
+func NewBuilder(group int, track *parse.Track) (*Builder, error) {
+	if track == nil {
+		return nil, fault.New(fault.KindTimeline, "", "trex", 0, "nil track")
 	}
-	if len(init.Tracks) == 0 {
-		return nil, fault.New(fault.KindMissingBox, init.Segment, "trex", 0, "no tracks declared")
+	if _, err := clock.New(track.Timescale); err != nil {
+		return nil, fault.Wrap(err, fault.KindTimeline, "", "mdhd", 0,
+			fmt.Sprintf("track %d has invalid timescale", track.ID))
 	}
-	b := &Builder{init: init, state: map[uint32]*trackState{}}
-	for _, tr := range init.Tracks {
-		if _, err := clock.New(tr.Timescale); err != nil {
-			return nil, fault.Wrap(err, fault.KindTimeline, init.Segment, "mdhd", 0,
-				fmt.Sprintf("track %d has invalid timescale", tr.ID))
-		}
-		b.state[tr.ID] = &trackState{}
-	}
-	return b, nil
+	return &Builder{group: group, track: track.ID, timescale: track.Timescale}, nil
 }
 
-// Seed restores the per-track next decode time from a checkpoint.
-func (b *Builder) Seed(next map[uint32]uint64) {
-	for id, v := range next {
-		if st := b.state[id]; st != nil {
-			st.next = v
-			st.started = true
-		}
-	}
+// Seed restores the next decode time from a checkpoint.
+func (b *Builder) Seed(next uint64, started bool) {
+	b.state.next = next
+	b.state.started = started
 }
 
-// Next returns the per-track decode time after the last added sample.
-func (b *Builder) Next() map[uint32]uint64 {
-	out := make(map[uint32]uint64, len(b.state))
-	for id, st := range b.state {
-		out[id] = st.next
-	}
-	return out
-}
+// Next returns the decode time after the last added sample and whether any
+// fragment has been seen.
+func (b *Builder) Next() (uint64, bool) { return b.state.next, b.state.started }
 
 // Counts returns the number of backward and forward repairs observed.
 func (b *Builder) Counts() (repaired, forward int) { return b.repaired, b.forward }
 
-// Add repairs one parsed fragment and returns one timeline entry per traf.
+// Add repairs one parsed fragment for this builder's track and returns the
+// timeline entries for that track.
 func (b *Builder) Add(f *parse.Fragment) ([]FragmentTimeline, error) {
 	if f == nil {
 		return nil, fault.New(fault.KindTimeline, "", "moof", 0, "nil fragment")
 	}
-	out := make([]FragmentTimeline, 0, len(f.Trafs))
+	var out []FragmentTimeline
 	for _, traf := range f.Trafs {
-		track, ok := b.init.Tracks[traf.TrackID]
-		if !ok {
-			return nil, fault.New(fault.KindMissingBox, f.Segment, "trex", f.MoofOffset,
-				fmt.Sprintf("fragment references undeclared track %d", traf.TrackID))
-		}
-		st := b.state[traf.TrackID]
-		if st == nil {
-			return nil, fault.New(fault.KindMissingBox, f.Segment, "trex", f.MoofOffset,
-				fmt.Sprintf("track %d has no timeline state", traf.TrackID))
+		if traf.TrackID != b.track {
+			continue
 		}
 		entry := FragmentTimeline{
-			Segment: f.Segment, TrackID: traf.TrackID, Sequence: f.Sequence,
+			Group: f.Group, Segment: f.Segment, TrackID: traf.TrackID, Sequence: f.Sequence,
 			OriginalBase: traf.BaseDecodeTime, RepairedBase: traf.BaseDecodeTime,
-			Reason: ReasonNone, Timescale: track.Timescale,
+			Reason: ReasonNone, Timescale: b.timescale,
 		}
-		if st.started && traf.BaseDecodeTime < st.next {
-			entry.RepairedBase = st.next
+		if b.state.started && traf.BaseDecodeTime < b.state.next {
+			entry.RepairedBase = b.state.next
 			entry.Reason = ReasonBackward
 			b.repaired++
-		} else if st.started && traf.BaseDecodeTime > st.next {
+		} else if b.state.started && traf.BaseDecodeTime > b.state.next {
 			entry.Reason = ReasonGap
 			b.forward++
-		} else if !st.started && traf.BaseDecodeTime != 0 {
+		} else if !b.state.started && traf.BaseDecodeTime != 0 {
 			entry.Reason = ReasonGap
 			b.forward++
 		}
@@ -152,16 +134,16 @@ func (b *Builder) Add(f *parse.Fragment) ([]FragmentTimeline, error) {
 			entry.Samples = append(entry.Samples, stamp)
 			cursor = stamp.EndDTS
 		}
-		st.next = cursor
-		st.started = true
+		b.state.next = cursor
+		b.state.started = true
 		out = append(out, entry)
 	}
 	return out, nil
 }
 
-// Build repairs an entire ordered archive at once.
-func Build(frags []*parse.Fragment, init *parse.Init) (*Timeline, error) {
-	b, err := NewBuilder(init)
+// Build repairs an entire already-ordered list of fragments for one track.
+func Build(group int, frags []*parse.Fragment, track *parse.Track) (*Timeline, error) {
+	b, err := NewBuilder(group, track)
 	if err != nil {
 		return nil, err
 	}

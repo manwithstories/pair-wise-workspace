@@ -34,6 +34,12 @@ func marshalBox(b mp4.IImmutableBox) []byte {
 	return buf.Bytes()
 }
 
+// BuildInit exposes the init writer for multi-group fixtures.
+func BuildInit(spec InitSpec) []byte { return buildInit(spec) }
+
+// BuildFragment exposes the media-fragment writer for multi-group fixtures.
+func BuildFragment(spec FragmentSpec) []byte { return buildFragment(spec) }
+
 // InitSpec describes one initialization segment with a single track.
 type InitSpec struct {
 	TrackID   uint32

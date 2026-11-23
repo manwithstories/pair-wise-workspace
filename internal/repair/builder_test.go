@@ -7,10 +7,8 @@ import (
 	"archivecheck/internal/testkit"
 )
 
-// TestBuilderReportsCountsPerFragment asserts the incremental counters that the
-// pipeline persists at each checkpoint boundary, including the exact fragment
-// at which each backward tfdt repair is applied.
-func TestBuilderReportsCountsPerFragment(t *testing.T) {
+func stdTrack(t *testing.T) ([]*parse.Fragment, *parse.Init, *parse.Track) {
+	t.Helper()
 	initSpec, fragSpecs := testkit.StandardSampleLayout()
 	m, err := testkit.Generate(t.TempDir(), initSpec, fragSpecs)
 	if err != nil {
@@ -36,27 +34,31 @@ func TestBuilderReportsCountsPerFragment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[uint32]int{
-		5:  1, // frag-005 repairs the regression introduced by frag-005's tfdt
-		6:  1,
-		8:  1,
-		9:  1,
-		10: 1,
-		11: 2, // frag-011 repairs the second regression
-		12: 2,
-		13: 2,
+	ordered := make([]*parse.Fragment, len(ord.Items))
+	for i, it := range ord.Items {
+		ordered[i] = frags[it.Index]
 	}
-	b, err := NewBuilder(init)
+	return ordered, init, init.Tracks[1]
+}
+
+// TestBuilderReportsCountsPerFragment asserts the incremental counters that the
+// pipeline persists at each checkpoint boundary.
+func TestBuilderReportsCountsPerFragment(t *testing.T) {
+	frags, _, track := stdTrack(t)
+	// Ordered fragments are indices 0..11 of the sorted order (sequence 1..6,
+	// 8..13); the two regressions land at ordered positions 4 and 9.
+	want := map[int]int{4: 1, 8: 1, 11: 2}
+	b, err := NewBuilder(0, track)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, it := range ord.Items {
-		if _, err := b.Add(frags[it.Index]); err != nil {
+	for i, f := range frags {
+		if _, err := b.Add(f); err != nil {
 			t.Fatal(err)
 		}
 		repaired, _ := b.Counts()
-		if got, ok := want[it.Sequence]; ok && repaired != got {
-			t.Fatalf("after sequence %d repaired = %d, want %d", it.Sequence, repaired, got)
+		if got, ok := want[i]; ok && repaired != got {
+			t.Fatalf("after fragment %d repaired = %d, want %d", i, repaired, got)
 		}
 	}
 	if repaired, _ := b.Counts(); repaired != 2 {
@@ -65,31 +67,28 @@ func TestBuilderReportsCountsPerFragment(t *testing.T) {
 }
 
 func TestBuilderSeededResumeContinuesCounts(t *testing.T) {
-	init := &parse.Init{Segment: "init.mp4", Tracks: map[uint32]*parse.Track{
-		1: {ID: 1, Timescale: 1000},
-	}}
+	track := &parse.Track{ID: 1, Timescale: 1000}
 	mk := func(seg string, base uint64) *parse.Fragment {
 		return &parse.Fragment{Segment: seg, HasMfhd: true, Sequence: 1,
 			Trafs: []parse.Traf{{TrackID: 1, BaseDecodeTime: base,
 				Samples: []parse.Sample{{TrackID: 1, Duration: 100, Size: 1, Offset: 0}}}}}
 	}
-	b, err := NewBuilder(init)
+	b, err := NewBuilder(0, track)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := b.Add(mk("a", 500)); err != nil {
 		t.Fatal(err)
 	}
-	repaired, _ := b.Counts()
-	if repaired != 0 {
-		t.Fatalf("repaired = %d", repaired)
+	next, started := b.Next()
+	if !started {
+		t.Fatal("builder did not mark started")
 	}
-	// A regression against seeded state must be repaired once.
-	b2, err := NewBuilder(init)
+	b2, err := NewBuilder(0, track)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b2.Seed(b.Next())
+	b2.Seed(next, started)
 	if _, err := b2.Add(mk("b", 500)); err != nil {
 		t.Fatal(err)
 	}

@@ -51,7 +51,7 @@ func buildTimeline(t *testing.T) *repair.Timeline {
 	for i, it := range ord.Items {
 		ordered[i] = frags[it.Index]
 	}
-	tl, err := repair.Build(ordered, in)
+	tl, err := repair.Build(0, ordered, in.Tracks[1])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestIndexMarksUnseekableInterval(t *testing.T) {
 			{TrackID: 1, Duration: 100, Size: 10, Flags: 0x01010000, Offset: 110},
 		}}},
 	}}
-	tl, err := repair.Build(frags, init)
+	tl, err := repair.Build(0, frags, init.Tracks[1])
 	if err != nil {
 		t.Fatal(err)
 	}

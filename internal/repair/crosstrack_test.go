@@ -22,7 +22,7 @@ func TestCrossTrackMappingUsesExactRationals(t *testing.T) {
 				{TrackID: 2, Duration: 1024, Size: 10, Offset: 10},
 			}}}},
 	}
-	tl, err := Build(frags, init)
+	tl, err := Build(0, frags[:1], init.Tracks[1])
 	if err != nil {
 		t.Fatal(err)
 	}

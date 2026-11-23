@@ -11,8 +11,11 @@ import (
 	"archivecheck/internal/fault"
 )
 
-// Item is one media segment's ordering metadata.
+// Item is one media segment's ordering metadata. Group identifies the init
+// segment that owns it; each group is an independent program with its own mfhd
+// counter, so ordering never mixes groups.
 type Item struct {
+	Group      int
 	Segment    string
 	HasMfhd    bool
 	Sequence   uint32
@@ -22,6 +25,7 @@ type Item struct {
 
 // Issue records a deterministic ordering decision.
 type Issue struct {
+	Group    int
 	Segment  string
 	Sequence uint32
 	Kind     string // "missing", "duplicate", "out_of_order"
@@ -37,18 +41,23 @@ type Ordered struct {
 	Dropped int
 }
 
-// Order builds a deterministic order from archive input order. Fragments with
-// mfhd gaps are placed by declared sequence number, gaps are reported exactly
-// once, identical duplicates are dropped, and conflicting duplicates or a
-// declared sequence that contradicts itself is rejected.
+// Order builds a deterministic order from archive input order. Groups keep
+// their manifest order; within a group, fragments are placed by declared
+// sequence number, gaps are reported exactly once, identical duplicates are
+// dropped, and conflicting duplicates or a non-increasing declared sequence
+// are rejected.
 func Order(items []Item) (*Ordered, error) {
 	out := &Ordered{}
 	sorted := append([]Item(nil), items...)
 	for i := range sorted {
 		sorted[i].Index = i
 	}
+	// Groups are independent programs; stable-sort within each group only.
 	sort.SliceStable(sorted, func(a, b int) bool {
 		x, y := sorted[a], sorted[b]
+		if x.Group != y.Group {
+			return x.Group < y.Group
+		}
 		if x.HasMfhd && y.HasMfhd && x.Sequence != y.Sequence {
 			return x.Sequence < y.Sequence
 		}
@@ -57,55 +66,73 @@ func Order(items []Item) (*Ordered, error) {
 		}
 		return x.Index < y.Index
 	})
-	seen := map[uint32]int{}
+	seen := map[[2]uint32]int{}
 	for _, it := range sorted {
 		if !it.HasMfhd {
 			out.Items = append(out.Items, it)
 			out.Issues = append(out.Issues, Issue{
-				Segment: it.Segment, Kind: "missing", Index: it.Index,
+				Group: it.Group, Segment: it.Segment, Kind: "missing", Index: it.Index,
 				Detail: "fragment has no mfhd; ordered by manifest position",
 			})
 			continue
 		}
-		if prev, dup := seen[it.Sequence]; dup {
+		key := [2]uint32{uint32(it.Group), it.Sequence}
+		if prev, dup := seen[key]; dup {
 			if out.Items[prev].Segment != it.Segment {
 				return nil, fault.New(fault.KindSequence, it.Segment, "mfhd", it.MfhdOffset,
-					fmt.Sprintf("duplicate sequence number %d conflicts with %s", it.Sequence, out.Items[prev].Segment))
+					fmt.Sprintf("duplicate sequence number %d in group %d conflicts with %s",
+						it.Sequence, it.Group, out.Items[prev].Segment))
 			}
 			out.Dropped++
 			out.Issues = append(out.Issues, Issue{
-				Segment: it.Segment, Sequence: it.Sequence, Kind: "duplicate", Index: it.Index,
+				Group: it.Group, Segment: it.Segment, Sequence: it.Sequence, Kind: "duplicate", Index: it.Index,
 				Detail: "byte-identical duplicate dropped",
 			})
 			continue
 		}
-		seen[it.Sequence] = len(out.Items)
+		seen[key] = len(out.Items)
 		out.Items = append(out.Items, it)
 	}
+	prevGroup := -1
 	var declared []uint32
+	flush := func() error {
+		for i := 1; i < len(declared); i++ {
+			if declared[i] <= declared[i-1] {
+				return fault.New(fault.KindSequence, "", "mfhd", 0,
+					fmt.Sprintf("declared sequence %d is not strictly increasing after %d in group %d",
+						declared[i], declared[i-1], prevGroup))
+			}
+			for missing := declared[i-1] + 1; missing < declared[i]; missing++ {
+				out.Missing++
+				out.Issues = append(out.Issues, Issue{
+					Group: prevGroup, Sequence: missing, Kind: "missing",
+					Detail: fmt.Sprintf("mfhd sequence %d absent; gap between %d and %d in group %d",
+						missing, declared[i-1], declared[i], prevGroup),
+				})
+			}
+		}
+		declared = nil
+		return nil
+	}
 	for _, it := range out.Items {
+		if it.Group != prevGroup {
+			if err := flush(); err != nil {
+				return nil, err
+			}
+			prevGroup = it.Group
+		}
 		if it.HasMfhd {
 			declared = append(declared, it.Sequence)
 		}
 	}
-	for i := 1; i < len(declared); i++ {
-		if declared[i] <= declared[i-1] {
-			return nil, fault.New(fault.KindSequence, "", "mfhd", 0,
-				fmt.Sprintf("declared sequence %d is not strictly increasing after %d", declared[i], declared[i-1]))
-		}
-		for missing := declared[i-1] + 1; missing < declared[i]; missing++ {
-			out.Missing++
-			out.Issues = append(out.Issues, Issue{
-				Sequence: missing, Kind: "missing",
-				Detail: fmt.Sprintf("mfhd sequence %d absent; gap between %d and %d", missing, declared[i-1], declared[i]),
-			})
-		}
+	if err := flush(); err != nil {
+		return nil, err
 	}
 	for pos, it := range out.Items {
-		if it.HasMfhd && it.Index != pos {
+		if it.HasMfhd && it.Index != pos && it.Group == out.Items[pos].Group {
 			out.Issues = append(out.Issues, Issue{
-				Segment: it.Segment, Sequence: it.Sequence, Kind: "out_of_order", Index: it.Index,
-				Detail: fmt.Sprintf("manifest position %d moved to %d by mfhd order", it.Index, pos),
+				Group: it.Group, Segment: it.Segment, Sequence: it.Sequence, Kind: "out_of_order", Index: it.Index,
+				Detail: fmt.Sprintf("manifest position %d reordered by mfhd sequence", it.Index),
 			})
 		}
 	}

@@ -87,7 +87,7 @@ type Start struct {
 	Committed       int
 	CommittedDigest string
 	OutputBytes     int64
-	NextDecodeTime  map[uint32]uint64
+	NextDecodeTime  map[string]uint64
 	Entries         []index.Entry
 	RepairedTfdt    int
 	MissingMfhd     int
@@ -136,7 +136,7 @@ func (s *stageFault) get() error {
 
 // Run streams fragments through parse -> transform -> verify stages connected
 // by bounded queues and writes a deterministic output plus checkpoint.
-func Run(ctx context.Context, workDir string, init *parse.Init, tasks []Task, l *LoadedInput, start Start, opts Options) (*Result, error) {
+func Run(ctx context.Context, workDir string, tasks []Task, l *LoadedInput, start Start, opts Options) (*Result, error) {
 	if opts.QueueCapacity < 1 {
 		return nil, fmt.Errorf("queue capacity must be at least 1")
 	}
@@ -149,14 +149,22 @@ func Run(ctx context.Context, workDir string, init *parse.Init, tasks []Task, l 
 	res := &Result{OutputPath: OutputPath(workDir), CommittedAt: start.Committed,
 		RepairedTfdt: start.RepairedTfdt, MissingMfhd: start.MissingMfhd,
 		InputDigest: start.InputDigest}
-	builder, err := repair.NewBuilder(init)
-	if err != nil {
-		return res, err
-	}
-	if start.Resuming {
-		builder.Seed(start.NextDecodeTime)
+	builders := make(map[int]*repair.Builder, len(l.Inits))
+	for gi := range l.Inits {
+		track := l.TrackFor(gi)
+		b, err := repair.NewBuilder(gi, track)
+		if err != nil {
+			return res, err
+		}
+		if start.Resuming {
+			if next, ok := start.NextDecodeTime[CursorKey(gi, track.ID)]; ok {
+				b.Seed(next, true)
+			}
+		}
+		builders[gi] = b
 	}
 	var out *verify.Writer
+	var err error
 	if start.Resuming {
 		out, err = verify.ResumeWriter(res.OutputPath, start.CommittedDigest, start.OutputBytes)
 	} else {
@@ -177,16 +185,16 @@ func Run(ctx context.Context, workDir string, init *parse.Init, tasks []Task, l 
 	go func() {
 		defer wg.Done()
 		defer parseQ.Close()
-		produceStage(runCtx, parseQ, tasks, l, init, start.Committed, fault)
+		produceStage(runCtx, parseQ, tasks, l, start.Committed, fault)
 	}()
 	go func() {
 		defer wg.Done()
 		defer timelineQ.Close()
-		transformStage(runCtx, parseQ, timelineQ, builder, start.Committed, opts.SlowConsumer, fault)
+		transformStage(runCtx, parseQ, timelineQ, builders, opts.SlowConsumer, fault)
 	}()
 
 	entries := append([]index.Entry(nil), start.Entries...)
-	nextBase := make(map[uint32]uint64, len(start.NextDecodeTime))
+	nextBase := make(map[string]uint64, len(start.NextDecodeTime))
 	for k, v := range start.NextDecodeTime {
 		nextBase[k] = v
 	}
@@ -243,13 +251,13 @@ func Run(ctx context.Context, workDir string, init *parse.Init, tasks []Task, l 
 			if ft.Reason == repair.ReasonBackward {
 				repairedCommitted++
 			}
-			last := nextBase[ft.TrackID]
+			last := nextBase[CursorKey(ft.Group, ft.TrackID)]
 			if len(ft.Samples) > 0 {
 				last = ft.Samples[len(ft.Samples)-1].EndDTS
 			} else {
 				last = ft.RepairedBase
 			}
-			nextBase[ft.TrackID] = last
+			nextBase[CursorKey(ft.Group, ft.TrackID)] = last
 		}
 		res.RepairedTfdt = repairedCommitted
 		if opts.OnCommit != nil {
@@ -348,7 +356,7 @@ func Run(ctx context.Context, workDir string, init *parse.Init, tasks []Task, l 
 	return res, nil
 }
 
-func produceStage(ctx context.Context, q *Queue[FragmentEvent], tasks []Task, l *LoadedInput, init *parse.Init, skip int, fault *stageFault) {
+func produceStage(ctx context.Context, q *Queue[FragmentEvent], tasks []Task, l *LoadedInput, skip int, fault *stageFault) {
 	for i := skip; i < len(tasks); i++ {
 		task := tasks[i]
 		file := l.Files[task.Segment]
@@ -358,14 +366,15 @@ func produceStage(ctx context.Context, q *Queue[FragmentEvent], tasks []Task, l 
 		}
 		owner := l.InitFor(task.Segment)
 		if owner == nil {
-			owner = init
+			fault.record(fmt.Errorf("no init segment owns %s", task.Segment))
+			return
 		}
 		info, err := file.Stat()
 		if err != nil {
 			fault.record(err)
 			return
 		}
-		frag, err := parse.ParseFragmentReader(file, info.Size(), task.Segment, owner)
+		frag, err := parse.ParseFragmentReaderInGroup(task.Group, file, info.Size(), task.Segment, owner)
 		if err != nil {
 			fault.record(err)
 			return
@@ -379,7 +388,7 @@ func produceStage(ctx context.Context, q *Queue[FragmentEvent], tasks []Task, l 
 	}
 }
 
-func transformStage(ctx context.Context, in *Queue[FragmentEvent], out *Queue[TimelineEvent], builder *repair.Builder, skip int, slow time.Duration, fault *stageFault) {
+func transformStage(ctx context.Context, in *Queue[FragmentEvent], out *Queue[TimelineEvent], builders map[int]*repair.Builder, slow time.Duration, fault *stageFault) {
 	for {
 		if slow > 0 {
 			select {
@@ -390,6 +399,11 @@ func transformStage(ctx context.Context, in *Queue[FragmentEvent], out *Queue[Ti
 		}
 		ev, err := in.Receive(ctx)
 		if err != nil {
+			return
+		}
+		builder := builders[ev.Fragment.Group]
+		if builder == nil {
+			fault.record(fmt.Errorf("no timeline builder for group %d", ev.Fragment.Group))
 			return
 		}
 		entries, err := builder.Add(ev.Fragment)
@@ -417,7 +431,7 @@ func (r *Result) lastSegment(tasks []Task) string {
 	return tasks[r.CommittedAt-1].Segment
 }
 
-func (r *Result) seal(out *verify.Writer, entries []index.Entry, nextBase map[uint32]uint64, total int) *index.Checkpoint {
+func (r *Result) seal(out *verify.Writer, entries []index.Entry, nextBase map[string]uint64, total int) *index.Checkpoint {
 	idx, err := index.Normalize(entries)
 	if err != nil {
 		return nil

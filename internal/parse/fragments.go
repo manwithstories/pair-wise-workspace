@@ -63,6 +63,7 @@ type Traf struct {
 
 // Fragment is a parsed media segment: one moof plus its mdat.
 type Fragment struct {
+	Group       int
 	Segment     string
 	Sequence    uint32
 	HasMfhd     bool
@@ -234,15 +235,26 @@ type parsedTrun struct {
 // ParseFragment reads one media segment file and validates every sample
 // range against its following mdat.
 func ParseFragment(f *os.File, segment string, init *Init) (*Fragment, error) {
+	return ParseFragmentInGroup(0, f, segment, init)
+}
+
+// ParseFragmentInGroup parses a fragment that belongs to the given init group.
+func ParseFragmentInGroup(group int, f *os.File, segment string, init *Init) (*Fragment, error) {
 	info, err := f.Stat()
 	if err != nil {
 		return nil, fault.Wrap(err, fault.KindShortRead, segment, "", 0, "stat failed")
 	}
-	return ParseFragmentReader(f, info.Size(), segment, init)
+	return ParseFragmentReaderInGroup(group, f, info.Size(), segment, init)
 }
 
 // ParseFragmentReader reads a single moof+mdat segment from a reader.
 func ParseFragmentReader(r io.ReadSeeker, size int64, segment string, init *Init) (*Fragment, error) {
+	return ParseFragmentReaderInGroup(0, r, size, segment, init)
+}
+
+// ParseFragmentReaderInGroup reads a single moof+mdat segment from a reader
+// belonging to the given init group.
+func ParseFragmentReaderInGroup(group int, r io.ReadSeeker, size int64, segment string, init *Init) (*Fragment, error) {
 	var moofPayload []byte
 	var moof, mdat Header
 	seenMoof := false
@@ -281,16 +293,16 @@ func ParseFragmentReader(r io.ReadSeeker, size int64, segment string, init *Init
 	if !seenMdat {
 		return nil, fault.New(fault.KindMissingBox, segment, "mdat", moof.Offset, "moof has no following mdat")
 	}
-	return ParseFragmentBoxes(moofPayload, moof, mdat, segment, init)
+	return ParseFragmentBoxes(group, moofPayload, moof, mdat, segment, init)
 }
 
 // ParseFragmentBoxes validates one moof payload against its mdat header.
-func ParseFragmentBoxes(moofPayload []byte, moof, mdat Header, segment string, init *Init) (*Fragment, error) {
+func ParseFragmentBoxes(group int, moofPayload []byte, moof, mdat Header, segment string, init *Init) (*Fragment, error) {
 	if init == nil {
 		return nil, fault.New(fault.KindMissingBox, segment, "moov", 0, "no initialization segment")
 	}
 	frag := &Fragment{
-		Segment: segment, MoofOffset: moof.Offset, MoofSize: moof.Size,
+		Group: group, Segment: segment, MoofOffset: moof.Offset, MoofSize: moof.Size,
 		MdatOffset: mdat.Offset, MdatSize: mdat.Size,
 		MdatPayload: mdat.PayloadOffset(), MdatEnd: mdat.End(),
 	}
@@ -465,63 +477,4 @@ func resolveFlags(i int, e mp4.TrunEntry, flags uint32, tr *mp4.Trun, tfhd *mp4.
 		return tfhd.DefaultSampleFlags
 	}
 	return track.DefaultFlags
-}
-
-// Probe describes a media segment's ordering metadata without validating its
-// samples. It is cheap enough to use for sequencing before streaming work.
-type Probe struct {
-	Segment    string
-	HasMfhd    bool
-	Sequence   uint32
-	MoofOffset int64
-}
-
-// ProbeSegment reads only the moof box to extract mfhd ordering metadata. It
-// still enforces box bounds, so a truncated header is reported with its offset.
-func ProbeSegment(r io.ReadSeeker, size int64, segment string) (Probe, error) {
-	p := Probe{Segment: segment, MoofOffset: -1}
-	var moofPayload []byte
-	var moof Header
-	seen := false
-	err := WalkReader(r, size, segment, func(h Header, rr io.ReadSeeker) error {
-		if h.Type != "moof" {
-			return nil
-		}
-		if seen {
-			return fault.New(fault.KindMalformed, segment, "moof", h.Offset, "multiple moof boxes")
-		}
-		seen = true
-		moof = h
-		payload, err := ReadPayload(rr, h, segment)
-		if err != nil {
-			return err
-		}
-		moofPayload = payload
-		return nil
-	})
-	if err != nil {
-		return p, err
-	}
-	if !seen {
-		return p, fault.New(fault.KindMissingBox, segment, "moof", 0, "media segment has no moof")
-	}
-	p.MoofOffset = moof.Offset
-	if err := WalkPayload(moofPayload, moof.PayloadOffset(), segment, func(h Header, payload []byte) error {
-		if h.Type != "mfhd" {
-			return nil
-		}
-		var mfhd mp4.Mfhd
-		if err := unmarshalChild(payload, h.PayloadOffset(), segment, "mfhd", &mfhd); err != nil {
-			return err
-		}
-		if p.HasMfhd {
-			return fault.New(fault.KindMalformed, segment, "mfhd", h.Offset, "multiple mfhd boxes")
-		}
-		p.HasMfhd = true
-		p.Sequence = mfhd.SequenceNumber
-		return nil
-	}); err != nil {
-		return p, err
-	}
-	return p, nil
 }

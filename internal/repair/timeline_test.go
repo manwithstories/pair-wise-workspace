@@ -43,7 +43,7 @@ func TestTimelineRepairsBackwardTfdt(t *testing.T) {
 	for i, it := range ord.Items {
 		ordered[i] = frags[it.Index]
 	}
-	tl, err := Build(ordered, init)
+	tl, err := Build(0, ordered, init.Tracks[1])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestTimelineRecordsForwardGap(t *testing.T) {
 		{Segment: "b", Sequence: 2, HasMfhd: true,
 			Trafs: []parse.Traf{{TrackID: 1, BaseDecodeTime: 500, Samples: []parse.Sample{{TrackID: 1, Duration: 100}}}}},
 	}
-	tl, err := Build(frags, init)
+	tl, err := Build(0, frags, init.Tracks[1])
 	if err != nil {
 		t.Fatal(err)
 	}

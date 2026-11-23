@@ -52,7 +52,7 @@ func (f *fixture) start() pipe.Start { return f.loaded.StartFor(f.ord) }
 
 func (f *fixture) run(t *testing.T, start pipe.Start, opts pipe.Options) (*pipe.Result, error) {
 	t.Helper()
-	return pipe.Run(context.Background(), f.work, f.loaded.Inits[0], f.tasks, f.loaded, start, opts)
+	return pipe.Run(context.Background(), f.work, f.tasks, f.loaded, start, opts)
 }
 
 func TestRunCompleteAndVerify(t *testing.T) {
@@ -188,7 +188,7 @@ func TestPeakQueueBoundedAndCancelReleases(t *testing.T) {
 		time.Sleep(3 * time.Millisecond)
 		cancel()
 	}()
-	res, err := pipe.Run(ctx, f.work, f.loaded.Inits[0], f.tasks, f.loaded, f.start(), pipe.Options{
+	res, err := pipe.Run(ctx, f.work, f.tasks, f.loaded, f.start(), pipe.Options{
 		QueueCapacity: 2, SlowConsumer: 3 * time.Millisecond,
 	})
 	if err == nil {
@@ -239,7 +239,7 @@ func TestFaultFailsPipelineAtParseStage(t *testing.T) {
 		t.Fatal(err)
 	}
 	tasks := loaded.Tasks(ord)
-	res, err := pipe.Run(context.Background(), work, loaded.Inits[0], tasks, loaded, loaded.StartFor(ord), pipe.Options{QueueCapacity: 2})
+	res, err := pipe.Run(context.Background(), work, tasks, loaded, loaded.StartFor(ord), pipe.Options{QueueCapacity: 2})
 	if err == nil {
 		t.Fatalf("corrupted corpus completed: %+v", res)
 	}
@@ -326,4 +326,91 @@ func TestResumeAcceptsMatchingCheckpoint(t *testing.T) {
 	if _, err := pipe.ResumeStartFor(f.loaded.Manifest, cp, pipe.OutputPath(f.work)); err != nil {
 		t.Fatalf("matching checkpoint rejected: %v", err)
 	}
+}
+
+// TestMultipleInitGroupsRestoreIndependently writes two programs, each with its
+// own init segment and fragments, then restores and verifies both in one run.
+func TestMultipleInitGroupsRestoreIndependently(t *testing.T) {
+	work := t.TempDir()
+	inDir := filepath.Join(work, "in")
+	if err := os.MkdirAll(inDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeGroup := func(tag string, trackID uint32, timescale uint32, seqs []uint32, bases []uint64) {
+		init := testkit.BuildInit(testkit.InitSpec{TrackID: trackID, Timescale: timescale, Handler: "vide", Width: 640, Height: 360})
+		if err := os.WriteFile(filepath.Join(inDir, "init-"+tag+".mp4"), init, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		for i, seq := range seqs {
+			samples := []testkit.SampleSpec{
+				{Duration: 1000, Size: 64, Sync: true},
+				{Duration: 1000, Size: 64},
+			}
+			data := testkit.BuildFragment(testkit.FragmentSpec{
+				Seq: seq, TrackID: trackID, BaseTime: bases[i], Samples: samples,
+			})
+			name := filepath.Join(inDir, "g"+tag+"-"+strings.TrimSpace(itoa(int(seq)))+".m4s")
+			if err := os.WriteFile(name, data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	writeGroup("a", 1, 90000, []uint32{1, 2, 3}, []uint64{0, 2000, 4000})
+	// Group B reuses sequence numbers 1..3; grouping must keep them separate.
+	writeGroup("b", 2, 48000, []uint32{1, 2, 3}, []uint64{0, 2000, 4000})
+	manifest := "" +
+		"init init-a.mp4\n" +
+		"media ga-1.m4s\nmedia ga-2.m4s\nmedia ga-3.m4s\n" +
+		"init init-b.mp4\n" +
+		"media gb-1.m4s\nmedia gb-2.m4s\nmedia gb-3.m4s\n"
+	manifestPath := filepath.Join(inDir, "manifest.txt")
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := pipe.LoadManifest(inDir, manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := pipe.LoadInputs(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer loaded.Close()
+	ord, err := repair.Order(loaded.OrderItems())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ord.Missing != 0 || ord.Dropped != 0 {
+		t.Fatalf("ordering issues: %+v", ord.Issues)
+	}
+	res, err := pipe.Run(context.Background(), work, loaded.Tasks(ord), loaded, loaded.StartFor(ord), pipe.Options{QueueCapacity: 3})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if res.Checkpoint.FragmentsTotal != 6 || len(res.Checkpoint.Index.Entries) != 12 {
+		t.Fatalf("checkpoint = total %d entries %d", res.Checkpoint.FragmentsTotal, len(res.Checkpoint.Index.Entries))
+	}
+	tracks := map[uint32]int{}
+	for _, e := range res.Checkpoint.Index.Entries {
+		tracks[e.TrackID]++
+	}
+	if tracks[1] != 6 || tracks[2] != 6 {
+		t.Fatalf("track distribution = %v", tracks)
+	}
+	rep, err := verify.Check(res.OutputPath, res.Checkpoint)
+	if err != nil || !rep.Verified {
+		t.Fatalf("verify: %v %+v", err, rep)
+	}
+}
+
+func itoa(v int) string {
+	if v == 0 {
+		return "0"
+	}
+	var b []byte
+	for v > 0 {
+		b = append([]byte{byte('0' + v%10)}, b...)
+		v /= 10
+	}
+	return string(b)
 }

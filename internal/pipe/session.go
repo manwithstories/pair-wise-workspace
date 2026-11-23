@@ -3,6 +3,7 @@ package pipe
 import (
 	"fmt"
 	"os"
+	"strconv"
 
 	"archivecheck/internal/fault"
 	"archivecheck/internal/index"
@@ -10,20 +11,23 @@ import (
 	"archivecheck/internal/repair"
 )
 
-// Task is one media segment scheduled for streaming parse.
+// Task is one media segment scheduled for streaming parse. Group identifies
+// the init group that owns it.
 type Task struct {
+	Group   int
 	Segment string
 	Probe   parse.Probe
 }
 
-// LoadedInput is one parsed archive input set: per group, an init segment and
-// the media fragment probes that determine deterministic order.
+// LoadedInput is a parsed archive: one init segment and its media probes per
+// manifest group, plus the open files that stay alive for the whole run.
 type LoadedInput struct {
 	Manifest  *Manifest
 	Inits     []*parse.Init
 	Probes    map[string]parse.Probe
 	Files     map[string]*os.File
 	OwnerInit map[string]*parse.Init
+	GroupOf   map[string]int
 }
 
 // Close releases every open segment file.
@@ -35,56 +39,45 @@ func (l *LoadedInput) Close() {
 	}
 }
 
-// ErrMultipleInitGroups is returned by LoadInputs when a manifest mixes init
-// groups; a single restored program must map to exactly one track layout.
-var ErrMultipleInitGroups = fault.New(fault.KindPath, "", "moov", 0,
-	"manifest mixes multiple init segments; restore one program per run")
-
-// LoadInputs opens and validates the manifest entries. Init segments are
-// fully parsed; media fragments are probed only far enough to read mfhd
-// ordering. Full fragment validation happens in the streaming parse stage so
-// faults flow through the pipeline and into the resumable checkpoint.
+// LoadInputs opens and validates every manifest entry. Each init segment is
+// fully parsed into its own track namespace. Media fragments are only probed
+// for mfhd ordering here; full validation runs inside the streaming parse
+// stage so faults reach the resumable checkpoint.
 func LoadInputs(m *Manifest) (*LoadedInput, error) {
-	if len(m.Groups) != 1 {
-		return nil, ErrMultipleInitGroups
-	}
 	in := &LoadedInput{
 		Manifest: m, Files: map[string]*os.File{},
 		Probes: map[string]parse.Probe{}, OwnerInit: map[string]*parse.Init{},
+		GroupOf: map[string]int{},
 	}
-	closeAll := func() { in.Close() }
-	for _, g := range m.Groups {
+	for gi, g := range m.Groups {
 		f, err := os.Open(g.Init.Path)
 		if err != nil {
-			closeAll()
+			in.Close()
 			return nil, fault.Wrap(err, fault.KindNotRegular, g.Init.Name, "", 0, "cannot open init")
 		}
 		in.Files[g.Init.Name] = f
 		init, err := parse.ParseInitReader(f, g.Init.Name)
 		if err != nil {
-			closeAll()
+			in.Close()
 			return nil, err
 		}
 		in.Inits = append(in.Inits, init)
 		for _, media := range g.Media {
 			mf, err := os.Open(media.Path)
 			if err != nil {
-				closeAll()
+				in.Close()
 				return nil, fault.Wrap(err, fault.KindNotRegular, media.Name, "", 0, "cannot open media")
 			}
 			in.Files[media.Name] = mf
-			minfo, err := mf.Stat()
+			probe, err := parse.ProbeReader(mf, media.Name)
 			if err != nil {
-				closeAll()
-				return nil, fault.Wrap(err, fault.KindShortRead, media.Name, "", 0, "cannot stat media")
-			}
-			probe, err := parse.ProbeSegment(mf, minfo.Size(), media.Name)
-			if err != nil {
-				closeAll()
+				in.Close()
 				return nil, err
 			}
+			probe.Group = gi
 			in.Probes[media.Name] = probe
 			in.OwnerInit[media.Name] = init
+			in.GroupOf[media.Name] = gi
 		}
 	}
 	return in, nil
@@ -100,8 +93,8 @@ func (l *LoadedInput) OrderItems() []repair.Item {
 		}
 		p := l.Probes[e.Name]
 		items = append(items, repair.Item{
-			Segment: e.Name, HasMfhd: p.HasMfhd, Sequence: p.Sequence,
-			MfhdOffset: p.MoofOffset, Index: i,
+			Group: l.GroupOf[e.Name], Segment: e.Name, HasMfhd: p.HasMfhd,
+			Sequence: p.Sequence, MfhdOffset: p.MoofOffset, Index: i,
 		})
 	}
 	return items
@@ -111,21 +104,34 @@ func (l *LoadedInput) OrderItems() []repair.Item {
 func (l *LoadedInput) Tasks(ord *repair.Ordered) []Task {
 	tasks := make([]Task, 0, len(ord.Items))
 	for _, it := range ord.Items {
-		tasks = append(tasks, Task{Segment: it.Segment, Probe: l.Probes[it.Segment]})
+		tasks = append(tasks, Task{Group: it.Group, Segment: it.Segment, Probe: l.Probes[it.Segment]})
 	}
 	return tasks
 }
 
-// InitFor returns the init segment that owns the given media segment. Since a
-// restored program has exactly one init group, this is always Inits[0].
-func (l *LoadedInput) InitFor(segment string) *parse.Init {
-	if init, ok := l.OwnerInit[segment]; ok {
-		return init
+// InitFor returns the init segment that owns the given media segment.
+func (l *LoadedInput) InitFor(segment string) *parse.Init { return l.OwnerInit[segment] }
+
+// TrackFor returns the track declared by a group's init that a fragment of
+// that group carries. A restored program group is single-track by
+// construction, so the first track is the fragment's track.
+func (l *LoadedInput) TrackFor(group int) *parse.Track {
+	if group < 0 || group >= len(l.Inits) {
+		return nil
 	}
-	if len(l.Inits) > 0 {
-		return l.Inits[0]
+	init := l.Inits[group]
+	if t, ok := init.Tracks[init.Order[0]]; ok {
+		return t
+	}
+	for _, t := range init.Tracks {
+		return t
 	}
 	return nil
+}
+
+// CursorKey names a per-group, per-track resume cursor.
+func CursorKey(group int, track uint32) string {
+	return strconv.Itoa(group) + ":" + strconv.FormatUint(uint64(track), 10)
 }
 
 // StartFor builds a fresh resumable start state.

@@ -100,10 +100,18 @@ func TestLoadManifestMultipleGroups(t *testing.T) {
 	if len(m.Digest) != 64 {
 		t.Fatalf("digest = %q", m.Digest)
 	}
-	// A restored program maps to one init layout; the pipeline rejects mixed
-	// groups rather than silently interleaving incompatible tracks.
-	if _, err := pipe.LoadInputs(m); !fault.IsKind(err, fault.KindPath) {
-		t.Fatalf("LoadInputs err = %v, want unsafe-path fault", err)
+	// Multiple init groups are supported: each group is an independent
+	// program with its own track namespace.
+	loaded, err := pipe.LoadInputs(m)
+	if err != nil {
+		t.Fatalf("LoadInputs: %v", err)
+	}
+	defer loaded.Close()
+	if len(loaded.Inits) != 2 {
+		t.Fatalf("inits = %d, want 2", len(loaded.Inits))
+	}
+	if loaded.GroupOf["frag-003.m4s"] != 1 {
+		t.Fatalf("frag-003 group = %d, want 1", loaded.GroupOf["frag-003.m4s"])
 	}
 }
 

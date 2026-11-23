@@ -89,7 +89,7 @@ func runDemo(args []string) int {
 
 // runSegment executes one bounded pipeline pass and prints its outcome.
 func runSegment(cfg demoConfig, s *session, start pipe.Start, interrupt int) int {
-	res, err := pipe.Run(s.ctx, cfg.work, s.primaryInit(), s.tasks, s.loaded, start, pipe.Options{
+	res, err := pipe.Run(s.ctx, cfg.work, s.tasks, s.loaded, start, pipe.Options{
 		QueueCapacity: cfg.queue, SlowConsumer: cfg.slow, InterruptAfter: interrupt,
 	})
 	if err != nil && !pipe.IsCancelled(err) {

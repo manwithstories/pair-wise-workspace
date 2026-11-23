@@ -13,7 +13,7 @@ import (
 )
 
 // CheckpointVersion is bumped whenever the on-disk checkpoint layout changes.
-const CheckpointVersion = 2
+const CheckpointVersion = 3
 
 // Checkpoint captures everything needed to prove resumability: input manifest
 // digest, committed-output digest, and the index plus timeline state.
@@ -28,7 +28,7 @@ type Checkpoint struct {
 	RepairedTfdt       int               `json:"repaired_tfdt"`
 	MissingMfhd        int               `json:"missing_mfhd"`
 	OutputBytes        int64             `json:"output_bytes"`
-	NextDecodeTime     map[uint32]uint64 `json:"next_decode_time"`
+	NextDecodeTime     map[string]uint64 `json:"next_decode_time"`
 	Index              *Index            `json:"index"`
 	Checksum           string            `json:"checksum"`
 }
