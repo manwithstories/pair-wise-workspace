@@ -76,6 +76,8 @@ type Result struct {
 	CommittedIntervals int
 	Segments           int
 	TraceSummary       string
+	DriftSlopePPB      int64
+	DriftAmbiguous     bool
 	// Err is the first fatal error, nil when the run is healthy.
 	Err error
 	// Partial reports whether a damaged run stopped at a stage boundary.
@@ -186,6 +188,15 @@ func Run(cfg Config) (Result, error) {
 
 	// Stage 5: audio/video alignment.
 	syncOut := runSync(plan, jitOut)
+	if plan.syncFatal != nil {
+		// The alignment exceeds what the venue can be trusted to absorb.
+		// Stop this interval's commit and report the timeline as
+		// unrecoverable instead of applying a silent shift.
+		res.Err = plan.syncFatal
+		res.RollbackCount = mgr.Rollbacks
+		res.Partial = true
+		return res, plan.syncFatal
+	}
 	if err := commit(mgr, txn.Stage{
 		Name: "sync", Cursor: fmt.Sprintf("corrections:%d", len(syncOut.Corrections)),
 		Input: mustJSON(jitOut), Output: mustJSON(syncOut),
@@ -217,6 +228,14 @@ func Run(cfg Config) (Result, error) {
 		res.RollbackCount = mgr.Rollbacks
 		return res, err
 	}
+
+	if syncOut.DriftErr != "" {
+		// An ambiguous drift fit is a property of the sample, recorded in the
+		// artefact; it is surfaced in the summary but does not by itself
+		// invalidate outputs that never used the fit.
+		res.DriftAmbiguous = true
+	}
+	res.DriftSlopePPB = driftSlope(syncOut)
 
 	// Stage 7: final manifest and provenance chain.
 	hashMatch, hashErrs := checkSegmentHashes(plan)
@@ -284,6 +303,13 @@ func Run(cfg Config) (Result, error) {
 	}
 	sort.Slice(idx.Keyframes, func(i, j int) bool { return idx.Keyframes[i].TimeNS < idx.Keyframes[j].TimeNS })
 	return res, nil
+}
+
+func driftSlope(d syncDoc) int64 {
+	if d.Drift == nil {
+		return 0
+	}
+	return d.Drift.SlopePPB
 }
 
 type finalManifest struct {

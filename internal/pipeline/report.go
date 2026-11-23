@@ -48,6 +48,12 @@ func (r Result) FormatRates() string {
 	fmt.Fprintf(&b, "keyframes=%d\n", r.Keyframes)
 	fmt.Fprintf(&b, "committed_intervals=%d\n", r.CommittedIntervals)
 	fmt.Fprintf(&b, "segments=%d\n", r.Segments)
+	if r.DriftSlopePPB != 0 || r.DriftAmbiguous {
+		fmt.Fprintf(&b, "drift_slope_ppb=%d\n", r.DriftSlopePPB)
+		if r.DriftAmbiguous {
+			fmt.Fprintf(&b, "drift_fit=ambiguous\n")
+		}
+	}
 	fmt.Fprintf(&b, "trace_summary=%s\n", shortHash(r.TraceSummary))
 	return b.String()
 }

@@ -2,11 +2,13 @@ package pipeline
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 
 	pionrtp "github.com/pion/rtp"
 
 	"mediarun/internal/buffer"
+	"mediarun/internal/clock"
 	"mediarun/internal/fixture"
 	"mediarun/internal/manifest"
 	"mediarun/internal/rtp"
@@ -17,12 +19,13 @@ import (
 
 // sample is the materialised input for one run.
 type sample struct {
-	plan     fixture.Plan
-	media    *manifest.Media
-	Packets  []fixture.RPTPacket
-	MP4Path  string
-	Requests []int64
-	rtpErr   error
+	plan      fixture.Plan
+	media     *manifest.Media
+	Packets   []fixture.RPTPacket
+	MP4Path   string
+	Requests  []int64
+	rtpErr    error
+	syncFatal error
 	// payloads maps segment id to its bytes, so hashes can be recomputed
 	// independently of the manifest.
 	payloads map[string][]byte
@@ -218,31 +221,83 @@ func runJitter(s *sample, r rtpDoc) jitterDoc {
 type syncDoc struct {
 	Corrections []sync.Correction `json:"corrections"`
 	Errors      int               `json:"errors"`
+	// Drift is the fitted audio-video clock relation. DriftFit is nil when
+	// the fit was not uniquely determined, which is a hard stop rather than
+	// a silent rewrite.
+	Drift           *clock.DriftFit `json:"drift,omitempty"`
+	DriftErr        string          `json:"drift_error,omitempty"`
+	DriftBaselineNS int64           `json:"drift_baseline_ns,omitempty"`
+	DriftPoints     int             `json:"drift_points,omitempty"`
 }
 
-func runSync(s *sample, j jitterDoc) syncDoc {
-	al := sync.New("audio", sync.DefaultConfig())
-	// Audio anchors follow the video anchors with a small fixed lag; the
-	// drift fault widens it across the run.
+func anchorsFor(s *sample, j jitterDoc) []clock.DriftPoint {
+	// Alignment is computed on the first camera's video track, which the
+	// buffer labels with the camera id rather than "video".
+	videoTrack := s.media.Segments[0].Track
+	if videoTrack == "" {
+		videoTrack = "video"
+	}
+	var out []clock.DriftPoint
+	last := int64(-1)
 	for _, iv := range j.Intervals {
-		if iv.Track != "video" {
+		if iv.Track != videoTrack {
 			continue
 		}
 		for t := iv.StartNS; t <= iv.EndNS; t += 100_000_000 {
+			if t == last {
+				continue
+			}
+			last = t
 			lag := int64(8_000_000)
 			if s.faults.Drift {
 				lag += t * 300 / 1_000_000
 			}
-			al.Add(sync.Anchor{AudioNS: t, VideoNS: t + lag})
+			out = append(out, clock.DriftPoint{RefNS: t + lag, MediaNS: t})
 		}
+	}
+	return out
+}
+
+func runSync(s *sample, j jitterDoc) syncDoc {
+	al := sync.New("audio", sync.DefaultConfig())
+	anchors := anchorsFor(s, j)
+	for _, a := range anchors {
+		al.Add(sync.Anchor{AudioNS: a.MediaNS, VideoNS: a.RefNS})
 	}
 	var doc syncDoc
 	for _, iv := range j.Intervals {
 		if _, err := al.CorrectInterval(iv.StartNS, iv.EndNS); err != nil {
 			doc.Errors++
+			var ce *clock.Error
+			if errors.As(err, &ce) && ce.Code == clock.CodeSyncThreshold {
+				s.syncFatal = err
+			}
 		}
 	}
 	doc.Corrections = al.Corrections()
+	// Fit the audio clock against the video reference over a bounded window
+	// of anchors. The venue drift grows without bound, so the fit is scoped
+	// to the first hour of runtime: anchor points, not experiment length,
+	// vary the answer, and an ambiguous fit is reported rather than used to
+	// silently shift the timeline.
+	if s.faults.Drift && len(j.Intervals) > 0 {
+		window := int64(3600) * 1_000_000_000
+		var probe []clock.DriftPoint
+		for _, dp := range anchors {
+			if dp.RefNS > window && len(probe) >= clock.DefaultFitConfig().MinPoints {
+				break
+			}
+			probe = append(probe, dp)
+		}
+		fit, err := clock.FitDrift(probe, clock.DefaultFitConfig())
+		if err != nil {
+			doc.DriftErr = err.Error()
+		} else {
+			doc.Drift = &fit
+			doc.DriftBaselineNS = probe[len(probe)-1].RefNS
+			doc.DriftPoints = len(probe)
+		}
+	}
 	return doc
 }
 

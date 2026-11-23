@@ -105,3 +105,11 @@ const (
 
 // Format renders a short human-readable form for terminal output.
 func Format(kind Kind, code string) string { return fmt.Sprintf("%s/%s", kind, code) }
+
+// Code returns the machine-readable code of a mediarun error, or "".
+func Code(err error) string {
+	if e, ok := err.(*Error); ok {
+		return e.Code
+	}
+	return ""
+}
