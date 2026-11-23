@@ -35,6 +35,9 @@ func TestDemoHappyPathContract(t *testing.T) {
 	if !strings.Contains(out, "interrupted_after_blocks=") {
 		t.Errorf("resume run should report the interruption:\n%s", out)
 	}
+	if !strings.Contains(out, "track=name:program-video") {
+		t.Errorf("per-track accounting missing:\n%s", out)
+	}
 }
 
 func TestCorruptTruncatedExitCodeAndOffset(t *testing.T) {

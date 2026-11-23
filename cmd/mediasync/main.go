@@ -25,7 +25,11 @@ const (
 )
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	code := run(os.Args[1:], os.Stdout, os.Stderr)
+	// Print the status too: `go run` replaces a non-zero child status with its
+	// own exit 1, so the line keeps the real code observable from stdout.
+	fmt.Fprintf(os.Stdout, "exit_code=%d\n", code)
+	os.Exit(code)
 }
 
 // run is the testable entry point.
