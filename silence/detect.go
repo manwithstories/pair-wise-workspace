@@ -57,7 +57,12 @@ func Detect(f *media.File, src io.ReaderAt, windowSize int64, threshold float64)
 			return rep
 		}
 	}
-	total := samples[len(samples)-1].End().Value
+	// Use the track's declared duration so windows over missing tail data
+	// are still emitted (and reported as unknown, not silent).
+	total := at.Duration
+	if total <= 0 {
+		total = samples[len(samples)-1].End().Value
+	}
 	idx := 0
 	for w := int64(0); w*windowSize < total; w++ {
 		win := Window{
