@@ -17,9 +17,9 @@ const (
 
 // AudioMeta describes one node's audio parameters.
 type AudioMeta struct {
-	SampleRate int
-	Channels   int
-	Layout     string
+	SampleRate int    `json:"sample_rate"`
+	Channels   int    `json:"channels"`
+	Layout     string `json:"layout"`
 }
 
 // NormalizedAudio is the processing parameter set derived from AudioMeta.
@@ -72,10 +72,10 @@ func gcd(a, b int) int {
 
 // ColorMeta carries colour information of a segment.
 type ColorMeta struct {
-	Primaries string // e.g. "bt709", "bt2020"
-	Transfer  string // e.g. "bt709", "pq", "hlg"
-	Matrix    string // e.g. "bt709", "bt2020nc"
-	FullRange bool
+	Primaries string `json:"primaries"` // e.g. "bt709", "bt2020"
+	Transfer  string `json:"transfer"`  // e.g. "bt709", "pq", "hlg"
+	Matrix    string `json:"matrix"`    // e.g. "bt709", "bt2020nc"
+	FullRange bool   `json:"full_range"`
 }
 
 var (

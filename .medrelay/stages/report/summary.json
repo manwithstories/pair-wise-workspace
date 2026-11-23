@@ -1,0 +1,9 @@
+{
+  "av_sync_error_ms": 8.16666666666606,
+  "packet_recovery_rate": 1,
+  "first_error_segment": "",
+  "quarantined": null,
+  "silence_intervals": 3,
+  "duplicate_windows": 3,
+  "unrecoverable_gaps": 0
+}

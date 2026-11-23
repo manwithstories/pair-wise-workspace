@@ -1,0 +1,20 @@
+{
+  "dups": [
+    {
+      "source": "seg-1.m4s",
+      "start_ms": 11000,
+      "dup_of": "seg-1.m4s"
+    },
+    {
+      "source": "seg-3.m4s",
+      "start_ms": 21000,
+      "dup_of": "seg-3.m4s"
+    },
+    {
+      "source": "seg-3.m4s",
+      "start_ms": 22000,
+      "dup_of": "seg-3.m4s"
+    }
+  ],
+  "reasons": null
+}
