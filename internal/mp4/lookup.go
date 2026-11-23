@@ -47,64 +47,92 @@ type stssData struct {
 	present  bool
 }
 
-// decodeStsz prefers the library decoder and falls back to a prefix decode
-// when the box was cut, keeping every complete 4-byte entry.
-func decodeStsz(f *os.File, b rawBox) (stszData, error) {
+func decodeStsc(f *os.File, b rawBox) (stscData, error) {
 	if !b.truncated {
-		var box gomp4.Stsz
-		n, err := gomp4.Unmarshal(io.NewSectionReader(f, b.payloadOff(), b.size-b.hdr), uint64(b.size-b.hdr), &box, gomp4.Context{})
-		if err == nil {
-			return stszData{sampleSize: box.SampleSize, count: box.SampleCount,
-				sizes: box.EntrySize, complete: true}, nil
+		var box gomp4.Stsc
+		if _, err := gomp4.Unmarshal(io.NewSectionReader(f, b.payloadOff(), b.size-b.hdr), uint64(b.size-b.hdr), &box, gomp4.Context{}); err == nil {
+			out := stscData{complete: true}
+			for _, e := range box.Entries {
+				out.entries = append(out.entries, stscEntry{e.FirstChunk, e.SamplesPerChunk})
+			}
+			return out, nil
 		}
-		_ = n
 	}
 	data, err := readPayload(f, b)
 	if err != nil {
-		return stszData{}, err
+		return stscData{}, err
 	}
-	d := stszData{}
-	if len(data) < 12 {
+	d := stscData{}
+	if len(data) < 8 {
 		return d, nil
 	}
-	d.sampleSize = binary.BigEndian.Uint32(data[4:8])
-	d.count = binary.BigEndian.Uint32(data[8:12])
-	if d.sampleSize == 0 {
-		avail := (len(data) - 12) / 4
-		want := int(d.count)
-		n := min(avail, want)
-		d.sizes = make([]uint32, n)
-		for i := 0; i < n; i++ {
-			d.sizes[i] = binary.BigEndian.Uint32(data[12+i*4:])
-		}
-		d.complete = n == want
-	} else {
-		d.complete = true
+	count := int(binary.BigEndian.Uint32(data[4:8]))
+	avail := (len(data) - 8) / 12
+	n := min(count, avail)
+	for i := 0; i < n; i++ {
+		base := 8 + i*12
+		d.entries = append(d.entries, stscEntry{
+			firstChunk:      binary.BigEndian.Uint32(data[base:]),
+			samplesPerChunk: binary.BigEndian.Uint32(data[base+4:]),
+		})
 	}
+	d.complete = n == count
 	return d, nil
 }
 
-func decodeStco(f *os.File, b rawBox) (stcoData, error) {
+func decodeStts(f *os.File, b rawBox) (sttsData, error) {
 	if !b.truncated {
-		var box gomp4.Stco
+		var box gomp4.Stts
 		if _, err := gomp4.Unmarshal(io.NewSectionReader(f, b.payloadOff(), b.size-b.hdr), uint64(b.size-b.hdr), &box, gomp4.Context{}); err == nil {
-			return stcoData{offsets: box.ChunkOffset, complete: true}, nil
+			out := sttsData{complete: true}
+			for _, e := range box.Entries {
+				out.entries = append(out.entries, sttsEntry{e.SampleCount, e.SampleDelta})
+			}
+			return out, nil
 		}
 	}
 	data, err := readPayload(f, b)
 	if err != nil {
-		return stcoData{}, err
+		return sttsData{}, err
 	}
-	d := stcoData{}
+	d := sttsData{}
+	if len(data) < 8 {
+		return d, nil
+	}
+	count := int(binary.BigEndian.Uint32(data[4:8]))
+	avail := (len(data) - 8) / 8
+	n := min(count, avail)
+	for i := 0; i < n; i++ {
+		base := 8 + i*8
+		d.entries = append(d.entries, sttsEntry{
+			count: binary.BigEndian.Uint32(data[base:]),
+			delta: binary.BigEndian.Uint32(data[base+4:]),
+		})
+	}
+	d.complete = n == count
+	return d, nil
+}
+
+func decodeStss(f *os.File, b rawBox) (stssData, error) {
+	if !b.truncated {
+		var box gomp4.Stss
+		if _, err := gomp4.Unmarshal(io.NewSectionReader(f, b.payloadOff(), b.size-b.hdr), uint64(b.size-b.hdr), &box, gomp4.Context{}); err == nil {
+			return stssData{numbers: box.SampleNumber, complete: true, present: true}, nil
+		}
+	}
+	data, err := readPayload(f, b)
+	if err != nil {
+		return stssData{}, err
+	}
+	d := stssData{present: true}
 	if len(data) < 8 {
 		return d, nil
 	}
 	count := int(binary.BigEndian.Uint32(data[4:8]))
 	avail := (len(data) - 8) / 4
 	n := min(count, avail)
-	d.offsets = make([]uint32, n)
 	for i := 0; i < n; i++ {
-		d.offsets[i] = binary.BigEndian.Uint32(data[8+i*4:])
+		d.numbers = append(d.numbers, binary.BigEndian.Uint32(data[8+i*4:]))
 	}
 	d.complete = n == count
 	return d, nil
