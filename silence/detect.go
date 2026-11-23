@@ -1,6 +1,6 @@
-// Package silence detects silent audio windows by RMS energy. Windows
-// whose data is unavailable (damaged or missing) are reported as unknown
-// and never judged silent.
+// Package silence detects silent audio windows by RMS energy. Windows whose
+// data is unavailable (damaged, missing, or not covered by any sample) are
+// reported as unknown and are never judged silent.
 package silence
 
 import (
@@ -19,6 +19,7 @@ const (
 	StatusNoAudioTrack  Status = "no_audio_track"
 	StatusTSRegression  Status = "timestamp_regression"
 	StatusCrossesDamage Status = "window_crosses_damaged_range"
+	StatusGap           Status = "window_not_covered"
 )
 
 // Window is one analysis window.
@@ -33,17 +34,23 @@ type Window struct {
 
 // Report is the outcome of one detection run.
 type Report struct {
-	Windows       []Window
-	SilentWindows int
-	Status        Status // overall status
+	Windows        []Window
+	SilentWindows  int
+	UnknownWindows int
+	Status         Status // overall status
 }
 
 // Detect measures RMS energy per window of windowSize audio-timescale
-// units. A window is silent when its RMS falls below threshold. Damaged or
-// missing data yields StatusCrossesDamage windows, never silence.
+// units. A window is silent only when every audio sample overlapping it is
+// present, readable, and its RMS is below threshold. Any damaged range or
+// uncovered span makes the window unknown (never silent), and the unknown
+// count is reported so callers can tell "quiet" from "cannot tell".
 func Detect(f *media.File, src io.ReaderAt, windowSize int64, threshold float64) *Report {
 	at, ok := f.TrackByKind(media.TrackAudio)
 	if !ok {
+		return &Report{Status: StatusNoAudioTrack}
+	}
+	if windowSize <= 0 {
 		return &Report{Status: StatusNoAudioTrack}
 	}
 	rep := &Report{Status: StatusOK}
@@ -57,12 +64,20 @@ func Detect(f *media.File, src io.ReaderAt, windowSize int64, threshold float64)
 			return rep
 		}
 	}
-	// Use the track's declared duration so windows over missing tail data
-	// are still emitted (and reported as unknown, not silent).
+	// Analyse the full declared track duration so windows over missing tail
+	// data are still emitted (and reported as unknown, not silent).
 	total := at.Duration
 	if total <= 0 {
 		total = samples[len(samples)-1].End().Value
 	}
+	lastEnd := int64(0)
+	for _, s := range samples {
+		if e := s.End().Value; e > lastEnd {
+			lastEnd = e
+		}
+	}
+	// A window must be fully covered by present audio; a partially covered
+	// window is unknown rather than a silent reading of the covered part.
 	idx := 0
 	for w := int64(0); w*windowSize < total; w++ {
 		win := Window{
@@ -73,20 +88,20 @@ func Detect(f *media.File, src io.ReaderAt, windowSize int64, threshold float64)
 		}
 		var sumSq float64
 		var n int
-		covered := true
+		covered := int64(0) // audio units covered inside [Start, End)
+		reason := StatusOK
 		for idx < len(samples) && samples[idx].DTS.Value < win.End.Value {
 			s := samples[idx]
-			if s.End().Value > win.Start.Value {
-				if s.Offset+int64(s.Size) > fileEnd(f) || inDamaged(f, s.Offset) {
-					covered = false
+			lo, hi := maxInt64(s.DTS.Value, win.Start.Value), minInt64(s.End().Value, win.End.Value)
+			if hi > lo {
+				covered += hi - lo
+				if !sampleAvailable(f, s) {
+					reason = StatusCrossesDamage
+				} else if rms, cnt, err := sampleRMS(src, s); err != nil {
+					reason = StatusCrossesDamage
 				} else {
-					rms, cnt, err := sampleRMS(src, s)
-					if err != nil {
-						covered = false
-					} else {
-						sumSq += rms * rms * float64(cnt)
-						n += cnt
-					}
+					sumSq += rms * rms * float64(cnt)
+					n += cnt
 				}
 			}
 			if s.End().Value <= win.End.Value {
@@ -96,8 +111,25 @@ func Detect(f *media.File, src io.ReaderAt, windowSize int64, threshold float64)
 			}
 		}
 		switch {
-		case !covered || n == 0:
-			win.Status = StatusCrossesDamage // unknown: never silent
+		case covered < windowSize:
+			if reason == StatusOK {
+				// Nothing unreadable was hit, but the window is incomplete.
+				// Past the last present sample this is the truncated tail,
+				// which is a damaged range rather than a clean hole.
+				if win.End.Value > lastEnd && len(f.Damaged) > 0 {
+					reason = StatusCrossesDamage
+				} else {
+					reason = StatusGap
+				}
+			}
+			win.Status = reason
+			rep.UnknownWindows++
+		case reason != StatusOK:
+			win.Status = reason
+			rep.UnknownWindows++
+		case n == 0:
+			win.Status = StatusCrossesDamage // covered but no PCM values
+			rep.UnknownWindows++
 		default:
 			win.RMS = math.Sqrt(sumSq / float64(n))
 			win.Silent = win.RMS < threshold
@@ -108,6 +140,21 @@ func Detect(f *media.File, src io.ReaderAt, windowSize int64, threshold float64)
 		rep.Windows = append(rep.Windows, win)
 	}
 	return rep
+}
+
+// sampleAvailable reports whether a sample's payload is inside the file and
+// clear of every damaged range.
+func sampleAvailable(f *media.File, s media.Sample) bool {
+	start, end := s.Offset, s.Offset+int64(s.Size)
+	if end > fileEnd(f) {
+		return false
+	}
+	for _, d := range f.Damaged {
+		if start < d.End && end > d.Start {
+			return false // any overlap means the sample crosses damage
+		}
+	}
+	return true
 }
 
 func fileEnd(f *media.File) int64 {
@@ -125,13 +172,18 @@ func fileEnd(f *media.File) int64 {
 	return end
 }
 
-func inDamaged(f *media.File, off int64) bool {
-	for _, d := range f.Damaged {
-		if off >= d.Start && off < d.End {
-			return true
-		}
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
 	}
-	return false
+	return b
+}
+
+func minInt64(a, b int64) int64 {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // sampleRMS reads one sample's payload as little-endian int16 PCM and
