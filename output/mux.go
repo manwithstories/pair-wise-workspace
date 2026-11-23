@@ -18,6 +18,9 @@ type SampleRef struct {
 	Size     uint32
 	Duration uint32
 	Keyframe bool
+	// CTSOffset is composition time minus decode time in track units. It is
+	// written back as a version-1 ctts box when non-zero for any sample.
+	CTSOffset int64
 }
 
 // TrackMux is one output track.
@@ -277,6 +280,9 @@ func writeStbl(mw *mp4.Writer, t TrackMux, chunkOff int64) error {
 	if err := writeStsd(mw, t); err != nil {
 		return err
 	}
+	if err := writeCtts(mw, t); err != nil {
+		return err
+	}
 	stco := &mp4.Stco{EntryCount: 1, ChunkOffset: []uint32{uint32(chunkOff)}}
 	if err := writeLeaf(mw, stco); err != nil {
 		return err
@@ -295,4 +301,31 @@ func writeStbl(mw *mp4.Writer, t TrackMux, chunkOff int64) error {
 	}
 	_, err := mw.EndBox() // stbl
 	return err
+}
+
+// writeCtts emits a version-1 composition offset table when the track has
+// non-zero decode-to-composition offsets. Version 1 is chosen because it is
+// signed, so negative offsets (B-frames) survive verbatim.
+func writeCtts(mw *mp4.Writer, t TrackMux) error {
+	nonzero := false
+	for _, s := range t.Samples {
+		if s.CTSOffset != 0 {
+			nonzero = true
+			break
+		}
+	}
+	if !nonzero {
+		return nil
+	}
+	ctts := &mp4.Ctts{FullBox: mp4.FullBox{Version: 1}}
+	for _, s := range t.Samples {
+		off := int32(s.CTSOffset)
+		if n := len(ctts.Entries); n > 0 && ctts.Entries[n-1].SampleOffsetV1 == off {
+			ctts.Entries[n-1].SampleCount++
+		} else {
+			ctts.Entries = append(ctts.Entries, mp4.CttsEntry{SampleCount: 1, SampleOffsetV1: off})
+		}
+	}
+	ctts.EntryCount = uint32(len(ctts.Entries))
+	return writeLeaf(mw, ctts)
 }

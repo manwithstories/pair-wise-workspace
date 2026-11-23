@@ -61,7 +61,7 @@ func buildTrackSamples(f *File, rt *rawTrack, fileSize int64) error {
 				TrackID:  rt.id,
 				Kind:     rt.kind,
 				DTS:      media.Time{Value: dts, Timescale: ts.Timescale},
-				CTS:      media.Time{Value: dts + int64(ctsOff[idx]), Timescale: ts.Timescale},
+				CTS:      media.Time{Value: dts + ctsOff[idx], Timescale: ts.Timescale},
 				Duration: deltas[idx],
 				Offset:   off,
 				Size:     sz,

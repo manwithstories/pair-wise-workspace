@@ -96,7 +96,7 @@ type rawTrack struct {
 	co64      *mp4.Co64
 	stss      *mp4.Stss
 	ctts      *mp4.Ctts
-	stsd      []byte // raw stsd box payload, preserved for remux
+	stsd      []byte // first sample-entry box, preserved for remux
 }
 
 // File is a demuxed input: the shared media.File view plus the raw sample
