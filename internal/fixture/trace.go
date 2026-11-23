@@ -17,7 +17,7 @@ const (
 	AudioClockRate     = 48000
 	VideoSSRC          = 0x1001
 	AudioSSRC          = 0x1002
-	RetransmitCapacity = 4 // 重传缓存容量（每轨）
+	RetransmitCapacity = 8 // 重传缓存容量（每轨）
 	jitterBaseMs       = 5
 	jitterSpreadMs     = 25
 	spikeProbability   = 0.02
