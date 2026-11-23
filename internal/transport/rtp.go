@@ -12,8 +12,10 @@ import (
 	"medrelay/internal/timeline"
 )
 
-// Redundancy marker appended to payloads: 0xFE 'R' | uint32 orig timestamp |
-// uint16 payload length | payload of the packet RedundancyStride earlier.
+// Redundancy format: uint32 mainLen | main | 0xFE 'R' | uint32 orig
+// timestamp | uint16 copyLen | copy of the packet RedundancyStride earlier.
+// The length prefix makes the marker position unambiguous even when the
+// main payload (e.g. PCM) happens to contain the marker bytes.
 var redMark = []byte{0xFE, 'R'}
 
 // Config bounds the reorder window and describes the redundancy scheme.
@@ -201,41 +203,55 @@ func (r *Reorderer) Drain() []*rtp.Packet {
 // AppendRedundant returns payload with a redundant copy of an earlier
 // packet's timestamp and payload appended.
 func AppendRedundant(payload []byte, origTS uint32, orig []byte) []byte {
-	out := make([]byte, 0, len(payload)+8+len(orig))
+	out := make([]byte, 0, 4+len(payload)+8+len(orig))
+	var tmp [4]byte
+	binary.BigEndian.PutUint32(tmp[:], uint32(len(payload)))
+	out = append(out, tmp[:]...)
 	out = append(out, payload...)
 	out = append(out, redMark...)
-	var tmp [6]byte
-	binary.BigEndian.PutUint32(tmp[0:4], origTS)
-	binary.BigEndian.PutUint16(tmp[4:6], uint16(len(orig)))
+	binary.BigEndian.PutUint32(tmp[:], origTS)
 	out = append(out, tmp[:]...)
+	binary.BigEndian.PutUint16(tmp[:2], uint16(len(orig)))
+	out = append(out, tmp[:2]...)
 	return append(out, orig...)
 }
 
-// ExtractRedundant splits a payload into main part and redundant copy.
-// ok is false when no redundancy marker is present.
-func ExtractRedundant(payload []byte) (ts uint32, redundant []byte, ok bool) {
-	for i := 0; i+8 <= len(payload); i++ {
-		if payload[i] == redMark[0] && payload[i+1] == redMark[1] {
-			ts = binary.BigEndian.Uint32(payload[i+2 : i+6])
-			n := int(binary.BigEndian.Uint16(payload[i+6 : i+8]))
-			if i+8+n != len(payload) {
-				return 0, nil, false
-			}
-			return ts, payload[i+8:], true
-		}
+// splitPayload locates the redundancy trailer. ok is false when the
+// payload carries no valid trailer.
+func splitPayload(payload []byte) (mainLen int, ok bool) {
+	if len(payload) < 4 {
+		return 0, false
 	}
-	return 0, nil, false
+	n := int(binary.BigEndian.Uint32(payload[:4]))
+	if n < 0 || 4+n+8 > len(payload) {
+		return 0, false
+	}
+	if payload[4+n] != redMark[0] || payload[4+n+1] != redMark[1] {
+		return 0, false
+	}
+	copyLen := int(binary.BigEndian.Uint16(payload[4+n+6 : 4+n+8]))
+	if 4+n+8+copyLen != len(payload) {
+		return 0, false
+	}
+	return n, true
+}
+
+// ExtractRedundant splits a payload into main part and redundant copy.
+// ok is false when no redundancy trailer is present.
+func ExtractRedundant(payload []byte) (ts uint32, redundant []byte, ok bool) {
+	n, ok := splitPayload(payload)
+	if !ok {
+		return 0, nil, false
+	}
+	base := 4 + n
+	ts = binary.BigEndian.Uint32(payload[base+2 : base+6])
+	return ts, payload[base+8:], true
 }
 
 // MainPayload strips the redundancy trailer, returning the main payload.
 func MainPayload(payload []byte) []byte {
-	for i := 0; i+8 <= len(payload); i++ {
-		if payload[i] == redMark[0] && payload[i+1] == redMark[1] {
-			n := int(binary.BigEndian.Uint16(payload[i+6 : i+8]))
-			if i+8+n == len(payload) {
-				return payload[:i]
-			}
-		}
+	if n, ok := splitPayload(payload); ok {
+		return payload[4 : 4+n]
 	}
 	return payload
 }
