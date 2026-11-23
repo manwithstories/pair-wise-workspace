@@ -75,6 +75,13 @@ func (o RTPOptions) validated() (RTPOptions, error) {
 	if o.LossBurst > o.Samples {
 		o.LossBurst = o.Samples
 	}
+	// LossAt of zero with a non-zero burst means "unset": place the burst in
+	// the middle so it is observable as a gap. Set LossAt explicitly to test
+	// head-of-stream loss, which recovery cannot distinguish from a stream
+	// that simply began later.
+	if o.LossAt <= 0 && o.LossBurst > 0 {
+		o.LossAt = o.Samples / 2
+	}
 	if o.LossAt < 0 || o.LossAt > o.Samples {
 		o.LossAt = o.Samples / 2
 	}
