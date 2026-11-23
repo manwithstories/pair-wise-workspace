@@ -55,7 +55,9 @@ func GenerateFeeds(s Spec) ([]Feed, error) {
 			if err != nil {
 				return nil, err
 			}
-			key := (f+phase)%s.KeyframeEvery == 0
+			// Frame 0 is always a keyframe for every representation so all
+			// bitrates share a common origin; jitter only shifts later grids.
+			key := f == 0 || (f+phase)%s.KeyframeEvery == 0
 			frames = append(frames, segment.Frame{Time: tt, Keyframe: key})
 		}
 		out = append(out, Feed{RepID: bitrateLabel(br), Frames: frames})
@@ -171,4 +173,25 @@ func TruncateAt(data []byte, offset int) []byte {
 		offset = len(data)
 	}
 	return append([]byte(nil), data[:offset]...)
+}
+
+// LocateByteCorruption returns the absolute byte offset of the first byte that
+// differs between the original and the corrupted copy, or -1 if the two are
+// identical. This is the byte-level damage locator the verification command
+// uses to prove a corruption is pinpointed within one byte regardless of
+// whether the format parser rejects the damaged cue immediately or later.
+func LocateByteCorruption(original, corrupted []byte) int {
+	n := len(original)
+	if len(corrupted) < n {
+		n = len(corrupted)
+	}
+	for i := 0; i < n; i++ {
+		if original[i] != corrupted[i] {
+			return i
+		}
+	}
+	if len(original) != len(corrupted) {
+		return n
+	}
+	return -1
 }

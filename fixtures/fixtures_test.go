@@ -140,3 +140,21 @@ func TestSpecValidation(t *testing.T) {
 		t.Fatalf("bad spec must be E_PARAM, got %v", err)
 	}
 }
+
+func TestLocateByteCorruption(t *testing.T) {
+	data := SRTInput(400)
+	for _, at := range []int{0, 4096, len(data) - 1} {
+		corrupt := CorruptAt(data, at)
+		got := LocateByteCorruption(data, corrupt)
+		want := at
+		if at >= len(data) {
+			want = len(data) - 1
+		}
+		if got != want {
+			t.Fatalf("LocateByteCorruption at %d = %d, want %d", at, got, want)
+		}
+	}
+	if LocateByteCorruption(data, data) != -1 {
+		t.Fatal("identical buffers must report no corruption")
+	}
+}
