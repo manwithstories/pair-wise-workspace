@@ -8,63 +8,127 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-
-	"mediasync/internal/model"
 )
 
-// Load reads an existing index, verifying the chain and every block checksum.
-// It returns the number of valid blocks and, on corruption, the last valid
-// block index so the caller can resume from there.
+// Load verifies the index against the block files. Every block is
+// self-describing, so when the index is damaged or disagrees with the blocks it
+// is rebuilt from the intact prefix and the store resumes from there.
 func (s *Store) Load() (valid int, recovered bool, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.BlockSize <= 0 || s.BlockSize > maxBlockBytes {
+		s.BlockSize = maxBlockBytes
+	}
 	raw, readErr := os.ReadFile(s.indexPath())
-	if readErr != nil {
-		if errors.Is(readErr, os.ErrNotExist) {
-			return 0, false, nil
-		}
+	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
 		return 0, false, readErr
 	}
-	hdr, entries, parseErr := parseIndex(raw)
-	if parseErr != nil {
-		return 0, false, model.WrapError(model.ErrCheckpointCorrupt, 0, 0, parseErr)
+
+	var declared []Entry
+	var declaredBlockSize uint32
+	if readErr == nil {
+		hdr, entries, parseErr := parseIndex(raw)
+		if parseErr != nil {
+			// Rebuild from block headers rather than failing the run.
+			return s.rebuildFromBlocks(0)
+		}
+		declared, declaredBlockSize = entries, hdr.BlockSize
 	}
-	s.BlockSize = int(hdr.BlockSize)
-	if s.BlockSize <= 0 || s.BlockSize > maxBlockBytes {
-		return 0, false, model.NewError(model.ErrCheckpointCorrupt, 0, 0, "index block size %d out of range", hdr.BlockSize)
-	}
+
+	// Walk blocks in order; stop at the first missing or damaged one. When the
+	// index survived, it must agree with each block header.
 	var chain [32]byte
-	for i, e := range entries {
-		data, err := os.ReadFile(s.blockPath(uint32(i)))
+	i := uint32(0)
+	for {
+		blockRaw, err := os.ReadFile(s.blockPath(i))
 		if err != nil {
-			s.truncateTo(i)
-			return i, true, nil
+			break
 		}
-		if len(data) > maxBlockBytes {
-			s.truncateTo(i)
-			return i, true, nil
+		if len(blockRaw) > maxBlockBytes+blockHeaderSize {
+			break
 		}
-		if crc32.ChecksumIEEE(data) != e.CRC32 {
-			s.truncateTo(i)
-			return i, true, nil
+		index, samples, bytes, crc, payload, ok := decodeBlock(blockRaw)
+		if !ok || index != i {
+			break
+		}
+		if crc32.ChecksumIEEE(payload) != crc {
+			break
 		}
 		h := sha256.New()
 		h.Write(chain[:])
-		h.Write(data)
+		h.Write(payload)
 		var want [32]byte
 		copy(want[:], h.Sum(nil))
-		if want != e.ChainHash {
-			s.truncateTo(i)
-			return i, true, nil
+		e := Entry{Index: i, Samples: samples, Bytes: bytes, CRC32: crc, ChainHash: want}
+		if declared != nil && int(i) < len(declared) {
+			d := declared[i]
+			if d.CRC32 != crc || d.Samples != samples || d.Bytes != bytes || d.ChainHash != want {
+				// Index disagrees with disk; keep the on-disk truth and cut here.
+				break
+			}
 		}
 		chain = want
 		s.entries = append(s.entries, e)
-		s.blocks[uint32(i)] = data
-		s.samples += uint64(e.Samples)
-		s.bytes += e.Bytes
+		s.blocks[i] = append([]byte(nil), payload...)
+		s.samples += uint64(samples)
+		s.bytes += bytes
+		i++
 	}
 	s.chain = chain
-	return len(entries), false, nil
+
+	if declared != nil && int(i) == len(declared) {
+		if declaredBlockSize > 0 && declaredBlockSize <= maxBlockBytes {
+			s.BlockSize = int(declaredBlockSize)
+		}
+		return int(i), false, nil
+	}
+	// Either the index was damaged, or it claims blocks that are missing or
+	// inconsistent. Rebuild it from the verified prefix and drop the tail.
+	if len(s.entries) > 0 || readErr == nil {
+		s.truncateTo(len(s.entries))
+		if err := s.writeIndex(); err != nil {
+			return len(s.entries), true, err
+		}
+	}
+	return len(s.entries), true, nil
+}
+
+// rebuildFromBlocks reconstructs the index when the index file itself cannot be
+// parsed. requestedBlockSize is the caller's preferred cap; the block data is
+// otherwise authoritative.
+func (s *Store) rebuildFromBlocks(requestedBlockSize int) (int, bool, error) {
+	if requestedBlockSize > 0 && requestedBlockSize <= maxBlockBytes {
+		s.BlockSize = requestedBlockSize
+	}
+	var chain [32]byte
+	i := uint32(0)
+	for {
+		blockRaw, err := os.ReadFile(s.blockPath(i))
+		if err != nil {
+			break
+		}
+		index, samples, bytes, crc, payload, ok := decodeBlock(blockRaw)
+		if !ok || index != i || crc32.ChecksumIEEE(payload) != crc {
+			break
+		}
+		h := sha256.New()
+		h.Write(chain[:])
+		h.Write(payload)
+		var want [32]byte
+		copy(want[:], h.Sum(nil))
+		e := Entry{Index: i, Samples: samples, Bytes: bytes, CRC32: crc, ChainHash: want}
+		chain = want
+		s.entries = append(s.entries, e)
+		s.blocks[i] = append([]byte(nil), payload...)
+		s.samples += uint64(samples)
+		s.bytes += bytes
+		i++
+	}
+	s.chain = chain
+	if err := s.writeIndex(); err != nil {
+		return 0, false, err
+	}
+	return len(s.entries), true, nil
 }
 
 // truncateTo drops entries from index i onwards so a subsequent Append
