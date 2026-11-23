@@ -252,26 +252,30 @@ func Run(cfg Config) (Result, error) {
 	res.SegmentHashMatch = hashMatch
 
 	tr := provenance.NewTrace()
+	var provErrs []error
 	for _, s := range media.Segments {
-		body := plan.HashOf(s)
-		_ = tr.Record(provenance.Entry{
+		if err := tr.Record(provenance.Entry{
 			Output:      "artifact:" + s.ID,
 			OutputHash:  s.Hash,
 			ManifestURI: plan.ManifestURI(s),
-			InputHashes: []string{body},
+			InputHashes: []string{plan.HashOf(s)},
 			SegmentIDs:  []string{s.ID},
 			Stage:       "manifest",
 			Decisions:   []provenance.Decision{{Stage: "rtp", Code: "segment-hash-verified"}},
-		})
+		}); err != nil {
+			provErrs = append(provErrs, err)
+		}
 	}
-	// Link the index and final manifest outputs back through the chain.
-	_ = tr.Record(provenance.Entry{
+	// Link the index output back through the chain to the manifest.
+	if err := tr.Record(provenance.Entry{
 		Output:      "artifact:index.json",
 		OutputHash:  txn.HashBytes(mustJSON(idx)),
 		ManifestURI: plan.ManifestURI(media.Segments[0]),
 		InputHashes: []string{txn.HashBytes(mustJSON(syncOut))},
 		Stage:       "index",
-	})
+	}); err != nil {
+		provErrs = append(provErrs, err)
+	}
 	finalDoc := finalManifest{
 		Seed:        cfg.Seed,
 		Cameras:     cfg.Cameras,
@@ -291,10 +295,14 @@ func Run(cfg Config) (Result, error) {
 		res.RollbackCount = mgr.Rollbacks
 		return res, err
 	}
-	res.ProvenanceComplete = tr.Complete() && len(hashErrs) == 0
+	// Provenance is complete only when every entry was recorded, every
+	// segment hash matched its bytes, and the chain itself is unbroken.
+	res.ProvenanceComplete = tr.Complete() && len(hashErrs) == 0 && len(provErrs) == 0
 	res.TraceSummary = tr.Summary()
 	if len(hashErrs) > 0 {
 		res.Err = hashErrs[0]
+	} else if len(provErrs) > 0 {
+		res.Err = provErrs[0]
 	}
 	res.RollbackCount = mgr.Rollbacks
 	finalHash, err := txn.HashFile(cfg.WorkDir + "/final.json")
