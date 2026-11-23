@@ -42,6 +42,7 @@ func Run(opt Options) (*Report, error) {
 	// batch before a single block is written.
 	mapping, err := trackmap.Resolve(trackmap.TargetsFromTracks(tracks), tracks, trackmap.Options{})
 	if err != nil {
+		attemptCheckpointRecovery(opt, rep)
 		return rep, err
 	}
 
@@ -49,6 +50,7 @@ func Run(opt Options) (*Report, error) {
 	for _, sel := range mapping.Selections {
 		meta, err := metadata.Normalize(sel.Track, metadata.Overrides{Rotation: opt.Rotation})
 		if err != nil {
+			attemptCheckpointRecovery(opt, rep)
 			return rep, err
 		}
 		sel.Track.Meta = meta
@@ -58,6 +60,7 @@ func Run(opt Options) (*Report, error) {
 	// Stage 4: recover the RTP input and record gaps as explicit intervals.
 	gaps, err := recoverRTP(opt, rep)
 	if err != nil {
+		attemptCheckpointRecovery(opt, rep)
 		return rep, err
 	}
 	rep.Incomplete = gaps

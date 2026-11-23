@@ -59,6 +59,18 @@ func readSource(opt Options) ([]*model.Track, []model.TrackStats, string, error)
 			return nil, nil, path, err
 		}
 		return mx.Tracks, mx.Stats, path, nil
+	case "duplicate-track":
+		// Two tracks share an ID; the mapping stage must reject the batch
+		// before any package file is written.
+		path := filepath.Join(opt.InputDir, "studio.mp4")
+		in, err := mp4.ReadFile(path)
+		if err != nil {
+			return nil, nil, path, err
+		}
+		if len(in.Tracks) >= 2 {
+			in.Tracks[1].ID = in.Tracks[0].ID
+		}
+		return in.Tracks, in.Stats, path, nil
 	default:
 		return nil, nil, "", model.NewError(model.ErrParamInvalid, 0, 0, "unknown corrupt fixture %q", opt.Corrupt)
 	}

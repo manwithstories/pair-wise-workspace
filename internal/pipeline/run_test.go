@@ -302,3 +302,22 @@ func TestUnknownSourceRejected(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestDuplicateTrackFailsBatchAndWritesNoPackage(t *testing.T) {
+	opt := baseOptions(t)
+	opt.Corrupt = "duplicate-track"
+	rep, err := pipelineRun(opt)
+	if err == nil || model.CodeOf(err) != model.ErrTrackMapDuplicate {
+		t.Fatalf("err = %v code %s", err, model.CodeOf(err))
+	}
+	// No completion marker: the package directory must not contain a manifest.
+	for _, name := range []string{"package.json", "manifest.json"} {
+		if _, err := os.Stat(filepath.Join(opt.PackageDir, name)); err == nil {
+			t.Fatalf("%s must not be written for a failed batch", name)
+		}
+	}
+	_ = rep
+}
+
+// pipelineRun is a thin alias so the test above reads clearly.
+func pipelineRun(opt Options) (*Report, error) { return Run(opt) }

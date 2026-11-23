@@ -74,7 +74,7 @@ func (f *DemoFlags) Validate() error {
 		}
 	}
 	switch f.Corrupt {
-	case "", "truncated-mp4", "invalid-klv":
+	case "", "truncated-mp4", "invalid-klv", "duplicate-track":
 	default:
 		return fmt.Errorf("unknown corrupt fixture %q", f.Corrupt)
 	}
