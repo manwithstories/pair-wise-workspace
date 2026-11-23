@@ -45,7 +45,6 @@ type VideoTrackSummary struct {
 	Timescale       uint32
 	SampleCount     uint64
 	KeyframeIndexes []uint32 // sample numbers that are sync samples
-	Rotation        Rotation
 	Crop            *Crop
 	Colors          []Color
 }
@@ -56,7 +55,8 @@ type Track struct {
 	Kind         string // video | audio
 	Video        *VideoTrackSummary
 	Audio        *AudioTrackLayout
-	ContainerRot Rotation // rotation declared at container/movie level
+	ContainerRot Rotation // rotation declared at movie level (mvhd)
+	TrackRot     Rotation // rotation declared at track level (tkhd)
 	ContainerCrop *Crop
 	// Adjudicated fields, filled by conflict resolution.
 	AppliedRotation Rotation

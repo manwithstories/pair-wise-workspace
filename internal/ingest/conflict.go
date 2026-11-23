@@ -44,7 +44,7 @@ func Adjudicate(s *Summary, policy AdjudicationPolicy) error {
 		if tr.Kind != "video" || tr.Video == nil {
 			continue
 		}
-		if !validRotation(tr.ContainerRot) || !validRotation(tr.Video.Rotation) {
+		if !validRotation(tr.ContainerRot) || !validRotation(tr.TrackRot) {
 			tr.Rejected = true
 			tr.ConflictNotes = append(tr.ConflictNotes,
 				"rotation is not a multiple of 90 degrees")
@@ -53,13 +53,13 @@ func Adjudicate(s *Summary, policy AdjudicationPolicy) error {
 			continue
 		}
 		switch {
-		case tr.Video.Rotation != 0 && tr.ContainerRot != 0 &&
-			tr.Video.Rotation != tr.ContainerRot:
+		case tr.TrackRot != 0 && tr.ContainerRot != 0 &&
+			tr.TrackRot != tr.ContainerRot:
 			tr.ConflictNotes = append(tr.ConflictNotes,
 				"track rotation overrides contradictory container rotation")
-			tr.AppliedRotation = tr.Video.Rotation
-		case tr.Video.Rotation != 0:
-			tr.AppliedRotation = tr.Video.Rotation
+			tr.AppliedRotation = tr.TrackRot
+		case tr.TrackRot != 0:
+			tr.AppliedRotation = tr.TrackRot
 		default:
 			tr.AppliedRotation = tr.ContainerRot
 		}

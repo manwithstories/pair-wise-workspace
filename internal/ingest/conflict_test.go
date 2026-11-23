@@ -19,7 +19,7 @@ func TestRotationAdjudication(t *testing.T) {
 	s := &Summary{Tracks: []*Track{videoTrack()}}
 	tr := s.Tracks[0]
 	tr.ContainerRot = 90
-	tr.Video.Rotation = 270 // track wins
+	tr.TrackRot = 270 // track wins
 	if err := Adjudicate(s, DefaultPolicy()); err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestRotationAdjudication(t *testing.T) {
 
 func TestInvalidRotationRejected(t *testing.T) {
 	s := &Summary{Tracks: []*Track{videoTrack()}}
-	s.Tracks[0].Video.Rotation = 45
+	s.Tracks[0].TrackRot = 45
 	err := Adjudicate(s, DefaultPolicy())
 	if err == nil {
 		t.Fatal("non-orthogonal rotation must be rejected")
