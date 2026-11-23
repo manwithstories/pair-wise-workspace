@@ -9,7 +9,8 @@ import (
 
 // Box is one ISOBMFF box header located inside a bounded byte range. End is
 // the declared end offset; Valid is false when the declared size cannot fit
-// inside the containing range.
+// inside the containing range. Incomplete means the length was plausible but
+// the data stops early (a truncated segment), as opposed to a corrupt length.
 type Box struct {
 	Type        string
 	Offset      int
@@ -17,6 +18,7 @@ type Box struct {
 	Size        uint64
 	End         int
 	Valid       bool
+	Incomplete  bool
 	ExtendsEOF  bool
 	declaredEnd int
 }
@@ -161,6 +163,10 @@ func printableType(t string) bool {
 // WalkTopLevel parses the sequence of top-level boxes. A box with an
 // overrunning declared size is reported and the walker resynchronizes at the
 // next known top-level type, so later segments remain inspectable.
+//
+// A top-level box whose declared end runs past the buffer is classified as
+// truncated (Incomplete) when no later top-level anchor exists; otherwise the
+// length itself is corrupt and errs on the side of resynchronizing.
 func WalkTopLevel(buf []byte, maxBoxSize uint64) ([]Box, []Problem) {
 	var boxes []Box
 	var problems []Problem
@@ -177,6 +183,24 @@ func WalkTopLevel(buf []byte, maxBoxSize uint64) ([]Box, []Problem) {
 			off = next
 			continue
 		}
+		if !b.Valid {
+			if isTopLevel(b.Type) && nextTopLevel(buf, off+b.HeaderSize, limit) < 0 {
+				b.Incomplete = true
+				boxes = append(boxes, b)
+				problems = append(problems, Problem{clock.ErrSegmentTruncated, off,
+					fmt.Sprintf("box %q at %d stopped early: declared %d bytes, have %d", b.Type, off, b.Size, limit-off)})
+				break
+			}
+			problems = append(problems, Problem{clock.ErrBoxSizeOverrun, off,
+				fmt.Sprintf("box %q declares end %d beyond buffer %d", b.Type, b.declaredEnd, limit)})
+			next := nextTopLevel(buf, off+b.HeaderSize, limit)
+			if next < 0 {
+				break
+			}
+			problems = append(problems, Problem{clock.ErrResync, next, "resynchronized after overrun box"})
+			off = next
+			continue
+		}
 		if maxBoxSize > 0 && b.Size > maxBoxSize {
 			problems = append(problems, Problem{clock.ErrBoxSizeOverrun, off,
 				fmt.Sprintf("box %q size %d exceeds configured limit %d", b.Type, b.Size, maxBoxSize)})
@@ -185,17 +209,6 @@ func WalkTopLevel(buf []byte, maxBoxSize uint64) ([]Box, []Problem) {
 				break
 			}
 			problems = append(problems, Problem{clock.ErrResync, next, "resynchronized after oversized box"})
-			off = next
-			continue
-		}
-		if !b.Valid {
-			problems = append(problems, Problem{clock.ErrBoxSizeOverrun, off,
-				fmt.Sprintf("box %q declares end %d beyond buffer %d", b.Type, b.declaredEnd, limit)})
-			next := nextTopLevel(buf, off+b.HeaderSize, limit)
-			if next < 0 {
-				break
-			}
-			problems = append(problems, Problem{clock.ErrResync, next, "resynchronized after overrun box"})
 			off = next
 			continue
 		}
