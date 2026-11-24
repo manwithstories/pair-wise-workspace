@@ -102,10 +102,11 @@ func Render(audio *pcm.Audio, fragmentFrames int) ([]byte, string, error) {
 }
 
 // writeFragment writes one moof and mdat. The trun contains one sample whose
-// duration is the whole fragment. With our fixed-width boxes the moof size is
-// always 112 bytes, so the data offset is 112 + 8 byte mdat header = 120.
+// duration is the whole fragment. The fixed v0 boxes make moof exactly 92
+// bytes: 8 moof + 16 mfhd + 8 traf + 16 tfhd + 16 tfdt + 28 trun. Therefore
+// the sample data begins after moof (92) and the 8-byte mdat header (100).
 func writeFragment(w *gomp4.Writer, sequence, decodeTime, duration uint32, payload []byte) error {
-	const moofSize = 112
+	const moofSize = 92
 	const dataOffset = moofSize + 8
 
 	if err := startBox(w, "moof"); err != nil {

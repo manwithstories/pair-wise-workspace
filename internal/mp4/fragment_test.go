@@ -34,6 +34,19 @@ func TestRenderDeterministicAndBoxStructureReadable(t *testing.T) {
 	kinds := map[string]int{}
 	_, err = gomp4.ReadBoxStructure(bytes.NewReader(b1), func(h *gomp4.ReadHandle) (any, error) {
 		kinds[h.BoxInfo.Type.String()]++
+		if h.BoxInfo.Type == gomp4.BoxTypeTrun() {
+			box, _, err := h.ReadPayload()
+			if err != nil {
+				return nil, err
+			}
+			trun := box.(*gomp4.Trun)
+			if trun.DataOffset != 100 {
+				t.Fatalf("trun data offset=%d want 100", trun.DataOffset)
+			}
+			if trun.SampleCount != 1 || trun.Entries[0].SampleSize != 19200 {
+				t.Fatalf("unexpected trun entry: %+v", trun)
+			}
+		}
 		if _, err := h.Expand(); err != nil && !errors.Is(err, gomp4.ErrBoxInfoNotFound) {
 			return nil, err
 		}
