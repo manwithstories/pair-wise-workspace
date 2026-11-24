@@ -2,6 +2,7 @@ package ingest_test
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -178,5 +179,44 @@ func TestTruncatedContainerHeadIsFatal(t *testing.T) {
 		t.Fatal("expected fatal error")
 	} else if model.ClassOf(err) != model.ClassFatal {
 		t.Fatalf("class = %v, want fatal", model.ClassOf(err))
+	}
+}
+
+func TestConflictingFramesDoNotBreakIndexedMonotonicity(t *testing.T) {
+	spec := synth.DefaultSpec(1, 100)
+	spec.ConflictEvery = 10
+	path := generate(t, spec)
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	cur, err := ingest.NewCursor(f, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var prevOK int64 = -1
+	conflicts := 0
+	for {
+		fr, err := cur.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fr.Status == model.FrameConflict {
+			conflicts++
+			continue
+		}
+		if fr.Status == model.FrameOK {
+			if fr.PTS < prevOK {
+				t.Fatalf("indexed frame %d pts %d went back past %d", fr.Meta.FrameNo, fr.PTS, prevOK)
+			}
+			prevOK = fr.PTS
+		}
+	}
+	if conflicts == 0 {
+		t.Fatal("expected conflicting frames")
 	}
 }
