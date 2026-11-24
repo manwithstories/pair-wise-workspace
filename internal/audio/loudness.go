@@ -226,8 +226,12 @@ func FindSilence(a Audio) []SilenceRegion {
 		}
 		if !silent && start >= 0 {
 			end := i
-			sec := media.SamplesToSeconds(int64(end-start), a.SampleRate).Float64()
-			regions = append(regions, SilenceRegion{StartFrame: start, EndFrame: end, Seconds: sec})
+			// Ignore isolated zero-crossing/quantization dips shorter than
+			// 1 ms; packet-loss concealment gaps are at least one packet.
+			if end-start >= a.SampleRate/1000 {
+				sec := media.SamplesToSeconds(int64(end-start), a.SampleRate).Float64()
+				regions = append(regions, SilenceRegion{StartFrame: start, EndFrame: end, Seconds: sec})
+			}
 			start = -1
 		}
 	}
