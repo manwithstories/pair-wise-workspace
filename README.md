@@ -90,6 +90,10 @@ go run ./cmd/mediaroute demo --seed 42 --dir "$dir" --reuse --quiet --json | gre
 # 期望 "index_rebuilt": true
 ```
 
+## 大时长与内存
+
+`--duration-scale` 可放大样例时长。实测在素材时长放大 5× 到 40× 时，进程峰值 RSS 稳定在约 17–20 MB，处理的样本数从 1035 增长到 8280；`go test ./internal/demo -run TestLiveHeapBounded` 会在一次运行后回收并断言存活堆不随时长增长。
+
 ## 约束与边界
 
 - 仅支持本地 MP4 输入与 RTP 包序列模拟，不接入真实跨区网络。
