@@ -9,7 +9,7 @@ import (
 func TestInitMetadataRoundTrip(t *testing.T) {
 	spec := InitSpec{
 		Width: 3840, Height: 2160, VideoTimescale: 90000,
-		Color: &metadata.Color{ColorType: "nclx", Primaries: 9, Transfer: 16, Matrix: 9, FullRange: true},
+		Color:          &metadata.Color{ColorType: "nclx", Primaries: 9, Transfer: 16, Matrix: 9, FullRange: true},
 		AudioTimescale: 48000,
 		Audio: &metadata.Audio{
 			Channels: 6, SampleRateHz: 48000, SampleRateRaw: 48000 << 16,

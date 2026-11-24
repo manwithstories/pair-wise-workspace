@@ -107,7 +107,7 @@ func runHealthyDemo(ctx context.Context, caseName string, seed int64, workers, q
 	}
 
 	rep, err := pipeline.Execute(ctx, pipeline.ExecuteParams{
-		MediaRoot: mediaRoot,
+		MediaRoot:    mediaRoot,
 		ManifestPath: filepath.Join(outDir, "manifest.json"),
 		Case:         caseName, Seed: seed,
 		Config:        pipeline.Config{Workers: workers, Queue: queue},
@@ -141,7 +141,7 @@ func runCancelDemo(ctx context.Context, dir string) int {
 	}
 
 	rep, err := pipeline.Execute(ctx, pipeline.ExecuteParams{
-		MediaRoot: mediaRoot,
+		MediaRoot:      mediaRoot,
 		CheckpointPath: filepath.Join(dir, pipeline.CheckpointName),
 		Case:           "cancel", Seed: 23, Config: cfg,
 		CancelAfterCommits: 3, ExpectedHash: expected,

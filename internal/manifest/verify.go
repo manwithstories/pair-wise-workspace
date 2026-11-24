@@ -13,13 +13,13 @@ import (
 // VerifyReport is the result of re-hashing artifacts and re-running the
 // parse/encode roundtrip on every delivered fragment.
 type VerifyReport struct {
-	SHAOK            int      `json:"sha_ok"`
-	SHATotal         int      `json:"sha_total"`
-	RoundTripOK      int      `json:"roundtrip_ok"`
-	RoundTripTotal   int      `json:"roundtrip_total"`
-	Missing          []string `json:"missing,omitempty"`
-	SHAFailed        []string `json:"sha_failed,omitempty"`
-	RoundTripFailed  []string `json:"roundtrip_failed,omitempty"`
+	SHAOK           int      `json:"sha_ok"`
+	SHATotal        int      `json:"sha_total"`
+	RoundTripOK     int      `json:"roundtrip_ok"`
+	RoundTripTotal  int      `json:"roundtrip_total"`
+	Missing         []string `json:"missing,omitempty"`
+	SHAFailed       []string `json:"sha_failed,omitempty"`
+	RoundTripFailed []string `json:"roundtrip_failed,omitempty"`
 }
 
 func sha256Hex(b []byte) string {

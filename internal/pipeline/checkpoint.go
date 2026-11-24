@@ -63,27 +63,27 @@ func (c Config) Digest() string {
 
 // CommittedItem is one fully analyzed, durably committed fragment.
 type CommittedItem struct {
-	Rel         string                `json:"rel"`
-	Obs         timeline.Observation  `json:"obs"`
-	RoundTripOK bool                  `json:"roundtrip_ok"`
+	Rel         string               `json:"rel"`
+	Obs         timeline.Observation `json:"obs"`
+	RoundTripOK bool                 `json:"roundtrip_ok"`
 }
 
 // Checkpoint is the resumable state bound to input and config digests.
 type Checkpoint struct {
-	Version            int                           `json:"version"`
-	State              string                        `json:"state"`
-	Case               string                        `json:"case,omitempty"`
-	Seed               int64                         `json:"seed,omitempty"`
-	MediaDir           string                        `json:"media_dir"`
-	InputDigest        string                        `json:"input_digest"`
-	ConfigDigest       string                        `json:"config_digest"`
-	Processing         Config                        `json:"processing"`
-	ExpectedResultHash string                        `json:"expected_result_hash,omitempty"`
-	ResultHash         string                        `json:"result_hash,omitempty"`
-	Committed          []string                      `json:"committed"`
-	Items              []CommittedItem               `json:"items"`
-	Quarantine         []manifest.QuarantineRecord   `json:"quarantine"`
-	UpdatedAt          time.Time                     `json:"updated_at"`
+	Version            int                         `json:"version"`
+	State              string                      `json:"state"`
+	Case               string                      `json:"case,omitempty"`
+	Seed               int64                       `json:"seed,omitempty"`
+	MediaDir           string                      `json:"media_dir"`
+	InputDigest        string                      `json:"input_digest"`
+	ConfigDigest       string                      `json:"config_digest"`
+	Processing         Config                      `json:"processing"`
+	ExpectedResultHash string                      `json:"expected_result_hash,omitempty"`
+	ResultHash         string                      `json:"result_hash,omitempty"`
+	Committed          []string                    `json:"committed"`
+	Items              []CommittedItem             `json:"items"`
+	Quarantine         []manifest.QuarantineRecord `json:"quarantine"`
+	UpdatedAt          time.Time                   `json:"updated_at"`
 
 	path string
 	set  map[string]bool

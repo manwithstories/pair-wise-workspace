@@ -38,12 +38,12 @@ const (
 
 // BoxHeader describes one parsed box header.
 type BoxHeader struct {
-	Type        string // four-codes, kept as string for map/key readability
-	Offset      int64  // absolute offset of the box size field
-	Size        int64  // total box size including header
-	HeaderSize  int    // 8 or 16
-	PayloadOff  int64  // absolute offset of first payload byte
-	End         int64  // absolute offset one past the box
+	Type       string // four-codes, kept as string for map/key readability
+	Offset     int64  // absolute offset of the box size field
+	Size       int64  // total box size including header
+	HeaderSize int    // 8 or 16
+	PayloadOff int64  // absolute offset of first payload byte
+	End        int64  // absolute offset one past the box
 }
 
 // ReadHeader parses a single box header starting at off in data. Every failure

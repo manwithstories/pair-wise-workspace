@@ -49,14 +49,14 @@ type Damage struct {
 
 // Config drives Generate.
 type Config struct {
-	Root             string
-	Seed             int64
-	Camera           string
-	FragmentsPerRep  int
-	Reps             []Rep
-	Omit             []Loc
-	Damage           []Damage
-	ExtraDuplicate   bool
+	Root            string
+	Seed            int64
+	Camera          string
+	FragmentsPerRep int
+	Reps            []Rep
+	Omit            []Loc
+	Damage          []Damage
+	ExtraDuplicate  bool
 }
 
 // HighRep returns the default high-bitrate rung (1080p, 90k).

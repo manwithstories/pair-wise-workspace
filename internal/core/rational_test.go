@@ -7,9 +7,9 @@ import (
 
 func TestScaleTicksExactLadderConversions(t *testing.T) {
 	cases := []struct {
-		v            int64
-		from, to     uint32
-		wantFloor    int64
+		v         int64
+		from, to  uint32
+		wantFloor int64
 	}{
 		{48000, 48000, 90000, 90000},
 		{9600, 48000, 90000, 18000},

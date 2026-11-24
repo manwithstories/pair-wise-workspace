@@ -15,22 +15,22 @@ import (
 
 // Job is one fragment unit of work.
 type Job struct {
-	Index       int
-	Src         Source
-	Timescale   uint32
-	RTPClock    uint32
-	RTPSidecar  string
+	Index      int
+	Src        Source
+	Timescale  uint32
+	RTPClock   uint32
+	RTPSidecar string
 }
 
 // Outcome is a worker result. When Fault is set the fragment must be
 // quarantined; otherwise Observation is ready for timeline repair.
 type Outcome struct {
-	Index        int
-	Src          Source
-	Observation  timeline.Observation
-	Fault        *core.Fault
-	RoundTripOK  bool
-	Parsed       bool
+	Index       int
+	Src         Source
+	Observation timeline.Observation
+	Fault       *core.Fault
+	RoundTripOK bool
+	Parsed      bool
 }
 
 // ReadRTPEvidence decodes a single marshaled pion/rtp packet. A missing or

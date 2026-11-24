@@ -93,22 +93,22 @@ type Stats struct {
 
 // Manifest is the deliverable checklist.
 type Manifest struct {
-	Schema              string                 `json:"schema"`
-	Case                string                 `json:"case"`
-	Seed                int64                  `json:"seed"`
-	InputDigest         string                 `json:"input_digest"`
-	ConfigDigest        string                 `json:"config_digest"`
-	ResultHash          string                 `json:"result_hash,omitempty"`
-	Representations     []string               `json:"representations"`
-	Aligned             int                    `json:"aligned"`
-	Fragments           []FragmentRecord       `json:"fragments"`
-	Quarantined         []QuarantineRecord     `json:"quarantined"`
-	SwitchPoints        []SwitchPoint          `json:"switch_points"`
-	AudioGroups         []metadata.AudioGroup  `json:"audio_groups"`
-	CompatibleVideo     []string               `json:"compatible_video"`
-	IncompatibleVideo   []string               `json:"incompatible_video"`
-	Issues              []timeline.Issue       `json:"issues"`
-	Stats               Stats                  `json:"stats"`
+	Schema            string                `json:"schema"`
+	Case              string                `json:"case"`
+	Seed              int64                 `json:"seed"`
+	InputDigest       string                `json:"input_digest"`
+	ConfigDigest      string                `json:"config_digest"`
+	ResultHash        string                `json:"result_hash,omitempty"`
+	Representations   []string              `json:"representations"`
+	Aligned           int                   `json:"aligned"`
+	Fragments         []FragmentRecord      `json:"fragments"`
+	Quarantined       []QuarantineRecord    `json:"quarantined"`
+	SwitchPoints      []SwitchPoint         `json:"switch_points"`
+	AudioGroups       []metadata.AudioGroup `json:"audio_groups"`
+	CompatibleVideo   []string              `json:"compatible_video"`
+	IncompatibleVideo []string              `json:"incompatible_video"`
+	Issues            []timeline.Issue      `json:"issues"`
+	Stats             Stats                 `json:"stats"`
 }
 
 // WriteJSONAtomic writes v as indented JSON via a same-directory temp file and
@@ -151,8 +151,8 @@ func WriteJSONAtomic(path string, v any) error {
 // canonicalView is the stable subset that defines result identity.
 type canonicalView struct {
 	Fragments    []FragmentRecord `json:"fragments"`
-	SwitchPoints []SwitchPoint     `json:"switch_points"`
-	Aligned      int               `json:"aligned"`
+	SwitchPoints []SwitchPoint    `json:"switch_points"`
+	Aligned      int              `json:"aligned"`
 }
 
 // ResultHash computes a deterministic hash over the delivered fragment records

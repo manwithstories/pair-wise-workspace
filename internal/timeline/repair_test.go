@@ -7,7 +7,7 @@ func mkObs(rep string, seq uint32, tfdt uint64, ts uint32, dur uint32, digest st
 		ID: digest, Digest: digest, Path: rep + "/" + digest,
 		Representation: rep, Sequence: seq, HasSequence: true,
 		Timescale: ts, TFDT: tfdt,
-		Samples:   []SampleTiming{{Duration: dur, Sync: true}},
+		Samples: []SampleTiming{{Duration: dur, Sync: true}},
 	}
 }
 

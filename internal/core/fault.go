@@ -12,7 +12,7 @@ const MaxFragmentBytes int64 = 128 << 20
 type Kind string
 
 const (
-	KindBoxLength   Kind = "box_length"   // declared box size is impossible
+	KindBoxLength   Kind = "box_length"    // declared box size is impossible
 	KindOutOfBounds Kind = "out_of_bounds" // read/reference past the buffer
 	KindTruncated   Kind = "truncated"     // box or buffer ended early
 	KindBadField    Kind = "bad_field"     // structurally readable but invalid field
@@ -78,9 +78,9 @@ type ExitCoder interface{ ExitCode() int }
 // ConfigError marks an unrecoverable invocation/configuration problem.
 type ConfigError struct{ Err error }
 
-func (e *ConfigError) Error() string  { return "config: " + e.Err.Error() }
-func (e *ConfigError) Unwrap() error  { return e.Err }
-func (*ConfigError) ExitCode() int    { return ExitFatal }
+func (e *ConfigError) Error() string { return "config: " + e.Err.Error() }
+func (e *ConfigError) Unwrap() error { return e.Err }
+func (*ConfigError) ExitCode() int   { return ExitFatal }
 
 // InputError marks an unrecoverable input problem (missing root, digest bind
 // mismatch, fragment over the size ceiling, ...).

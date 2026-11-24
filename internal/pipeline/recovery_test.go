@@ -29,9 +29,9 @@ func runCancelGate(t *testing.T, dir string) *Report {
 		t.Fatalf("dryrun: %v", err)
 	}
 	rep, err := Execute(ctx, ExecuteParams{
-		MediaRoot: filepath.Join(dir, MediaDir),
+		MediaRoot:      filepath.Join(dir, MediaDir),
 		CheckpointPath: filepath.Join(dir, CheckpointName),
-		Case: "cancel", Config: cfg, CancelAfterCommits: 3,
+		Case:           "cancel", Config: cfg, CancelAfterCommits: 3,
 		ExpectedHash: golden.ResultHash,
 	})
 	if err != nil {
@@ -131,7 +131,7 @@ func TestAlreadyCanceledContextCommitsNothing(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	rep, err := Execute(ctx, ExecuteParams{
-		MediaRoot: filepath.Join(dir, MediaDir),
+		MediaRoot:      filepath.Join(dir, MediaDir),
 		CheckpointPath: filepath.Join(dir, CheckpointName),
 		Config:         Config{Workers: 2, Queue: 2},
 	})

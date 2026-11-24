@@ -12,11 +12,11 @@ import (
 // Audio carries the raw audio track description. Values are preserved exactly
 // as signalled; no resampling or downmix is ever performed.
 type Audio struct {
-	Channels        uint16 // raw channelcount
-	SampleRateRaw   uint32 // raw 16.16 fixed-point samplerate field
-	SampleRateHz    uint32 // integer Hz decoded from SampleRateRaw
-	LayoutCode      uint32 // raw speaker-layout code (spkl box)
-	Layout          string // speaker label list, e.g. "L R C LFE Ls Rs"
+	Channels      uint16 // raw channelcount
+	SampleRateRaw uint32 // raw 16.16 fixed-point samplerate field
+	SampleRateHz  uint32 // integer Hz decoded from SampleRateRaw
+	LayoutCode    uint32 // raw speaker-layout code (spkl box)
+	Layout        string // speaker label list, e.g. "L R C LFE Ls Rs"
 }
 
 // Color carries raw ISO nclx color metadata.
@@ -38,11 +38,11 @@ type Descriptor struct {
 // AudioGroup is a set of representations sharing an identical raw audio
 // layout and rate. Different raw values produce separate groups.
 type AudioGroup struct {
-	Key            string
-	Channels       uint16
-	SampleRateRaw  uint32
-	SampleRateHz   uint32
-	Layout         string
+	Key             string
+	Channels        uint16
+	SampleRateRaw   uint32
+	SampleRateHz    uint32
+	Layout          string
 	Representations []string
 }
 
