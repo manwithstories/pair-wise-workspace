@@ -14,6 +14,8 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"os"
+	"path/filepath"
 
 	"github.com/abema/go-mp4"
 
@@ -33,15 +35,16 @@ type ClockProfile struct {
 
 // TrackSpec is the complete recipe for one generated source file.
 type TrackSpec struct {
-	TrackID    uint32
-	Frames     int
-	Width      uint32
-	Height     uint32
-	Timescale  uint32
-	Color      model.Color
-	TargetKbps uint32
-	Clock      ClockProfile
-	EpochUnits uint64
+	TrackID      uint32
+	Frames       int
+	Width        uint32
+	Height       uint32
+	Timescale    uint32
+	Color        model.Color
+	TargetKbps   uint32
+	PayloadBytes int // nominal payload size; drives the measured bitrate
+	Clock        ClockProfile
+	EpochUnits   uint64
 
 	CorruptFrames  int  // number of frames whose payload is altered
 	TruncateTail   bool // end the file inside the last frame
@@ -80,24 +83,38 @@ func (s TrackSpec) validate() error {
 		return fmt.Errorf("%w: zero timescale", ErrBadSpec)
 	case s.Clock.CaptureUPS == 0:
 		return fmt.Errorf("%w: zero capture rate", ErrBadSpec)
+	case s.TargetKbps > 0 && s.PayloadBytes <= 0:
+		return fmt.Errorf("%w: target bitrate needs a positive payload size", ErrBadSpec)
+	case s.Clock.CaptureUPS%DefaultFPS != 0:
+		return fmt.Errorf("%w: capture rate must be a multiple of %d fps", ErrBadSpec, DefaultFPS)
 	case s.CorruptFrames < 0 || s.CorruptFrames > s.Frames:
 		return fmt.Errorf("%w: corrupt frame count out of range", ErrBadSpec)
 	}
 	return nil
 }
 
-// DefaultSpec returns a healthy track spec at the given id.
+// DefaultFPS is the capture cadence of generated fixtures.
+const DefaultFPS = 24
+
+// DefaultSpec returns a healthy track spec at the given id. The clock captures
+// at 24 fps with microsecond granularity, and payloads are sized so the
+// measured container bitrate lands on the declared target.
 func DefaultSpec(id uint32, frames int) TrackSpec {
+	const targetKbps = 1200
+	payload := targetKbps * 1000 / 8 / DefaultFPS // bytes per frame at target
 	return TrackSpec{
-		TrackID:    id,
-		Frames:     frames,
-		Width:      48,
-		Height:     32,
-		Timescale:  90000,
-		Color:      model.Color{Primaries: 1, Transfer: 13, Matrix: 6, Range: 1},
-		TargetKbps: 1200,
-		Clock:      ClockProfile{CaptureUPS: 1000},
-		EpochUnits: uint64(1_700_000_000_000 + int64(id)*1_000_000),
+		TrackID:      id,
+		Frames:       frames,
+		Width:        48,
+		Height:       32,
+		Timescale:    90000,
+		Color:        model.Color{Primaries: 1, Transfer: 13, Matrix: 6, Range: 1},
+		TargetKbps:   targetKbps,
+		PayloadBytes: payload,
+		// 24 kHz counter: one millisecond per unit, exactly 1000 units per
+		// 24 fps frame interval.
+		Clock:      ClockProfile{CaptureUPS: 24_000},
+		EpochUnits: uint64(40_800_000_000 + int64(id)*1_000_000),
 	}
 }
 
@@ -132,12 +149,18 @@ func Generate(w io.WriteSeeker, spec TrackSpec, seed int64) (*Result, error) {
 
 	for i := 0; i < spec.Frames; i++ {
 		frameNo := uint64(i + 1)
-		raw := spec.EpochUnits + uint64(i)
+		// Advance by exactly one frame interval in capture units. The rate is a
+		// multiple of DefaultFPS, so this is exact at every precision.
+		step := int64(spec.Clock.CaptureUPS) / DefaultFPS
+		if step < 1 {
+			step = 1
+		}
+		raw := int64(spec.EpochUnits) + int64(i)*step
 		if spec.Clock.Jitter != 0 && i > 0 {
-			raw = uint64(int64(raw) + rng.Int63n(2*spec.Clock.Jitter+1) - spec.Clock.Jitter)
+			raw += rng.Int63n(2*spec.Clock.Jitter+1) - spec.Clock.Jitter
 		}
 		if spec.Clock.RollbackAt > 0 && i == spec.Clock.RollbackAt {
-			raw = uint64(int64(raw) - spec.Clock.RollbackBy)
+			raw -= spec.Clock.RollbackBy
 			res.Defects = append(res.Defects, Defect{FrameNo: frameNo, Kind: "rollback"})
 		}
 
@@ -149,7 +172,7 @@ func Generate(w io.WriteSeeker, spec TrackSpec, seed int64) (*Result, error) {
 			quality = 120
 			res.Defects = append(res.Defects, Defect{FrameNo: frameNo, Kind: "conflict"})
 		}
-		payload, err := ingest.EncodeFrame(spec.TrackID, writeNo, spec.Width, spec.Height, quality, spec.Color)
+		payload, err := ingest.EncodeFrame(spec.TrackID, writeNo, spec.Width, spec.Height, quality, spec.Color, spec.PayloadBytes)
 		if err != nil {
 			return nil, err
 		}
@@ -162,7 +185,7 @@ func Generate(w io.WriteSeeker, spec TrackSpec, seed int64) (*Result, error) {
 		fb := ingest.NewFrameBox()
 		fb.TrackID = spec.TrackID
 		fb.FrameNo = writeNo
-		fb.CaptureUnits = raw
+		fb.CaptureUnits = uint64(raw)
 		fb.Width = spec.Width
 		fb.Height = spec.Height
 		fb.CaptureUPS = spec.Clock.CaptureUPS
@@ -208,7 +231,7 @@ func Generate(w io.WriteSeeker, spec TrackSpec, seed int64) (*Result, error) {
 // writeTornTail writes a frame header followed by a declared payload that is
 // physically cut off halfway.
 func writeTornTail(w io.WriteSeeker, spec TrackSpec) error {
-	payload, err := ingest.EncodeFrame(spec.TrackID, uint64(spec.Frames+1), spec.Width, spec.Height, 200, spec.Color)
+	payload, err := ingest.EncodeFrame(spec.TrackID, uint64(spec.Frames+1), spec.Width, spec.Height, 200, spec.Color, spec.PayloadBytes)
 	if err != nil {
 		return err
 	}
@@ -293,9 +316,44 @@ func reshape(payload []byte, size int, salt uint64) []byte {
 }
 
 func payloadSizeFor(spec TrackSpec) int {
-	// Approximate the encoded size for the target bitrate so the metric has a
-	// realistic denominator. Not critical: reshape preserves length.
-	return int(spec.Width) * int(spec.Height) / 4
+	return spec.PayloadBytes
+}
+
+// WriteSource writes one source atomically to dest, using a sibling temp file
+// so a crash never leaves a half-written source at the published path.
+func WriteSource(dest string, spec TrackSpec, seed int64) (*Result, error) {
+	dir := filepath.Dir(dest)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	f, err := os.CreateTemp(dir, ".source-*.tmp")
+	if err != nil {
+		return nil, err
+	}
+	name := f.Name()
+	ok := false
+	defer func() {
+		if !ok {
+			f.Close()
+			os.Remove(name)
+		}
+	}()
+	res, err := Generate(f, spec, seed)
+	if err != nil {
+		return nil, err
+	}
+	if err := f.Sync(); err != nil {
+		return nil, err
+	}
+	if err := f.Close(); err != nil {
+		return nil, err
+	}
+	if err := os.Rename(name, dest); err != nil {
+		return nil, err
+	}
+	ok = true
+	res.Path = dest
+	return res, nil
 }
 
 // WriteSources generates every track in specs into the directory dir, one file
