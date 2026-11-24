@@ -38,6 +38,9 @@ type Options struct {
 	// regenerating it, so an operator can mutate a fixture and observe that the
 	// cached index is rejected and rebuilt.
 	ReuseExisting bool
+	// DurationScale multiplies fixture length; used to prove memory stays
+	// bounded as duration grows.
+	DurationScale int
 	Quiet         bool
 	JSON          bool
 	Progress      io.Writer
@@ -100,6 +103,10 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	spec := fixtures.DefaultSpec(opts.Seed)
 	if opts.TruncateTail > 0 {
 		spec.TruncateTailBytes = opts.TruncateTail
+	}
+	if opts.DurationScale > 1 {
+		spec.VideoSamples *= opts.DurationScale
+		spec.AudioSamples *= opts.DurationScale
 	}
 	store := &index.Store{Dir: filepath.Join(dir, "index-cache")}
 	result := &Result{WorkDir: dir}

@@ -53,6 +53,9 @@ type Spec struct {
 	// KeepExisting reuses media files that already exist on disk, so an
 	// operator can mutate a fixture and observe cache invalidation.
 	KeepExisting bool
+	// DurationScale multiplies the default sample counts, letting tests
+	// generate long material without changing the per-sample shape.
+	DurationScale int
 }
 
 // DefaultSpec returns the standard four-class demo spec for a seed.
