@@ -330,21 +330,16 @@ func pass(src *os.File, paths Paths, opt Options, resume *ingest.Resume, prior c
 			entries++
 		}
 
+		// Commit a checkpoint at this frame boundary before either continuing or
+		// stopping. The frame's fact and index entry are already written, so the
+		// checkpoint covers exactly what is durable; an interruption therefore
+		// leaves a consistent prefix with nothing to roll back.
+		if err := commitIngestCheckpoint(cur, paths, opt.TrackID, uint64(st.frames), &st, idxTmp, logf, entries); err != nil {
+			return false, err
+		}
 		if opt.InterruptAfter > 0 && count >= opt.InterruptAfter {
-			// The frame that triggers the interrupt is not covered by any
-			// committed checkpoint, so it must not remain in the durable log.
-			// Rolling the log back keeps the checkpoint's artifact digest exact.
 			interrupted = true
-			rollbackLog(logf, uint64(st.frames-1))
 			break
-		}
-		if err := commitIngestCheckpoint(cur, paths, opt.TrackID, uint64(st.frames), &st, idxTmp, entries); err != nil {
-			return false, err
-		}
-	}
-	if !interrupted {
-		if err := commitIngestCheckpoint(cur, paths, opt.TrackID, uint64(st.frames), &st, idxTmp, entries); err != nil {
-			return false, err
 		}
 	}
 
@@ -418,8 +413,13 @@ func mustPayload(src *os.File, fr model.Frame) []byte {
 // commitIngestCheckpoint fsyncs the streaming writers and saves ingest-stage
 // state naming the source and the index prefix. The manifest is not yet
 // durable by digest at this stage, which Ordering permits.
-func commitIngestCheckpoint(cur *ingest.Cursor, paths Paths, trackID uint32, next uint64, st *streamState, idxTmp *os.File, entries int) error {
+func commitIngestCheckpoint(cur *ingest.Cursor, paths Paths, trackID uint32, next uint64, st *streamState, idxTmp, logf *os.File, entries int) error {
 	if err := idxTmp.Sync(); err != nil {
+		return model.Fatal("pipeline.checkpoint", err)
+	}
+	// The frames log must be durable before its digest is recorded; otherwise a
+	// restart could verify a checkpoint whose frames were never written.
+	if err := logf.Sync(); err != nil {
 		return model.Fatal("pipeline.checkpoint", err)
 	}
 	srcArt, err := checkpoint.ArtifactOf(paths.Source())
@@ -892,19 +892,6 @@ func resumeCount(r *ingest.Resume) uint64 {
 }
 func resumeOK(r *ingest.Resume) uint64  { return 0 }
 func resumeBad(r *ingest.Resume) uint64 { return 0 }
-
-// rollbackLog truncates the frames log to the given frame count and leaves the
-// write offset at the end, so a checkpoint describing fewer frames validates
-// against the file on disk.
-func rollbackLog(f *os.File, frames uint64) {
-	size := int64(frames) * frameFactSize
-	if err := f.Truncate(size); err != nil {
-		return
-	}
-	if _, err := f.Seek(size, io.SeekStart); err != nil {
-		return
-	}
-}
 
 type frameFact struct {
 	FrameNo uint64

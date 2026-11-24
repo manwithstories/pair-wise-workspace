@@ -124,8 +124,10 @@ func TestInterruptCommitsVerifiableCheckpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load checkpoint: %v", err)
 	}
-	if st.NextFrame != 24 {
-		t.Fatalf("next_frame = %d, want 24 (the interrupting frame is not durable)", st.NextFrame)
+	// The interrupting frame is written and committed before the run stops, so
+	// the durable prefix includes it.
+	if st.NextFrame != 25 {
+		t.Fatalf("next_frame = %d, want 25 (interrupting frame included)", st.NextFrame)
 	}
 	if err := checkpoint.Verify(st); err != nil {
 		t.Fatalf("checkpoint does not verify against disk: %v", err)
