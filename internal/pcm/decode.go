@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 
+	"mediad/internal/fault"
 	"mediad/internal/reorder"
 )
 
@@ -29,6 +30,11 @@ func NewAudio(rate, channels, frames int) (*Audio, error) {
 	n := frames * channels
 	if n > math.MaxInt/8 {
 		return nil, fmt.Errorf("audio buffer too large: %d samples", n)
+	}
+	// float64 storage plus conversion headroom must stay within the documented
+	// resident-memory envelope.
+	if int64(n)*8 > fault.MaxMemoryBytes/2 {
+		return nil, fmt.Errorf("audio buffer estimate exceeds %d MiB memory limit", fault.MaxMemoryBytes>>20)
 	}
 	return &Audio{SampleRate: rate, Channels: channels, Frames: frames, Samples: make([]float64, n)}, nil
 }
