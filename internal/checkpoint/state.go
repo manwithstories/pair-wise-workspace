@@ -58,7 +58,12 @@ type State struct {
 	TrackID     uint32         `json:"track_id"`
 	NextFrame   uint64         `json:"next_frame"` // frames durably ingested
 	Indexed     uint64         `json:"indexed"`    // usable frames in the index fragment
+	Offset      int64          `json:"offset"`     // source byte offset to resume from
+	FramesOK    uint64         `json:"frames_ok"`
+	FramesBad   uint64         `json:"frames_bad"`
+	Skipped     uint64         `json:"skipped"`
 	Stage       Stage          `json:"stage"`
+	Source      Artifact       `json:"source"`
 	FramesFile  Artifact       `json:"frames_file"`
 	IndexFile   Artifact       `json:"index_file"`
 	ManifestSum string         `json:"manifest_digest"`
@@ -172,6 +177,11 @@ func Load(path string) (State, error) {
 // Verify re-hashes every artifact the checkpoint references and compares it to
 // the recorded digest. A run may resume only when this returns nil.
 func Verify(st State) error {
+	if st.Source.Path != "" {
+		if err := checkArtifact(st.Source); err != nil {
+			return fmt.Errorf("%w: source: %v", ErrUnfinished, err)
+		}
+	}
 	if err := checkArtifact(st.FramesFile); err != nil {
 		return fmt.Errorf("%w: frames: %v", ErrUnfinished, err)
 	}

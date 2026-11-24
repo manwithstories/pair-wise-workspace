@@ -228,3 +228,21 @@ func CheckThresholds(m TrackMetrics) error {
 // IsVerifyFailure reports whether err comes from a threshold check; used to
 // map exit codes without importing the caller's error wrappers.
 func IsVerifyFailure(err error) bool { return err != nil && model.ClassOf(err) == model.ClassVerify }
+
+// Counter tallies cache outcomes for the report. The pipeline classifies each
+// lookup and calls one method, so metrics needs no knowledge of cache errors.
+type Counter struct {
+	Hits     int
+	Misses   int
+	Invalid  int
+	Verified int // entries proven retrievable through a full provenance check
+}
+
+// Hit records a verified cache hit.
+func (c *Counter) Hit() { c.Hits++ }
+
+// Miss records an absent entry that had to be recomputed.
+func (c *Counter) Miss() { c.Misses++ }
+
+// Rejected records an entry rejected by a provenance or integrity check.
+func (c *Counter) Rejected() { c.Invalid++ }
