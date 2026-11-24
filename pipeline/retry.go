@@ -18,7 +18,8 @@ import (
 type Checkpoint struct {
 	Version int                  `json:"version"`
 	Nodes   map[string]NodeState `json:"nodes"`
-	Results map[string]string    `json:"results"` // idempotency key -> result
+	Results map[string]string    `json:"results"`        // idempotency key -> result
+	Meta    map[string]string    `json:"meta,omitempty"` // run parameters and summary
 	path    string
 	mu      sync.Mutex
 }
@@ -34,7 +35,28 @@ func NewCheckpoint(path string) *Checkpoint {
 		path:    path,
 		Nodes:   map[string]NodeState{},
 		Results: map[string]string{},
+		Meta:    map[string]string{},
 	}
+}
+
+// SetMeta stores a run-level key/value, persisted with the rest of the
+// checkpoint. It is how the demo hands the verify command its parameters and
+// metrics without a second file.
+func (c *Checkpoint) SetMeta(key, value string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.Meta == nil {
+		c.Meta = map[string]string{}
+	}
+	c.Meta[key] = value
+}
+
+// GetMeta reads a run-level value.
+func (c *Checkpoint) GetMeta(key string) (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	v, ok := c.Meta[key]
+	return v, ok
 }
 
 // ErrCheckpointCorrupt reports an unreadable checkpoint. Callers that can
@@ -68,6 +90,9 @@ func LoadCheckpoint(path string) (*Checkpoint, error) {
 	}
 	if cp.Results == nil {
 		cp.Results = map[string]string{}
+	}
+	if cp.Meta == nil {
+		cp.Meta = map[string]string{}
 	}
 	return cp, nil
 }

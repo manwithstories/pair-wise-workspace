@@ -46,11 +46,12 @@ type NodeState struct {
 
 // DAG is a set of nodes plus their persisted states.
 type DAG struct {
-	nodes  map[string]*Node
-	order  []string
-	States map[string]*NodeState
-	cp     *Checkpoint
-	mu     sync.Mutex
+	nodes    map[string]*Node
+	order    []string
+	States   map[string]*NodeState
+	restored map[string]bool // node IDs whose state was reused from checkpoint
+	cp       *Checkpoint
+	mu       sync.Mutex
 }
 
 // New builds an empty DAG persisting to cp (nil cp = in-memory only).
@@ -58,7 +59,7 @@ func New(cp *Checkpoint) *DAG {
 	if cp == nil {
 		cp = NewCheckpoint("")
 	}
-	return &DAG{nodes: map[string]*Node{}, States: map[string]*NodeState{}, cp: cp}
+	return &DAG{nodes: map[string]*Node{}, States: map[string]*NodeState{}, restored: map[string]bool{}, cp: cp}
 }
 
 // Add registers a node. A node whose checkpoint state is terminal *and* was
@@ -77,23 +78,16 @@ func (d *DAG) Add(n Node) error {
 		s := saved
 		s.Recovered = s.Recovered || saved.State == StateRecovered
 		d.States[node.ID] = &s
+		d.restored[node.ID] = true
 		return nil
 	}
 	d.States[node.ID] = &NodeState{State: StatePending, Key: node.Key}
 	return nil
 }
 
-// Resumed reports how many nodes were reused from the checkpoint.
-func (d *DAG) Resumed() int {
-	n := 0
-	for _, id := range d.order {
-		st := d.States[id]
-		if st != nil && (st.State == StateDone || st.State == StateRecovered) && st.Attempts == 0 {
-			n++
-		}
-	}
-	return n
-}
+// Resumed reports how many nodes were reused from the checkpoint without
+// executing.
+func (d *DAG) Resumed() int { return len(d.restored) }
 
 // Execute runs the DAG to quiescence with up to workers concurrent nodes.
 func (d *DAG) Execute(ctx context.Context, workers int) *Report {
@@ -246,6 +240,10 @@ func (d *DAG) rootFailure(id string) string {
 	return walk(id)
 }
 
+// ExecuteReport returns the outcome of the most recent Execute without
+// re-running anything. It is nil-safe: a fresh DAG reports all pending.
+func (d *DAG) ExecuteReport() *Report { return d.report() }
+
 // Report summarizes one Execute run.
 type Report struct {
 	FirstBlockedDep string
@@ -260,7 +258,7 @@ type Report struct {
 func (d *DAG) report() *Report {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	r := &Report{TotalNodes: len(d.order), ResumedNodes: d.Resumed()}
+	r := &Report{TotalNodes: len(d.order), ResumedNodes: len(d.restored)}
 	for _, id := range d.order {
 		st := d.States[id]
 		switch st.State {
