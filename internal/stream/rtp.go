@@ -90,7 +90,7 @@ func packetize(samples []float32, framesPerPacket int, seq *uint16) []*pionrtp.P
 // simulateNetwork feeds packets to the recoverer in a deterministically
 // shuffled order that mimics a lossy link: local reordering is injected so the
 // recovery module has something to recover.
-func simulateNetwork(ctx context.Context, packets []*pionrtp.Packet, rec **rtp.Recoverer, res *Result, sink Sink, at clock.Rational) error {
+func simulateNetwork(ctx context.Context, packets []*pionrtp.Packet, rec **rtp.Recoverer, res *Result, sink Sink, at clock.Rational, lossBurst int, burstDropped *bool) error {
 	if len(packets) == 0 {
 		return nil
 	}
@@ -101,9 +101,17 @@ func simulateNetwork(ctx context.Context, packets []*pionrtp.Packet, rec **rtp.R
 		j := i + 1 + rng.Intn(2)
 		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
 	}
-	for _, p := range shuffled {
+	burstStart := -1
+	if lossBurst > 0 && !*burstDropped && len(shuffled) > lossBurst {
+		burstStart = len(shuffled)/2 - lossBurst/2
+		*burstDropped = true
+	}
+	for i, p := range shuffled {
 		if err := ctx.Err(); err != nil {
 			return canceled(err)
+		}
+		if burstStart >= 0 && i >= burstStart && i < burstStart+lossBurst {
+			continue
 		}
 		out, err := (*rec).Push(p)
 		if err != nil {

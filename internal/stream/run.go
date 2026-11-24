@@ -24,9 +24,14 @@ const (
 	ChunkSamples = 32
 	// MaxChunkBytes bounds the bytes held per chunk.
 	MaxChunkBytes = 1 << 20
-	// AudioChunkFrames is the number of stereo frames processed per audio
+	// AudioChunkFrames is the number of stereo frames processed per streaming
 	// block, keeping the working set constant regardless of duration.
 	AudioChunkFrames = 4800 // 100 ms at 48 kHz
+	// LoudnessAnalysisFrames is the longest analysis window fed to the sliding
+	// loudness normaliser. Audio is accumulated to this size so gain decisions
+	// are made on a meaningful window; a final short remainder is still
+	// normalised so no audio is dropped.
+	LoudnessAnalysisFrames = audio.TargetRate * 2 // 2 s
 )
 
 // Options configures a run.
@@ -37,9 +42,11 @@ type Options struct {
 	ReorderWindow int
 	// LoudnessWindowMS is the sliding loudness window in milliseconds.
 	LoudnessWindowMS int
-	// GenerateRTP turns on synthetic RTP packetisation and recovery. It is off
-	// for pure scan verification.
+	// GenerateRTP turns on synthetic RTP packetisation and recovery.
 	GenerateRTP bool
+	// LossBurst drops this many consecutive RTP packets once per track to
+	// model a link outage. Zero disables synthetic loss.
+	LossBurst int
 }
 
 // Event kinds emitted to the metrics sink.
@@ -170,22 +177,31 @@ func processTrack(ctx context.Context, tr index.Track, ranges []index.CorruptRan
 	defer f.Close()
 
 	corruptBySample := map[int64]index.CorruptRange{}
+	firstCorrupt := int64(-1)
 	for _, r := range ranges {
 		if r.TrackID != tr.ID {
 			continue
+		}
+		if firstCorrupt < 0 || r.FirstSample < firstCorrupt {
+			firstCorrupt = r.FirstSample
 		}
 		for n := r.FirstSample; n <= r.LastSample; n++ {
 			corruptBySample[n] = r
 		}
 	}
+	if firstCorrupt >= 0 {
+		res.Warnings = append(res.Warnings, fmt.Sprintf("track %d: corrupt media isolated from sample %d; later timestamps unchanged", tr.ID, firstCorrupt))
+	}
 
 	var recoverer *rtp.Recoverer
 	var seq uint16
+	burstDropped := false
 	if opts.GenerateRTP && tr.Kind == "audio" {
 		recoverer = rtp.New(opts.ReorderWindow)
 	}
 
 	var pendingAudioFrames []float32
+	analysisFrames := LoudnessAnalysisFrames
 	for i := 0; i < len(tr.Samples); i += ChunkSamples {
 		if err := ctx.Err(); err != nil {
 			return canceled(err)
@@ -240,12 +256,12 @@ func processTrack(ctx context.Context, tr index.Track, ranges []index.CorruptRan
 				if len(payload) > 0 {
 					frames := pcmFromBytes(payload)
 					pendingAudioFrames = append(pendingAudioFrames, frames...)
-					for len(pendingAudioFrames) >= AudioChunkFrames*audio.TargetChannels {
-						block := pendingAudioFrames[:AudioChunkFrames*audio.TargetChannels]
-						if err := processAudio(ctx, tr, block, output, opts, res, sink, &seq, &recoverer); err != nil {
+					for len(pendingAudioFrames) >= analysisFrames*audio.TargetChannels {
+						block := pendingAudioFrames[:analysisFrames*audio.TargetChannels]
+						if err := processAudio(ctx, tr, block, output, opts, res, sink, &seq, &recoverer, &burstDropped); err != nil {
 							return err
 						}
-						pendingAudioFrames = append([]float32(nil), pendingAudioFrames[AudioChunkFrames*audio.TargetChannels:]...)
+						pendingAudioFrames = append([]float32(nil), pendingAudioFrames[analysisFrames*audio.TargetChannels:]...)
 					}
 				}
 			}
@@ -253,7 +269,7 @@ func processTrack(ctx context.Context, tr index.Track, ranges []index.CorruptRan
 		_ = bytesRead
 	}
 	if len(pendingAudioFrames) > 0 {
-		if err := processAudio(ctx, tr, pendingAudioFrames, clock.Rational{Num: 0, Den: 1}, opts, res, sink, &seq, &recoverer); err != nil {
+		if err := processAudio(ctx, tr, pendingAudioFrames, clock.Rational{Num: 0, Den: 1}, opts, res, sink, &seq, &recoverer, &burstDropped); err != nil {
 			return err
 		}
 	}
@@ -266,7 +282,7 @@ func processTrack(ctx context.Context, tr index.Track, ranges []index.CorruptRan
 	return nil
 }
 
-func processAudio(ctx context.Context, tr index.Track, block []float32, at clock.Rational, opts Options, res *Result, sink Sink, seq *uint16, rec **rtp.Recoverer) error {
+func processAudio(ctx context.Context, tr index.Track, block []float32, at clock.Rational, opts Options, res *Result, sink Sink, seq *uint16, rec **rtp.Recoverer, dropped *bool) error {
 	if err := ctx.Err(); err != nil {
 		return canceled(err)
 	}
@@ -301,7 +317,7 @@ func processAudio(ctx context.Context, tr index.Track, block []float32, at clock
 	// recoverer with a deterministic shuffle to model network reordering.
 	framesPerPacket := audio.TargetRate / 50 // 20 ms
 	packets := packetize(norm.Samples, framesPerPacket, seq)
-	if err := simulateNetwork(ctx, packets, rec, res, sink, at); err != nil {
+	if err := simulateNetwork(ctx, packets, rec, res, sink, at, opts.LossBurst, dropped); err != nil {
 		return err
 	}
 	return nil

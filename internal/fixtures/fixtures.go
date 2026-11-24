@@ -60,7 +60,7 @@ func DefaultSpec(seed int64) Spec {
 	return Spec{
 		Seed:              seed,
 		VideoSamples:      72,
-		AudioSamples:      48,
+		AudioSamples:      135,
 		KeyframeEvery:     12,
 		OriginMS:          1234,
 		Layout:            "stereo",
@@ -121,6 +121,9 @@ func Build(dir string, spec Spec, v Variant) (*Asset, error) {
 		kind: "audio", trackID: 2, timescale: audioTimescale,
 		count: spec.AudioSamples, delta: audioFrame, keyEvery: 0,
 		emptyEdits: audioEdits,
+		// 1024 stereo frames of 16-bit PCM per sample.
+		payloadBytes: audioFrame * 2 * 2,
+		pcm:          true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("fixtures: build audio: %w", err)

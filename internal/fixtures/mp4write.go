@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -82,14 +83,15 @@ func (b *boxWriter) container(typ string, children func() error) error {
 
 // trackPlan describes one track to synthesise.
 type trackPlan struct {
-	kind       string
-	trackID    uint32
-	timescale  uint32
-	count      int
-	delta      uint32
-	keyEvery   int
-	emptyEdits []mp4.ElstEntry // optional prefixed empty edits
-	mediaStart int32           // elst media time for the real segment
+	kind         string
+	trackID      uint32
+	timescale    uint32
+	count        int
+	delta        uint32
+	keyEvery     int
+	emptyEdits   []mp4.ElstEntry // optional prefixed empty edits
+	payloadBytes int             // fixed sample payload size; 0 means vary
+	pcm          bool            // fill payload with interleaved stereo PCM
 }
 
 // buildTrack renders a self-contained single-track MP4.
@@ -97,9 +99,14 @@ func buildTrack(rng *rand.Rand, plan trackPlan) ([]byte, error) {
 	sizes := make([]uint32, plan.count)
 	payloads := make([][]byte, plan.count)
 	for i := 0; i < plan.count; i++ {
-		n := 64 + rng.Intn(97)
+		n := plan.payloadBytes
+		if n <= 0 {
+			n = 64 + rng.Intn(97)
+		}
 		payloads[i] = make([]byte, n)
-		if _, err := rng.Read(payloads[i]); err != nil {
+		if plan.pcm {
+			fillPCM(payloads[i], i*n/4)
+		} else if _, err := rng.Read(payloads[i]); err != nil {
 			return nil, err
 		}
 		sizes[i] = uint32(n)
@@ -343,6 +350,24 @@ func writeSampleTables(b *boxWriter, plan trackPlan, sizes []uint32, stcoEntry *
 		}
 	}
 	return nil
+}
+
+// fillPCM writes an interleaved stereo 16-bit sine at 440 Hz with a slow
+// amplitude swell, so block loudness is stable across the whole track.
+func fillPCM(buf []byte, startFrame int) {
+	const frameSamples = 2
+	n := len(buf) / 2
+	for k := 0; k < n; k++ {
+		frame := startFrame + k/frameSamples
+		ch := k % frameSamples
+		phase := 2 * math.Pi * 440 * float64(frame) / audioTimescale
+		if ch == 1 {
+			phase += 0.35 // slight decorrelation between channels
+		}
+		amp := 0.25 + 0.15*math.Sin(2*math.Pi*0.5*float64(frame)/audioTimescale)
+		v := int16(math.Round(amp * math.Sin(phase) * 32767))
+		binary.LittleEndian.PutUint16(buf[k*2:k*2+2], uint16(v))
+	}
 }
 
 func writeMdat(f *os.File, payloads [][]byte) error {

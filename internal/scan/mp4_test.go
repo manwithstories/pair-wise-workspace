@@ -36,8 +36,10 @@ func TestScanNormal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("scan: %v", err)
 	}
-	if ix.IndexedSamples != 72+48 {
-		t.Fatalf("want 120 indexed samples got %d", ix.IndexedSamples)
+	// Default spec: 72 video frames plus 135 audio frames (1024 samples each).
+	spec := fixtures.DefaultSpec(42)
+	if want := spec.VideoSamples + spec.AudioSamples; ix.IndexedSamples != want {
+		t.Fatalf("want %d indexed samples got %d", want, ix.IndexedSamples)
 	}
 	if len(ix.CorruptRanges) != 0 {
 		t.Fatalf("normal must be clean: %+v", ix.CorruptRanges)
@@ -65,8 +67,8 @@ func TestScanNormal(t *testing.T) {
 	if audio == nil || audio.Entry.SampleRate != 48000 || audio.Entry.Channels != 2 {
 		t.Fatalf("audio entry: %+v", audio)
 	}
-	if len(audio.Samples) != 48 {
-		t.Fatalf("want 48 audio samples got %d", len(audio.Samples))
+	if len(audio.Samples) != spec.AudioSamples {
+		t.Fatalf("want %d audio samples got %d", spec.AudioSamples, len(audio.Samples))
 	}
 }
 
