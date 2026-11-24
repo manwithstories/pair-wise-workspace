@@ -11,20 +11,21 @@ import (
 // share mutable state, so a failure here cannot rewrite another layer's
 // numbers.
 type LayerResult struct {
-	Name       string  `json:"name"`
-	Index      int     `json:"index"`
-	TrackID    uint32  `json:"track_id"`
-	StartUs    int64   `json:"start_us"`
-	EndUs      int64   `json:"end_us"`
-	Digest     string  `json:"digest"`
-	Recovered  int     `json:"recovered_fragments"`
-	Partial    int     `json:"partial_fragments"`
-	Missing    int     `json:"missing_fragments"`
-	Duplicates int     `json:"duplicate_fragments"`
-	Untrusted  int     `json:"untrusted_fragments"`
-	MissingMS  float64 `json:"missing_ms"`
-	Error      string  `json:"error,omitempty"`
-	Failed     bool    `json:"failed"`
+	Name            string  `json:"name"`
+	Index           int     `json:"index"`
+	TrackID         uint32  `json:"track_id"`
+	StartUs         int64   `json:"start_us"`
+	EndUs           int64   `json:"end_us"`
+	Digest          string  `json:"digest"`
+	Recovered       int     `json:"recovered_fragments"`
+	Partial         int     `json:"partial_fragments"`
+	Missing         int     `json:"missing_fragments"`
+	Duplicates      int     `json:"duplicate_fragments"`
+	Untrusted       int     `json:"untrusted_fragments"`
+	RebuiltSegments int     `json:"rebuilt_index_segments"`
+	MissingMS       float64 `json:"missing_ms"`
+	Error           string  `json:"error,omitempty"`
+	Failed          bool    `json:"failed"`
 }
 
 // LayerSummary converts a recovery into a compact layer result.
@@ -35,14 +36,16 @@ func LayerSummary(name string, idx int, rec Recovery) LayerResult {
 			Name: name, Index: idx, TrackID: rec.TrackID, Digest: rec.Digest,
 			Recovered: rec.Recovered, Partial: rec.Partial, Missing: rec.MissingCount,
 			Duplicates: rec.Duplicates, Untrusted: rec.Untrusted,
-			MissingMS: rec.Missing.TotalMS(), Failed: true, Error: "no recoverable fragment",
+			RebuiltSegments: rec.RebuiltSegments,
+			MissingMS:       rec.Missing.TotalMS(), Failed: true, Error: "no recoverable fragment",
 		}
 	}
 	return LayerResult{
 		Name: name, Index: idx, TrackID: rec.TrackID, StartUs: start, EndUs: end,
 		Digest: rec.Digest, Recovered: rec.Recovered, Partial: rec.Partial,
 		Missing: rec.MissingCount, Duplicates: rec.Duplicates, Untrusted: rec.Untrusted,
-		MissingMS: rec.Missing.TotalMS(),
+		RebuiltSegments: rec.RebuiltSegments,
+		MissingMS:       rec.Missing.TotalMS(),
 	}
 }
 
