@@ -105,7 +105,23 @@ func Run(opt Options) (*TrackResult, error) {
 		return nil, err
 	}
 	res.Resumed = resume != nil
-	_ = priorState
+
+	// Refuse to overwrite output that no verified checkpoint backs. A previous
+	// run that died before committing a checkpoint leaves an index or manifest
+	// whose contents cannot be trusted; silently replacing them could hide a
+	// half-written result an operator still needs. A verified checkpoint proves
+	// the previous run's prefix is durable and safe to extend.
+	if resume == nil {
+		if err := guardUnfinished(paths); err != nil {
+			return nil, err
+		}
+		// The guard proved any existing output is backed by a verified
+		// checkpoint. A non-resume run is a deliberate clean rebuild, so the
+		// old checkpoint is cleared to allow counters to restart at one.
+		if err := checkpoint.Clear(paths.State()); err != nil {
+			return nil, model.Fatal("pipeline.guard", err)
+		}
+	}
 
 	src, err := os.Open(paths.Source())
 	if err != nil {
@@ -359,7 +375,10 @@ func verifyCache(store *cache.Store, src *os.File, fr model.Frame, st *streamSta
 	_, gerr := store.Get(prov)
 	switch {
 	case gerr == nil:
+		// A hit already passed the full provenance and integrity check inside
+		// Get, so it counts as verified.
 		st.cache.Hit()
+		st.cache.Verified++
 	case errors.Is(gerr, cache.ErrMiss):
 		st.cache.Miss()
 		storeAndVerify(store, src, prov, fr, st)
@@ -906,4 +925,31 @@ func decodeFrameFact(b []byte) (frameFact, bool) {
 		PTS:     int64(binary.BigEndian.Uint64(b[20:])),
 		Status:  b[28],
 	}, true
+}
+
+// guardUnfinished refuses to overwrite published output when no verified
+// checkpoint proves it was completed. The frames log and checkpoint itself are
+// not outputs; the index and manifest are. A fresh track with neither passes.
+func guardUnfinished(paths Paths) error {
+	hasOutput := false
+	for _, p := range []string{paths.Index(), paths.Manifest()} {
+		if _, err := os.Stat(p); err == nil {
+			hasOutput = true
+			break
+		}
+	}
+	if !hasOutput {
+		return nil
+	}
+	// Output exists. It is safe to replace only when a committed checkpoint
+	// verifies that the previous run's artifacts are intact; otherwise this
+	// would overwrite output whose completion was never proven.
+	st, err := checkpoint.Load(paths.State())
+	if err != nil {
+		return model.Fatal("pipeline.guard", fmt.Errorf("%w: no committed checkpoint", model.ErrUnfinishedOutput))
+	}
+	if err := checkpoint.Verify(st); err != nil {
+		return model.Fatal("pipeline.guard", fmt.Errorf("%w: %v", model.ErrUnfinishedOutput, err))
+	}
+	return nil
 }
