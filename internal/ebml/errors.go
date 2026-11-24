@@ -15,8 +15,10 @@ const (
 	IDTracks         = 0x1654AE6B
 	IDTrackEntry     = 0xAE
 	IDTrackNumber    = 0xD7
+	IDTrackUID       = 0x73C5
 	IDTrackType      = 0x83
 	IDCodecID        = 0x86
+	IDDefaultDur     = 0x23E383
 	IDAudio          = 0xE1
 	IDChannels       = 0x9F
 	IDSamplingFreq   = 0xB5
