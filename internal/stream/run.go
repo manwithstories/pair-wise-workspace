@@ -210,16 +210,36 @@ func processTrack(ctx context.Context, tr index.Track, ranges []index.CorruptRan
 		if end > len(tr.Samples) {
 			end = len(tr.Samples)
 		}
-		buf, bytesRead, mem, err := readChunk(ctx, f, tr.Samples[i:end])
-		if mem > res.PeakMemory {
-			res.PeakMemory = mem
-		}
+		chunk, err := readChunk(ctx, f, tr.Samples[i:end])
 		if err != nil {
 			return err
 		}
-		chunkLatency := time.Since(time.Now())
-		_ = chunkLatency
-		for j, s := range tr.Samples[i:end] {
+		if chunk.peak > res.PeakMemory {
+			res.PeakMemory = chunk.peak
+		}
+		batchEnd := end
+		if chunk.budgetStop {
+			// Stop before the sample that did not fit so it is retried as the
+			// head of the next batch. The last successfully read local index
+			// marks the consumed prefix.
+			last := -1
+			for idx := range chunk.payloads {
+				if idx > last {
+					last = idx
+				}
+			}
+			for idx := range chunk.readErr {
+				if idx > last {
+					last = idx
+				}
+			}
+			if last < 0 {
+				return merr.New(merr.KindInternal, tr.ID, -1, -1, false,
+					"sample of %d bytes exceeds chunk budget %d", tr.Samples[i].Size, MaxChunkBytes)
+			}
+			batchEnd = i + last + 1
+		}
+		for j, s := range tr.Samples[i:batchEnd] {
 			t0 := time.Now()
 			src, terr := tb.At(s.DTS - tr.EditMediaTicks)
 			if terr != nil {
@@ -244,6 +264,17 @@ func processTrack(ctx context.Context, tr index.Track, ranges []index.CorruptRan
 				})
 				continue
 			}
+			if rerr, failed := chunk.readErr[j]; failed {
+				// A sample that was readable at scan time but failed now is
+				// isolated in place; later timestamps are untouched.
+				res.Isolated++
+				sink(Event{
+					Kind: EventCorrupt, TrackID: tr.ID, Sample: s.Number,
+					Source: src, EditMapped: editMapped, Output: output, Duration: dur,
+					Reason: "read failed at stream time: " + rerr.Error(),
+				})
+				continue
+			}
 			res.Processed++
 			sink(Event{
 				Kind: EventSample, TrackID: tr.ID, Sample: s.Number,
@@ -251,8 +282,7 @@ func processTrack(ctx context.Context, tr index.Track, ranges []index.CorruptRan
 				Latency: time.Since(t0), Bytes: int(s.Size),
 			})
 			if tr.Kind == "audio" {
-				payload := buf[j]
-				_ = payload
+				payload := chunk.payloads[j]
 				if len(payload) > 0 {
 					frames := pcmFromBytes(payload)
 					pendingAudioFrames = append(pendingAudioFrames, frames...)
@@ -266,7 +296,12 @@ func processTrack(ctx context.Context, tr index.Track, ranges []index.CorruptRan
 				}
 			}
 		}
-		_ = bytesRead
+		// The loop's post-statement advances by ChunkSamples; rewind so a
+		// budget stop resumes exactly at the first unconsumed sample.
+		if batchEnd < end {
+			i = batchEnd - ChunkSamples
+			continue
+		}
 	}
 	if len(pendingAudioFrames) > 0 {
 		if err := processAudio(ctx, tr, pendingAudioFrames, clock.Rational{Num: 0, Den: 1}, opts, res, sink, &seq, &recoverer, &burstDropped); err != nil {

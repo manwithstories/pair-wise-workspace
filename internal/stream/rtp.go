@@ -16,37 +16,49 @@ import (
 	"mediaroute/internal/rtp"
 )
 
-// readChunk reads a bounded batch of samples, returning per-sample payloads
-// and the peak allocation size. Unreadable samples yield nil payloads; the
-// reader never errors for a bad range, so isolation is handled by the caller.
-func readChunk(ctx context.Context, f *os.File, samples []index.Sample) (map[int][]byte, int, int, error) {
-	out := make(map[int][]byte, len(samples))
-	peak := 0
-	total := 0
+// chunkData is the result of reading one bounded batch of samples.
+type chunkData struct {
+	// payloads maps the local sample index (within the batch) to its bytes.
+	payloads map[int][]byte
+	// readErr records that a sample declared readable could not be read at
+	// runtime, so the caller can isolate it instead of silently skipping it.
+	readErr map[int]error
+	// budgetStop is set when the byte budget ended the batch early; the caller
+	// must reschedule the remaining samples rather than advance past them.
+	budgetStop bool
+	// total and peak describe allocation volume for the memory metric.
+	total int
+	peak  int
+}
+
+// readChunk reads a bounded batch of samples. Unreadable samples are skipped
+// (they carry no payload), read failures are reported per sample, and the
+// batch stops cleanly when the next sample would exceed MaxChunkBytes.
+func readChunk(ctx context.Context, f *os.File, samples []index.Sample) (*chunkData, error) {
+	out := &chunkData{payloads: map[int][]byte{}, readErr: map[int]error{}}
 	for i, s := range samples {
 		if err := ctx.Err(); err != nil {
-			return nil, 0, peak, canceled(err)
+			return out, canceled(err)
 		}
 		if !s.Readable || s.Size == 0 {
 			continue
 		}
-		if int(s.Size) > MaxChunkBytes-total {
-			// Would exceed the chunk budget; leave it for the next batch by
-			// returning what we have. The caller re-reads from the sample list.
+		if int(s.Size) > MaxChunkBytes-out.total {
+			out.budgetStop = true
 			break
 		}
 		buf := make([]byte, s.Size)
 		if _, err := f.ReadAt(buf, s.Offset); err != nil {
-			// Treat as unreadable rather than a fatal error.
+			out.readErr[i] = err
 			continue
 		}
-		out[i] = buf
-		total += len(buf)
-		if len(buf) > peak {
-			peak = len(buf)
+		out.payloads[i] = buf
+		out.total += len(buf)
+		if len(buf) > out.peak {
+			out.peak = len(buf)
 		}
 	}
-	return out, total, peak, nil
+	return out, nil
 }
 
 // pcmFromBytes interprets a demo PCM payload as little-endian int16 mono and

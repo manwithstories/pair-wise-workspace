@@ -71,7 +71,7 @@ func TestCanceledRun(t *testing.T) {
 func TestReadChunkRespectsBudget(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "data.bin")
-	payload := make([]byte, 4096)
+	payload := make([]byte, 2<<20)
 	if err := os.WriteFile(path, payload, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -80,23 +80,55 @@ func TestReadChunkRespectsBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	// Three samples of 512 kB each exceed the 1 MiB budget after the second.
+	// Three samples of 512 KiB each: the third exceeds the 1 MiB budget.
 	samples := []index.Sample{
 		{Number: 1, Offset: 0, Size: 512 << 10, Readable: true},
 		{Number: 2, Offset: 0, Size: 512 << 10, Readable: true},
 		{Number: 3, Offset: 0, Size: 512 << 10, Readable: true},
 	}
-	// The file is small; use offsets into it and rely on ReadAt errors for the
-	// oversize reads instead. The budget check must still cap the read set.
-	got, total, peak, err := readChunk(context.Background(), f, samples)
+	chunk, err := readChunk(context.Background(), f, samples)
 	if err != nil {
 		t.Fatalf("unexpected: %v", err)
 	}
-	if total > MaxChunkBytes {
-		t.Fatalf("chunk exceeded budget: %d", total)
+	if chunk.total > MaxChunkBytes {
+		t.Fatalf("chunk exceeded budget: %d", chunk.total)
 	}
-	if peak > MaxChunkBytes {
-		t.Fatalf("peak exceeded budget: %d", peak)
+	if chunk.peak > MaxChunkBytes {
+		t.Fatalf("peak exceeded budget: %d", chunk.peak)
 	}
-	_ = got
+	if !chunk.budgetStop {
+		t.Fatal("expected the budget to stop the batch")
+	}
+	if len(chunk.payloads) != 2 {
+		t.Fatalf("want the first two samples read, got %d", len(chunk.payloads))
+	}
+}
+
+func TestReadChunkReportsReadFailure(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tiny.bin")
+	if err := os.WriteFile(path, make([]byte, 16), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	// A sample that claims 8 bytes at offset 0 is fine; one at offset 12 with
+	// 8 bytes passes the scan bound but fails the actual read.
+	samples := []index.Sample{
+		{Number: 1, Offset: 0, Size: 8, Readable: true},
+		{Number: 2, Offset: 12, Size: 8, Readable: true},
+	}
+	chunk, err := readChunk(context.Background(), f, samples)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := chunk.payloads[0]; !ok {
+		t.Fatal("readable sample not loaded")
+	}
+	if _, ok := chunk.readErr[1]; !ok {
+		t.Fatal("short read must be reported")
+	}
 }
