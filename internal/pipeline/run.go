@@ -217,9 +217,13 @@ func countPending(plan *source.Plan, cp *Checkpoint) int {
 }
 
 // DryRun computes the deterministic result hash without writing a checkpoint
-// or manifest. The cancel demo uses it as the pinned expected hash.
-func DryRun(ctx context.Context, mediaRoot string, cfg Config) (*Report, error) {
-	return Execute(ctx, ExecuteParams{MediaRoot: mediaRoot, Config: cfg.Normalized()})
+// or manifest. The path prefix/base must match the eventual run so hashed
+// artifact paths are identical. The cancel demo uses it as the pinned hash.
+func DryRun(ctx context.Context, mediaRoot, pathPrefix, verifyBase string, cfg Config) (*Report, error) {
+	return Execute(ctx, ExecuteParams{
+		MediaRoot: mediaRoot, PathPrefix: pathPrefix, VerifyBaseDir: verifyBase,
+		Config: cfg.Normalized(),
+	})
 }
 
 // ResumeDir loads <dir>/checkpoint.json, verifies digest bindings and reruns
