@@ -257,8 +257,7 @@ func writeTornTail(w io.WriteSeeker, spec TrackSpec) error {
 	if _, err := mp4.Marshal(&full, fb, mp4.Context{}); err != nil {
 		return err
 	}
-	start, err := w.Seek(0, io.SeekCurrent)
-	if err != nil {
+	if _, err := w.Seek(0, io.SeekCurrent); err != nil {
 		return err
 	}
 	bi := &mp4.BoxInfo{Size: uint64(ingest.HeaderSize + full.Len()), HeaderSize: ingest.HeaderSize, Type: ingest.TypeFrame}
@@ -271,12 +270,6 @@ func writeTornTail(w io.WriteSeeker, spec TrackSpec) error {
 	if _, err := w.Write(payloadBytes[:cut]); err != nil {
 		return err
 	}
-	end, err := w.Seek(0, io.SeekCurrent)
-	if err != nil {
-		return err
-	}
-	_ = start
-	_ = end
 	return nil
 }
 

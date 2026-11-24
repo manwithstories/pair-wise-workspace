@@ -201,8 +201,7 @@ func countIndex(path string) int {
 	if err != nil {
 		return 0
 	}
-	_ = dropped
-	return len(entries)
+	return len(entries) - dropped
 }
 
 // prepareResume loads and verifies a checkpoint. A checkpoint that fails
@@ -554,12 +553,11 @@ func alignManifest(src *os.File, paths Paths) (float64, error) {
 	// A channel-free iterator: the manifest merge-join calls next on demand.
 	entryNext, closeEntries := streamingEntries(idxf)
 	defer closeEntries()
-	rep, err := manifest.Align(manifest.Args{
+	if _, err := manifest.Align(manifest.Args{
 		Entries:   entryNext,
 		Frames:    &manifest.CursorSource{NextFn: cur.Next},
 		Timescale: tr.Timescale, CaptureUPS: tr.CaptureUPS, EpochUnits: tr.EpochUnits,
-	})
-	if err != nil {
+	}); err != nil {
 		return 0, model.Verify("pipeline.align", err)
 	}
 	// Numeric skew: re-read the manifest and measure rows against its own
@@ -573,7 +571,6 @@ func alignManifest(src *os.File, paths Paths) (float64, error) {
 	if err != nil {
 		return 0, model.Verify("pipeline.align", err)
 	}
-	_ = rep
 	return metrics.SkewFromManifest(rows, tr.Timescale)
 }
 
@@ -791,10 +788,6 @@ func seekPatcher(f *os.File) func([16]byte) error {
 		return err
 	}
 }
-
-// binaryLE is retained for future fixed-width encodings; referenced here so a
-// future change does not silently drop the import.
-var _ = binary.BigEndian
 
 // encodeFrameFact serializes one frame's durable fact record.
 func encodeFrameFact(fr model.Frame) []byte {

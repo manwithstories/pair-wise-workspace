@@ -145,33 +145,34 @@ func runDemo(work string, f demoFlags) ([]pipeline.TrackResult, int) {
 			spec.Clock.RollbackBy = 10
 		}
 		paths := pipeline.Paths{Dir: work, Track: track}
-		res, err := synth.WriteSource(paths.Source(), spec, int64(1000+track))
-		if err != nil {
+		if _, err := synth.WriteSource(paths.Source(), spec, int64(1000+track)); err != nil {
 			fmt.Fprintf(os.Stderr, "mediad: generate track %d: %v\n", track, err)
 			return results, 2
 		}
-		_ = res
 
 		opt := pipeline.Options{
 			WorkDir: work, TrackID: track, TargetFrames: f.frames,
 			RTPLoss: f.rtpLoss,
 		}
 
-		var out *pipeline.TrackResult
+		var (
+			out *pipeline.TrackResult
+			err error
+		)
 		if f.interrupt > 0 {
 			// First run stops at the frame boundary and commits a checkpoint.
 			opt.InterruptAfter = f.interrupt
-			first, err := pipeline.Run(opt)
-			if !errors.Is(err, pipeline.ErrInterrupted) {
-				fmt.Fprintf(os.Stderr, "mediad: track %d interruption run: %v\n", track, err)
+			first, ferr := pipeline.Run(opt)
+			if !errors.Is(ferr, pipeline.ErrInterrupted) {
+				fmt.Fprintf(os.Stderr, "mediad: track %d interruption run: %v\n", track, ferr)
 				if first != nil {
 					results = append(results, *first)
 				}
-				return results, exitCode(err)
+				return results, exitCode(ferr)
 			}
 			if f.partialIdx {
-				if err := chopIndex(first.Paths.Index()); err != nil {
-					fmt.Fprintf(os.Stderr, "mediad: track %d partial index: %v\n", track, err)
+				if cerr := chopIndex(first.Paths.Index()); cerr != nil {
+					fmt.Fprintf(os.Stderr, "mediad: track %d partial index: %v\n", track, cerr)
 					return results, 3
 				}
 			}
@@ -179,28 +180,18 @@ func runDemo(work string, f demoFlags) ([]pipeline.TrackResult, int) {
 			opt.InterruptAfter = 0
 			opt.Resume = true
 			out, err = pipeline.Run(opt)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "mediad: track %d resume: %v\n", track, err)
-				if out != nil {
-					results = append(results, *out)
-				}
-				if exit == 0 {
-					exit = exitCode(err)
-				}
-				continue
-			}
 		} else {
 			out, err = pipeline.Run(opt)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "mediad: track %d: %v\n", track, err)
-				if out != nil {
-					results = append(results, *out)
-				}
-				if exit == 0 {
-					exit = exitCode(err)
-				}
-				continue
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "mediad: track %d: %v\n", track, err)
+			if out != nil {
+				results = append(results, *out)
 			}
+			if exit == 0 {
+				exit = exitCode(err)
+			}
+			continue
 		}
 		results = append(results, *out)
 	}
