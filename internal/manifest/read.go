@@ -42,8 +42,8 @@ type EditEntry struct {
 // AudioSpec carries the expected source audio layout so the converter can
 // make an explicit, auditable fallback decision when the layout is unknown.
 type AudioSpec struct {
-	SampleRate   int    `json:"sample_rate"`
-	ChannelCount int    `json:"channel_count"`
+	SampleRate   int `json:"sample_rate"`
+	ChannelCount int `json:"channel_count"`
 	// Layout is "mono", "stereo", "5.1" or "unknown". An empty value means the
 	// layout was not declared and triggers the documented fallback policy.
 	Layout string `json:"layout"`
