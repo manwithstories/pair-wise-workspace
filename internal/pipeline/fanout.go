@@ -124,9 +124,9 @@ type SegmentInput struct {
 
 // Injection records a planted defect.
 type Injection struct {
-	Segment int
-	Kind    DamageKind
-	Note    string
+	Segment int        `json:"segment"`
+	Kind    DamageKind `json:"kind"`
+	Note    string     `json:"note,omitempty"`
 }
 
 // BuildSources generates every representation from cfg. It is pure with
