@@ -29,6 +29,7 @@ type Config struct {
 	FallbackAt       uint32  `json:"fallback_at"`
 	DuplicateFrom    uint32  `json:"duplicate_from"`
 	DuplicateAs      uint32  `json:"duplicate_as_file"`
+	MissingSequence  uint32  `json:"missing_sequence"`
 	TruncateSequence uint32  `json:"truncate_sequence"`
 	TruncateTail     int64   `json:"truncate_tail_bytes"`
 	TargetKBPS       int     `json:"target_kbps"`
@@ -65,6 +66,7 @@ func CaseConfig(caseName, dir string) Config {
 		c.SampleSize = 512
 		c.DuplicateFrom = 3
 		c.DuplicateAs = 7
+		c.MissingSequence = 4
 	case "drift-wrap-vfr":
 		c.FragmentCount = 24
 		c.SamplesPerFrag = 48
@@ -135,6 +137,12 @@ func GenerateConfig(cfg Config) error {
 		dst := segmentPath(cfg.Dir, cfg.DuplicateAs)
 		if err := copyFile(src, dst); err != nil {
 			return err
+		}
+	}
+	if cfg.MissingSequence != 0 {
+		path := segmentPath(cfg.Dir, cfg.MissingSequence)
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return media.IO("fixture", path, cfg.MissingSequence, 0, err)
 		}
 	}
 	if cfg.TruncateSequence != 0 && cfg.TruncateTail > 0 {
