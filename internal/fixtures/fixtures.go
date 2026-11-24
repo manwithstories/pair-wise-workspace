@@ -47,17 +47,24 @@ type Spec struct {
 	OriginMS int64
 	// Layout is the declared audio layout; "unknown" exercises the fallback.
 	Layout string
+	// TruncateTailBytes is how many bytes to cut from the video tail for the
+	// truncated variant.
+	TruncateTailBytes int
+	// KeepExisting reuses media files that already exist on disk, so an
+	// operator can mutate a fixture and observe cache invalidation.
+	KeepExisting bool
 }
 
 // DefaultSpec returns the standard four-class demo spec for a seed.
 func DefaultSpec(seed int64) Spec {
 	return Spec{
-		Seed:          seed,
-		VideoSamples:  72,
-		AudioSamples:  48,
-		KeyframeEvery: 12,
-		OriginMS:      1234,
-		Layout:        "stereo",
+		Seed:              seed,
+		VideoSamples:      72,
+		AudioSamples:      48,
+		KeyframeEvery:     12,
+		OriginMS:          1234,
+		Layout:            "stereo",
+		TruncateTailBytes: 4096,
 	}
 }
 
@@ -104,21 +111,28 @@ func Build(dir string, spec Spec, v Variant) (*Asset, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fixtures: build video: %w", err)
 	}
+	// Apply the same leading empty edit to audio so both tracks share one
+	// presentation shift and remain synchronised.
+	audioEdits := []mp4.ElstEntry{
+		{SegmentDurationV0: 120, MediaTimeV0: -1, MediaRateInteger: 1},
+		{SegmentDurationV0: uint32(spec.AudioSamples * audioFrame * 1000 / audioTimescale), MediaTimeV0: 0, MediaRateInteger: 1},
+	}
 	audio, err := buildTrack(audioRng, trackPlan{
 		kind: "audio", trackID: 2, timescale: audioTimescale,
 		count: spec.AudioSamples, delta: audioFrame, keyEvery: 0,
+		emptyEdits: audioEdits,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("fixtures: build audio: %w", err)
 	}
-	video, audio, err = corrupt(v, video, audio)
+	video, audio, err = corrupt(v, video, audio, spec.TruncateTailBytes)
 	if err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(vpath, video, 0o644); err != nil {
+	if err := writeUnlessKept(vpath, video, spec.KeepExisting); err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(apath, audio, 0o644); err != nil {
+	if err := writeUnlessKept(apath, audio, spec.KeepExisting); err != nil {
 		return nil, err
 	}
 	man := manifestJSON(base, spec)
@@ -158,16 +172,19 @@ func manifestJSON(base string, spec Spec) string {
 }
 
 // corrupt applies the variant mutation and returns replacement byte slices.
-func corrupt(v Variant, video, audio []byte) ([]byte, []byte, error) {
+func corrupt(v Variant, video, audio []byte, truncateBytes int) ([]byte, []byte, error) {
 	switch v {
 	case VariantNormal:
 		return video, audio, nil
 	case VariantTruncated:
-		// Remove 4096 bytes from the end so the last samples point past EOF.
-		if len(video) <= 8192 {
-			return nil, nil, fmt.Errorf("fixtures: video too small to truncate")
+		if truncateBytes <= 0 {
+			truncateBytes = 4096
 		}
-		video = append([]byte(nil), video[:len(video)-4096]...)
+		// Remove bytes from the end so the last samples point past EOF.
+		if len(video) <= truncateBytes+1024 {
+			return nil, nil, fmt.Errorf("fixtures: video too small to truncate by %d bytes", truncateBytes)
+		}
+		video = append([]byte(nil), video[:len(video)-truncateBytes]...)
 		return video, audio, nil
 	case VariantOutOfRange:
 		video = append([]byte(nil), video...)
@@ -189,6 +206,16 @@ func corrupt(v Variant, video, audio []byte) ([]byte, []byte, error) {
 	default:
 		return nil, nil, fmt.Errorf("fixtures: unknown variant %q", v)
 	}
+}
+
+// writeUnlessKept writes data unless keep is set and path already exists.
+func writeUnlessKept(path string, data []byte, keep bool) error {
+	if keep {
+		if _, err := os.Stat(path); err == nil {
+			return nil
+		}
+	}
+	return os.WriteFile(path, data, 0o644)
 }
 
 // patchChunkOffset rewrites stco entry n. The writer emits one chunk per
