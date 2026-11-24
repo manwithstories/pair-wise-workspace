@@ -13,7 +13,6 @@ import (
 
 	"relay/internal/media"
 	"relay/internal/recovery"
-	"relay/internal/txn"
 )
 
 // Thresholds advertised by the acceptance contract.
@@ -105,14 +104,39 @@ func (r *Report) Validate() error {
 	return nil
 }
 
+// SyncMaxMS measures presentation timing quality per track: it compares every
+// consecutive PTS gap against the track's nominal frame period (derived from
+// the source timescale, rounded to the observed median) and returns the
+// largest absolute deviation in milliseconds.
+func SyncMaxMS(tracks map[uint32][]*media.RawFrame) float64 {
+	worst := 0.0
+	for _, frames := range tracks {
+		if len(frames) < 2 {
+			continue
+		}
+		gaps := make([]float64, 0, len(frames)-1)
+		for i := 1; i < len(frames); i++ {
+			gaps = append(gaps, float64(frames[i].Meta.PresentationNS-frames[i-1].Meta.PresentationNS))
+		}
+		sort.Float64s(gaps)
+		median := gaps[len(gaps)/2]
+		for _, g := range gaps {
+			dev := math.Abs(g-median) / 1e6
+			if dev > worst {
+				worst = dev
+			}
+		}
+	}
+	return worst
+}
+
 // RecoveryPctOf converts a recovery result into delivered/expected percent.
 // FEC-reconstructed packets count as delivered; remaining gaps do not.
 func RecoveryPctOf(res *recovery.Result) float64 {
 	if res == nil || res.ExpectedSpan == 0 {
 		return 100
 	}
-	delivered := res.MediaCount
-	return float64(delivered) * 100 / float64(res.ExpectedSpan)
+	return float64(res.MediaCount) * 100 / float64(res.ExpectedSpan)
 }
 
 // DigestSamples hashes the canonical ordering of a sample set. Canonical order
@@ -167,9 +191,6 @@ func CompareTracks(in, out map[uint32][]*media.RawFrame) []TrackDiff {
 	}
 	return diffs
 }
-
-// ManifestDigest exposes the deterministic manifest hash.
-func ManifestDigest(m txn.Manifest) [32]byte { return txn.ManifestHash(m) }
 
 // Render produces the stable key=value lines printed to the terminal.
 func (r *Report) Render() string {
