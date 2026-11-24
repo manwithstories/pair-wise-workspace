@@ -192,17 +192,25 @@ func repairGroup(items []Observation, rep string, res *Result) {
 }
 
 func checkDTSMonotonic(o Observation, f *Fragment, res *Result, rep string) {
+	prev := f.StartDTS
 	cursor := f.StartDTS
 	for i, s := range o.Samples {
-		if i == 0 {
-			continue
-		}
-		if nt, ok := core.AddChecked(cursor, int64(s.Duration)); !ok {
-			f.TimingValid = false
-			res.addIssue(IssueOverflow, rep, int64(o.Sequence), "DTS monotonic overflow")
-			return
-		} else {
-			cursor = nt
+		if i > 0 {
+			next, ok := core.AddChecked(cursor, int64(s.Duration))
+			if !ok {
+				f.TimingValid = false
+				res.addIssue(IssueOverflow, rep, int64(o.Sequence), "DTS monotonic overflow")
+				return
+			}
+			cursor = next
+			if cursor < prev {
+				// Unreachable for unsigned durations absent overflow, but the
+				// invariant is checked explicitly rather than assumed.
+				f.TimingValid = false
+				res.addIssue(IssueOverflow, rep, int64(o.Sequence), "DTS moved backwards within trun")
+				return
+			}
+			prev = cursor
 		}
 	}
 }
