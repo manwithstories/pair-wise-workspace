@@ -62,7 +62,9 @@ func Run(ctx context.Context, p Params, cp *Checkpoint) (*Summary, error) {
 	for i := range deliveries {
 		d := deliveries[i]
 		key := func(stage string) string { return fingerprint.Key(sig, stage+":"+d.name, i) }
-		addDeliveryNodes(dag, d, key, p)
+		if err := addDeliveryNodes(dag, d, key, p); err != nil {
+			return nil, err
+		}
 	}
 	dag.Execute(ctx, p.Workers)
 	sum := summarize(deliveries, dag, p)
@@ -128,9 +130,9 @@ func buildDeliveries(p Params, a *fixture.Assets) []*delivery {
 
 // addDeliveryNodes wires the per-delivery chain. Node IDs are stable across
 // runs so a checkpoint from a previous run can resume them.
-func addDeliveryNodes(dag *DAG, d *delivery, key func(string) string, p Params) {
+func addDeliveryNodes(dag *DAG, d *delivery, key func(string) string, p Params) error {
 	id := func(stage string) string { return stage + ":" + d.name }
-	must(dag.Add(Node{ID: id("parse"), Key: key("parse"), Run: func(context.Context) (string, error) {
+	if err := dag.Add(Node{ID: id("parse"), Key: key("parse"), Run: func(context.Context) (string, error) {
 		f, err := demux.Parse(d.reader(), int64(len(d.data)), d.name)
 		d.mu.Lock()
 		d.f, d.parsed, d.err = f, true, nil
@@ -141,8 +143,10 @@ func addDeliveryNodes(dag *DAG, d *delivery, key func(string) string, p Params) 
 		// Recoverable damage still yields a usable prefix; the node is marked
 		// recovered by its error class rather than failing the chain.
 		return fmt.Sprintf("samples=%d damaged=%d", len(f.Samples), len(f.Damaged)), err
-	}}))
-	must(dag.Add(Node{ID: id("index"), Deps: []string{id("parse")}, Key: key("index"), Run: func(context.Context) (string, error) {
+	}}); err != nil {
+		return err
+	}
+	if err := dag.Add(Node{ID: id("index"), Deps: []string{id("parse")}, Key: key("index"), Run: func(context.Context) (string, error) {
 		f, err := d.ensureParsed()
 		if err != nil {
 			return "", err
@@ -155,8 +159,10 @@ func addDeliveryNodes(dag *DAG, d *delivery, key func(string) string, p Params) 
 		d.indexOK = true
 		d.mu.Unlock()
 		return fmt.Sprintf("total=%d keys=%d source=%s", total, keys, src), nil
-	}}))
-	must(dag.Add(Node{ID: id("cut"), Deps: []string{id("index")}, Key: key("cut"), Run: func(context.Context) (string, error) {
+	}}); err != nil {
+		return err
+	}
+	if err := dag.Add(Node{ID: id("cut"), Deps: []string{id("index")}, Key: key("cut"), Run: func(context.Context) (string, error) {
 		f, err := d.ensureIndexed()
 		if err != nil {
 			return "", err
@@ -169,8 +175,10 @@ func addDeliveryNodes(dag *DAG, d *delivery, key func(string) string, p Params) 
 		d.segs = segs
 		d.mu.Unlock()
 		return fmt.Sprintf("segments=%d", len(segs)), nil
-	}}))
-	must(dag.Add(Node{ID: id("silence"), Deps: []string{id("cut")}, Key: key("silence"), Run: func(context.Context) (string, error) {
+	}}); err != nil {
+		return err
+	}
+	if err := dag.Add(Node{ID: id("silence"), Deps: []string{id("cut")}, Key: key("silence"), Run: func(context.Context) (string, error) {
 		f, err := d.ensureParsed()
 		if err != nil {
 			return "", err
@@ -181,8 +189,10 @@ func addDeliveryNodes(dag *DAG, d *delivery, key func(string) string, p Params) 
 		d.mu.Unlock()
 		return fmt.Sprintf("windows=%d silent=%d unknown=%d status=%s",
 			len(rep.Windows), rep.SilentWindows, rep.UnknownWindows, rep.Status), nil
-	}}))
-	must(dag.Add(Node{ID: id("fingerprint"), Deps: []string{id("cut")}, Key: key("fingerprint"), Run: func(context.Context) (string, error) {
+	}}); err != nil {
+		return err
+	}
+	if err := dag.Add(Node{ID: id("fingerprint"), Deps: []string{id("cut")}, Key: key("fingerprint"), Run: func(context.Context) (string, error) {
 		segs, err := d.ensureSegs(p.TargetDur)
 		if err != nil {
 			return "", err
@@ -199,8 +209,10 @@ func addDeliveryNodes(dag *DAG, d *delivery, key func(string) string, p Params) 
 		d.hashes = hs
 		d.mu.Unlock()
 		return fmt.Sprintf("hashes=%d", len(hs)), nil
-	}}))
-	must(dag.Add(Node{ID: id("remux"), Deps: []string{id("silence"), id("fingerprint")}, Key: key("remux"), Run: func(context.Context) (string, error) {
+	}}); err != nil {
+		return err
+	}
+	if err := dag.Add(Node{ID: id("remux"), Deps: []string{id("silence"), id("fingerprint")}, Key: key("remux"), Run: func(context.Context) (string, error) {
 		f, err := d.ensureParsed()
 		if err != nil {
 			return "", err
@@ -226,7 +238,10 @@ func addDeliveryNodes(dag *DAG, d *delivery, key func(string) string, p Params) 
 		d.out = reps
 		d.mu.Unlock()
 		return fmt.Sprintf("files=%d", len(reps)), nil
-	}}))
+	}}); err != nil {
+		return err
+	}
+	return nil
 }
 
 // remuxTracks converts a segment into output track descriptions, copying the
@@ -252,12 +267,6 @@ func remuxTracks(f *demux.File, seg segments.Segment) []output.TrackMux {
 		out = append(out, tm)
 	}
 	return out
-}
-
-func must(err error) {
-	if err != nil {
-		panic(err)
-	}
 }
 
 // ensureParsed lazily re-materialises the demuxed file. On resume a node may
