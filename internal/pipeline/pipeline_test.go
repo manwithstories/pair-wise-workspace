@@ -87,6 +87,33 @@ func TestInterruptThenResumeMatchesUninterrupted(t *testing.T) {
 	}
 }
 
+func TestVerifiedStagesAreSkippedOnResume(t *testing.T) {
+	dir := t.TempDir()
+	var first []string
+	opt := Options{Seed: 41, DropEvery: 97, CacheDir: filepath.Join(dir, "cache"), DataDir: dir,
+		Trace: func(stage string) { first = append(first, stage) }}
+	if _, err := Run(opt); err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != len(StageOrder) {
+		t.Fatalf("first run executed %v, want all stages", first)
+	}
+
+	var second []string
+	opt.Trace = func(stage string) { second = append(second, stage) }
+	opt.Resume = true
+	sum, err := Run(opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second) != 0 {
+		t.Fatalf("resumed run re-executed stages %v; all were verified and cached", second)
+	}
+	if sum.CacheHits != len(StageOrder) {
+		t.Fatalf("CACHE_HITS=%d want %d", sum.CacheHits, len(StageOrder))
+	}
+}
+
 func TestDamagedRunReportsErrors(t *testing.T) {
 	dir := t.TempDir()
 	opt := Options{Seed: 41, DropEvery: 97, Damaged: true,

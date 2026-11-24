@@ -25,6 +25,9 @@ type Options struct {
 	DataDir        string
 	Policy         probe.Policy
 	Now            func() time.Time
+	// Trace, when set, is called with the name of every stage that actually
+	// executes. Hydrated stages are not traced.
+	Trace func(stage string)
 }
 
 // Summary is the independently verifiable result of a run.
