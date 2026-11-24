@@ -9,6 +9,9 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"strings"
+
+	"media-check/internal/model"
 
 	gomp4 "github.com/abema/go-mp4"
 )
@@ -220,4 +223,127 @@ func (t SampleTable) Samples(data []byte) ([][]byte, error) {
 	return out, nil
 }
 
-var _ = bytes.MinRead // keep bytes import for parser stage
+// ParseResult is the outcome of parsing one MP4 input.
+type ParseResult struct {
+	Boxes    []BoxNode
+	Table    SampleTable
+	Faults   model.Faults
+	Complete bool // false when truncation or table damage was located
+}
+
+var containerTypes = []gomp4.BoxType{
+	gomp4.BoxTypeMoov(), gomp4.BoxTypeTrak(), gomp4.BoxTypeMdia(),
+	gomp4.BoxTypeMinf(), gomp4.BoxTypeStbl(),
+}
+
+// Parse walks the box hierarchy, reads the sample tables and validates
+// every offset and length before any sample byte is touched. Truncated
+// boxes, out-of-range sample offsets and missing keyframe index each
+// produce a structured fault carrying the segment time range; the parser
+// never reports a damaged input as complete.
+func (a Adapter) Parse(data []byte, segIdx int, segRange model.TimeRange) ParseResult {
+	res := ParseResult{}
+	r := bytes.NewReader(data)
+	fileSize := uint64(len(data))
+
+	fault := func(code model.FaultCode, detail string) {
+		res.Faults = append(res.Faults, model.Fault{
+			Code: code, Adapter: a.ID() + "@" + a.Version(),
+			Segment: segIdx, Range: segRange, Detail: detail,
+		})
+	}
+
+	_, err := gomp4.ReadBoxStructure(r, func(h *gomp4.ReadHandle) (interface{}, error) {
+		bi := h.BoxInfo
+		if bi.Size > MaxBoxSize {
+			return nil, fmt.Errorf("box %s size %d exceeds limit", bi.Type, bi.Size)
+		}
+		path := make([]string, 0, len(h.Path))
+		for _, t := range h.Path {
+			path = append(path, t.String())
+		}
+		res.Boxes = append(res.Boxes, BoxNode{
+			Path: strings.Join(path, "/"), Offset: bi.Offset, Size: bi.Size,
+		})
+		if bi.Offset+bi.Size > fileSize {
+			return nil, fmt.Errorf("box %s at %d size %d overruns file %d",
+				bi.Type, bi.Offset, bi.Size, fileSize)
+		}
+		for _, ct := range containerTypes {
+			if bi.Type == ct {
+				_, err := h.Expand()
+				return nil, err
+			}
+		}
+		switch bi.Type {
+		case gomp4.BoxTypeMdat():
+			res.Table.MdatOffset = bi.Offset + bi.HeaderSize
+			res.Table.MdatLength = bi.Size - bi.HeaderSize
+		case gomp4.BoxTypeMdhd():
+			box, _, err := h.ReadPayload()
+			if err != nil {
+				return nil, err
+			}
+			res.Table.Timescale = box.(*gomp4.Mdhd).Timescale
+		case gomp4.BoxTypeStts():
+			box, _, err := h.ReadPayload()
+			if err != nil {
+				return nil, err
+			}
+			stts := box.(*gomp4.Stts)
+			if len(stts.Entries) > 0 {
+				res.Table.Delta = stts.Entries[0].SampleDelta
+			}
+		case gomp4.BoxTypeStsz():
+			box, _, err := h.ReadPayload()
+			if err != nil {
+				return nil, err
+			}
+			stsz := box.(*gomp4.Stsz)
+			if len(stsz.EntrySize) > MaxTableRows {
+				return nil, fmt.Errorf("stsz rows %d exceed limit", len(stsz.EntrySize))
+			}
+			res.Table.SampleSizes = append([]uint32(nil), stsz.EntrySize...)
+		case gomp4.BoxTypeStco():
+			box, _, err := h.ReadPayload()
+			if err != nil {
+				return nil, err
+			}
+			res.Table.ChunkOffsets = append([]uint32(nil), box.(*gomp4.Stco).ChunkOffset...)
+		case gomp4.BoxTypeStss():
+			box, _, err := h.ReadPayload()
+			if err != nil {
+				return nil, err
+			}
+			res.Table.KeySamples = append([]uint32(nil), box.(*gomp4.Stss).SampleNumber...)
+		}
+		return nil, nil
+	})
+	if err != nil {
+		fault(model.FaultBoxTruncated, fmt.Sprintf("box walk failed: %v", err))
+		return res
+	}
+
+	t := res.Table
+	if len(t.SampleSizes) > 0 {
+		if len(t.ChunkOffsets) == 0 {
+			fault(model.FaultSampleOffset, "stsz present but stco missing")
+		} else {
+			total := uint64(0)
+			for _, sz := range t.SampleSizes {
+				total += uint64(sz)
+			}
+			end := uint64(t.ChunkOffsets[0]) + total
+			if end > t.MdatOffset+t.MdatLength || t.MdatLength == 0 {
+				fault(model.FaultSampleOffset, fmt.Sprintf(
+					"samples span [%d,%d) beyond mdat payload [..,%d)",
+					t.ChunkOffsets[0], end, t.MdatOffset+t.MdatLength))
+			}
+		}
+	}
+	if len(t.SampleSizes) > 0 && t.KeySamples == nil {
+		fault(model.FaultNoIndex, "sample table present but stss missing")
+	}
+	res.Complete = len(res.Faults) == 0
+	return res
+}
