@@ -80,11 +80,9 @@ func TestRunRepeatIsStableAndCaches(t *testing.T) {
 
 func TestMutatedMediaRebuildsIndex(t *testing.T) {
 	dir := t.TempDir()
-	first, err := Run(context.Background(), Options{WorkDir: dir, Seed: 42, ReorderWindow: 64, Quiet: true, KeepWorkDir: true})
-	if err != nil {
+	if _, err := Run(context.Background(), Options{WorkDir: dir, Seed: 42, ReorderWindow: 64, Quiet: true, KeepWorkDir: true}); err != nil {
 		t.Fatal(err)
 	}
-	_ = first
 	path := filepath.Join(dir, "normal-video.mp4")
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -94,7 +92,8 @@ func TestMutatedMediaRebuildsIndex(t *testing.T) {
 	if err := os.WriteFile(path, raw, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	second, err := Run(context.Background(), Options{WorkDir: dir, Seed: 42, ReorderWindow: 64, Quiet: true, KeepWorkDir: true, ReuseExisting: true})
+	// A plain rerun over the same directory reuses the on-disk media.
+	second, err := Run(context.Background(), Options{WorkDir: dir, Seed: 42, ReorderWindow: 64, Quiet: true, KeepWorkDir: true})
 	if err != nil {
 		t.Fatal(err)
 	}

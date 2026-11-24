@@ -126,7 +126,9 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 		}
 		// The first run builds media; later runs reuse it byte-for-byte so the
 		// cache can prove a hit and the artifact digest can prove stability.
-		reuse := i > 0 || opts.ReuseExisting
+		// A user-supplied work directory also reuses existing media, so an
+		// operator can edit a fixture and observe the index rebuild on rerun.
+		reuse := i > 0 || opts.ReuseExisting || (opts.WorkDir != "" && i == 0)
 		take, err := runOnce(ctx, dir, spec, store, opts, reuse)
 		if err != nil {
 			return finish(result, dir), err

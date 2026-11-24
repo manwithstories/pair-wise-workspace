@@ -80,13 +80,22 @@ go run ./cmd/mediaroute demo --seed 42 --repeat 2 --json
 
 ## 验证缓存失效
 
-缓存键包含完整输入摘要。修改生成素材后应触发重建：
+缓存键包含完整输入摘要。指定 `--dir` 时，若目录中已有同 seed 生成的素材则直接复用，便于人工修改后验证失效：
 
 ```sh
 dir=$(mktemp -d)
-go run ./cmd/mediaroute demo --seed 42 --dir "$dir" --quiet
-printf '\xff' | dd of="$dir/normal-video.mp4" bs=1 seek=$(( $(stat -f%z "$dir/normal-video.mp4") - 1 )) conv=notrunc 2>/dev/null
-go run ./cmd/mediaroute demo --seed 42 --dir "$dir" --reuse --quiet --json | grep index_rebuilt
+go run ./cmd/mediaroute demo --seed 42 --dir "$dir" --quiet >/dev/null
+# 未修改，重跑命中缓存
+go run ./cmd/mediaroute demo --seed 42 --dir "$dir" --quiet --json | grep index_rebuilt
+# 期望 "index_rebuilt": false
+
+python3 - "$dir" <<'PY'
+import sys
+p = sys.argv[1] + "/normal-audio.mp4"
+b = bytearray(open(p, "rb").read()); b[-1] ^= 0xff
+open(p, "wb").write(b)
+PY
+go run ./cmd/mediaroute demo --seed 42 --dir "$dir" --quiet --json | grep index_rebuilt
 # 期望 "index_rebuilt": true
 ```
 
