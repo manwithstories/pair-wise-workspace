@@ -47,7 +47,7 @@ type Plan struct {
 	Manifest  *manifest.Manifest
 	RepIndex  int
 	Reports   map[int]*inspect.FragmentReport // fragment index -> report
-	Complete  map[int]bool                     // fragment index -> recovered fully
+	Complete  map[int]bool                    // fragment index -> recovered fully
 	InitBytes []byte
 }
 
