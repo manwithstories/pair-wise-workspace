@@ -71,3 +71,10 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 构建与运行产物 ----
+/artifacts/
+/artifacts*/
+/mediarun
+*.test
+.DS_Store
