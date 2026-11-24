@@ -18,6 +18,7 @@ type Stage string
 
 const (
 	StageInput    Stage = "input"
+	StageCapture  Stage = "capture"
 	StageFraming  Stage = "framing"
 	StageRTP      Stage = "rtp"
 	StageRTCP     Stage = "rtcp"
