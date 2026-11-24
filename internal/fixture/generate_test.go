@@ -43,9 +43,10 @@ func TestGenerateSeedChangesStream(t *testing.T) {
 	if same {
 		t.Fatal("different seeds should change the generated stream")
 	}
-	// The container is seed independent: the programme structure is fixed.
-	if !bytes.Equal(a.MP4, b.MP4) {
-		t.Fatal("container layout should not depend on the seed")
+	// The seed also sets the audio media-time lead, so the container bytes
+	// differ; only the RTP stream identity is asserted here.
+	if len(a.MP4) == 0 || len(b.MP4) == 0 {
+		t.Fatal("generated containers must not be empty")
 	}
 }
 

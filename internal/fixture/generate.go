@@ -62,18 +62,22 @@ func Generate(opt Options) *Set {
 		audio.Channels = 2 // conflicts with the 5.1 mask below
 	}
 
+	// Audio media time starts later than video by a fixed amount, which the
+	// prepared output must compensate for. Ten to twelve milliseconds is the
+	// realistic drift range this fixture models.
+	avOffsetNs := int64(10+rng.Intn(3)) * 1_000_000
+	audioStartTicks := uint64(avOffsetNs * 48000 / clock.NanosPerSecond)
+
 	var frags []MP4Fragment
 	var obs []clock.Observed
-	var samplesPerSegment []int
 	for i := 0; i < SegmentCount; i++ {
 		for _, tr := range video {
 			dur := uint32(90000 * SegmentSeconds)
 			frags = append(frags, MP4Fragment{TrackID: tr.ID, BaseDecodeTime: uint64(i) * uint64(dur),
 				Samples: []MP4Sample{{Duration: dur, Data: SampleData(tr.ID, i, 0), Sync: true}}})
 		}
-		frags = append(frags, MP4Fragment{TrackID: audio.ID, BaseDecodeTime: uint64(i) * 48000 * SegmentSeconds,
+		frags = append(frags, MP4Fragment{TrackID: audio.ID, BaseDecodeTime: uint64(i)*48000*SegmentSeconds + audioStartTicks,
 			Samples: []MP4Sample{{Duration: 48000 * SegmentSeconds, Data: SampleData(audio.ID, i, 0), Sync: true}}})
-		samplesPerSegment = append(samplesPerSegment, 1)
 
 		start := uint64(i * 90000 * SegmentSeconds)
 		valid := true
@@ -109,7 +113,7 @@ func Generate(opt Options) *Set {
 	set.Manifest, set.HLSVariants = buildManifests(set)
 
 	set.Representations = buildRepresentations(video, audio, opt.Damaged)
-	set.AVOffsetNs = int64(10+rng.Intn(3)) * 1_000_000 // 10-12 ms
+	set.AVOffsetNs = avOffsetNs
 	for i := 0; i < 200; i++ {
 		set.Latencies = append(set.Latencies, int64(20+rng.Intn(180))*1_000_000)
 	}
@@ -124,7 +128,6 @@ func Generate(opt Options) *Set {
 			set.RTP[5] = []byte{0x80, 0x00}
 		}
 	}
-	_ = samplesPerSegment
 	return set
 }
 
