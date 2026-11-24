@@ -60,6 +60,9 @@ func execute(params txn.Params, rec *txn.Recovery) (*Result, error) {
 		if err := txn.RejectSymlinkOutput(p.MP4); err != nil {
 			return nil, err
 		}
+		if err := txn.ResetForFreshRun(p); err != nil {
+			return nil, err
+		}
 		if params.TargetKbps == 0 {
 			params.TargetKbps = 1536
 		}

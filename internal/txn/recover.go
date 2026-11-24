@@ -155,6 +155,24 @@ func CleanTemporaryFiles(p *Paths) ([]string, error) {
 	return removed, nil
 }
 
+// ResetForFreshRun removes prior transaction products while preserving the
+// input directory. Resume never calls this; it retains and verifies WAL state.
+func ResetForFreshRun(p *Paths) error {
+	files := []string{
+		p.WAL, p.Committed, p.Params, p.CaptureJSON, p.AudioPCM, p.AudioJSON,
+		p.ColorJSON, p.MP4JSON, p.MP4, p.Manifest, p.Stats, p.ErrorJSON,
+	}
+	for _, f := range files {
+		if err := os.Remove(f); err != nil && !os.IsNotExist(err) {
+			return media.InternalWrap(media.StageInput, err, "reset %s", f)
+		}
+	}
+	if _, err := CleanTemporaryFiles(p); err != nil {
+		return err
+	}
+	return SyncDir(p.Root)
+}
+
 // StageDone reports whether a stage has a verified checkpoint.
 func (r *Recovery) StageDone(stage media.Stage) bool {
 	_, ok := r.Checkpoints[string(stage)]
