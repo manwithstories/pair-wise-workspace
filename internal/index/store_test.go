@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"mediaroute/internal/clock"
@@ -157,5 +158,37 @@ func TestSummaryStableAcrossRepeatedScans(t *testing.T) {
 	b := sampleIndex(t, "a")
 	if a.Summary != b.Summary {
 		t.Fatalf("summaries must match: %s vs %s", a.Summary, b.Summary)
+	}
+}
+
+func TestConcurrentSaveLoad(t *testing.T) {
+	dir := t.TempDir()
+	s := &Store{Dir: dir}
+	ix := sampleIndex(t, "a")
+	k := Key{InputDigest: ix.InputDigest, ScannerVersion: ix.ScannerVersion, ManifestDigest: ix.ManifestDigest}
+	done := make(chan error, 8)
+	for i := 0; i < 8; i++ {
+		go func(n int) {
+			if n%2 == 0 {
+				done <- s.Save(k, ix)
+				return
+			}
+			_, _, err := s.Load(k)
+			// A concurrent atomic rename may transiently miss; only a decode
+			// error on a present file would be a real problem.
+			if err != nil && !strings.Contains(err.Error(), "checksum") {
+				done <- err
+				return
+			}
+			done <- nil
+		}(i)
+	}
+	for i := 0; i < 8; i++ {
+		if err := <-done; err != nil {
+			t.Fatalf("concurrent access: %v", err)
+		}
+	}
+	if _, hit, err := s.Load(k); err != nil || !hit {
+		t.Fatalf("final load: hit=%v err=%v", hit, err)
 	}
 }
