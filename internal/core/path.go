@@ -14,7 +14,7 @@ var ErrPathEscape = errors.New("core: manifest path escapes input root")
 // SafeJoin resolves ref against root and guarantees the result stays inside
 // root. Absolute refs, refs containing ".." traversal or symlinks that point
 // outside root are rejected. Symlinks inside root that stay within root are
-// allowed. All checks operate on cleaned absolute paths.
+// allowed. All checks operate on cleaned, symlink-resolved absolute paths.
 func SafeJoin(root, ref string) (string, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
@@ -23,16 +23,20 @@ func SafeJoin(root, ref string) (string, error) {
 	if filepath.IsAbs(ref) {
 		return "", ErrPathEscape
 	}
-	clean := filepath.Clean(filepath.Join(absRoot, filepath.FromSlash(ref)))
-	if !within(clean, absRoot) {
-		return "", ErrPathEscape
-	}
+	// Resolve the root first: on macOS /var is a symlink to /private/var,
+	// otherwise joined paths would carry the un-resolved prefix and every
+	// containment check would fail.
 	realRoot, err := filepath.EvalSymlinks(absRoot)
 	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
+		if errors.Is(err, os.ErrNotExist) {
+			realRoot = absRoot
+		} else {
 			return "", err
 		}
-		realRoot = absRoot
+	}
+	clean := filepath.Clean(filepath.Join(realRoot, filepath.FromSlash(ref)))
+	if !within(clean, realRoot) {
+		return "", ErrPathEscape
 	}
 	realTarget, err := evalParentSymlinks(clean)
 	if err != nil {
@@ -51,16 +55,28 @@ func within(path, root string) bool {
 	return strings.HasPrefix(path, root+string(filepath.Separator))
 }
 
-// evalParentSymlinks resolves symlinks on every existing parent of target,
-// tolerating the final component not existing yet (outputs may be created).
+// evalParentSymlinks walks target from the root downward, resolving every
+// existing symlink component (including the final component) while tolerating
+// trailing components that do not exist yet — outputs may be created later.
 func evalParentSymlinks(target string) (string, error) {
-	parent := filepath.Dir(target)
-	realParent, err := filepath.EvalSymlinks(parent)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return target, nil
+	parts := strings.Split(filepath.Clean(target), string(filepath.Separator))
+	cur := string(filepath.Separator)
+	for i, part := range parts {
+		if part == "" {
+			continue
 		}
-		return "", err
+		next := filepath.Join(cur, part)
+		real, err := filepath.EvalSymlinks(next)
+		switch {
+		case err == nil:
+			cur = real
+		case errors.Is(err, os.ErrNotExist):
+			// This component does not exist; neither can anything below it.
+			rest := append([]string{cur}, parts[i:]...)
+			return filepath.Join(rest...), nil
+		default:
+			return "", err
+		}
 	}
-	return filepath.Join(realParent, filepath.Base(target)), nil
+	return cur, nil
 }
