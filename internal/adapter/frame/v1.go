@@ -220,6 +220,10 @@ func (a Adapter) Ingest(rawPackets [][]byte, segmentOf func(seq uint32) int) Ing
 		if sha256.Sum256(rec.Payload) != rec.Sum {
 			res.Faults = append(res.Faults, a.fault(model.FaultHashMismatch, seg,
 				fmt.Sprintf("seq=%d checksum mismatch", rec.Seq)))
+			// the packet was delivered, so its sequence position is
+			// consumed even though the payload is rejected
+			expectSeq = rec.Seq + 1
+			haveExpect = true
 			continue
 		}
 		t := unw.Next(rec.CaptureTS)

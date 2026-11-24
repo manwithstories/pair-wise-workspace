@@ -43,30 +43,26 @@ type Frame struct {
 }
 
 // Unwrapper converts a wrapping 32-bit capture clock into a monotonic
-// int64 unified time line. A forward jump of more than half the clock
-// range is treated as a wrap, not as a regression.
+// int64 unified time line. Deltas are computed in wrap-aware signed
+// arithmetic, so a forward wrap is a small positive step while a jump
+// backward of up to half the clock range surfaces as a negative step
+// (a regression) for the caller to flag.
 type Unwrapper struct {
-	base   int64
+	cur    int64
 	last   uint32
 	inited bool
 }
-
-const halfRange = uint64(1) << 31
 
 // Next folds ts into the unwrapped line and returns the unified time.
 func (u *Unwrapper) Next(ts uint32) int64 {
 	if !u.inited {
 		u.inited = true
 		u.last = ts
-		u.base = int64(ts)
-		return u.base
+		u.cur = int64(ts)
+		return u.cur
 	}
-	delta := ts - u.last // wraps naturally
-	if delta > uint32(halfRange) {
-		// backward jump larger than half the range: treat as regression,
-		// keep the line monotonic by holding position.
-		return u.base + int64(u.last)
-	}
+	delta := int32(ts - u.last) // wrap-aware signed delta
 	u.last = ts
-	return u.base + int64(ts)
+	u.cur += int64(delta)
+	return u.cur
 }
