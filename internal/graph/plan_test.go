@@ -104,3 +104,68 @@ func spanOf(t *testing.T, err error) clock.Span {
 	}
 	return ce.Span
 }
+
+func TestPlanIsDeterministicAndRespectsDeps(t *testing.T) {
+	tl := multiTrack(t)
+	p1, err := BuildPlan(tl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2, err := BuildPlan(tl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p1.Steps) != len(p2.Steps) {
+		t.Fatal("plan length changed between runs")
+	}
+	for i := range p1.Steps {
+		if p1.Steps[i] != p2.Steps[i] {
+			t.Fatalf("step %d differs:\n%+v\n%+v", i, p1.Steps[i], p2.Steps[i])
+		}
+	}
+	pos := make(map[NodeID]int)
+	for i, s := range p1.Steps {
+		pos[s.Node] = i
+	}
+	for _, s := range p1.Steps {
+		for _, d := range g(t, tl).Deps(s.Node) {
+			if pos[d] >= pos[s.Node] {
+				t.Fatalf("%s scheduled before its dependency %s", s.Node, d)
+			}
+		}
+	}
+}
+
+func g(t *testing.T, tl *Timeline) *Graph {
+	t.Helper()
+	gr, err := Build(tl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return gr
+}
+
+func TestSameInstantOrderingIsStable(t *testing.T) {
+	// Two tracks with segments starting at exactly the same tick.
+	tl, err := New(base(), []Track{
+		{ID: "a", Kind: TrackAudio, Segments: []Segment{{ID: "a0", Start: 0, Duration: 100, Source: "s"}}},
+		{ID: "b", Kind: TrackMarker, Segments: []Segment{{ID: "b0", Start: 0, Duration: 100, Source: "s"}}},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := BuildPlan(tl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Same instant resolves by track id: a's segment and piece before b's.
+	var tracks []string
+	for _, s := range p.Steps {
+		if s.Kind == NodeSegment {
+			tracks = append(tracks, s.Track)
+		}
+	}
+	if len(tracks) != 2 || tracks[0] != "a" || tracks[1] != "b" {
+		t.Fatalf("segment order=%v from %v", tracks, p.Steps)
+	}
+}
