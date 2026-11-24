@@ -41,9 +41,12 @@ type Options struct {
 	// DurationScale multiplies fixture length; used to prove memory stays
 	// bounded as duration grows.
 	DurationScale int
-	Quiet         bool
-	JSON          bool
-	Progress      io.Writer
+	// LayoutOverride replaces the declared audio layout, including "unknown"
+	// or "" to exercise the explicit fallback policy.
+	LayoutOverride string
+	Quiet          bool
+	JSON           bool
+	Progress       io.Writer
 }
 
 // Take is one run's report plus its stable artifact digest.
@@ -101,6 +104,9 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	}
 
 	spec := fixtures.DefaultSpec(opts.Seed)
+	if opts.LayoutOverride != "" {
+		spec.Layout = opts.LayoutOverride
+	}
 	if opts.TruncateTail > 0 {
 		spec.TruncateTailBytes = opts.TruncateTail
 	}
