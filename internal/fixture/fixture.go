@@ -89,16 +89,15 @@ func FSEQFile(s Spec, frames []*media.RawFrame) []byte {
 
 // MP4File renders frames to an in-memory fragmented MP4 file.
 func MP4File(s Spec, frames []*media.RawFrame) []byte {
-	var buf bytes.Buffer
-	seeker := newWriteSeeker(&buf)
 	hdr := demux.FSEQHeader{
 		SourceID: s.SourceID, Kind: s.Kind, TimescaleHz: s.TimescaleHz,
 		Width: s.Width, Height: s.Height,
 	}
-	if err := demux.WriteFragmentedMP4(seeker, hdr, frames); err != nil {
+	out, err := demux.WriteFragmentedMP4Bytes(hdr, frames)
+	if err != nil {
 		panic(err)
 	}
-	return buf.Bytes()
+	return out
 }
 
 // RTPImpairments selects which transport faults the RTP fixture contains.
@@ -173,44 +172,49 @@ func buildMediaPackets(s Spec) []*rtp.Packet {
 	for i, fr := range frames {
 		var anchor [8]byte
 		binary.BigEndian.PutUint64(anchor[:], uint64(fr.Meta.CaptureRefNS))
-		p := &rtp.Packet{
-			Header: rtp.Header{
-				Version: 2, Marker: true, PayloadType: 96,
-				SequenceNumber: uint16(i), Timestamp: uint32(fr.Meta.ClockTicks),
-				SSRC:      s.SourceID + 0x1000,
-				Extension: true, ExtensionProfile: recovery.CaptureRefExtProfile,
-			},
-			Payload: append([]byte(nil), fr.Payload...),
+		hdr := rtp.Header{
+			Version: 2, Marker: true, PayloadType: 96,
+			SequenceNumber: uint16(i), Timestamp: uint32(fr.Meta.ClockTicks),
+			SSRC: s.SourceID + 0x1000,
 		}
-		out[i] = injectAnchor(p, anchor[:])
+		out[i] = parseRaw(buildRawPacket(hdr, anchor[:], fr.Payload))
 	}
 	return out
 }
 
-// injectAnchor appends an RFC 8285 one-byte extension element (id 1, 8-byte
-// anchor) to a packet by editing its marshalled bytes, then re-parsing it.
+// buildRawPacket assembles an RTP datagram with a raw extension area (profile
+// BEDE, 3 words: one-byte element header + 8-byte anchor + padding). Building
+// bytes directly avoids pion's one-byte sub-framing serializer.
+func buildRawPacket(h rtp.Header, anchor, payload []byte) []byte {
+	raw := make([]byte, 12+16+len(payload))
+	raw[0] = 0x80 | 0x10 // V=2, X=1
+	raw[1] = h.PayloadType
+	if h.Marker {
+		raw[1] |= 0x80
+	}
+	binary.BigEndian.PutUint16(raw[2:4], h.SequenceNumber)
+	binary.BigEndian.PutUint32(raw[4:8], h.Timestamp)
+	binary.BigEndian.PutUint32(raw[8:12], h.SSRC)
+	binary.BigEndian.PutUint16(raw[12:14], recovery.CaptureRefExtProfile)
+	binary.BigEndian.PutUint16(raw[14:16], 3) // 3 words = 12 data bytes
+	raw[16] = 0x18                            // id=1, len-1=7 -> 8 bytes
+	copy(raw[17:25], anchor)
+	// raw[25:28] remain zero as extension padding.
+	copy(raw[28:], payload)
+	return raw
+}
+
+func parseRaw(raw []byte) *rtp.Packet {
+	p := &rtp.Packet{}
+	if err := p.Unmarshal(raw); err != nil {
+		panic(err)
+	}
+	return p
+}
+
+// injectAnchor builds a repair packet with the same raw extension framing.
 func injectAnchor(p *rtp.Packet, anchor []byte) *rtp.Packet {
-	base, err := p.Marshal()
-	if err != nil {
-		panic(err)
-	}
-	// Strip any auto-emitted extension area and rebuild one of exactly 12 bytes.
-	csrc := int(base[0] & 0x0f)
-	headerLen := 12 + 4*csrc
-	fixed := make([]byte, headerLen)
-	copy(fixed, base[:headerLen])
-	fixed[0] |= 0x10 // X bit
-	ext := make([]byte, 12)
-	binary.BigEndian.PutUint16(ext[0:2], recovery.CaptureRefExtProfile)
-	binary.BigEndian.PutUint16(ext[2:4], 2) // 2 words = 8 data bytes
-	ext[4] = 0x18                           // id=1, len-1=7 -> 8 bytes
-	copy(ext[5:13], anchor)
-	raw := append(append(append([]byte(nil), fixed...), ext...), base[headerLen:]...)
-	reparsed := &rtp.Packet{}
-	if err := reparsed.Unmarshal(raw); err != nil {
-		panic(err)
-	}
-	return reparsed
+	return parseRaw(buildRawPacket(p.Header, anchor, p.Payload))
 }
 
 func buildRepair(s Spec, mediaBySeq map[uint16]*rtp.Packet, base uint16, members [][]byte, drop map[uint16]bool) *rtp.Packet {
@@ -245,38 +249,4 @@ func anchorFor(s Spec, seq uint16) int64 {
 	periodNS := int64(1_000_000_000 / int64(s.TimescaleHz))
 	ideal := int64(seq) * periodNS
 	return s.StartRefNS + ideal + int64(float64(ideal)*s.DriftPPM/1e6)
-}
-
-// writeSeeker adapts bytes.Buffer to io.WriteSeeker for the MP4 writer.
-type writeSeeker struct {
-	buf *bytes.Buffer
-	pos int64
-}
-
-func newWriteSeeker(b *bytes.Buffer) *writeSeeker { return &writeSeeker{buf: b} }
-
-func (w *writeSeeker) Write(p []byte) (int, error) {
-	end := w.pos + int64(len(p))
-	if end > int64(w.buf.Len()) {
-		grow := make([]byte, end-int64(w.buf.Len()))
-		w.buf.Write(grow)
-	}
-	copy(w.buf.Bytes()[w.pos:end], p)
-	w.pos = end
-	return len(p), nil
-}
-
-func (w *writeSeeker) Seek(offset int64, whence int) (int64, error) {
-	switch whence {
-	case 0:
-		w.pos = offset
-	case 1:
-		w.pos += offset
-	case 2:
-		w.pos = int64(w.buf.Len()) + offset
-	}
-	if w.pos < 0 {
-		return 0, bytes.ErrTooLarge
-	}
-	return w.pos, nil
 }
