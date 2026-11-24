@@ -49,7 +49,8 @@ func DefaultOptions(root string) Options {
 		Root: root, Rate: 48000, Layout: string(audio.LayoutStereo),
 		LUFS: -23, TargetKbps: 1536, Packets: 300,
 		AudioSSRC: 0xA1000001, VideoSSRC: 0xB2000002,
-		SamplesPerPacket: 960,
+		// Zero selects Rate/50 samples per 20 ms packet in Generate.
+		SamplesPerPacket: 0,
 	}
 }
 
