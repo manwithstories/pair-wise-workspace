@@ -10,14 +10,14 @@ import (
 // fully deterministic and independent of any external asset.
 func buildInitSegment(spec Spec) []byte {
 	ftyp := boxBytes("ftyp", concat(
-		[]byte("iso5"),            // major brand
-		u32(1),                    // minor version
+		[]byte("iso5"),                 // major brand
+		u32(1),                         // minor version
 		[]byte("iso5"), []byte("dash"), // compatible brands
 	))
 	mvhd := boxBytes("mvhd", fullBox(0, concat(
 		u32(0), u32(0), u32(Timescale), u32(SegmentCount*1000),
 		bytes.Repeat([]byte{0}, 80), // rate/volume/matrix/predefined
-		u32(2), // next track id
+		u32(2),                      // next track id
 	)))
 	trak := buildTrak(spec)
 	moov := boxBytes("moov", concat(mvhd, trak))
@@ -71,12 +71,18 @@ func buildTrak(spec Spec) []byte {
 
 // mediaFragment builds one moof+mdat fragment with deterministic samples. The
 // first sample of each fragment is an IDR/CRA keyframe, producing a fixed GOP.
+// Payload sizes are calibrated so 24 fragments realize the representation's
+// target bitrate over the 24 s window: bytes per fragment = bps/8.
 func mediaFragment(spec Spec, sequence int, baseDecode uint64) []byte {
 	var entries []sampleEntry
 	var mdat bytes.Buffer
+	// 4 samples per fragment; split the per-fragment byte budget so the total
+	// payload across the fragment equals targetBPS/8 (one second of media).
+	perFragment := int(spec.BPS / 8)
+	sampleSizes := splitBudget(perFragment, SamplesPerFragment)
 	for s := 0; s < SamplesPerFragment; s++ {
 		keyframe := s == 0
-		nal := deterministicNAL(spec, sequence, s, keyframe)
+		nal := deterministicNAL(spec, sequence, s, keyframe, sampleSizes[s])
 		prefixed := concat(u32(uint32(len(nal))), nal)
 		entries = append(entries, sampleEntry{
 			duration: SampleDuration, size: uint32(len(prefixed)),
@@ -85,6 +91,21 @@ func mediaFragment(spec Spec, sequence int, baseDecode uint64) []byte {
 	}
 	moof := buildMoof(1, sequence, baseDecode, entries)
 	return concat(moof, boxBytes("mdat", mdat.Bytes()))
+}
+
+// splitBudget divides total bytes across n samples as evenly as possible,
+// giving the remainder to earlier (keyframe-bearing) samples.
+func splitBudget(total, n int) []int {
+	base := total / n
+	rem := total % n
+	out := make([]int, n)
+	for i := range out {
+		out[i] = base
+		if i < rem {
+			out[i]++
+		}
+	}
+	return out
 }
 
 type sampleEntry struct {
@@ -106,9 +127,10 @@ func buildMoof(trackID, sequence int, baseDecode uint64, entries []sampleEntry) 
 	return boxBytes("moof", concat(mfhd, tfhd, tfdt, trun))
 }
 
-// deterministicNAL produces a small, repeatable NAL unit. Payload bytes derive
-// only from the coordinates, so the same fragment always hashes identically.
-func deterministicNAL(spec Spec, sequence, sample int, keyframe bool) []byte {
+// deterministicNAL produces a repeatable NAL unit padded to targetSize bytes
+// (NAL header + payload). Payload bytes derive only from the coordinates, so
+// the same fragment always hashes identically regardless of padding length.
+func deterministicNAL(spec Spec, sequence, sample int, keyframe bool, targetSize int) []byte {
 	var header byte
 	if isHEVC(spec.Codec) {
 		nalType := byte(1) // TRAIL_N
@@ -123,11 +145,21 @@ func deterministicNAL(spec Spec, sequence, sample int, keyframe bool) []byte {
 			header = 1 // non-IDR slice
 		}
 	}
-	payload := []byte{
+	seed := []byte{
 		byte(sequence >> 8), byte(sequence),
 		byte(sample), byte(spec.BPS >> 16), byte(spec.BPS >> 8), byte(spec.BPS),
 	}
-	return append([]byte{header}, payload...)
+	if targetSize < 1+len(seed) {
+		targetSize = 1 + len(seed)
+	}
+	out := make([]byte, targetSize)
+	out[0] = header
+	copy(out[1:], seed)
+	// Deterministic fill for the remaining padding bytes.
+	for i := 1 + len(seed); i < len(out); i++ {
+		out[i] = byte((i*31 + sequence*7 + sample) & 0xff)
+	}
+	return out
 }
 
 func isHEVC(codec string) bool {
@@ -179,4 +211,4 @@ func u64(v uint64) []byte {
 	return b
 }
 
-func fixed16(v float64) uint32 { return uint32(v *65536) }
+func fixed16(v float64) uint32 { return uint32(v * 65536) }
