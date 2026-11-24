@@ -45,7 +45,10 @@ func writeSTSD(w *gomp4.Writer) error {
 	if err := writeBE(w, uint32(48000<<16)); err != nil { // 16.16 sample rate
 		return err
 	}
-	return endBox(w) // lpcm
+	if err := endBox(w); err != nil { // lpcm
+		return err
+	}
+	return endBox(w) // stsd
 }
 
 func writeEmptyFullBox(w *gomp4.Writer, typ string, payloadWords ...uint32) error {
