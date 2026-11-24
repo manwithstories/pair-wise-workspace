@@ -20,7 +20,12 @@ type jsonSummary struct {
 			StartUs int64 `json:"start_us"`
 			EndUs   int64 `json:"end_us"`
 		} `json:"layer"`
-		Timescale uint32 `json:"timescale"`
+		Timescale    uint32 `json:"timescale"`
+		ScanProblems []struct {
+			Kind    string `json:"kind"`
+			Segment int    `json:"segment"`
+			Offset  uint64 `json:"offset"`
+		} `json:"scan_problems"`
 	} `json:"layers"`
 	DamagedRanges []struct {
 		Layer   string `json:"layer"`
@@ -38,6 +43,14 @@ type jsonSummary struct {
 		MaxDeltaMS   float64 `json:"max_delta_ms"`
 	} `json:"boundary_checks"`
 	SyncErrorMS float64 `json:"sync_error_ms"`
+	Truth       []struct {
+		Layer      string `json:"layer"`
+		Injections []struct {
+			Segment int    `json:"segment"`
+			Kind    string `json:"kind"`
+			Note    string `json:"note"`
+		} `json:"injections"`
+	} `json:"truth"`
 }
 
 func TestSummaryMatchesIndependentReparse(t *testing.T) {

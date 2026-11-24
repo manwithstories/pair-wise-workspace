@@ -258,3 +258,58 @@ func assertCorruptBoxAt(t *testing.T, buf []byte, offset uint64) {
 		t.Fatalf("expected a shrunk/zeroed box size at %d, got %d", offset, size)
 	}
 }
+
+func TestEveryInjectedDamageIsReported(t *testing.T) {
+	js, byName := reparseFixture(t, DefaultConfig())
+	// Every planted defect must surface in the layer's damaged ranges, with
+	// its segment and kind, or the summary is hiding damage.
+	reported := make(map[string]map[string]bool)
+	for _, d := range js.DamagedRanges {
+		if reported[d.Layer] == nil {
+			reported[d.Layer] = make(map[string]bool)
+		}
+		reported[d.Layer][d.Kind] = true
+	}
+	// Structural container damage has no trustworthy media position, so it is
+	// reported as a scan problem with its raw offset instead of a clock range.
+	scanKinds := make(map[string]map[string]bool)
+	for _, layer := range js.Layers {
+		if scanKinds[layer.Name] == nil {
+			scanKinds[layer.Name] = make(map[string]bool)
+		}
+		for _, p := range layer.ScanProblems {
+			scanKinds[layer.Name][p.Kind] = true
+		}
+	}
+	wantKind := map[string]string{
+		string(DamageBoxCorrupt): string(clock.ErrBoxSizeOverrun),
+		string(DamageTruncate):   string(clock.ErrSampleOutOfBounds),
+		string(DamageSkip):       string(clock.ErrMfhdGap),
+		string(DamageDuplicate):  string(clock.ErrMfhdDuplicate),
+		string(DamageTfdtReg):    string(clock.ErrTfdtRegression),
+	}
+	// Truncation also shows up as a segment-level problem on every layer, so
+	// check the other kinds strictly.
+	strict := map[string]bool{
+		string(DamageSkip): true, string(DamageDuplicate): true,
+		string(DamageTfdtReg): true, string(DamageBoxCorrupt): true,
+	}
+	for _, layer := range js.Truth {
+		if _, ok := byName[layer.Layer]; !ok {
+			t.Fatalf("truth layer %q has no source", layer.Layer)
+		}
+		for _, inj := range layer.Injections {
+			if inj.Kind == "" || !strict[inj.Kind] {
+				continue
+			}
+			want, ok := wantKind[inj.Kind]
+			if !ok {
+				t.Fatalf("unmapped injected kind %q", inj.Kind)
+			}
+			if !reported[layer.Layer][want] && !scanKinds[layer.Layer][want] {
+				t.Fatalf("%s: injected %s (segment %d) not reported as %s; ranges=%v scan=%v",
+					layer.Layer, inj.Kind, inj.Segment, want, reported[layer.Layer], scanKinds[layer.Layer])
+			}
+		}
+	}
+}
