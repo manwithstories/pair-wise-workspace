@@ -34,6 +34,7 @@ type Track struct {
 // source offset for error provenance.
 type Block struct {
 	Track    uint32
+	Source   uint32 // 0-based source document id, unique after a merge
 	Time     media.MediaTime
 	Keyframe bool
 	Offset   int64 // absolute byte offset of the block element
