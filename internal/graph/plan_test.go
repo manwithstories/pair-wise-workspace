@@ -75,6 +75,27 @@ func TestMissingDependencyReported(t *testing.T) {
 	}
 }
 
+func TestCycleDetectedWithPath(t *testing.T) {
+	tl, err := New(base(), []Track{{
+		ID: "v", Kind: TrackVideo,
+		Segments: []Segment{
+			{ID: "a", Start: 0, Duration: 100, Source: "s", Requires: []string{"c"}},
+			{ID: "b", Start: 100, Duration: 100, Source: "s", Requires: []string{"a"}},
+			{ID: "c", Start: 200, Duration: 100, Source: "s", Requires: []string{"b"}},
+		},
+	}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Build(tl)
+	if clock.Classify(err) != clock.CatGraph || !strings.Contains(err.Error(), "cycle") {
+		t.Fatalf("err=%v", err)
+	}
+	if !strings.Contains(err.Error(), "->") {
+		t.Fatalf("cycle path missing: %v", err)
+	}
+}
+
 func spanOf(t *testing.T, err error) clock.Span {
 	t.Helper()
 	var ce *clock.Error

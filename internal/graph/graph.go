@@ -80,7 +80,7 @@ func Build(t *Timeline) (*Graph, error) {
 	if err := g.addTransitions(); err != nil {
 		return nil, err
 	}
-	if err := g.checkDependencies(); err != nil {
+	if _, err := g.topoOrder(); err != nil {
 		return nil, err
 	}
 	return g, nil
@@ -200,16 +200,4 @@ func joinOrNil(errs []error) error {
 		return nil
 	}
 	return errors.Join(errs...)
-}
-
-// checkDependencies verifies every edge points at an existing node.
-func (g *Graph) checkDependencies() error {
-	for _, n := range g.nodes {
-		for _, d := range n.Deps {
-			if _, ok := g.Node(d); !ok {
-				return invalid(clock.CatGraph, n.Span(), "node %s depends on missing node %s", n.ID, d)
-			}
-		}
-	}
-	return nil
 }
