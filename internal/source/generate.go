@@ -27,7 +27,11 @@ func Generate(spec Spec) ([]byte, error) {
 	}
 
 	var out bytes.Buffer
-	out.Write(FramePrefix(SenderReport(spec.SSRC, 0, 3900000000)))
+	ntpBase := uint32(3900000000)
+	out.Write(FramePrefix(SenderReport(spec.SSRC, 0, ntpBase)))
+	// A second SR one NTP second later makes the linear drift estimator
+	// traceable end-to-end. The fixture clock is exact, so drift is 0 ppm.
+	out.Write(FramePrefix(SenderReport(spec.SSRC, uint32(spec.SampleRate), ntpBase+1)))
 	if spec.Case == "damaged" {
 		out.Write(FramePrefix(BadCSRCDatagram()))
 	}

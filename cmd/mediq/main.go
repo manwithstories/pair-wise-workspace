@@ -77,6 +77,8 @@ func printReport(w io.Writer, m *manifest.Manifest) {
 	fmt.Fprintf(w, "integrated_lufs=%.3f\n", m.Quality.IntegratedLUFS)
 	fmt.Fprintf(w, "true_peak_dbtp=%.3f\n", m.Quality.TruePeakDBTP)
 	fmt.Fprintf(w, "manifest_error_ms=%.3f\n", m.Quality.ManifestErrorMS)
+	fmt.Fprintf(w, "clock_model=%s clock_drift_ppm=%.3f sender_reports=%d\n",
+		m.Quality.ClockModel, m.Quality.ClockDriftPPM, m.Quality.SenderReports)
 	fmt.Fprintf(w, "rtp_frames=%d rtcp_frames=%d parse_errors=%d\n",
 		m.Counts.RTPFrames, m.Counts.RTCPFrames, m.Counts.ParseErrors)
 	fmt.Fprintf(w, "gap_packets=%d late_packets=%d out_of_order_packets=%d\n",

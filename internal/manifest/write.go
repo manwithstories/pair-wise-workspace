@@ -69,6 +69,9 @@ type Quality struct {
 	ManifestErrorMS float64 `json:"manifest_error_ms"`
 	IntegratedLUFS  float64 `json:"integrated_lufs"`
 	TruePeakDBTP    float64 `json:"true_peak_dbtp"`
+	ClockModel      string  `json:"clock_model"`
+	SenderReports   int     `json:"sender_reports"`
+	ClockDriftPPM   float64 `json:"clock_drift_ppm"`
 }
 
 // Product identifies the MP4 artifact and hash.

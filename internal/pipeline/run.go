@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/clearliu/mediq/internal/core"
+	"github.com/clearliu/mediq/internal/dsp"
 	"github.com/clearliu/mediq/internal/manifest"
 	"github.com/clearliu/mediq/internal/pack"
 	"github.com/clearliu/mediq/internal/recovery"
@@ -136,6 +137,9 @@ func Run(opts Options) (*manifest.Manifest, error) {
 			DurationMS: durationMS, ExpectedMS: expectedMS,
 			ManifestErrorMS: math.Abs(durationMS - expectedMS),
 			IntegratedLUFS:  norm.OutputLUFS, TruePeakDBTP: norm.TruePeakDBTP,
+			ClockModel:    clockModel(a),
+			SenderReports: a.RTCPFrames,
+			ClockDriftPPM: a.Clock.DriftPPM(),
 		},
 	}
 
@@ -226,10 +230,15 @@ func makeParams(spec source.Spec) manifest.Params {
 	return manifest.Params{
 		OutputRateHz: core.OutputRateHz, OutputChannels: core.OutputChannels,
 		OutputBitsPerSample: 16, TargetBPS: core.TargetBPS, Resampler: resampler,
-		LoudnessTargetLUFS: dspTarget(), TruePeakCeilingDBTP: -1,
+		LoudnessTargetLUFS: dsp.R128TargetLUFS, TruePeakCeilingDBTP: dsp.MaxTruePeakDBTP,
 		ReorderWindow: spec.ReorderWindow, TimelineIntervalMS: spec.IntervalSamples * 1000 / core.OutputRateHz,
 		RetentionIntervals: spec.RetentionIntervals, MaxDatagramBytes: 8192,
 	}
 }
 
-func dspTarget() float64 { return -23 }
+func clockModel(a *Analysis) string {
+	if a.Clock != nil && a.Clock.HasSenderReport() {
+		return "rtp-expanded+sr-drift-corrected"
+	}
+	return "rtp-expanded+nominal-rate"
+}
