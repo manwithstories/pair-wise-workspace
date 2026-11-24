@@ -273,7 +273,21 @@ func firstMediaTime(meta *trackMeta) int64 {
 	return 0
 }
 
+// buildEdits records the effective edit list. A manifest-declared edit list is
+// authoritative when present; otherwise the MP4 elst is used. Both are kept in
+// the index as exact rational times so the mapping can be audited.
 func buildEdits(meta *trackMeta, mt manifest.Track) []index.Edit {
+	if len(mt.Edits) > 0 {
+		out := make([]index.Edit, 0, len(mt.Edits))
+		for _, e := range mt.Edits {
+			out = append(out, index.Edit{
+				SegmentDuration: clock.Rational{Num: e.SegmentDurationMS, Den: 1000},
+				MediaTime:       clock.Rational{Num: e.MediaTimeMS, Den: 1000},
+				Empty:           false,
+			})
+		}
+		return out
+	}
 	out := make([]index.Edit, 0, len(meta.elst))
 	for _, e := range meta.elst {
 		seg := clock.Rational{Num: int64(e.SegmentDurationV0), Den: int64(meta.movieTS)}
