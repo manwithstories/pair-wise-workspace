@@ -7,7 +7,6 @@ import (
 	"math"
 	"math/rand"
 	"os"
-	"path/filepath"
 
 	mp4 "github.com/abema/go-mp4"
 )
@@ -416,5 +415,3 @@ func handlerName(kind string) string {
 	}
 	return "VideoHandler"
 }
-
-var _ = filepath.Base

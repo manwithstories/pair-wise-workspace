@@ -6,7 +6,6 @@ import (
 	"math"
 	"math/rand"
 	"os"
-	"time"
 
 	pionrtp "github.com/pion/rtp"
 
@@ -140,5 +139,3 @@ func simulateNetwork(ctx context.Context, packets []*pionrtp.Packet, rec **rtp.R
 	}
 	return nil
 }
-
-var _ = time.Now

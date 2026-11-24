@@ -15,7 +15,6 @@ import (
 	"path/filepath"
 	"sort"
 
-	"mediaroute/internal/clock"
 	merr "mediaroute/internal/errors"
 	"mediaroute/internal/index"
 	"mediaroute/internal/manifest"
@@ -127,18 +126,16 @@ func Run(ctx context.Context, m *manifest.Manifest, opts Options) (*Result, erro
 }
 
 func scanAll(ctx context.Context, m *manifest.Manifest, opts Options) (*index.Index, error) {
-	ix := &index.Index{
-		SchemaVersion:  index.SchemaVersion,
-		ScannerVersion: Version,
-		ManifestDigest: m.Digest,
-		InputDigest:    digestPlaceholder,
-	}
-	// Recompute key material for embedding in the index.
 	inDigest, err := DigestFiles(opts.BaseDir, m)
 	if err != nil {
 		return nil, err
 	}
-	ix.InputDigest = inDigest
+	ix := &index.Index{
+		SchemaVersion:  index.SchemaVersion,
+		ScannerVersion: Version,
+		ManifestDigest: m.Digest,
+		InputDigest:    inDigest,
+	}
 
 	var firstErr error
 	for _, t := range m.Tracks {
@@ -173,18 +170,3 @@ func scanAll(ctx context.Context, m *manifest.Manifest, opts Options) (*index.In
 func canceled(err error) error {
 	return merr.New(merr.KindCanceled, 0, -1, -1, false, "scan canceled: %v", err)
 }
-
-// trackSpan computes a corrupt range's start/end on the shared timeline.
-func trackSpan(tb clock.Timebase, editOffset int64, firstDTS, startTicks, endTicks int64) (clock.Rational, clock.Rational, error) {
-	start, err := tb.At(firstDTS - editOffset + startTicks)
-	if err != nil {
-		return clock.Rational{}, clock.Rational{}, err
-	}
-	end, err := tb.At(firstDTS - editOffset + endTicks)
-	if err != nil {
-		return clock.Rational{}, clock.Rational{}, err
-	}
-	return start, end, nil
-}
-
-var digestPlaceholder = hex.EncodeToString(make([]byte, sha256.Size))

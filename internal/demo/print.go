@@ -5,11 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"sort"
 	"text/tabwriter"
-
-	merr "mediaroute/internal/errors"
-	"mediaroute/internal/fixtures"
 )
 
 // Print writes the demo result. With jsonOut it emits a single JSON document
@@ -264,7 +260,3 @@ func ExitCodeFor(res *Result) int {
 	}
 	return res.ExitCode
 }
-
-var _ = sort.Float64s
-var _ = fixtures.AllVariants
-var _ = merr.ExitCode

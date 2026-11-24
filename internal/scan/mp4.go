@@ -2,7 +2,6 @@ package scan
 
 import (
 	"context"
-	"fmt"
 	"os"
 
 	mp4 "github.com/abema/go-mp4"
@@ -207,5 +206,3 @@ func allZero(b []byte) bool {
 	}
 	return true
 }
-
-var _ = fmt.Sprintf
