@@ -26,23 +26,23 @@ type Gap struct {
 
 // FeedResult contains all dispositions caused by one incoming packet.
 type FeedResult struct {
-	Ordered      []OrderedPacket
-	Gaps         []Gap
-	Late         []OrderedPacket
-	Duplicate    bool
-	OutOfOrder   bool
+	Ordered    []OrderedPacket
+	Gaps       []Gap
+	Late       []OrderedPacket
+	Duplicate  bool
+	OutOfOrder bool
 }
 
 // Stats contains transport-level quality counters.
 type Stats struct {
-	RTPFrames        int
-	RTCPFrames       int
-	ParseErrors      int
-	AcceptedPackets  int
-	DuplicatePackets int
+	RTPFrames         int
+	RTCPFrames        int
+	ParseErrors       int
+	AcceptedPackets   int
+	DuplicatePackets  int
 	OutOfOrderPackets int
-	GapPackets       int
-	LatePackets      int
+	GapPackets        int
+	LatePackets       int
 }
 
 // ReorderBuffer restores order inside a fixed sequence span.
@@ -51,16 +51,16 @@ type Stats struct {
 // arrive after that declaration are returned in Late; the timeline decides
 // whether they are still within replay retention.
 type ReorderBuffer struct {
-	Window      int
-	StatusKeep  int64
-	next        int64
-	maxExt      int64
-	started     bool
-	arrival     int
-	pending     map[int64]*Record
-	seen        map[int64]struct{}
-	status      map[int64]SeqStatus
-	Stats       Stats
+	Window     int
+	StatusKeep int64
+	next       int64
+	maxExt     int64
+	started    bool
+	arrival    int
+	pending    map[int64]*Record
+	seen       map[int64]struct{}
+	status     map[int64]SeqStatus
+	Stats      Stats
 }
 
 // NewReorderBuffer creates a buffer with sensible bounded defaults.

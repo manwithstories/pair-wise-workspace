@@ -22,7 +22,7 @@ const (
 )
 
 var (
-	ErrBadLengthPrefix = errors.New("invalid length prefix")
+	ErrBadLengthPrefix  = errors.New("invalid length prefix")
 	ErrDatagramTooLarge = errors.New("datagram exceeds configured limit")
 	ErrBadRTPVersion    = errors.New("unsupported RTP version")
 	ErrShortHeader      = errors.New("truncated RTP header")
