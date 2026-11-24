@@ -2,6 +2,7 @@ package mp4
 
 import (
 	"fmt"
+	"sort"
 
 	"mediarig/internal/media"
 )
@@ -129,6 +130,7 @@ func ResolveColor(sources []ColorMetadata, cfg ColorConfig) (ColorDecision, erro
 	for v := range distinct {
 		values = append(values, v)
 	}
+	sort.Strings(values)
 
 	selected := validated[0]
 	conflict := len(distinct) > 1
