@@ -16,34 +16,34 @@ import (
 // Metrics is the per-representation quality verdict projected onto the
 // unified millisecond clock.
 type Metrics struct {
-	RepID            string   `json:"rep_id"`
-	TargetBPS        int64    `json:"target_bps"`
-	ActualBPS        int64    `json:"actual_bps"`
-	BitrateDeltaPct  float64  `json:"bitrate_delta_pct"`
-	ValidSamplePct   float64  `json:"valid_sample_pct"`
-	DamagedRanges    []Range  `json:"damaged_ranges"`
-	GOPQuantilesMs   map[int]float64 `json:"gop_quantiles_ms"`
-	AlignmentMaxMs   int64    `json:"alignment_max_ms"`
-	TotalSamples     int      `json:"total_samples"`
-	ValidSamples     int      `json:"valid_samples"`
-	DamagedSegments  int      `json:"damaged_segments"`
+	RepID           string          `json:"rep_id"`
+	TargetBPS       int64           `json:"target_bps"`
+	ActualBPS       int64           `json:"actual_bps"`
+	BitrateDeltaPct float64         `json:"bitrate_delta_pct"`
+	ValidSamplePct  float64         `json:"valid_sample_pct"`
+	DamagedRanges   []Range         `json:"damaged_ranges"`
+	GOPQuantilesMs  map[int]float64 `json:"gop_quantiles_ms"`
+	AlignmentMaxMs  int64           `json:"alignment_max_ms"`
+	TotalSamples    int             `json:"total_samples"`
+	ValidSamples    int             `json:"valid_samples"`
+	DamagedSegments int             `json:"damaged_segments"`
 }
 
 // Range is a damaged span on the unified millisecond timeline plus its origin.
 type Range struct {
-	StartMs int64           `json:"start_ms"`
-	EndMs   int64           `json:"end_ms"`
-	Source  core.Source     `json:"source"`
-	Kind    core.FaultKind  `json:"kind"`
+	StartMs int64          `json:"start_ms"`
+	EndMs   int64          `json:"end_ms"`
+	Source  core.Source    `json:"source"`
+	Kind    core.FaultKind `json:"kind"`
 }
 
 // Input bundles every upstream artifact needed for one representation.
 type Input struct {
-	Manifest    *manifest.Manifest
-	RepIndex    int
-	Reports     []*inspect.FragmentReport // in fragment order
-	Recovered   []transport.FragmentResult
-	Faults      []core.Fault
+	Manifest  *manifest.Manifest
+	RepIndex  int
+	Reports   []*inspect.FragmentReport // in fragment order
+	Recovered []transport.FragmentResult
+	Faults    []core.Fault
 }
 
 // Compute derives all metrics for one representation. Manifest segment timing
@@ -55,7 +55,8 @@ func Compute(in Input) Metrics {
 		GOPQuantilesMs: map[int]float64{},
 	}
 
-	totalBytes, totalDurationMs, validSamples, totalSamples := aggregateSamples(in.Reports)
+	totalBytes, totalDurationMs, validSamples, totalSamples :=
+		aggregateSamples(in.Reports, completenessSet(in.Recovered))
 	m.TotalSamples, m.ValidSamples = totalSamples, validSamples
 	if totalSamples > 0 {
 		m.ValidSamplePct = round2(float64(validSamples) * 100 / float64(totalSamples))
@@ -78,16 +79,38 @@ func Compute(in Input) Metrics {
 	return m
 }
 
+// completenessSet indexes the fragments whose RTP recovery finished without
+// an unrecovered gap.
+func completenessSet(recovered []transport.FragmentResult) map[int]bool {
+	out := map[int]bool{}
+	for _, fr := range recovered {
+		out[fr.Fragment] = fr.Complete
+	}
+	return out
+}
+
 // aggregateSamples sums byte counts and samples, treating samples in
-// structurally sound, non-damaged fragments as valid.
-func aggregateSamples(reports []*inspect.FragmentReport) (totalBytes uint64, windowMs uint64, valid, total int) {
+// structurally sound, fully recovered, non-damaged fragments as valid.
+func aggregateSamples(reports []*inspect.FragmentReport,
+	complete map[int]bool) (totalBytes uint64, windowMs uint64, valid, total int) {
 	for _, fr := range reports {
-		fragDamaged := fr.Truncated || fr.HasInvalidNAL
+		structuralDamage := fr.Truncated || fr.HasInvalidNAL
+		transportWhole := complete[fr.Fragment]
+		// A truncated fragment may analyze fewer (or zero) samples than its trun
+		// declares; count the declared expectation in the denominator so the
+		// damage visibly lowers the valid-sample ratio.
+		declared := fr.ExpectedSamples
+		if declared < len(fr.Samples) {
+			declared = len(fr.Samples)
+		}
+		if declared == 0 {
+			declared = len(fr.Samples)
+		}
+		total += declared
 		for _, s := range fr.Samples {
-			total++
 			totalBytes += uint64(s.Size)
 			windowMs += uint64(core.Scale(int64(s.Duration), int64(fr.Timescale), 1000))
-			if !fragDamaged && s.Duration > 0 {
+			if !structuralDamage && transportWhole && s.Duration > 0 {
 				valid++
 			}
 		}
