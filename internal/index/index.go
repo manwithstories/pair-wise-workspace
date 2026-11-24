@@ -13,13 +13,23 @@ import (
 // media decode time is reconciled against the repair mapping.
 func (s *source) Build(repair *clock.Map) (*Index, error) {
 	idx := &Index{Warnings: append([]string{}, s.warnings...), Truncated: s.truncated}
+	// One origin shared by every track, so a genuine audio/video offset stays
+	// visible after rebasing instead of being cancelled per track.
+	var origin int64
+	first := true
 	for _, ts := range s.tracks {
 		if len(ts.samples) == 0 {
 			continue
 		}
-		// Rebase onto a 0-based timeline so the index and the repair mapping
-		// share the same origin even when tfdt starts near the wraparound.
-		origin := ts.samples[0].timeNs
+		if first || ts.samples[0].timeNs < origin {
+			origin = ts.samples[0].timeNs
+			first = false
+		}
+	}
+	for _, ts := range s.tracks {
+		if len(ts.samples) == 0 {
+			continue
+		}
 		tr := Track{ID: ts.id, Timescale: ts.timescale, Handler: ts.handler, Samples: len(ts.samples)}
 		for _, sm := range ts.samples {
 			if !sm.sync {
