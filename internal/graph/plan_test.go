@@ -169,3 +169,24 @@ func TestSameInstantOrderingIsStable(t *testing.T) {
 		t.Fatalf("segment order=%v from %v", tracks, p.Steps)
 	}
 }
+
+func TestSegmentPrecedesItsOwnPiecesAtSameInstant(t *testing.T) {
+	tl := multiTrack(t)
+	p, err := BuildPlan(tl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pos := map[NodeID]int{}
+	for i, s := range p.Steps {
+		pos[s.Node] = i
+	}
+	for _, s := range p.Steps {
+		if s.Kind != NodeEditPiece {
+			continue
+		}
+		parent := NodeID("seg:" + s.Segment)
+		if pos[parent] >= pos[s.Node] {
+			t.Fatalf("%s precedes its parent %s", s.Node, parent)
+		}
+	}
+}
