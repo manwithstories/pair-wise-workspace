@@ -21,6 +21,7 @@ type Stream struct {
 	cfg     Config
 	base    *clock.Base
 	reorder *rtporder.Reorder
+	spill   spillQueue
 
 	mu         sync.Mutex
 	backlog    []model.Event
@@ -31,6 +32,7 @@ type Stream struct {
 	backlogCap int
 	stats      Stats
 	closed     bool
+	spillErr   error
 }
 
 // ErrClosed is returned when a closed stream is used again.

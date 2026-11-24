@@ -33,5 +33,6 @@ func (s *Stream) Push(p rtporder.Packet) (Receipt, error) {
 	if err := s.fold(res, &rec); err != nil {
 		return rec, err
 	}
-	return rec, nil
+	rec.Spilled = s.enforceBacklog()
+	return rec, s.spillErr
 }
