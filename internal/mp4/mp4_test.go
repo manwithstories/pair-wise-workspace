@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	gomp4 "github.com/abema/go-mp4"
 )
 
 func TestColorConflictUsesConfiguredPriorityAndPreservesSources(t *testing.T) {
@@ -79,6 +81,18 @@ func TestMuxAndValidateSampleTables(t *testing.T) {
 	got, err := ValidateFile(path, cfg)
 	if err != nil {
 		t.Fatal(err)
+	}
+	probeFile, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	probeInfo, err := gomp4.Probe(probeFile)
+	probeFile.Close()
+	if err != nil {
+		t.Fatalf("go-mp4 probe rejected muxed boxes: %v", err)
+	}
+	if len(probeInfo.Tracks) != 2 || len(probeInfo.Tracks[0].Samples) != 3 || len(probeInfo.Tracks[1].Samples) != 4 {
+		t.Fatalf("probe tracks=%+v", probeInfo.Tracks)
 	}
 	if got.AudioSamples != 3 || got.VideoSamples != 4 {
 		t.Fatalf("sample counts audio=%d video=%d", got.AudioSamples, got.VideoSamples)
