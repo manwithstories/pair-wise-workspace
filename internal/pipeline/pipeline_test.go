@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"mediascan/internal/probe"
 )
 
 func runOpts(t *testing.T) Options {
@@ -124,6 +126,38 @@ func TestDamagedRunReportsErrors(t *testing.T) {
 	}
 	if sum.ErrorSegments <= 0 {
 		t.Fatalf("ERROR_SEGMENTS=%d", sum.ErrorSegments)
+	}
+}
+
+func TestTruncatedIndexIsIsolated(t *testing.T) {
+	dir := t.TempDir()
+	fullDir := t.TempDir()
+	full, err := Run(Options{Seed: 41, CacheDir: filepath.Join(fullDir, "cache"), DataDir: fullDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum, err := Run(Options{Seed: 41, TruncateTail: 200,
+		CacheDir: filepath.Join(dir, "cache"), DataDir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.IndexValid {
+		t.Fatal("a truncated container must not yield a valid index")
+	}
+	if sum.IndexPoints >= full.IndexPoints {
+		t.Fatalf("truncation should drop index points: %d vs %d", sum.IndexPoints, full.IndexPoints)
+	}
+	if sum.OutputSHA256 == full.OutputSHA256 {
+		t.Fatal("a truncated source must produce a different output digest")
+	}
+}
+
+func TestDamagedMetadataProducesFindings(t *testing.T) {
+	dir := t.TempDir()
+	sum, err := Run(Options{Seed: 41, Damaged: true, Policy: probe.Policy{Channels: probe.Reject},
+		CacheDir: filepath.Join(dir, "cache"), DataDir: dir})
+	if err == nil {
+		t.Fatalf("reject policy must fail on the damaged channel mask, got summary %+v", sum)
 	}
 }
 
