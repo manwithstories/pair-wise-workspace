@@ -216,3 +216,51 @@ func TestScanCanceled(t *testing.T) {
 		t.Fatal("want cancellation error")
 	}
 }
+
+func TestCorruptCacheRebuildsSafely(t *testing.T) {
+	dir := t.TempDir()
+	store := &index.Store{Dir: filepath.Join(dir, "cache")}
+	a, err := fixtures.Build(dir, fixtures.DefaultSpec(42), fixtures.VariantNormal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := manifest.ReadFile(a.Manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := Run(context.Background(), m, Options{BaseDir: dir, Cache: store, VerifyBytes: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Corrupt the cached file directly.
+	path := store.Path(first.Key)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw[len(raw)/2] ^= 0xff
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	second, err := Run(context.Background(), m, Options{BaseDir: dir, Cache: store, VerifyBytes: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !second.Rebuilt {
+		t.Fatal("corrupt cache must report a rebuild")
+	}
+	if second.CacheHit {
+		t.Fatal("corrupt cache must not count as a hit")
+	}
+	if second.Index.Summary != first.Index.Summary {
+		t.Fatal("rebuilt index summary differs from the original scan")
+	}
+	// The rebuilt cache must be readable next time.
+	third, err := Run(context.Background(), m, Options{BaseDir: dir, Cache: store, VerifyBytes: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !third.CacheHit || third.Rebuilt {
+		t.Fatalf("rebuilt cache should hit cleanly: hit=%v rebuilt=%v", third.CacheHit, third.Rebuilt)
+	}
+}
