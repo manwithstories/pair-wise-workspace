@@ -242,6 +242,10 @@ func WriteAtomic(path string, data []byte) error {
 // CommitOpenFile syncs/closes a temp file and atomically renames it to final.
 func CommitOpenFile(tmp *os.File, final string) error {
 	tmpName := tmp.Name()
+	if err := tmp.Chmod(0o644); err != nil {
+		tmp.Close()
+		return media.InternalWrap(media.StageCommit, err, "chmod %s", tmpName)
+	}
 	if err := tmp.Sync(); err != nil {
 		tmp.Close()
 		return media.InternalWrap(media.StageCommit, err, "sync %s", tmpName)
