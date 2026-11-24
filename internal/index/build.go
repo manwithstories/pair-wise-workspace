@@ -71,6 +71,9 @@ type Writer struct {
 	crc     uint32
 	written bool
 	header  [16]byte
+	// entryDigests accumulates each entry's digest so callers can identify the
+	// index content by a stable value independent of file framing.
+	entryDigests []byte
 }
 
 // NewWriter seeds the header: magic, version, a placeholder count and a CRC
@@ -105,6 +108,7 @@ func (i *Writer) Add(e Entry) error {
 	}
 	i.count++
 	i.crc = crc32.Update(i.crc, crc32.IEEETable, b)
+	i.entryDigests = append(i.entryDigests, e.Digest[:]...)
 	return nil
 }
 
