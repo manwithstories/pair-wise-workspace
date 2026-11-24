@@ -138,6 +138,9 @@ func printReport(r *metrics.Report) {
 	fmt.Printf("out_of_order_count=%d\n", r.OutOfOrderCount)
 	fmt.Printf("isolated_count=%d\n", r.IsolatedCount)
 	fmt.Printf("clock_drift_ppm=%.2f\n", r.ClockDriftPPM)
+	if r.FirstErrorFragment != 0 {
+		fmt.Printf("first_error_fragment=%d\n", r.FirstErrorFragment)
+	}
 	if r.FirstErrorByte != 0 {
 		fmt.Printf("first_error_byte=%d\n", r.FirstErrorByte)
 	}

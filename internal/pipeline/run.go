@@ -65,6 +65,12 @@ func Run(opts Options) (*metrics.Report, error) {
 	base := &metrics.Report{TargetKBPS: target, Recovered: recovered}
 	scan, err := boxes.ScanBatch(source, boxes.ScanOptions{Concurrency: 4})
 	if err != nil {
+		if scan != nil {
+			base.MissingCount = scan.Sequences.MissingCount()
+			base.DuplicateCount = scan.Sequences.DuplicateCount()
+			base.OutOfOrderCount = len(scan.Sequences.OutOfOrder)
+			base.IsolatedCount = len(scan.Isolated)
+		}
 		return abortCorrupt(t, opts.Out, base, "isolated", err)
 	}
 	base.MissingCount = scan.Sequences.MissingCount()
@@ -183,6 +189,7 @@ func loadCommitted(out string, rec *txn.CommitRecord, recovered int) (*metrics.R
 }
 
 func abortCorrupt(t *txn.Txn, out string, r *metrics.Report, status string, cause error) (*metrics.Report, error) {
+	_ = t.Log(status, "error", cause.Error())
 	_ = t.Close()
 	n, rbErr := txn.RollbackStaging(out)
 	if rbErr != nil {
@@ -190,8 +197,11 @@ func abortCorrupt(t *txn.Txn, out string, r *metrics.Report, status string, caus
 	}
 	r.Status = status
 	r.Rollback = n
-	if me, ok := media.AsError(cause); ok && me.Offset >= 0 {
-		r.FirstErrorByte = me.Offset
+	fragment, offset, path := media.Origin(cause)
+	r.FirstErrorFragment = fragment
+	r.FirstErrorPath = path
+	if offset >= 0 {
+		r.FirstErrorByte = offset
 	}
 	return r, cause
 }

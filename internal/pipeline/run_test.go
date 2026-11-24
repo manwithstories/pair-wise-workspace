@@ -25,6 +25,12 @@ func TestTruncatedPipelineRollsBackLocatedFragment(t *testing.T) {
 	if rep.FirstErrorByte <= 0 {
 		t.Fatalf("first_error_byte=%d want positive", rep.FirstErrorByte)
 	}
+	if rep.FirstErrorFragment != 2 {
+		t.Fatalf("first_error_fragment=%d want 2", rep.FirstErrorFragment)
+	}
+	if rep.IsolatedCount != 1 {
+		t.Fatalf("isolated_count=%d want 1", rep.IsolatedCount)
+	}
 	gens, err := txn.StagingGenerations(out)
 	if err != nil {
 		t.Fatal(err)

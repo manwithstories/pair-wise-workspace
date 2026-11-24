@@ -32,7 +32,9 @@ type Report struct {
 	OutOfOrderCount     int     `json:"out_of_order_count"`
 	IsolatedCount       int     `json:"isolated_count"`
 	ClockDriftPPM       float64 `json:"clock_drift_ppm"`
+	FirstErrorFragment  uint32  `json:"first_error_fragment,omitempty"`
 	FirstErrorByte      int64   `json:"first_error_byte,omitempty"`
+	FirstErrorPath      string  `json:"first_error_path,omitempty"`
 	Rollback            int     `json:"rollback,omitempty"`
 	Recovered           int     `json:"recovered,omitempty"`
 	Committed           int     `json:"committed,omitempty"`
