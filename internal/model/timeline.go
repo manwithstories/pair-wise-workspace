@@ -46,8 +46,8 @@ type Frame struct {
 // int64 unified time line. A forward jump of more than half the clock
 // range is treated as a wrap, not as a regression.
 type Unwrapper struct {
-	base  int64
-	last  uint32
+	base   int64
+	last   uint32
 	inited bool
 }
 

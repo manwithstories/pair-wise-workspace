@@ -7,19 +7,19 @@ import "fmt"
 type FaultCode string
 
 const (
-	FaultSeqDuplicate       FaultCode = "seq_duplicate"
-	FaultSeqGap             FaultCode = "seq_gap"
-	FaultHashMismatch       FaultCode = "hash_mismatch"
+	FaultSeqDuplicate        FaultCode = "seq_duplicate"
+	FaultSeqGap              FaultCode = "seq_gap"
+	FaultHashMismatch        FaultCode = "hash_mismatch"
 	FaultTimestampRegression FaultCode = "timestamp_regression"
-	FaultBoxTruncated       FaultCode = "box_truncated"
-	FaultSampleOffset       FaultCode = "sample_offset_out_of_range"
-	FaultNoIndex            FaultCode = "no_index"
-	FaultAudioConflict      FaultCode = "audio_conflict"
-	FaultAudioIsolated      FaultCode = "audio_isolated"
-	FaultColorMissing       FaultCode = "color_missing"
-	FaultColorConflict      FaultCode = "color_conflict"
-	FaultUnknownAdapter     FaultCode = "unknown_adapter"
-	FaultCheckpointInvalid  FaultCode = "checkpoint_invalid"
+	FaultBoxTruncated        FaultCode = "box_truncated"
+	FaultSampleOffset        FaultCode = "sample_offset_out_of_range"
+	FaultNoIndex             FaultCode = "no_index"
+	FaultAudioConflict       FaultCode = "audio_conflict"
+	FaultAudioIsolated       FaultCode = "audio_isolated"
+	FaultColorMissing        FaultCode = "color_missing"
+	FaultColorConflict       FaultCode = "color_conflict"
+	FaultUnknownAdapter      FaultCode = "unknown_adapter"
+	FaultCheckpointInvalid   FaultCode = "checkpoint_invalid"
 )
 
 // Fault is a structured, located defect. Segment is -1 when not yet
