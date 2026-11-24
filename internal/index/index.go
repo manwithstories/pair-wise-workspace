@@ -1,7 +1,6 @@
 package index
 
 import (
-	"encoding/binary"
 	"fmt"
 	"sort"
 
@@ -184,47 +183,4 @@ func (idx *Index) Flatten() []Point {
 		return out[i].Offset < out[j].Offset
 	})
 	return out
-}
-
-// SIDX builds a valid sidx payload for the flattened index, with references
-// grouped into whole-millisecond buckets. It is used to confirm that the
-// rebuilt index is expressible in the container's own random-access box.
-func (idx *Index) SIDX(timescale uint32, earliestNs int64) []byte {
-	if timescale == 0 {
-		timescale = clock.DefaultTimescale
-	}
-	type ref struct {
-		size uint32
-		dur  uint32
-	}
-	var refs []ref
-	var acc uint64
-	var runDur int64
-	var runSize uint32
-	tick := int64(clock.NanosPerSecond) / int64(timescale)
-	if tick == 0 {
-		tick = 1
-	}
-	var last int64
-	for _, p := range idx.Flatten() {
-		acc += uint64(p.Size)
-		runSize += uint32(p.Size)
-		runDur += p.DurationNs
-		if p.TimeNs-last >= int64(clock.NanosPerSecond) || runDur >= int64(clock.NanosPerSecond) {
-			refs = append(refs, ref{size: runSize, dur: uint32(runDur / tick)})
-			runSize, runDur = 0, 0
-			last = p.TimeNs
-		}
-	}
-	if runSize > 0 {
-		refs = append(refs, ref{size: runSize, dur: uint32(runDur / tick)})
-	}
-	buf := make([]byte, 12+12*len(refs))
-	binary.BigEndian.PutUint32(buf[0:], 0) // version/flags
-	binary.BigEndian.PutUint32(buf[4:], 1) // reference_ID
-	binary.BigEndian.PutUint32(buf[8:], timescale)
-	// earliest_presentation_time intentionally omitted from this compact form:
-	// callers verify the index via Verify, not by parsing this preview.
-	_ = earliestNs
-	return buf
 }
