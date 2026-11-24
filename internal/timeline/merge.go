@@ -62,7 +62,10 @@ func Merge(docs []*mkv.Document, policy Policy) (*Timeline, error) {
 	var blocks []mkv.Block
 	for docIdx, doc := range docs {
 		tl.Tracks = append(tl.Tracks, doc.Tracks...)
+		// Stamp every block with its source document so blocks sharing a
+		// track number across sources stay distinguishable after merging.
 		for _, b := range doc.Blocks {
+			b.Source = uint32(docIdx)
 			if policy.RejectNegative && b.Time < 0 {
 				return nil, media.NewBoundary("timeline-merge",
 					fmt.Sprintf("negative timestamp %d rejected", b.Time),
@@ -79,11 +82,14 @@ func Merge(docs []*mkv.Document, policy Policy) (*Timeline, error) {
 		if a.Time != b.Time {
 			return a.Time < b.Time
 		}
+		if a.Source != b.Source {
+			return a.Source < b.Source
+		}
 		if a.Track != b.Track {
 			return a.Track < b.Track
 		}
-		// Same time and track: source offset gives a total deterministic
-		// order unless the policy explicitly rejects the collision.
+		// Same time, source and track: source offset gives a total
+		// deterministic order unless the policy rejects the collision.
 		return a.Offset < b.Offset
 	})
 	if policy.RejectDuplicateTS {

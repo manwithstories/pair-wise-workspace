@@ -31,9 +31,23 @@ func TestMergeInterleavesOnUnifiedTimeBase(t *testing.T) {
 	if len(tl.Blocks) == 0 {
 		t.Fatal("merged timeline empty")
 	}
+	// Total deterministic order: time, then source id, then track number,
+	// then source byte offset.
+	less := func(a, b mkv.Block) bool {
+		if a.Time != b.Time {
+			return a.Time < b.Time
+		}
+		if a.Source != b.Source {
+			return a.Source < b.Source
+		}
+		if a.Track != b.Track {
+			return a.Track < b.Track
+		}
+		return a.Offset < b.Offset
+	}
 	for i := 1; i < len(tl.Blocks); i++ {
 		a, b := tl.Blocks[i-1], tl.Blocks[i]
-		if b.Time < a.Time || (b.Time == a.Time && b.Track < a.Track) {
+		if less(b, a) {
 			t.Fatalf("order violated at %d: %+v before %+v", i, a, b)
 		}
 	}
