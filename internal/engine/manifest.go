@@ -22,16 +22,17 @@ type Manifest struct {
 
 // ScenarioManifest 是单个场景的可复核条目。
 type ScenarioManifest struct {
-	Scenario   string             `json:"scenario"`
-	Segments   int                `json:"segments"`
-	SilenceMS  uint64             `json:"silence_ms"`
-	Duplicates int                `json:"duplicates"`
-	Gaps       int                `json:"gaps"`
-	BadByte    int64              `json:"bad_byte"`
-	BadSample  int64              `json:"bad_sample"`
-	GapRanges  []GapManifest      `json:"gap_ranges,omitempty"`
-	Segments256 []string          `json:"segment_sha256,omitempty"`
-	Source     resume.SourceRef   `json:"source"`
+	Scenario    string        `json:"scenario"`
+	Segments    int           `json:"segments"`
+	SilenceMS   uint64        `json:"silence_ms"`
+	Duplicates  int           `json:"duplicates"`   // RTP 传输层重复包
+	ContentDups int           `json:"content_dups"` // 内容指纹重复窗口
+	Gaps        int           `json:"gaps"`
+	BadByte     int64         `json:"bad_byte"`
+	BadSample   int64         `json:"bad_sample"`
+	GapRanges   []GapManifest `json:"gap_ranges,omitempty"`
+	Segments256 []string      `json:"segment_sha256,omitempty"`
+	Source      resume.SourceRef `json:"source"`
 }
 
 // GapManifest 是缺口区间的机器可读形式。
@@ -64,6 +65,7 @@ func ToScenarioRow(st *Stats, src []byte) ScenarioManifest {
 		Segments:    st.Segments,
 		SilenceMS:   st.SilenceMS,
 		Duplicates:  st.Duplicates,
+		ContentDups: st.ContentDups,
 		Gaps:        st.Gaps,
 		BadByte:     st.BadByte,
 		BadSample:   st.BadSample,

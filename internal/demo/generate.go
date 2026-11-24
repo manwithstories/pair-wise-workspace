@@ -47,24 +47,33 @@ func Format() clock.Timebase {
 // FramesPerPacket 是每个 RTP 包承载的固定帧数。
 const FramesPerPacket = 4
 
-// TonePCM 生成 n 帧立体声 16bit PCM：以低幅度底噪叠加周期性正弦包络，
-// 其中刻意插入若干静音帧区间供静音检测识别。
+// TonePCM 生成 n 帧立体声 16bit PCM：响帧采样绑定全局帧序号与确定性抖动，
+// 保证任意不同时间位置的指纹窗口内容互不相同；每 128 帧插入 48 帧连续静音，
+// 单段 48 帧在 48kHz 下恰为 1ms，可被静音检测识别并换算为非零毫秒。
 func TonePCM(rng *LCG, n int, silentEvery int) []byte {
 	tb := Format()
 	buf := make([]byte, n*tb.FrameSize())
 	for f := 0; f < n; f++ {
 		var sample int16
-		silent := silentEvery > 0 && f%silentEvery == 0
+		// 每 128 帧的后 48 帧（80..127）为连续静音段。
+		silent := f%128 >= 80
+		if silentEvery > 0 && f%silentEvery == 0 {
+			silent = true
+		}
 		if silent {
 			sample = 0
 		} else {
-			// 周期性包络 + 小幅底噪，保证确定性且有明显响度起伏。
-			env := int16(20000 + (f%37)*120)
-			sample = env/2 + rng.Int16()/128
+			// 帧序号进入采样值，确保跨窗口内容唯一；叠加确定性抖动形成响度起伏。
+			base := int16((f*257 + 101) % 20000)
+			jitter := int16(rng.Uint64()%2048 - 1024)
+			sample = base + jitter
+			if sample < 0 {
+				sample = -sample
+			}
 		}
-		base := f * tb.FrameSize()
-		binary.LittleEndian.PutUint16(buf[base:], uint16(sample))
-		binary.LittleEndian.PutUint16(buf[base+2:], uint16(sample))
+		off := f * tb.FrameSize()
+		binary.LittleEndian.PutUint16(buf[off:], uint16(sample))
+		binary.LittleEndian.PutUint16(buf[off+2:], uint16(sample))
 	}
 	return buf
 }

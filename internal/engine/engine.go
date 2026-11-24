@@ -20,16 +20,17 @@ import (
 
 // Stats 汇总一个场景的可复核处理结果。
 type Stats struct {
-	Scenario    string
-	Segments    int
-	SilenceMS   uint64
-	Duplicates  int
-	Gaps        int
-	BadByte     int64 // -1 表示无损坏
-	BadSample   int64 // -1 表示无损坏或损坏位于无法换算处
-	ResumeMS    int64
-	SegmentSums []string
-	GapRanges   []media.Gap
+	Scenario     string
+	Segments     int
+	SilenceMS    uint64
+	Duplicates   int // RTP 传输层重复包（去重计数）
+	ContentDups  int // 内容指纹重复窗口（语义独立，单列于清单）
+	Gaps         int
+	BadByte      int64 // -1 表示无损坏
+	BadSample    int64 // -1 表示无损坏或损坏位于无法换算处
+	ResumeMS     int64
+	SegmentSums  []string
+	GapRanges    []media.Gap
 }
 
 // Config 控制引擎处理参数。
@@ -47,7 +48,7 @@ func DefaultConfig() Config {
 	return Config{
 		Queue:          4,
 		TargetFrames:   32,
-		WindowFrames:   4,
+		WindowFrames:   2,
 		MinSilenceFr:   2,
 		MaxBlockBytes:  1 << 20, // 单块最大 1 MiB
 		InterruptAfter: 0,
@@ -218,8 +219,9 @@ func Process(scen demo.Scenario, cfg Config) (*Stats, []resume.SegmentRef, error
 		stats.SegmentSums = append(stats.SegmentSums, hex.EncodeToString(sum[:]))
 	}
 	stats.Segments = len(segs)
-	// RTP 传输重复（dupes）与内容指纹重复（contentDupes）分别统计后汇总。
-	stats.Duplicates = dupes + contentDupes
+	// RTP 传输重复与内容指纹重复分别统计：前者进入 duplicates 口径，后者单列。
+	stats.Duplicates = dupes
+	stats.ContentDups = contentDupes
 	return stats, refs, nil
 }
 
