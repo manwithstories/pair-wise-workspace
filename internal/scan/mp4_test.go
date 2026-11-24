@@ -193,6 +193,9 @@ func TestScanCacheInvalidatesOnMediaChange(t *testing.T) {
 	if r3.CacheHit {
 		t.Fatal("changed media must invalidate the cache")
 	}
+	if !r3.Rebuilt {
+		t.Fatal("changed media on the same manifest slot must report a rebuild")
+	}
 }
 
 func TestScanCanceled(t *testing.T) {

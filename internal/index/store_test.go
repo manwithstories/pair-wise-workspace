@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"mediaroute/internal/clock"
+	merr "mediaroute/internal/errors"
 )
 
 func sampleIndex(t *testing.T, marker string) *Index {
@@ -59,7 +60,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 }
 
-func TestLoadMissOnChangedInputDigest(t *testing.T) {
+func TestLoadReportsStaleOnChangedInputDigest(t *testing.T) {
 	dir := t.TempDir()
 	s := &Store{Dir: dir}
 	a := sampleIndex(t, "a")
@@ -67,11 +68,17 @@ func TestLoadMissOnChangedInputDigest(t *testing.T) {
 	if err := s.Save(ka, a); err != nil {
 		t.Fatal(err)
 	}
-	b := sampleIndex(t, "b")
+	// Same manifest slot, changed media digest: must be reported as stale
+	// (non-nil error) so the caller rebuilds, not treated as a plain miss.
+	b := sampleIndex(t, "a")
+	b.InputDigest = "input-changed"
 	kb := Key{InputDigest: b.InputDigest, ScannerVersion: b.ScannerVersion, ManifestDigest: b.ManifestDigest}
 	got, hit, err := s.Load(kb)
-	if err != nil || hit || got != nil {
-		t.Fatalf("changed media must miss: hit=%v got=%v err=%v", hit, got, err)
+	if err == nil || hit || got != nil {
+		t.Fatalf("changed media must report stale: hit=%v got=%v err=%v", hit, got, err)
+	}
+	if !merr.IsRecoverable(err) {
+		t.Fatalf("stale cache must be recoverable: %v", err)
 	}
 }
 

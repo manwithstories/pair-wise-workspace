@@ -34,9 +34,13 @@ type cacheEnvelope struct {
 	Index    *Index `json:"index"`
 }
 
-// Path returns the file path for a key.
+// Path returns the file path for a key. The path is derived from the scanner
+// version and manifest digest so that a media change maps to the same slot and
+// can be detected as stale instead of silently becoming a separate entry. The
+// full input digest is still part of the key stored inside the file.
 func (s *Store) Path(k Key) string {
-	sum := sha256.Sum256([]byte(k.String()))
+	slot := fmt.Sprintf("schema=%d|scan=%s|manifest=%s", SchemaVersion, k.ScannerVersion, k.ManifestDigest)
+	sum := sha256.Sum256([]byte(slot))
 	return filepath.Join(s.Dir, hex.EncodeToString(sum[:16])+".json")
 }
 
@@ -84,12 +88,16 @@ func (s *Store) Load(k Key) (*Index, bool, error) {
 	if err := verifyEnvelope(&env); err != nil {
 		return nil, false, s.corrupt(k, 0, "%v", err)
 	}
-	if env.Index.InputDigest != k.InputDigest || env.Index.ManifestDigest != k.ManifestDigest {
-		return nil, false, s.corrupt(k, 0, "stale digest: cached input=%s manifest=%s",
-			short(env.Index.InputDigest), short(env.Index.ManifestDigest))
+	if env.Index.InputDigest != k.InputDigest {
+		return nil, false, s.stale(k, 0, "media digest changed: cached input=%s current=%s",
+			short(env.Index.InputDigest), short(k.InputDigest))
+	}
+	if env.Index.ManifestDigest != k.ManifestDigest {
+		return nil, false, s.stale(k, 0, "manifest digest changed: cached=%s current=%s",
+			short(env.Index.ManifestDigest), short(k.ManifestDigest))
 	}
 	if env.Index.ScannerVersion != k.ScannerVersion {
-		return nil, false, s.corrupt(k, 0, "stale scanner version %q", env.Index.ScannerVersion)
+		return nil, false, s.stale(k, 0, "scanner version changed: cached %q current %q", env.Index.ScannerVersion, k.ScannerVersion)
 	}
 	want, err := env.Index.ComputeSummary()
 	if err != nil {
@@ -170,6 +178,10 @@ func (s *Store) Invalidate(k Key) error {
 
 func (s *Store) corrupt(k Key, off int64, format string, args ...any) *merr.Error {
 	return merr.New(merr.KindIndex, 0, -1, off, true, "cache %s: "+format, append([]any{short(k.InputDigest)}, args...)...)
+}
+
+func (s *Store) stale(k Key, off int64, format string, args ...any) *merr.Error {
+	return merr.New(merr.KindIndex, 0, -1, off, true, "stale cache %s: "+format, append([]any{short(k.InputDigest)}, args...)...)
 }
 
 func sealEnvelope(env *cacheEnvelope) (string, error) {
