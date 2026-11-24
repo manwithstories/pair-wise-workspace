@@ -215,3 +215,40 @@ func TestRemuxNeverFabricatesBytes(t *testing.T) {
 		t.Fatalf("output %d >= clean %d: bytes were fabricated", len(out), len(a.Clean))
 	}
 }
+
+func TestVerifyPenalizesExtraSamples(t *testing.T) {
+	// Mux output carrying samples the caller did not request must not verify
+	// as a perfect match: extra bytes are fabricated output.
+	src := bytes.NewReader([]byte("AAAABBBB"))
+	full := []output.TrackMux{{
+		ID: 1, Kind: media.TrackVideo, Timescale: 90000,
+		Samples: []output.SampleRef{
+			{Offset: 0, Size: 4, Duration: 3000, Keyframe: true},
+			{Offset: 4, Size: 4, Duration: 3000},
+		},
+	}}
+	out, err := output.MuxBytes(src, full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "two.mp4")
+	if err := os.WriteFile(path, out, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Verify only claims one sample was expected.
+	one := []output.TrackMux{{
+		ID: 1, Kind: media.TrackVideo, Timescale: 90000,
+		Samples: []output.SampleRef{{Offset: 0, Size: 4, Duration: 3000, Keyframe: true}},
+	}}
+	rep, err := output.Verify(path, src, one)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.ExtraSamples != 1 {
+		t.Fatalf("extra samples=%d", rep.ExtraSamples)
+	}
+	if rep.MatchRate() >= 1 {
+		t.Fatalf("fabricated output verified as complete: rate=%v", rep.MatchRate())
+	}
+}

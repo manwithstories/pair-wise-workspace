@@ -63,6 +63,7 @@ type Report struct {
 	SamplesIn      int // requested
 	SamplesOut     int // re-parsed from the output
 	MissingSamples int // requested but absent from the output
+	ExtraSamples   int // present in the output but never requested
 	ByteMismatch   int // payloads present but not byte-identical to the source
 	Tracks         int
 }
@@ -74,7 +75,7 @@ func (r Report) MatchRate() float64 {
 	if r.SamplesIn == 0 {
 		return 1
 	}
-	ok := r.SamplesIn - r.ByteMismatch - r.MissingSamples
+	ok := r.SamplesIn - r.ByteMismatch - r.MissingSamples - r.ExtraSamples
 	if ok < 0 {
 		ok = 0
 	}
@@ -114,6 +115,9 @@ func Verify(path string, src io.ReaderAt, tracks []TrackMux) (Report, error) {
 	}
 	if len(f.Samples) < len(want) {
 		rep.MissingSamples = len(want) - len(f.Samples)
+	} else if len(f.Samples) > len(want) {
+		// Samples the muxer was not asked to write are fabricated output.
+		rep.ExtraSamples = len(f.Samples) - len(want)
 	}
 	n := len(want)
 	if len(f.Samples) < n {
