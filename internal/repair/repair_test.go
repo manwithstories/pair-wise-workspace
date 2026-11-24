@@ -154,7 +154,7 @@ func TestRecomputeSegmentIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseMedia: %v", err)
 	}
-	entries := RecomputeSegment(tl, 1, ms, DefaultOptions())
+	entries := RecomputeSegment(tl, 1, ms)
 	if len(entries) != 1 || entries[0].Source != SourceFragment || !entries[0].Trusted {
 		t.Fatalf("entries = %+v", entries)
 	}

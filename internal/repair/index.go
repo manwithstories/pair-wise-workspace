@@ -28,7 +28,7 @@ type IndexEntry struct {
 
 // Index is a per-track index that can be invalidated and rebuilt. Entries
 // whose data was missing from the container are marked SourceMissing rather
-// than filled with a guessed npot.
+// than filled with a guessed position.
 type Index struct {
 	TrackID  uint32       `json:"track_id"`
 	Complete bool         `json:"complete"`
@@ -39,7 +39,7 @@ type Index struct {
 // BuildIndex rebuilds a track index from recovered fragment plans. Any
 // uncovered window inside the recovered span becomes a missing entry; the
 // index never stores an inferred offset as trusted data.
-func BuildIndex(rec Recovery, tl *clock.Timeline) Index {
+func BuildIndex(rec Recovery) Index {
 	idx := Index{TrackID: rec.TrackID, Complete: true}
 	plans := make([]FragmentPlan, len(rec.Fragments))
 	copy(plans, rec.Fragments)
@@ -85,7 +85,7 @@ func BuildIndex(rec Recovery, tl *clock.Timeline) Index {
 // RecomputeSegment recomputes index entries for one segment directly from the
 // parsed fragment. It is the fallback when the incremental index is missing
 // entries: the fresh result is used but marked as recomputed, not guessed.
-func RecomputeSegment(tl *clock.Timeline, trackID uint32, seg cmaf.MediaSegment, opts Options) []IndexEntry {
+func RecomputeSegment(tl *clock.Timeline, trackID uint32, seg cmaf.MediaSegment) []IndexEntry {
 	var out []IndexEntry
 	for _, frag := range seg.Fragments {
 		samples := trackSamples(frag, trackID)

@@ -251,7 +251,7 @@ func RecoverTrack(tl *clock.Timeline, trackID uint32, segs []cmaf.MediaSegment, 
 
 	rec.BoundaryGaps(opts)
 	rec.Digest = digest(rec)
-	rec.Index = BuildIndex(rec, tl)
+	rec.Index = BuildIndex(rec)
 	return rec
 }
 
