@@ -167,8 +167,7 @@ func TestParseDASHRejectsBadXMLAndPath(t *testing.T) {
 	}
 }
 
-func TestValidatePathUnit(t *testing.T) {
-	good := []string{"a.m4s", "dir/a.m4s", "./a.m4s", "a/b/c.m4s"}
+func TestValidatePathUnit(t *testing.T) {	good := []string{"a.m4s", "dir/a.m4s", "./a.m4s", "a/b/c.m4s"}
 	for _, p := range good {
 		if err := validatePath(p); err != nil {
 			t.Fatalf("path %q wrongly rejected: %v", p, err)
@@ -179,5 +178,23 @@ func TestValidatePathUnit(t *testing.T) {
 		if err := validatePath(p); err == nil {
 			t.Fatalf("path %q should be rejected", p)
 		}
+	}
+}
+
+func TestScaleTo90kOverflowDegrades(t *testing.T) {
+	// 正常值：1000 timescale 下 1000 单位 = 90000 Tick。
+	if got := scaleTo90k(1000, 1000); got != int64(clock.TickRate) {
+		t.Fatalf("normal scale = %d, want 90000", got)
+	}
+	// 极大值触发乘法溢出，必须退化为先除而不是产生错误结果或 panic。
+	huge := int64(1) << 62
+	got := scaleTo90k(huge, 1000)
+	if got <= 0 {
+		t.Fatalf("overflow path produced non-positive result: %d", got)
+	}
+	// 退化路径结果应与先除再乘的安全算法一致。
+	want := huge/1000*int64(clock.TickRate)
+	if got != want {
+		t.Fatalf("overflow degrade = %d, want %d", got, want)
 	}
 }
