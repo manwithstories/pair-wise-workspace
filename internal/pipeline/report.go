@@ -45,6 +45,7 @@ type Report struct {
 	LatencyP95Ms     float64        `json:"latency_p95_ms"`
 	RTP              RTPReport      `json:"rtp"`
 	Recovery         RecoveryReport `json:"recovery"`
+	AudioEdits       []AudioEdit    `json:"audio_edits,omitempty"`
 	Gates            GateResults    `json:"gates"`
 	Errors           []ErrorEntry   `json:"errors"`
 	ExitCode         int            `json:"exit_code"`
