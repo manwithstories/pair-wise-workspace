@@ -131,6 +131,41 @@ func (idx Index) Valid() bool {
 	return true
 }
 
+// RebuildIndex returns a usable index for a recovery. When the recovered
+// index is incomplete or contains an untrusted placement, every segment is
+// re-derived from its actual parsed fragments instead of trusting the
+// incremental entries; the count returned is the number of segments
+// recomputed. Missing windows stay explicit in the rebuilt index.
+func RebuildIndex(tl *clock.Timeline, rec Recovery, segs []cmaf.MediaSegment) (Index, int) {
+	if idx := BuildIndex(rec); idx.Valid() {
+		return idx, 0
+	}
+	fresh := Index{TrackID: rec.TrackID, Complete: true}
+	recomputed := 0
+	for _, seg := range segs {
+		entries := RecomputeSegment(tl, rec.TrackID, seg)
+		for _, e := range entries {
+			if e.Source == SourceInferred {
+				fresh.Complete = false
+			}
+			fresh.Entries = append(fresh.Entries, e)
+		}
+		if len(entries) > 0 {
+			recomputed++
+		}
+	}
+	for _, m := range rec.Missing {
+		fresh.Entries = append(fresh.Entries, IndexEntry{
+			TrackID: rec.TrackID, StartUs: m.StartUs, EndUs: m.EndUs,
+			Source: SourceMissing, Trusted: false,
+		})
+		fresh.Missing++
+		fresh.Complete = false
+	}
+	sortIndex(fresh.Entries)
+	return fresh, recomputed
+}
+
 func sortIndex(entries []IndexEntry) {
 	// Insertion sort keeps this allocation-free for the small per-fragment
 	// counts and stable under equal starts.

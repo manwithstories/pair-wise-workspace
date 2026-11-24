@@ -191,3 +191,43 @@ func TestCrossCheckBoundaries(t *testing.T) {
 		}
 	}
 }
+
+func TestRebuildIndexRecomputesSegments(t *testing.T) {
+	sc, tl := setup(t)
+	mux := gen.NewMuxer(gen.TrackSpec{TrackID: 1, Timescale: 90000})
+	mk := func(seq uint32, base uint64) cmaf.MediaSegment {
+		b, _ := mux.BuildFragment(gen.FragmentSpec{Sequence: seq, BaseTicks: base, Samples: 10})
+		ms, err := sc.ParseMedia(b, int(seq))
+		if err != nil {
+			t.Fatalf("ParseMedia: %v", err)
+		}
+		return ms
+	}
+	// A duplicate forces the incremental index to be unusable.
+	segs := []cmaf.MediaSegment{mk(1, 0), mk(2, 90000), mk(2, 90000)}
+	rec := RecoverTrack(tl, 1, segs, DefaultOptions())
+	if rec.Index.Valid() {
+		t.Fatalf("duplicate recovery should invalidate the index: %+v", rec.Index)
+	}
+	idx, recomputed := RebuildIndex(tl, rec, segs)
+	if recomputed != 3 {
+		t.Fatalf("recomputed = %d", recomputed)
+	}
+	if idx.Valid() {
+		t.Fatal("rebuilt index with duplicates cannot be complete")
+	}
+	var missingEntries int
+	for _, e := range idx.Entries {
+		if e.Source == SourceMissing {
+			missingEntries++
+		}
+	}
+	if missingEntries == 0 {
+		t.Fatalf("rebuilt index must keep missing windows explicit: %+v", idx.Entries)
+	}
+	// The successful path must not rebuild anything.
+	clean := RecoverTrack(tl, 1, []cmaf.MediaSegment{mk(1, 0)}, DefaultOptions())
+	if clean.RebuiltSegments != 0 {
+		t.Fatalf("clean recovery rebuilt %d segments", clean.RebuiltSegments)
+	}
+}

@@ -79,6 +79,9 @@ type Recovery struct {
 	Digest         string               `json:"digest"`
 	Errors         []clock.LocatedError `json:"errors,omitempty"`
 	Index          Index                `json:"-"`
+	// RebuiltSegments counts segments whose index had to be recomputed from
+	// their actual fragments because the incremental index was incomplete.
+	RebuiltSegments int `json:"rebuilt_segments"`
 }
 
 // Boundary returns the trusted media extent of the recovery.
@@ -251,7 +254,7 @@ func RecoverTrack(tl *clock.Timeline, trackID uint32, segs []cmaf.MediaSegment, 
 
 	rec.BoundaryGaps(opts)
 	rec.Digest = digest(rec)
-	rec.Index = BuildIndex(rec)
+	rec.Index, rec.RebuiltSegments = RebuildIndex(tl, rec, segs)
 	return rec
 }
 
