@@ -85,11 +85,16 @@ func (r Report) MatchRate() float64 {
 // with the bytes Mux copied from src. It proves the file is self-consistent
 // and lossless for the samples it claims to carry.
 func Verify(path string, src io.ReaderAt, tracks []TrackMux) (Report, error) {
-	data, err := os.ReadFile(path)
+	rf, err := os.Open(path)
 	if err != nil {
-		return Report{}, fmt.Errorf("output: verify read: %w", err)
+		return Report{}, fmt.Errorf("output: verify open: %w", err)
 	}
-	f, err := demux.Parse(bytes.NewReader(data), int64(len(data)), path)
+	defer rf.Close()
+	st, err := rf.Stat()
+	if err != nil {
+		return Report{}, fmt.Errorf("output: verify stat: %w", err)
+	}
+	f, err := demux.Parse(rf, st.Size(), path)
 	if err != nil && len(f.Samples) == 0 {
 		return Report{}, fmt.Errorf("output: verify parse: %w", err)
 	}
@@ -121,7 +126,7 @@ func Verify(path string, src io.ReaderAt, tracks []TrackMux) (Report, error) {
 			rep.ByteMismatch++
 			continue
 		}
-		gotBytes, err := readAt(bytes.NewReader(data), got.Offset, int64(got.Size))
+		gotBytes, err := readAt(rf, got.Offset, int64(got.Size))
 		if err != nil {
 			rep.ByteMismatch++
 			continue
