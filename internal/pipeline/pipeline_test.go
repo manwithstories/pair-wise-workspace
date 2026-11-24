@@ -176,7 +176,7 @@ func TestTrySubmitQueueFullAndCancel(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	results, wait := pool.startWorkers(ctx)
+	results, wait := pool.StartWorkers(ctx)
 
 	// 第一个任务被 worker 取走后，第二个填满唯一队列槽位，第三次必须报队列满。
 	if err := pool.TrySubmit(ctx, Job{Sequence: 0}); err != nil {

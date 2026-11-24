@@ -66,6 +66,9 @@ type Inputs struct {
 	ErrorCategory     string
 	ManifestStarts    map[int]clock.Tick // 片段序号 → 清单标称起点
 	Thresholds        Thresholds
+	// CompletedOverride >0 时以归并器统计的成功片段数为准，
+	// 避免失败片段因残留样本被误计为完成。
+	CompletedOverride int
 }
 
 // Compute 依据各子系统产物计算确定性指标。
@@ -78,6 +81,9 @@ func Compute(in Inputs) *Metrics {
 		Corrupted:     in.Corrupted,
 		IndexSHA256:   "",
 		ErrorCategory: in.ErrorCategory,
+	}
+	if in.CompletedOverride > 0 {
+		m.Completed = in.CompletedOverride
 	}
 	if in.Index != nil {
 		m.IndexKeys = in.Index.Keys
@@ -141,7 +147,8 @@ func countContinuityBreaks(tl *clock.Timeline) int {
 }
 
 // alignmentMax 计算每个片段首个可判定样本的修复 DTS 与清单标称起点的
-// 最大偏差（毫秒）。缺片与不可判定片段不参与（它们已在质量统计中计入）。
+// 最大偏差（毫秒）。两条时间轴原点独立（设备时间戳可能从任意值起算），
+// 因此先各自减去自身原点再比较。缺片与不可判定片段不参与（已计入质量统计）。
 func alignmentMax(tl *clock.Timeline, manifestStarts map[int]clock.Tick) float64 {
 	first := map[int]clock.Tick{}
 	for _, s := range tl.Samples {
@@ -152,13 +159,22 @@ func alignmentMax(tl *clock.Timeline, manifestStarts map[int]clock.Tick) float64
 			first[s.Sequence] = s.DTS
 		}
 	}
+	// 清单原点 = 最小标称起点；修复原点 = 时间线最小 DTS。
+	var manifestOrigin clock.Tick
+	originSet := false
+	for _, v := range manifestStarts {
+		if !originSet || v < manifestOrigin {
+			manifestOrigin, originSet = v, true
+		}
+	}
+	repairedOrigin := tl.MinDTS
 	var maxMs float64
 	for seq, repaired := range first {
 		nominal, ok := manifestStarts[seq]
 		if !ok {
 			continue
 		}
-		d := repaired - nominal
+		d := (repaired - repairedOrigin) - (nominal - manifestOrigin)
 		if d < 0 {
 			d = -d
 		}
@@ -171,6 +187,10 @@ func alignmentMax(tl *clock.Timeline, manifestStarts map[int]clock.Tick) float64
 
 func classify(m *Metrics, th Thresholds) Status {
 	switch {
+	// 片段损坏优先于取消：既有部分成功又有损坏盒时归为 partial（退出码 3），
+	// 与"片段损坏但已生成部分报告"的语义一致。
+	case m.ErrorCategory != "" && m.ErrorCategory != "cancelled" && m.Completed > 0:
+		return StatusPartial
 	case m.Cancelled:
 		return StatusCanceled
 	case m.ErrorCategory != "" && m.Completed > 0:

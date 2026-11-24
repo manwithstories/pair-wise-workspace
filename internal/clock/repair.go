@@ -21,30 +21,45 @@ type RepairConfig struct {
 // 依据相邻观测之间更短的弧判断是否跨越 2^33 边界；任何输入若超过
 // 2^33-1 立即返回 ErrWrapOverflow，绝不截断。
 func Unwrap33(raw []uint64) ([]Tick, int, error) {
+	return unwrapMod(raw, WrapMod)
+}
+
+// Unwrap32 把一串 32 位（RTP 风格）时间戳展开为绝对 Tick，回绕模数为 2^32。
+func Unwrap32(raw []uint32) ([]Tick, int, error) {
+	expanded := make([]uint64, len(raw))
+	for i, v := range raw {
+		expanded[i] = uint64(v)
+	}
+	return unwrapMod(expanded, 1<<32)
+}
+
+// unwrapMod 是按指定模数展开回绕的通用实现，依据相邻观测间的更短弧判定。
+func unwrapMod(raw []uint64, mod uint64) ([]Tick, int, error) {
 	out := make([]Tick, len(raw))
 	if len(raw) == 0 {
 		return out, 0, nil
 	}
+	half := int64(mod / 2)
 	var wraps int
 	var acc int64
 	prev := raw[0]
-	if prev >= WrapMod {
+	if prev >= mod {
 		return nil, 0, ErrWrapOverflow
 	}
 	out[0] = Tick(int64(prev))
 	for i := 1; i < len(raw); i++ {
 		cur := raw[i]
-		if cur >= WrapMod {
+		if cur >= mod {
 			return nil, 0, ErrWrapOverflow
 		}
 		delta := int64(cur) - int64(prev)
-		if delta < -int64(WrapHalf) {
+		if delta < -half {
 			// cur 回绕到低值：实际前进了 mod + delta。
-			acc += int64(WrapMod)
+			acc += int64(mod)
 			wraps++
-		} else if delta > int64(WrapHalf) {
+		} else if delta > half {
 			// 反向大跳，相当于回退一个 mod。
-			acc -= int64(WrapMod)
+			acc -= int64(mod)
 			wraps++
 		}
 		out[i] = Tick(acc + int64(cur))

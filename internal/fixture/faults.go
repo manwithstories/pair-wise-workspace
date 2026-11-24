@@ -1,8 +1,12 @@
-package testdata
+package fixture
 
 import (
+	"sort"
+
 	"mediatime/internal/clock"
 )
+
+func sortInts(v []int) { sort.Ints(v) }
 
 // driftPPM 是 wrap-drift-vfr 场景注入的设备时钟漂移（验收要求 150..250）。
 const driftPPM = 200
@@ -37,6 +41,10 @@ func (g *Generator) buildWrapDriftVFR(sc *Scenario, n int) {
 // 但清单仍保留其占位（上层据此输出显式时间线空洞）。
 func (g *Generator) buildMissing(sc *Scenario, n int) {
 	missing := map[int]bool{8: true, 9: true}
+	for seq := range missing {
+		sc.MissingSequences = append(sc.MissingSequences, seq)
+	}
+	sortInts(sc.MissingSequences)
 	for seq := 0; seq < n; seq++ {
 		if missing[seq] {
 			continue

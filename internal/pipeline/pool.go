@@ -83,8 +83,9 @@ func (p *Pool) TrySubmit(ctx context.Context, job Job) error {
 	}
 }
 
-// startWorkers 启动固定数量 worker 消费 p.queue，返回等待函数与结果通道。
-func (p *Pool) startWorkers(ctx context.Context) (<-chan Result, func()) {
+// StartWorkers 启动固定数量 worker 消费共享队列，返回结果通道与等待函数。
+// 调用方负责通过 TrySubmit 投递并在结束时 CloseSubmit。
+func (p *Pool) StartWorkers(ctx context.Context) (<-chan Result, func()) {
 	results := make(chan Result, p.cfg.QueueLen+p.cfg.Workers)
 	var wg sync.WaitGroup
 	for w := 0; w < p.cfg.Workers; w++ {
@@ -144,7 +145,7 @@ func Collect(ctx context.Context, results <-chan Result) ([]Result, error) {
 //     仍会被排空返回，最后附带 ErrCancelled；
 //   - 任一任务返回错误：记录首个确定性错误，继续排空在途结果后统一返回。
 func (p *Pool) Run(ctx context.Context, jobs []Job) ([]Result, error) {
-	results, wait := p.startWorkers(ctx)
+	results, wait := p.StartWorkers(ctx)
 	go func() {
 		defer close(p.queue)
 		for _, j := range jobs {
