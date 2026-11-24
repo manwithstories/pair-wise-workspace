@@ -48,6 +48,8 @@ type TrackResult struct {
 	CacheInvalid  int
 	CacheVerified int
 	RTPGaps       int
+	Duplicates    int // identical repeated frame numbers, isolated from index
+	Conflicts     int // conflicting repeated/rewound frame numbers, counted bad
 	Resumed       bool
 	Interrupted   bool
 	ManifestSum   [32]byte
@@ -644,7 +646,7 @@ func recomputeMetrics(paths Paths, opt Options, res *TrackResult, indexEntries i
 	var m metrics.TrackMetrics
 	m.Track = opt.TrackID
 	m.IndexEntries = indexEntries
-	m.RTPLost = opt.RTPLoss
+	m.RTPLost = res.Metrics.RTPLost
 	m.ManifestSkewMS = skewMS
 
 	// Frame tallies are re-derived by scanning the source's log of statuses is
@@ -655,6 +657,7 @@ func recomputeMetrics(paths Paths, opt Options, res *TrackResult, indexEntries i
 		return m, err
 	}
 	m.FramesOK, m.FramesBad = frames.ok, frames.bad
+	res.Duplicates, res.Conflicts = frames.dup, frames.conflict
 
 	size, err := metrics.FileSize(paths.Source())
 	if err != nil {
@@ -679,6 +682,8 @@ func recomputeMetrics(paths Paths, opt Options, res *TrackResult, indexEntries i
 
 type frameTally struct {
 	ok, bad     int
+	dup         int
+	conflict    int
 	total       int
 	first, last int64
 	interval    int64
@@ -713,7 +718,8 @@ func countFrames(paths Paths) (frameTally, error) {
 			return t, err
 		}
 		t.total++
-		if fr.Status.Usable() {
+		switch fr.Status {
+		case model.FrameOK:
 			t.ok++
 			// Recompute quality from the payload as written, not from any value
 			// carried in memory during ingestion.
@@ -723,7 +729,12 @@ func countFrames(paths Paths) (frameTally, error) {
 					t.qn++
 				}
 			}
-		} else if fr.Status != model.FrameDuplicate {
+		case model.FrameDuplicate:
+			t.dup++
+		case model.FrameConflict:
+			t.conflict++
+			t.bad++
+		default:
 			t.bad++
 		}
 		if first {

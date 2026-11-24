@@ -51,6 +51,8 @@ flags:
   --interrupt-after N   stop each track after N frames, then resume
   --resume              resume from a committed checkpoint (implied by interrupt)
   --rtp-loss N          preview packets lost per track (manifest gaps)
+  --duplicate-every N   repeat every Nth frame number identically
+  --conflict-every N    repeat every Nth frame number with different content
   --work DIR            work directory (default: a fresh temp dir)
   --keep                keep the work directory after the run
 
@@ -66,6 +68,8 @@ type demoFlags struct {
 	partialIdx bool
 	interrupt  int
 	rtpLoss    int
+	dupEvery   int
+	confEvery  int
 	resume     bool
 	work       string
 	keep       bool
@@ -81,6 +85,8 @@ func demo(args []string) int {
 	fs.BoolVar(&f.partialIdx, "partial-index", false, "chop index before resume")
 	fs.IntVar(&f.interrupt, "interrupt-after", 0, "stop after this many frames")
 	fs.IntVar(&f.rtpLoss, "rtp-loss", 0, "preview packets lost per track")
+	fs.IntVar(&f.dupEvery, "duplicate-every", 0, "repeat every Nth frame number identically")
+	fs.IntVar(&f.confEvery, "conflict-every", 0, "repeat every Nth frame number with different content")
 	fs.BoolVar(&f.resume, "resume", false, "resume after interruption (implied by --interrupt-after)")
 	fs.StringVar(&f.work, "work", "", "work directory")
 	fs.BoolVar(&f.keep, "keep", false, "keep work directory")
@@ -127,6 +133,8 @@ func runDemo(work string, f demoFlags) ([]pipeline.TrackResult, int) {
 		track := uint32(i + 1)
 		spec := synth.DefaultSpec(track, f.frames)
 		spec.CorruptFrames = f.corrupt
+		spec.DuplicateEvery = f.dupEvery
+		spec.ConflictEvery = f.confEvery
 		if i < f.truncate {
 			spec.TruncateTail = true
 		}
@@ -220,15 +228,15 @@ func exitCode(err error) int {
 }
 
 func printTable(results []pipeline.TrackResult) {
-	fmt.Printf("%-6s %-9s %-9s %-13s %-14s %-11s %-11s %-17s %-12s %-16s %-7s\n",
+	fmt.Printf("%-6s %-9s %-9s %-13s %-14s %-11s %-11s %-17s %-12s %-16s %-7s %-10s %-10s\n",
 		"track", "frames_ok", "frames_bad", "index_entries", "cache_verified",
 		"target_kbps", "actual_kbps", "bitrate_delta_pct", "quality_mean",
-		"manifest_skew_ms", "rtp_lost")
+		"manifest_skew_ms", "rtp_lost", "duplicates", "conflicts")
 	for _, r := range results {
 		m := r.Metrics
-		fmt.Printf("%-6d %-9d %-9d %-13d %-14d %-11.1f %-11.1f %-17.2f %-12.3f %-16.3f %-7d\n",
+		fmt.Printf("%-6d %-9d %-9d %-13d %-14d %-11.1f %-11.1f %-17.2f %-12.3f %-16.3f %-7d %-10d %-10d\n",
 			m.Track, m.FramesOK, m.FramesBad, m.IndexEntries, m.CacheVerified,
 			m.TargetKbps, m.ActualKbps, m.BitrateDeltaPct, m.QualityMean,
-			m.ManifestSkewMS, m.RTPLost)
+			m.ManifestSkewMS, m.RTPLost, r.Duplicates, r.Conflicts)
 	}
 }
