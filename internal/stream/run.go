@@ -160,6 +160,16 @@ func canceled(err error) error {
 	return merr.New(merr.KindCanceled, 0, -1, -1, false, "stream canceled: %v", err)
 }
 
+// trackTime converts a media tick position to absolute timeline seconds using
+// the shared edit-media rule: (ticks - editMedia)/timescale + origin. A sample
+// before the edit start is clamped to the origin rather than wrapping.
+func trackTime(tb clock.Timebase, editMediaTicks, ticks int64) (clock.Rational, error) {
+	if ticks < editMediaTicks {
+		return tb.Origin, nil
+	}
+	return tb.At(ticks - editMediaTicks)
+}
+
 // processTrack streams one track's samples in bounded chunks.
 func processTrack(ctx context.Context, tr index.Track, ranges []index.CorruptRange, opts Options, res *Result, sink Sink) error {
 	tb, err := clock.NewTimebase(tr.Timescale, tr.Origin.Num*int64(tr.Timescale)/tr.Origin.Den)
@@ -241,14 +251,14 @@ func processTrack(ctx context.Context, tr index.Track, ranges []index.CorruptRan
 		}
 		for j, s := range tr.Samples[i:batchEnd] {
 			t0 := time.Now()
-			src, terr := tb.At(s.DTS - tr.EditMediaTicks)
+			src, terr := trackTime(tb, tr.EditMediaTicks, s.DTS)
 			if terr != nil {
-				return merr.New(merr.KindTimeline, tr.ID, s.Number, s.Offset, false, "timeline: %v", terr)
+				return merr.New(merr.KindTimeline, tr.ID, s.Number, s.Offset, true, "timeline: %v", terr)
 			}
 			editMapped := src
-			output, oerr := tb.At(s.CTS - tr.EditMediaTicks)
+			output, oerr := trackTime(tb, tr.EditMediaTicks, s.CTS)
 			if oerr != nil {
-				return merr.New(merr.KindTimeline, tr.ID, s.Number, s.Offset, false, "output time: %v", oerr)
+				return merr.New(merr.KindTimeline, tr.ID, s.Number, s.Offset, true, "output time: %v", oerr)
 			}
 			dur, derr := clock.FromTicks(s.Duration, tr.Timescale)
 			if derr != nil {

@@ -100,8 +100,9 @@ func Build(dir string, spec Spec, v Variant) (*Asset, error) {
 	videoRng := rand.New(rand.NewSource(spec.Seed))
 	audioRng := rand.New(rand.NewSource(spec.Seed ^ 0x5f3759df))
 
-	// The first video edit is an empty edit that shifts presentation start by
-	// 120 ms, exercising the edit-mapping path.
+	// The first video edit is an empty edit that delays presentation by 120 ms.
+	// The real edit starts at the fixture's declared media start (default 0),
+	// exercising both an empty edit and a non-zero media time.
 	videoEdits := []mp4.ElstEntry{
 		{SegmentDurationV0: 120, MediaTimeV0: -1, MediaRateInteger: 1},
 		{SegmentDurationV0: uint32(spec.VideoSamples * 40), MediaTimeV0: 0, MediaRateInteger: 1},

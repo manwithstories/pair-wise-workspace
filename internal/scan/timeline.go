@@ -106,7 +106,11 @@ func scanTrack(ctx context.Context, mt manifest.Track, path string, opts Options
 	if err != nil {
 		return nil, nil, merr.New(merr.KindTimeline, mt.ID, -1, mt.Offset, false, "timebase: %v", err)
 	}
-	editOffset := firstMediaTime(meta) - mt.OriginMS*int64(meta.timescale)/1000
+	// EditMediaTicks is the media time of the first presented edit. Timeline
+	// seconds are (DTS - mediaTime)/timescale + origin, so the origin shifts
+	// the whole track without being folded into the edit offset (doing so
+	// would double-count the shift for a non-zero media time).
+	editOffset := firstMediaTime(meta)
 	if editOffset < 0 {
 		editOffset = 0
 	}

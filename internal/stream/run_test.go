@@ -132,3 +132,34 @@ func TestReadChunkReportsReadFailure(t *testing.T) {
 		t.Fatal("short read must be reported")
 	}
 }
+
+func TestTrackTimeComposition(t *testing.T) {
+	tb, err := clock.NewTimebase(90000, 111060)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Non-zero edit media time must not be folded into the origin.
+	got, err := trackTime(tb, 45000, 45000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := got.Milliseconds() - 1234; d < -0.01 || d > 0.01 {
+		t.Fatalf("first presented sample at %f ms, want 1234", got.Milliseconds())
+	}
+	// One second later in media time is one second later on the timeline.
+	got, err = trackTime(tb, 45000, 45000+90000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := got.Milliseconds() - 2234; d < -0.01 || d > 0.01 {
+		t.Fatalf("later sample at %f ms, want 2234", got.Milliseconds())
+	}
+	// A sample before the edit start clamps to the origin, never wraps.
+	got, err = trackTime(tb, 45000, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := got.Milliseconds() - 1234; d < -0.01 || d > 0.01 {
+		t.Fatalf("clamped sample at %f ms, want 1234", got.Milliseconds())
+	}
+}
