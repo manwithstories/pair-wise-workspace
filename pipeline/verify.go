@@ -1,7 +1,6 @@
 package pipeline
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -58,12 +57,18 @@ func Verify(cp *Checkpoint) (*Verification, error) {
 	var matchSum float64
 	for _, seg := range segs {
 		path := filepath.Join(dir, fmt.Sprintf("seg-%03d.mp4", seg.Index))
-		data, err := os.ReadFile(path)
+		rf, err := os.Open(path)
 		if err != nil {
-			return nil, fmt.Errorf("pipeline: verify read %s: %w", path, err)
+			return nil, fmt.Errorf("pipeline: verify open %s: %w", path, err)
 		}
-		of, err := demux.Parse(bytes.NewReader(data), int64(len(data)), path)
+		st, err := rf.Stat()
+		if err != nil {
+			rf.Close()
+			return nil, fmt.Errorf("pipeline: verify stat %s: %w", path, err)
+		}
+		of, err := demux.Parse(rf, st.Size(), path)
 		if err != nil && len(of.Samples) == 0 {
+			rf.Close()
 			return nil, fmt.Errorf("pipeline: verify parse %s: %w", path, err)
 		}
 		v.Files++
@@ -73,13 +78,16 @@ func Verify(cp *Checkpoint) (*Verification, error) {
 		// tampered file changes its hash and fails the comparison.
 		rep, err := output.Verify(path, prim.reader(), remuxTracks(f, seg))
 		if err != nil {
+			rf.Close()
 			return nil, err
 		}
 		if rep.MatchRate() < 1 {
+			rf.Close()
 			return v, fmt.Errorf("pipeline: %s payload mismatch (rate %.3f)", path, rep.MatchRate())
 		}
 		diskSeg := segmentFromFile(of)
-		diskHash, herr := fingerprint.Hash(bytes.NewReader(data), diskSeg)
+		diskHash, herr := fingerprint.Hash(rf, diskSeg)
+		rf.Close()
 		wantHash, werr := fingerprint.Hash(prim.reader(), seg)
 		if herr != nil || werr != nil || diskHash != wantHash {
 			return v, fmt.Errorf("pipeline: %s content hash mismatch", path)
