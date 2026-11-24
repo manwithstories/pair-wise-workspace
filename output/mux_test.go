@@ -172,3 +172,46 @@ func TestSegmentKeepsAbsolutePosition(t *testing.T) {
 		t.Fatalf("elst=%+v", el)
 	}
 }
+
+func TestRemuxNeverFabricatesBytes(t *testing.T) {
+	a, err := fixture.Generate(fixture.Default(17, 12))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := demux.Parse(bytes.NewReader(a.Truncated), int64(len(a.Truncated)), "trunc")
+	if err == nil {
+		t.Fatal("expected a recoverable truncation error")
+	}
+	if len(f.Samples) == 0 {
+		t.Fatal("expected salvaged samples")
+	}
+	// Remux only the samples the parser actually salvaged.
+	var tracks []output.TrackMux
+	for _, tr := range f.Tracks {
+		tm := output.TrackMux{ID: tr.ID, Kind: tr.Kind, Timescale: tr.Timescale, CodecEntry: tr.CodecEntry}
+		for _, s := range f.SamplesOf(tr.ID) {
+			tm.Samples = append(tm.Samples, output.SampleRef{
+				Offset: s.Offset, Size: s.Size, Duration: s.Duration, Keyframe: s.Keyframe,
+			})
+		}
+		if len(tm.Samples) == 0 {
+			continue
+		}
+		tracks = append(tracks, tm)
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "salvaged.mp4")
+	rep, err := output.WriteFile(path, bytes.NewReader(a.Truncated), tracks)
+	if err != nil {
+		t.Fatalf("remux salvaged: %v", err)
+	}
+	if rep.MatchRate() != 1 {
+		t.Fatalf("match rate=%v rep=%+v", rep.MatchRate(), rep)
+	}
+	// The output is smaller than the intact file: lost bytes were not
+	// fabricated to fill the gap.
+	out, _ := os.ReadFile(path)
+	if len(out) >= len(a.Clean) {
+		t.Fatalf("output %d >= clean %d: bytes were fabricated", len(out), len(a.Clean))
+	}
+}
