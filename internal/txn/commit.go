@@ -115,7 +115,7 @@ func (t *Txn) Finalize() error {
 		return err
 	}
 	manifest := t.buildManifest()
-	body := encodeManifest(manifest)
+	body := EncodeManifest(manifest)
 	rel := filepath.Join("staging", "manifest.bin")
 	abs := filepath.Join(t.workDir, rel)
 	if err := os.WriteFile(abs, body, 0o600); err != nil {
@@ -171,6 +171,9 @@ func (t *Txn) verifyStaged() error {
 	return nil
 }
 
+// Manifest returns the canonical manifest assembled from staged records.
+func (t *Txn) Manifest() Manifest { return t.buildManifest() }
+
 func (t *Txn) buildManifest() Manifest {
 	m := Manifest{CommitID: t.commit}
 	for _, rec := range t.staged {
@@ -216,10 +219,11 @@ func (t *Txn) commitSwitch(m Manifest, manifestBody []byte) error {
 
 // ManifestHash returns the deterministic SHA-256 of the serialised manifest.
 func ManifestHash(m Manifest) [32]byte {
-	return sha256.Sum256(encodeManifest(m))
+	return sha256.Sum256(EncodeManifest(m))
 }
 
-func encodeManifest(m Manifest) []byte {
+// EncodeManifest serialises a manifest in its canonical binary form.
+func EncodeManifest(m Manifest) []byte {
 	size := 32 + 4 + uint32(len(m.Entries))*(4+8+4+32)
 	b := make([]byte, 0, size)
 	b = append(b, m.CommitID[:]...)

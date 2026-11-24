@@ -144,10 +144,13 @@ func (w *WAL) ReadAll() ([]Record, error) {
 // Close releases the underlying file.
 func (w *WAL) Close() error { return w.f.Close() }
 
+// stageFixedSize is TrackID(4)+Sequence(8)+Offset(8)+Size(4)+SHA(32)+NameLen(2).
+const stageFixedSize = 58
+
 // EncodeStage serialises a StageRecord payload.
 func EncodeStage(s StageRecord) []byte {
 	name := []byte(s.RelPath)
-	b := make([]byte, 8+8+8+4+32+2+len(name))
+	b := make([]byte, stageFixedSize+len(name))
 	bin := binary.BigEndian
 	bin.PutUint32(b[0:4], s.TrackID)
 	bin.PutUint64(b[4:12], s.Sequence)

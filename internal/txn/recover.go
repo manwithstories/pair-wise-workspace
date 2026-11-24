@@ -97,7 +97,7 @@ func Resume(workDir string) (*RecoverySummary, error) {
 		return sum, err
 	}
 	m := st.buildManifest()
-	body := encodeManifest(m)
+	body := EncodeManifest(m)
 	committedDir := filepath.Join(workDir, "committed", fmt.Sprintf("%x", st.commit[:8]))
 	if err := os.MkdirAll(committedDir, 0o755); err != nil {
 		return nil, err
