@@ -24,6 +24,9 @@ func validateSegment(seg *Segment, seen map[string]Segment) error {
 	if seg.Source == "" {
 		return invalid(clock.CatTimeline, span(*seg), "segment with empty source")
 	}
+	if len(seg.EditPoints) > MaxEditPoints {
+		return invalid(clock.CatTimeline, span(*seg), "edit points %d exceed %d", len(seg.EditPoints), MaxEditPoints)
+	}
 	prev := int64(0)
 	for _, p := range seg.EditPoints {
 		if p <= prev || p >= seg.Duration {

@@ -27,6 +27,15 @@ const (
 	TransFlash     TransitionKind = "flash"
 )
 
+// Hard limits keep a hostile timeline from exhausting memory. Every limit is
+// reported as a classified argument error instead of a panic.
+const (
+	MaxTracks      = 8
+	MaxSegments    = 64
+	MaxEditPoints  = 32
+	MaxTransitions = 16
+)
+
 // Segment is one deterministic piece of a track, in timeline ticks.
 type Segment struct {
 	ID         string
@@ -105,11 +114,12 @@ func (t *Timeline) Validate() error {
 	var errs []error
 	fail := func(err error) { errs = append(errs, err) }
 
-	if len(t.Tracks) == 0 {
-		fail(invalid(clock.CatArgument, clock.Span{}, "timeline has no tracks"))
+	if len(t.Tracks) == 0 || len(t.Tracks) > MaxTracks {
+		fail(invalid(clock.CatArgument, clock.Span{}, "track count %d outside 1..%d", len(t.Tracks), MaxTracks))
 	}
 	segByID := make(map[string]Segment, len(t.Tracks)*2)
 	trackIDs := make(map[string]struct{}, len(t.Tracks))
+	total := 0
 	for _, tr := range t.Tracks {
 		switch {
 		case tr.ID == "":
@@ -122,6 +132,7 @@ func (t *Timeline) Validate() error {
 			fail(invalid(clock.CatArgument, clock.NewSpan(tr.ID, "", clock.Interval{}), "duplicate track id"))
 		}
 		trackIDs[tr.ID] = struct{}{}
+		total += len(tr.Segments)
 		for i := range tr.Segments {
 			seg := &tr.Segments[i]
 			seg.Track = tr.ID
@@ -129,6 +140,13 @@ func (t *Timeline) Validate() error {
 				fail(err)
 			}
 		}
+	}
+	if total > MaxSegments {
+		fail(invalid(clock.CatArgument, clock.Span{}, "segment count %d exceeds limit %d", total, MaxSegments))
+	}
+	if len(t.Transitions) > MaxTransitions {
+		fail(invalid(clock.CatArgument, clock.Span{}, "transition count %d exceeds %d",
+			len(t.Transitions), MaxTransitions))
 	}
 	return errors.Join(errs...)
 }

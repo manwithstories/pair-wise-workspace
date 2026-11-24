@@ -66,6 +66,38 @@ func TestEditPointsMustBeStrictlyInside(t *testing.T) {
 	}
 }
 
+func TestLimitsEnforced(t *testing.T) {
+	segs := make([]Segment, 0, MaxSegments+1)
+	for i := 0; i <= MaxSegments; i++ {
+		segs = append(segs, Segment{ID: "s" + itoa(i), Source: "s"})
+	}
+	if _, err := New(base(), []Track{{ID: "v", Kind: TrackVideo, Segments: segs}}, nil); err == nil {
+		t.Fatal("segment limit not enforced")
+	}
+	tracks := make([]Track, 0, MaxTracks+1)
+	for i := 0; i <= MaxTracks; i++ {
+		tracks = append(tracks, Track{ID: "t" + itoa(i), Kind: TrackVideo})
+	}
+	if _, err := New(base(), tracks, nil); err == nil {
+		t.Fatal("track limit not enforced")
+	}
+}
+
+func TestFreezeCopies(t *testing.T) {
+	eps := []int64{10}
+	tracks := []Track{{ID: "v", Kind: TrackVideo, Segments: []Segment{{ID: "s", Duration: 100, Source: "x", EditPoints: eps}}}}
+	tl, err := New(base(), tracks, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eps[0] = 99
+	tracks[0].Segments[0].Source = "mutated"
+	got := tl.Tracks[0].Segments[0]
+	if got.EditPoints[0] != 10 || got.Source != "x" {
+		t.Fatalf("timeline aliased caller memory: %+v", got)
+	}
+}
+
 func itoa(i int) string {
 	if i == 0 {
 		return "0"
