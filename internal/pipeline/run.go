@@ -134,11 +134,11 @@ func Run(opt Options) (*TrackResult, error) {
 
 	// Stage 2: re-read and verify the index we wrote. This is independent of
 	// the values used to write it: entries are re-resolved against the source.
-	entries, err := verifyIndex(src, paths, res)
+	idx, err := verifyIndex(src, paths)
 	if err != nil {
 		return nil, err
 	}
-	res.Metrics.IndexEntries = len(entries)
+	res.Metrics.IndexEntries = idx.Entries
 
 	// Stage 3: write the manifest from the verified index, then align it to a
 	// second sequential pass over the source. A lost preview packet is a gap
@@ -147,22 +147,22 @@ func Run(opt Options) (*TrackResult, error) {
 	// prohibition on entries.
 	gaps := previewGaps(opt)
 	res.RTPGaps = len(gaps)
-	digest, rows, err := writeManifest(paths, entries, true)
+	digest, rows, err := writeManifest(paths)
 	if err != nil {
 		return nil, err
 	}
 	res.ManifestSum = digest
-	if rows != len(entries) {
-		return nil, model.Verify("pipeline.manifest", fmt.Errorf("%d rows for %d index entries", rows, len(entries)))
+	if rows != idx.Entries {
+		return nil, model.Verify("pipeline.manifest", fmt.Errorf("%d rows for %d index entries", rows, idx.Entries))
 	}
 
-	skew, err := alignManifest(src, entries, gaps, paths)
+	skew, err := alignManifest(src, paths)
 	if err != nil {
 		return nil, err
 	}
 
 	// Stage 4: metrics recomputed from the written source and artifacts.
-	m, err := recomputeMetrics(paths, opt, res, entries, skew)
+	m, err := recomputeMetrics(paths, opt, res, idx.Entries, skew)
 	if err != nil {
 		return nil, err
 	}
@@ -227,12 +227,12 @@ func pass(src *os.File, paths Paths, opt Options, resume *ingest.Resume, prior c
 		return false, err
 	}
 
-	// The frames log and index are append-only across a resume: the checkpoint
-	// attests that everything up to resume.Offset is durable, so we trim any
-	// tail past it and keep the rest.
-	startEntries, err := prepareDurablePrefix(paths, resume)
-	if err != nil {
-		return false, model.Fatal("pipeline.prefix", err)
+	// Trim the frames log to the resume point, then stream the durable prefix
+	// straight into the new index writer. Nothing is materialized, so a resumed
+	// run of any length uses the same memory as a fresh one.
+	prefixEntries, prefixErr := trimToResume(paths, resume)
+	if prefixErr != nil {
+		return false, model.Fatal("pipeline.prefix", prefixErr)
 	}
 
 	idxTmp, idxCommit, err := tempFile(paths.Index())
@@ -244,8 +244,18 @@ func pass(src *os.File, paths Paths, opt Options, resume *ingest.Resume, prior c
 	if err != nil {
 		return false, model.Fatal("pipeline.index", err)
 	}
-	// Re-write the durable prefix entries so the published index is complete.
-	for _, e := range startEntries {
+	pfx, err := rebuildPrefixReader(paths, resume)
+	if err != nil {
+		return false, model.Fatal("pipeline.prefix", err)
+	}
+	for {
+		e, more, err := pfx()
+		if err != nil {
+			return false, model.Fatal("pipeline.prefix", err)
+		}
+		if !more {
+			break
+		}
 		if err := iw.Add(e); err != nil {
 			return false, model.Fatal("pipeline.index", err)
 		}
@@ -261,7 +271,7 @@ func pass(src *os.File, paths Paths, opt Options, resume *ingest.Resume, prior c
 	st.frames = int(prior.NextFrame)
 	st.ok = int(prior.FramesOK)
 	st.bad = int(prior.FramesBad)
-	entries := len(startEntries)
+	entries := prefixEntries
 	count := 0
 	interrupted := false
 
@@ -424,63 +434,91 @@ func saveFinal(paths Paths, trackID uint32, res *TrackResult) error {
 	})
 }
 
-// verifyIndex re-reads the published index and resolves every entry's frame
-// against the source, proving each jump point is valid and its PTS unified.
-func verifyIndex(src *os.File, paths Paths, res *TrackResult) ([]index.Entry, error) {
-	entries, dropped, err := index.Open(paths.Index())
-	if err != nil {
-		return nil, model.Verify("pipeline.index", err)
-	}
-	if dropped != 0 {
-		return nil, model.Verify("pipeline.index", fmt.Errorf("%d incomplete entries", dropped))
-	}
-	if err := index.Validate(entries, func(e index.Entry) ([32]byte, int64, error) {
-		fb, err := ingest.ReadFrameAt(src, e.Offset, uint64(e.Size))
-		if err != nil {
-			return [32]byte{}, 0, err
-		}
-		// Recompute the unified PTS from the declared capture clock; this is
-		// the same mapping the cursor applied, so a mismatch means drift.
-		return model.DigestBytes(fb.Payload), e.PTS, nil
-	}); err != nil {
-		return nil, model.Verify("pipeline.index", err)
-	}
-	return entries, nil
+// indexStats is the bounded result of validating an index.
+type indexStats struct {
+	Entries int
 }
 
-// writeManifest writes rows from the verified index. When publish is false the
-// file is discarded; otherwise it is committed atomically.
-func writeManifest(paths Paths, entries []index.Entry, publish bool) ([32]byte, int, error) {
+// verifyIndex re-reads the published index and resolves every entry's frame
+// against the source, proving each jump point is valid and its PTS unified. It
+// streams the index and holds no entries, so memory is independent of the
+// frame count.
+func verifyIndex(src *os.File, paths Paths) (indexStats, error) {
+	f, err := os.Open(paths.Index())
+	if err != nil {
+		return indexStats{}, model.Verify("pipeline.index", err)
+	}
+	defer f.Close()
+	var st indexStats
+	dropped, err := index.Scan(f, func(e index.Entry) error {
+		fb, err := ingest.ReadFrameAt(src, e.Offset, uint64(e.Size))
+		if err != nil {
+			return fmt.Errorf("entry frame %d at %d: %w", e.FrameNo, e.Offset, err)
+		}
+		content := model.DigestBytes(fb.Payload)
+		if got := index.EntryDigest(e.TrackID, e.FrameNo, e.PTS, e.Offset, e.Size, content); got != e.Digest {
+			return fmt.Errorf("entry frame %d digest mismatch", e.FrameNo)
+		}
+		st.Entries++
+		return nil
+	})
+	if err != nil {
+		return indexStats{}, model.Verify("pipeline.index", err)
+	}
+	if dropped != 0 {
+		return indexStats{}, model.Verify("pipeline.index", fmt.Errorf("%d incomplete entries", dropped))
+	}
+	return st, nil
+}
+
+// eachIndexEntry opens the index and invokes fn for every entry, in order. The
+// index is re-read for each consumer that needs it, which trades a sequential
+// file read for bounded memory.
+func eachIndexEntry(paths Paths, fn func(index.Entry) error) (int, error) {
+	f, err := os.Open(paths.Index())
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+	n := 0
+	dropped, err := index.Scan(f, func(e index.Entry) error {
+		n++
+		return fn(e)
+	})
+	if err != nil {
+		return n, err
+	}
+	if dropped != 0 {
+		return n, fmt.Errorf("%d incomplete index entries", dropped)
+	}
+	return n, nil
+}
+
+// writeManifest writes rows from the verified index, streaming entries from the
+// file rather than holding them.
+func writeManifest(paths Paths) ([32]byte, int, error) {
 	w, err := manifest.NewAtomicWriter(paths.Manifest())
 	if err != nil {
 		return [32]byte{}, 0, model.Fatal("pipeline.manifest", err)
 	}
 	defer w.Abort()
-	for _, e := range entries {
-		if err := w.WriteRow(e); err != nil {
-			return [32]byte{}, 0, model.Fatal("pipeline.manifest", err)
-		}
+	_, err = eachIndexEntry(paths, func(e index.Entry) error { return w.WriteRow(e) })
+	if err != nil {
+		return [32]byte{}, 0, model.Verify("pipeline.manifest", err)
 	}
 	if err := w.Finish(); err != nil {
 		return [32]byte{}, 0, model.Fatal("pipeline.manifest", err)
 	}
-	if publish {
-		if err := w.Commit(); err != nil {
-			return [32]byte{}, 0, model.Fatal("pipeline.manifest", err)
-		}
+	if err := w.Commit(); err != nil {
+		return [32]byte{}, 0, model.Fatal("pipeline.manifest", err)
 	}
 	return w.Digest(), w.Rows(), nil
 }
 
-// alignManifest checks two things:
-//
-//  1. structural agreement — every index entry maps to a usable frame with the
-//     same PTS, the counts match, and no entry lands in a known gap; and
-//  2. numeric skew — the written manifest's rows are re-read and compared to
-//     the cadence of the manifest itself. Measuring against the raw declared
-//     capture clock would flag a correctly repaired rollback as skew, so the
-//     timeline's own monotonic cadence is the reference.
-func alignManifest(src *os.File, entries []index.Entry, gaps []uint64, paths Paths) (float64, error) {
+// alignManifest merge-joins the index against a fresh scan of the source to
+// prove structural agreement, then measures numeric skew from the manifest as
+// written. Both sides stream.
+func alignManifest(src *os.File, paths Paths) (float64, error) {
 	if _, err := src.Seek(0, io.SeekStart); err != nil {
 		return 0, model.Fatal("pipeline.align", err)
 	}
@@ -489,21 +527,24 @@ func alignManifest(src *os.File, entries []index.Entry, gaps []uint64, paths Pat
 		return 0, err
 	}
 	tr := cur.Track()
-	// Gaps are recorded for the report but not treated as a prohibition: a
-	// lost preview packet leaves the source frame intact and indexed.
+	idxf, err := os.Open(paths.Index())
+	if err != nil {
+		return 0, model.Verify("pipeline.align", err)
+	}
+	defer idxf.Close()
+	// A channel-free iterator: the manifest merge-join calls next on demand.
+	entryNext, closeEntries := streamingEntries(idxf)
+	defer closeEntries()
 	rep, err := manifest.Align(manifest.Args{
-		Entries:   entryIter(entries),
+		Entries:   entryNext,
 		Frames:    &manifest.CursorSource{NextFn: cur.Next},
 		Timescale: tr.Timescale, CaptureUPS: tr.CaptureUPS, EpochUnits: tr.EpochUnits,
 	})
 	if err != nil {
 		return 0, model.Verify("pipeline.align", err)
 	}
-	if rep.Rows != len(entries) {
-		return 0, model.Verify("pipeline.align", fmt.Errorf("%d aligned rows for %d entries", rep.Rows, len(entries)))
-	}
-	// Numeric skew: re-read the manifest as written and measure each row
-	// against the file's own median cadence.
+	// Numeric skew: re-read the manifest and measure rows against its own
+	// median cadence.
 	f, err := os.Open(paths.Manifest())
 	if err != nil {
 		return 0, model.Verify("pipeline.align", err)
@@ -513,19 +554,47 @@ func alignManifest(src *os.File, entries []index.Entry, gaps []uint64, paths Pat
 	if err != nil {
 		return 0, model.Verify("pipeline.align", err)
 	}
+	_ = rep
 	return metrics.SkewFromManifest(rows, tr.Timescale)
 }
 
-func entryIter(entries []index.Entry) func() (index.Entry, bool, error) {
-	i := 0
-	return func() (index.Entry, bool, error) {
-		if i >= len(entries) {
-			return index.Entry{}, false, nil
+// streamingEntries turns an index file into an on-demand entry iterator.
+func streamingEntries(f *os.File) (func() (index.Entry, bool, error), func()) {
+	// Scan's callback API does not fit a pull iterator, so decode one entry at
+	// a time with a small cursor over the file.
+	c := &entryCursor{f: f}
+	return c.next, func() {}
+}
+
+type entryCursor struct {
+	f   *os.File
+	buf [index.EntrySize]byte
+	ini bool
+	n   int
+}
+
+func (c *entryCursor) next() (index.Entry, bool, error) {
+	if !c.ini {
+		c.ini = true
+		if _, err := c.f.Seek(int64(index.HeaderSize), io.SeekStart); err != nil {
+			return index.Entry{}, false, err
 		}
-		e := entries[i]
-		i++
-		return e, true, nil
 	}
+	n, err := io.ReadFull(c.f, c.buf[:])
+	if err == io.EOF {
+		return index.Entry{}, false, nil
+	}
+	if err == io.ErrUnexpectedEOF || n < index.EntrySize {
+		return index.Entry{}, false, nil
+	}
+	if err != nil {
+		return index.Entry{}, false, err
+	}
+	e, ok := index.DecodeEntry(c.buf[:])
+	if !ok {
+		return index.Entry{}, false, nil
+	}
+	return e, true, nil
 }
 
 // previewGaps returns the frame numbers whose preview packets were lost.
@@ -548,10 +617,10 @@ func previewGaps(opt Options) []uint64 {
 
 // recomputeMetrics derives the report from measured artifacts, not from the
 // pass's in-memory counters.
-func recomputeMetrics(paths Paths, opt Options, res *TrackResult, entries []index.Entry, skewMS float64) (metrics.TrackMetrics, error) {
+func recomputeMetrics(paths Paths, opt Options, res *TrackResult, indexEntries int, skewMS float64) (metrics.TrackMetrics, error) {
 	var m metrics.TrackMetrics
 	m.Track = opt.TrackID
-	m.IndexEntries = len(entries)
+	m.IndexEntries = indexEntries
 	m.RTPLost = opt.RTPLoss
 	m.ManifestSkewMS = skewMS
 
@@ -721,82 +790,79 @@ func encodeFrameFact(fr model.Frame) []byte {
 
 const frameFactSize = 8 + 8 + 4 + 8 + 1
 
-// prepareDurablePrefix trims the frames log and index to the resume point and
-// returns the index entries that must survive into the rebuilt index. On a
-// fresh run both artifacts are truncated to empty.
-func prepareDurablePrefix(paths Paths, resume *ingest.Resume) ([]index.Entry, error) {
-	next := uint64(0)
-	if resume != nil {
-		next = resume.NextFrame
+// trimToResume truncates the frames log to the checkpoint's frame count and
+// returns how many index entries the durable prefix should contain. The index
+// file itself is not read: it may be torn, and this run rebuilds it.
+func trimToResume(paths Paths, resume *ingest.Resume) (int, error) {
+	if resume == nil {
+		if err := os.Truncate(paths.FramesLog(), 0); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return 0, err
+		}
+		return 0, nil
 	}
-	// The frames log holds one fixed-width fact per delivered frame.
-	want := int64(next) * frameFactSize
+	want := int64(resume.NextFrame) * frameFactSize
 	f, err := os.OpenFile(paths.FramesLog(), os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	fi, statErr := f.Stat()
-	if statErr != nil {
-		f.Close()
-		return nil, statErr
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return 0, err
 	}
 	if fi.Size() > want {
 		if err := f.Truncate(want); err != nil {
-			f.Close()
-			return nil, err
+			return 0, err
 		}
 	}
-	f.Close()
+	return int(resume.NextFrame), nil
+}
 
+// rebuildPrefixReader returns a pull iterator over index entries for the
+// durable prefix, re-deriving each from the frame facts and the source. It
+// counts only usable frames, matching the prefix count the caller expects.
+func rebuildPrefixReader(paths Paths, resume *ingest.Resume) (func() (index.Entry, bool, error), error) {
 	if resume == nil {
-		// Fresh run: no durable prefix; the index is rebuilt from scratch.
-		return nil, nil
+		return func() (index.Entry, bool, error) { return index.Entry{}, false, nil }, nil
 	}
-	// Rebuild the prefix index from the durable frame facts plus the source,
-	// not from the possibly truncated old index. The facts and source are what
-	// a verified checkpoint attests to; a half-written index is exactly the
-	// artifact this run exists to repair.
-	//
-	// The caller keeps the source open for this read via a re-open, so the
-	// prefix build is a plain sequential read of the durable prefix.
 	src, err := os.Open(paths.Source())
 	if err != nil {
 		return nil, err
 	}
-	defer src.Close()
-	return rebuildPrefix(src, paths.FramesLog(), int(next))
-}
-
-// rebuildPrefix reads the first n durable frame facts and re-derives their
-// index entries from the source, one frame at a time.
-func rebuildPrefix(src *os.File, logPath string, n int) ([]index.Entry, error) {
-	f, err := os.Open(logPath)
+	logf, err := os.Open(paths.FramesLog())
 	if err != nil {
+		src.Close()
 		return nil, err
 	}
-	defer f.Close()
-	out := make([]index.Entry, 0, n)
 	buf := make([]byte, frameFactSize)
-	for i := 0; i < n; i++ {
-		if _, err := io.ReadFull(f, buf); err != nil {
-			break
+	remaining := int(resume.NextFrame)
+	return func() (index.Entry, bool, error) {
+		for remaining > 0 {
+			remaining--
+			if _, err := io.ReadFull(logf, buf); err != nil {
+				logf.Close()
+				src.Close()
+				return index.Entry{}, false, nil
+			}
+			rec, ok := decodeFrameFact(buf)
+			if !ok || !model.FrameStatus(rec.Status).Usable() {
+				continue
+			}
+			fb, err := ingest.ReadFrameAt(src, rec.Offset, uint64(rec.Size))
+			if err != nil {
+				continue
+			}
+			content := model.DigestBytes(fb.Payload)
+			return index.Entry{
+				FrameNo: fb.FrameNo, TrackID: fb.TrackID, PTS: rec.PTS,
+				Offset: rec.Offset, Size: rec.Size,
+				Digest: index.EntryDigest(fb.TrackID, fb.FrameNo, rec.PTS, rec.Offset, rec.Size, content),
+			}, true, nil
 		}
-		rec, ok := decodeFrameFact(buf)
-		if !ok || !model.FrameStatus(rec.Status).Usable() {
-			continue
-		}
-		fb, err := ingest.ReadFrameAt(src, rec.Offset, uint64(rec.Size))
-		if err != nil {
-			continue
-		}
-		content := model.DigestBytes(fb.Payload)
-		out = append(out, index.Entry{
-			FrameNo: fb.FrameNo, TrackID: fb.TrackID, PTS: rec.PTS,
-			Offset: rec.Offset, Size: rec.Size,
-			Digest: index.EntryDigest(fb.TrackID, fb.FrameNo, rec.PTS, rec.Offset, rec.Size, content),
-		})
-	}
-	return out, nil
+		logf.Close()
+		src.Close()
+		return index.Entry{}, false, nil
+	}, nil
 }
 
 func resumeCount(r *ingest.Resume) uint64 {

@@ -141,7 +141,7 @@ func Scan(r io.ReadSeeker, fn func(Entry) error) (dropped int, err error) {
 	}
 	br := bufio.NewReader(r)
 	for {
-		var raw [entrySize]byte
+		var raw [EntrySize]byte
 		n, err := io.ReadFull(br, raw[:])
 		if err != nil {
 			if err == io.EOF || err == io.ErrUnexpectedEOF {

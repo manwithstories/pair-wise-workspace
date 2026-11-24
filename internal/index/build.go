@@ -132,8 +132,11 @@ func (i *Writer) Finish(patcher func(header [16]byte) error) error {
 // HeaderSize is the number of bytes preceding the first entry.
 const HeaderSize = 16
 
-// entrySize is the on-disk size of one encoded entry.
-const entrySize = 4 + 8 + 4 + 8 + 8 + 4 + 32 + 4
+// EntrySize is the on-disk size of one encoded entry.
+const EntrySize = 4 + 8 + 4 + 8 + 8 + 4 + 32 + 4
+
+// entrySize is the internal alias kept for readability in this file.
+const entrySize = EntrySize
 
 // ReadAll decodes an index file, validating the magic, version and the entry
 // CRCs. It stops at the first incomplete entry and reports how many entries
@@ -188,6 +191,9 @@ func ReadAll(r io.ReadSeeker) ([]Entry, int, error) {
 	}
 	return entries, dropped, nil
 }
+
+// DecodeEntry decodes one fixed-width entry, validating its CRC.
+func DecodeEntry(raw []byte) (Entry, bool) { return decodeEntry(raw) }
 
 func decodeEntry(raw []byte) (Entry, bool) {
 	off := 0
