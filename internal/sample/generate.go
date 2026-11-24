@@ -39,6 +39,7 @@ type Manifest struct {
 	DuplicateInjections int      `json:"duplicate_injections"`
 	ReorderInjections   int      `json:"reorder_injections"`
 	LostInjections      int      `json:"lost_injections"`
+	LostIndices         []int    `json:"lost_indices"`
 	LostSequences       []uint16 `json:"lost_sequences"`
 	BadCRCOffset        int64    `json:"bad_crc_offset"`
 	TruncatedOffset     int64    `json:"truncated_offset"`
@@ -99,17 +100,21 @@ func Generate(opts Options) (*Manifest, error) {
 	}
 
 	lost := map[int]bool{}
-	swapPositions := []int{}
-	duplicatePositions := []int{}
-	badCRCIndex := 42
+	lostIndices := []int{}
+	swapFractions := []float64{}
+	duplicateIndices := []int{}
+	badCRCIndex := packetCount / 3
 	if opts.Faults {
-		for _, idx := range []int{120, 777} {
-			if idx < packetCount {
+		// Fractional positions keep one-second generative cases valid while
+		// still giving the 12-second demo two interior losses.
+		for _, frac := range []float64{0.10, 0.65} {
+			idx := int(float64(packetCount) * frac)
+			if idx > 0 && idx < packetCount-1 && !lost[idx] {
 				lost[idx] = true
+				lostIndices = append(lostIndices, idx)
 			}
 		}
-		swapPositions = []int{50, 200, 400, 600, 850}
-		duplicatePositions = []int{201, 621, 1051}
+		swapFractions = []float64{0.05, 0.20, 0.40, 0.60, 0.85}
 	}
 
 	order := make([]int, 0, packetCount-len(lost))
@@ -121,9 +126,19 @@ func Generate(opts Options) (*Manifest, error) {
 		}
 		order = append(order, i)
 	}
-	for _, p := range swapPositions {
-		if p+1 < len(order) {
+	swapPositions := []int{}
+	for _, frac := range swapFractions {
+		p := int(float64(len(order)-2) * frac)
+		if p >= 0 && p+1 < len(order) {
 			order[p], order[p+1] = order[p+1], order[p]
+			swapPositions = append(swapPositions, p)
+		}
+	}
+	if opts.Faults {
+		for _, frac := range []float64{0.20, 0.62, 0.90} {
+			p := int(float64(len(order)-1) * frac)
+			idx := order[p]
+			duplicateIndices = append(duplicateIndices, idx)
 		}
 	}
 
@@ -135,10 +150,8 @@ func Generate(opts Options) (*Manifest, error) {
 	}
 	sr2, _ := (&rtcp.SenderReport{SSRC: ssrc, NTPTime: 0x0002030405060708, RTPTime: startTS + uint32(600*packetFrames), PacketCount: 600}).Marshal()
 	items = append(items, writeItem{kind: capture.KindRTCP, data: sr2})
-	for _, idx := range duplicatePositions {
-		if idx < len(packets) && !lost[idx] {
-			items = append(items, writeItem{kind: capture.KindRTP, data: packets[idx]})
-		}
+	for _, idx := range duplicateIndices {
+		items = append(items, writeItem{kind: capture.KindRTP, data: packets[idx]})
 	}
 	badCRCOffset := int64(-1)
 	if opts.Faults && badCRCIndex < len(packets) {
@@ -209,9 +222,10 @@ func Generate(opts Options) (*Manifest, error) {
 	m := &Manifest{
 		Options: opts, CapturePath: capturePath, IndexPath: indexPath, BadIndexPath: badIndexPath,
 		Records: records, RTCPRecords: rtcpRecords, RTPPackets: packetCount,
-		UniquePackets: packetCount - len(lost), DuplicateInjections: len(duplicatePositions),
-		ReorderInjections: len(swapPositions), LostInjections: len(lost), LostSequences: lostSeqs,
-		BadCRCOffset: badCRCOffset, TruncatedOffset: truncatedOffset, PacketFrames: packetFrames,
+		UniquePackets: packetCount - len(lost), DuplicateInjections: len(duplicateIndices),
+		ReorderInjections: len(swapPositions), LostInjections: len(lost), LostIndices: lostIndices,
+		LostSequences: lostSeqs,
+		BadCRCOffset:  badCRCOffset, TruncatedOffset: truncatedOffset, PacketFrames: packetFrames,
 	}
 	if b, err := json.MarshalIndent(m, "", "  "); err == nil {
 		_ = os.WriteFile(filepath.Join(opts.Dir, "manifest.json"), b, 0o644)
