@@ -16,6 +16,11 @@ type genTrack struct {
 
 // Build renders the spec into a complete artifact.
 func Build(s Spec) (*Artifact, error) {
+	// unknown_codec mode swaps the last track onto an unsupported sample-entry
+	// type so the demuxer must abort and report its offset.
+	if s.Mode == ModeUnknownCodec && len(s.Tracks) > 0 {
+		s.Tracks[len(s.Tracks)-1].Codec = sample.Codec("zzzZ")
+	}
 	rng := newRNG(s.Seed)
 	gts := make([]genTrack, len(s.Tracks))
 	for i, ts := range s.Tracks {
