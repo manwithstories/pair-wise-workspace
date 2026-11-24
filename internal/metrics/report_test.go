@@ -97,3 +97,22 @@ func TestCheckThresholds(t *testing.T) {
 		t.Fatal("recovery threshold must fail")
 	}
 }
+
+func TestLatencySketchPercentile(t *testing.T) {
+	var s latencySketch
+	for i := 1; i <= 1000; i++ {
+		s.add(float64(i))
+	}
+	p95 := s.percentile(95)
+	// The bucket upper edge is conservative but must be close to the true rank.
+	if p95 < 950 || p95 > 1000 {
+		t.Fatalf("p95 estimate %f outside [950,1000]", p95)
+	}
+	if got := s.max(); got != 1000 {
+		t.Fatalf("max want 1000 got %f", got)
+	}
+	empty := latencySketch{}
+	if empty.percentile(95) != 0 || empty.max() != 0 {
+		t.Fatal("empty sketch must report zero")
+	}
+}

@@ -1,9 +1,6 @@
 package metrics
 
-import (
-	"math"
-	"sort"
-)
+import "math"
 
 // latencySketch bounds percentile memory for unbounded streams: values are
 // accumulated into a fixed number of log-spaced buckets whose boundaries can be
@@ -12,7 +9,6 @@ import (
 // latency SLO and keeps memory independent of duration.
 type latencySketch struct {
 	counts  []int64
-	sum     float64
 	n       int64
 	maximum float64
 	minSeen bool
@@ -37,7 +33,6 @@ func (s *latencySketch) add(v float64) {
 		s.maximum = v
 	}
 	s.minSeen = true
-	s.sum += v
 	s.n++
 	idx := s.index(v)
 	if idx < 0 {
@@ -85,16 +80,4 @@ func (s *latencySketch) max() float64 {
 		return 0
 	}
 	return s.maximum
-}
-
-// sortedSnapshot is retained for tests that need an exact comparison.
-func (s *latencySketch) sortedSnapshot() []float64 {
-	out := make([]float64, 0)
-	for i, c := range s.counts {
-		for k := int64(0); k < c; k++ {
-			out = append(out, s.valueAt(i))
-		}
-	}
-	sort.Float64s(out)
-	return out
 }
