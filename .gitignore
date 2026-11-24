@@ -71,3 +71,9 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Go 构建产物（不纳入交付）----
+/mediad
+/cmd/mediad/mediad
+*.test
+*.out
