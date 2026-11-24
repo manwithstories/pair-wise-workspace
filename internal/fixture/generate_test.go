@@ -6,6 +6,7 @@ import (
 
 	"mediascan/internal/clock"
 	"mediascan/internal/manifest"
+	"mediascan/internal/probe"
 	"mediascan/internal/repair"
 )
 
@@ -103,6 +104,39 @@ func TestDamagedManifestHasDiscontinuity(t *testing.T) {
 	}
 	if g.Plans[0].Discontinuities == 0 {
 		t.Fatal("damaged manifest should declare a discontinuity")
+	}
+}
+
+func TestTruncatedContainerIsShorter(t *testing.T) {
+	full := Generate(Options{Seed: 41})
+	cut := Generate(Options{Seed: 41, TruncateTail: 200})
+	if len(cut.MP4) != len(full.MP4)-200 {
+		t.Fatalf("truncated length %d, want %d", len(cut.MP4), len(full.MP4)-200)
+	}
+	if !bytes.Equal(cut.MP4, full.MP4[:len(cut.MP4)]) {
+		t.Fatal("truncation should only remove the tail")
+	}
+}
+
+func TestConflictOptionsMarkRepresentations(t *testing.T) {
+	set := Generate(Options{Seed: 41, ConflictingAudioMask: true, ConflictingColor: true})
+	var audio *probe.AudioInfo
+	var colors int
+	seen := map[uint16]bool{}
+	for _, r := range set.Representations {
+		if r.Audio != nil {
+			audio = r.Audio
+		}
+		if r.Video != nil && !seen[r.Video.Color.Primaries] {
+			seen[r.Video.Color.Primaries] = true
+			colors++
+		}
+	}
+	if audio == nil || audio.Mask != 0x3 || audio.EntryChannels != 6 {
+		t.Fatalf("audio conflict not modelled: %+v", audio)
+	}
+	if colors < 2 {
+		t.Fatalf("colour conflict not modelled: %d distinct primaries", colors)
 	}
 }
 

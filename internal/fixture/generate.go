@@ -40,6 +40,15 @@ type Options struct {
 	Seed      int64
 	DropEvery int
 	Damaged   bool
+	// TruncateTail removes this many bytes from the end of the container,
+	// producing the truncated-index sample used to prove failure isolation.
+	TruncateTail int
+	// ConflictingAudioMask sets an audio channel mask whose popcount disagrees
+	// with the sample entry, exercising conflict normalisation.
+	ConflictingAudioMask bool
+	// ConflictingColor gives the second video rendition a different colour
+	// description, exercising cross-representation reconciliation.
+	ConflictingColor bool
 }
 
 // Generate produces the full fixture set deterministically from the seed.
@@ -55,6 +64,11 @@ func Generate(opt Options) *Set {
 			Primaries: 1, Transfer: 1, Matrix: 1},
 		{ID: 3, Handler: "vide", Timescale: 90000, Width: 1920, Height: 1080,
 			Primaries: 9, Transfer: 16, Matrix: 9},
+	}
+	if !opt.ConflictingColor {
+		// Renditions agree by default; the conflict option keeps BT.2020 on the
+		// second rendition while BT.709 stays on the first.
+		video[1].Primaries, video[1].Transfer, video[1].Matrix = 1, 1, 1
 	}
 	audio := MP4Track{ID: 2, Handler: "soun", Timescale: 48000, Channels: 6, SampleRate: 48000,
 		ChanConfig: 6, ObjectType: 0x40}
@@ -106,13 +120,21 @@ func Generate(opt Options) *Set {
 	}
 
 	set.MP4 = BuildFragmentedMP4(append(video, audio), frags)
+	if opt.TruncateTail > 0 {
+		// Chop the tail so the final fragment's sample runs past EOF.
+		trim := opt.TruncateTail
+		if trim >= len(set.MP4) {
+			trim = len(set.MP4) / 2
+		}
+		set.MP4 = append([]byte(nil), set.MP4[:len(set.MP4)-trim]...)
+	}
 	set.Timestamps = obs
 	set.SourceBytes = set.MP4
 
 	// Two HLS renditions and a DASH manifest over the same timeline.
 	set.Manifest, set.HLSVariants = buildManifests(set)
 
-	set.Representations = buildRepresentations(video, audio, opt.Damaged)
+	set.Representations = buildRepresentations(video, audio, opt)
 	set.AVOffsetNs = avOffsetNs
 	for i := 0; i < 200; i++ {
 		set.Latencies = append(set.Latencies, int64(20+rng.Intn(180))*1_000_000)
@@ -135,10 +157,10 @@ func segName(i int) string {
 	return fmt.Sprintf("seg-%02d", i)
 }
 
-func buildRepresentations(video []MP4Track, audio MP4Track, damaged bool) []probe.Representation {
+func buildRepresentations(video []MP4Track, audio MP4Track, opt Options) []probe.Representation {
 	mask := uint64(0x3F) // FL FR FC LFE BL BR
-	if damaged {
-		mask = 0x3F
+	if opt.ConflictingAudioMask {
+		mask = 0x3 // FL FR while the entry declares six channels
 	}
 	reps := []probe.Representation{
 		{ID: "video-720", Video: &probe.VideoInfo{TrackID: video[0].ID, Width: 1280, Height: 720,

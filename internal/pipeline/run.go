@@ -19,6 +19,7 @@ type Options struct {
 	Seed           int64
 	DropEvery      int
 	Damaged        bool
+	TruncateTail   int
 	InterruptAfter string // "" disables the simulated interruption
 	Resume         bool
 	CacheDir       string

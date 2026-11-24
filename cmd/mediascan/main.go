@@ -51,12 +51,13 @@ func runDemo(args []string) int {
 	interruptAfter := fs.String("interrupt-after", "", "stop after this stage (manifest|repair|probe|index)")
 	resume := fs.Bool("resume", false, "resume from the checkpoint")
 	damaged := fs.Bool("damaged", false, "include damaged segments, packets and metadata")
+	truncate := fs.Int("truncate-tail", 0, "truncate this many bytes from the generated container")
 	dataDir := fs.String("data-dir", "", "working directory for cache and checkpoints")
 	reject := fs.Bool("reject", false, "fail on metadata conflicts instead of normalising")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if *seed <= 0 || *dropEvery < 0 {
+	if *seed <= 0 || *dropEvery < 0 || *truncate < 0 {
 		fmt.Fprintln(os.Stderr, "invalid argument: seed must be positive and drop-every non-negative")
 		return 2
 	}
@@ -79,6 +80,7 @@ func runDemo(args []string) int {
 		Seed:           *seed,
 		DropEvery:      *dropEvery,
 		Damaged:        *damaged,
+		TruncateTail:   *truncate,
 		InterruptAfter: *interruptAfter,
 		Resume:         *resume,
 		CacheDir:       dir + "/cache",

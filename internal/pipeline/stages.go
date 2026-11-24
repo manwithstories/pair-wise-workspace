@@ -30,7 +30,7 @@ type inputs struct {
 }
 
 func buildInputs(opt Options) *inputs {
-	set := fixture.Generate(fixture.Options{Seed: opt.Seed, DropEvery: opt.DropEvery, Damaged: opt.Damaged})
+	set := fixture.Generate(fixture.Options{Seed: opt.Seed, DropEvery: opt.DropEvery, Damaged: opt.Damaged, TruncateTail: opt.TruncateTail})
 	return &inputs{
 		set:             set,
 		sourceBytes:     set.SourceBytes,
@@ -51,7 +51,7 @@ func paramsDigest(opt Options) string {
 	}
 	h := sha256.New()
 	fmt.Fprintf(h, "policy=%s/%s/%s\x00", p.Channels, p.SampleRate, p.Color)
-	fmt.Fprintf(h, "seed=%d\x00drop_every=%d\x00damaged=%t\x00", opt.Seed, opt.DropEvery, opt.Damaged)
+	fmt.Fprintf(h, "seed=%d\x00drop_every=%d\x00damaged=%t\x00truncate=%d\x00", opt.Seed, opt.DropEvery, opt.Damaged, opt.TruncateTail)
 	return hex.EncodeToString(h.Sum(nil))
 }
 
