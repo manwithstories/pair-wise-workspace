@@ -33,7 +33,6 @@ type delivery struct {
 	silence  *silence.Report
 	hashes   []string
 	out      []output.Report
-	err      error
 }
 
 func (d *delivery) reader() *bytes.Reader { return bytes.NewReader(d.data) }
@@ -135,7 +134,7 @@ func addDeliveryNodes(dag *DAG, d *delivery, key func(string) string, p Params) 
 	if err := dag.Add(Node{ID: id("parse"), Key: key("parse"), Run: func(context.Context) (string, error) {
 		f, err := demux.Parse(d.reader(), int64(len(d.data)), d.name)
 		d.mu.Lock()
-		d.f, d.parsed, d.err = f, true, nil
+		d.f, d.parsed = f, true
 		d.mu.Unlock()
 		if err != nil && media.ClassOf(err) == media.ClassFatal {
 			return "", err
@@ -287,20 +286,18 @@ func (d *delivery) ensureIndexed() (*demux.File, error) {
 }
 
 // buildIndex rebuilds the keyframe index once per delivery. It is idempotent:
-// a container with stss is left untouched.
+// a container with stss is left untouched. The lock is held across the rebuild
+// so two concurrent callers cannot both rebuild or race on the flag.
 func (d *delivery) buildIndex(f *demux.File) error {
 	d.mu.Lock()
-	done := d.indexOK
-	d.mu.Unlock()
-	if done {
+	defer d.mu.Unlock()
+	if d.indexOK {
 		return nil
 	}
 	if err := demux.BuildKeyIndex(f, d.reader()); err != nil {
 		return err
 	}
-	d.mu.Lock()
 	d.indexOK = true
-	d.mu.Unlock()
 	return nil
 }
 
