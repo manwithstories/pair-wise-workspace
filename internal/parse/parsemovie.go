@@ -41,6 +41,9 @@ func ParseMovie(data []byte) (*Movie, error) {
 			if err != nil {
 				return nil, err
 			}
+			if err := track.parseSampleTables(trackTables(child), data, mdatStart); err != nil {
+				return nil, err
+			}
 			m.Tracks = append(m.Tracks, *track)
 		case "udta":
 			// Every udta child is preserved verbatim, known or not, so a
@@ -58,4 +61,17 @@ func ParseMovie(data []byte) (*Movie, error) {
 		}
 	}
 	return m, nil
+}
+
+// trackTables returns the stbl children of a trak box, or nil.
+func trackTables(trak RawBox) []RawBox {
+	mdia := findPath(trak.Children, "mdia")
+	if mdia == nil {
+		return nil
+	}
+	stbl := findPath(mdia.Children, "minf", "stbl")
+	if stbl == nil {
+		return nil
+	}
+	return stbl.Children
 }
