@@ -133,23 +133,59 @@ func (o Options) withDefaults() Options {
 // input slice and options, so repeated runs produce byte-identical digests.
 // Segments whose timestamp cannot be inferred from an established time base
 // are quarantined rather than spliced into the timeline.
+//
+// The first pass extends every raw timestamp into one monotonic timeline,
+// expanding 33-bit counter wraps and rebasing onto a 0-based programme origin.
+// The second pass walks the segments against an expected grid and decides,
+// purely from the extended values and the neighbouring evidence, whether a
+// damaged or missing timestamp is uniquely repairable.
 func Build(observed []Observed, opts Options) Map {
 	opts = opts.withDefaults()
-	entries := make([]Repair, 0, len(observed))
+	n := len(observed)
 	warnings := make([]string, 0, 4)
 	unavailable := make([]string, 0, 4)
 
-	var cursor int64 // expected start of the next segment, nanoseconds
-	haveCursor := false
-	var prevExt int64 // previous extended raw value, raw units
-	havePrevExt := false
+	// Pass 1: extend raw timestamps and find the programme origin.
+	ext := make([]int64, n)
+	hasTs := make([]bool, n)
+	wrapped := make([]bool, n)
+	var prevExt int64
 	var prevRaw uint64
-	havePrevRaw := false
-	var baseExt int64 // first extended value, subtracted to give a 0-based timeline
-	haveBase := false
-	var sawWrap bool
+	seenFirst := false
+	for i, obs := range observed {
+		if !obs.HasStart {
+			continue
+		}
+		r := int64(obs.Start % uint64(opts.Modulus))
+		if !seenFirst {
+			ext[i] = r
+		} else {
+			e := prevExt - int64(prevRaw) + r
+			if prevRaw > uint64(r) && prevRaw-uint64(r) > uint64(opts.Modulus/2) {
+				e += opts.Modulus
+				wrapped[i] = true
+			}
+			ext[i] = e
+		}
+		prevExt, prevRaw = ext[i], obs.Start
+		seenFirst = true
+		hasTs[i] = true
+	}
+	var origin int64
+	for i := range observed {
+		if hasTs[i] {
+			origin = ext[i]
+			break
+		}
+	}
+	rel := func(e int64) int64 { return NanosDelta(e-origin, opts.Timescale) }
 
-	for _, obs := range observed {
+	// Pass 2: walk the grid.
+	entries := make([]Repair, 0, n)
+	var cursor int64
+	haveCursor := false
+	var lastTsIdx = -2
+	for i, obs := range observed {
 		dur := obs.Duration
 		if dur < 0 {
 			dur = 0
@@ -162,77 +198,56 @@ func Build(observed []Observed, opts Options) Map {
 			}
 		}
 
-		ext, hasTs, wrapped := int64(0), false, false
-		if obs.HasStart {
-			r := int64(obs.Start % uint64(opts.Modulus))
-			if !havePrevExt {
-				ext = r
-			} else {
-				// Extend into the same epoch. A raw decrease of more than half
-				// the modulus is a counter wrap; anything smaller is a real
-				// backward jump and must stay negative relative to the grid.
-				ext = prevExt - int64(prevRaw) + r
-				if prevRaw > uint64(r) && prevRaw-uint64(r) > uint64(opts.Modulus/2) {
-					ext += opts.Modulus
-					wrapped = true
-				}
-			}
-			hasTs = true
-			if !haveBase {
-				baseExt = ext
-				haveBase = true
-			}
-		}
-		// rel is the timestamp on a 0-based programme timeline. Expressing it
-		// as a delta keeps the first segment at zero even when the raw counter
-		// started near the wraparound point.
-		trackNs := func(e int64) int64 {
-			return NanosDelta(e, opts.Timescale) - NanosDelta(baseExt, opts.Timescale)
-		}
-
 		entry := Repair{ID: obs.ID, Duration: dur, Action: ActionOK, Available: true}
-		if wrapped {
-			sawWrap = true
+		if wrapped[i] {
+			warnings = append(warnings, "wraparound observed and expanded deterministically")
 		}
 
 		switch {
 		case !obs.Valid:
+			// Still record the expected grid slot so a caller can attribute a
+			// later sample to this segment by position, then exclude it.
+			if haveCursor {
+				entry.Start = cursor
+			} else if hasTs[i] {
+				entry.Start = rel(ext[i])
+			}
 			entry.Available = false
 			entry.Action = ActionUnavailable
 			entry.Note = "corrupt segment header"
 
-		case !hasTs:
-			switch {
-			case haveCursor && dur > 0:
+		case !hasTs[i]:
+			if haveCursor && dur > 0 && holeIsUnique(observed, hasTs, i) {
 				entry.Start = cursor
 				entry.Action = ActionGap
-				entry.Note = "missing timestamp inferred from the established grid"
-			default:
+				entry.Note = "missing timestamp inferred from both neighbours"
+			} else {
+				if haveCursor {
+					entry.Start = cursor
+				}
 				entry.Available = false
 				entry.Action = ActionUnavailable
-				entry.Note = "missing timestamp with no established time base"
+				entry.Note = "missing timestamp cannot be inferred uniquely"
 			}
 
 		case !haveCursor:
-			entry.Start = trackNs(ext)
-			if wrapped {
+			entry.Start = rel(ext[i])
+			if wrapped[i] {
 				entry.Action = ActionUnwrapped
 				entry.Note = "wraparound expanded at time-base start"
 			}
 
 		default:
-			obsNs := trackNs(ext)
+			obsNs := rel(ext[i])
 			diff := obsNs - cursor
-			dup := havePrevRaw && obs.Start == prevRaw
-
 			switch {
-			case dup:
+			case i-1 == lastTsIdx && obs.Start == observed[i-1].Start:
 				entry.Start = cursor
 				entry.Action = ActionDuplicate
 				entry.Note = "duplicate timestamp re-slotted"
 			case abs64(diff) <= opts.ToleranceNs:
 				entry.Start = cursor
-				if wrapped {
+				if wrapped[i] {
 					entry.Action = ActionUnwrapped
 					entry.Note = "33-bit wraparound expanded"
 				}
@@ -242,6 +257,7 @@ func Build(observed []Observed, opts Options) Map {
 					entry.Action = ActionShifted
 					entry.Note = fmt.Sprintf("backward jump of %dns repaired", -diff)
 				} else {
+					entry.Start = cursor
 					entry.Available = false
 					entry.Action = ActionUnavailable
 					entry.Note = fmt.Sprintf("backward jump of %dns exceeds repair limit", -diff)
@@ -252,8 +268,6 @@ func Build(observed []Observed, opts Options) Map {
 					entry.Action = ActionSnapped
 					entry.Note = fmt.Sprintf("forward jitter of %dns snapped", diff)
 				} else {
-					// A deliberate discontinuity: honour the observed time and
-					// re-anchor the grid here instead of hiding the gap.
 					entry.Start = obsNs
 					entry.Action = ActionGap
 					entry.Note = fmt.Sprintf("forward discontinuity of %dns preserved", diff)
@@ -268,24 +282,58 @@ func Build(observed []Observed, opts Options) Map {
 		} else if haveCursor {
 			cursor += dur
 		}
-		if hasTs {
-			prevExt = ext
-			havePrevExt = true
-			prevRaw = obs.Start
-			havePrevRaw = true
+		if hasTs[i] {
+			lastTsIdx = i
 		}
 		if !entry.Available {
-			unavailable = append(unavailable, obs.ID)
+			unavailable = append(unavailable, entry.ID)
 		}
 		entries = append(entries, entry)
 	}
 
 	m := Map{Entries: entries, Unavailable: unavailable, Warnings: warnings}
-	if sawWrap {
-		m.Warnings = append(m.Warnings, "wraparound observed and expanded deterministically")
-	}
 	m.Digest = digestMap(entries)
 	return m
+}
+
+// holeIsUnique reports whether a timestamp-less segment at index i is pinned
+// by its neighbours: both are present and valid, and no other hole touches it.
+func holeIsUnique(observed []Observed, hasTs []bool, i int) bool {
+	if i <= 0 || i+1 >= len(observed) {
+		return false
+	}
+	for _, j := range []int{i - 1, i + 1} {
+		if !observed[j].Valid || !hasTs[j] {
+			return false
+		}
+	}
+	if i > 1 && !hasTs[i-2] {
+		return false
+	}
+	if i+2 < len(observed) && !hasTs[i+2] {
+		return false
+	}
+	return true
+}
+
+// SegmentAt returns the entry whose half-open interval [Start, Start+Duration)
+// contains tNs. Entries with a zero duration are skipped. When intervals
+// overlap the earliest-starting entry wins, which keeps attribution stable.
+func (m Map) SegmentAt(tNs int64) (Repair, bool) {
+	var best Repair
+	found := false
+	for _, e := range m.Entries {
+		if e.Duration <= 0 {
+			continue
+		}
+		if tNs >= e.Start && tNs < e.Start+e.Duration {
+			if !found || e.Start < best.Start {
+				best = e
+				found = true
+			}
+		}
+	}
+	return best, found
 }
 
 // Lookup returns the entry for id.

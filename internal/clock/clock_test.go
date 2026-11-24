@@ -169,6 +169,35 @@ func TestMissingTimestampInferredOnlyWithBase(t *testing.T) {
 	}
 }
 
+func TestConsecutiveHolesQuarantined(t *testing.T) {
+	obs := base96(8)
+	obs[3].HasStart = false
+	obs[4].HasStart = false
+	m := Build(obs, Options{})
+	if len(m.Unavailable) != 2 {
+		t.Fatalf("a run of two holes is ambiguous and must be quarantined: %v", m.Unavailable)
+	}
+	for _, id := range []string{"seg-03", "seg-04"} {
+		e, ok := m.Lookup(id)
+		if !ok || e.Available {
+			t.Fatalf("%s should be unavailable", id)
+		}
+	}
+	// The grid must recover for segments after the hole.
+	if m.Entries[5].Start != ms(2000*5) || m.Entries[5].Action != ActionOK {
+		t.Fatalf("post-hole grid: %+v", m.Entries[5])
+	}
+}
+
+func TestTrailingHoleQuarantined(t *testing.T) {
+	obs := base96(5)
+	obs[4].HasStart = false
+	m := Build(obs, Options{})
+	if len(m.Unavailable) != 1 || m.Unavailable[0] != "seg-04" {
+		t.Fatalf("a hole with no following evidence is not uniquely inferable: %v", m.Unavailable)
+	}
+}
+
 func TestCorruptHeaderUnavailable(t *testing.T) {
 	obs := base96(5)
 	obs[2].Valid = false
