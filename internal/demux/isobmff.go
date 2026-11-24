@@ -2,6 +2,7 @@ package demux
 
 import (
 	"crypto/sha256"
+	"errors"
 	"io"
 
 	"github.com/abema/go-mp4"
@@ -51,135 +52,54 @@ func brand(s string) [4]byte {
 	return b
 }
 
-// writeMoov emits the init segment: one track, timescale 1_000_000 so each
-// track time unit is one microsecond, plus mvex/trex signalling fragmentation.
-func writeMoov(mw *mp4.Writer, hdr FSEQHeader) error {
-	timescale := uint32(1_000_000)
-	matrix := [9]int32{0x10000, 0, 0, 0, 0x10000, 0, 0, 0, 0x40000000}
-	start := func(t mp4.BoxType) error { _, err := mw.StartBox(&mp4.BoxInfo{Type: t}); return err }
-	end := mw.EndBox
-
-	if err := start(mp4.BoxTypeMoov()); err != nil {
-		return err
+// WriteFragmentedMP4Bytes renders frames to an in-memory fMP4 byte slice.
+func WriteFragmentedMP4Bytes(hdr FSEQHeader, frames []*media.RawFrame) ([]byte, error) {
+	var buf memBuffer
+	if err := WriteFragmentedMP4(&buf, hdr, frames); err != nil {
+		return nil, err
 	}
-	if err := start(mp4.BoxTypeMvhd()); err != nil {
-		return err
-	}
-	if _, err := mp4.Marshal(mw, &mp4.Mvhd{
-		FullBox: mp4.FullBox{Version: 1}, Timescale: timescale,
-		Rate: 0x10000, Volume: 0x100, Matrix: matrix, NextTrackID: 2,
-	}, mp4.Context{}); err != nil {
-		return err
-	}
-	if _, err := end(); err != nil {
-		return err
-	}
-	if err := start(mp4.BoxTypeTrak()); err != nil {
-		return err
-	}
-	if err := start(mp4.BoxTypeTkhd()); err != nil {
-		return err
-	}
-	tkhd := &mp4.Tkhd{
-		FullBox: mp4.FullBox{Version: 1, Flags: [3]byte{0x00, 0x00, 0x07}},
-		TrackID: hdr.SourceID, Matrix: matrix,
-		Width:  hdr.Width << 16,
-		Height: hdr.Height << 16,
-	}
-	if hdr.Kind == media.KindAudio {
-		tkhd.Volume = 0x100
-	}
-	if _, err := mp4.Marshal(mw, tkhd, mp4.Context{}); err != nil {
-		return err
-	}
-	if _, err := end(); err != nil {
-		return err
-	}
-	if err := start(mp4.BoxTypeMdia()); err != nil {
-		return err
-	}
-	if err := start(mp4.BoxTypeMdhd()); err != nil {
-		return err
-	}
-	if _, err := mp4.Marshal(mw, &mp4.Mdhd{
-		FullBox: mp4.FullBox{Version: 1}, Timescale: timescale,
-		Language: [3]byte{'u', 'n', 'd'},
-	}, mp4.Context{}); err != nil {
-		return err
-	}
-	if _, err := end(); err != nil {
-		return err
-	}
-	if err := start(mp4.BoxTypeHdlr()); err != nil {
-		return err
-	}
-	handler := "vide"
-	if hdr.Kind == media.KindAudio {
-		handler = "soun"
-	}
-	if _, err := mp4.Marshal(mw, &mp4.Hdlr{
-		HandlerType: brand(handler), Name: "relay",
-	}, mp4.Context{}); err != nil {
-		return err
-	}
-	if _, err := end(); err != nil {
-		return err
-	}
-	if err := start(mp4.BoxTypeMinf()); err != nil {
-		return err
-	}
-	if err := start(mp4.BoxTypeStbl()); err != nil {
-		return err
-	}
-	if err := start(mp4.BoxTypeStsd()); err != nil {
-		return err
-	}
-	if _, err := mp4.Marshal(mw, &mp4.Stsd{EntryCount: 0}, mp4.Context{}); err != nil {
-		return err
-	}
-	if _, err := end(); err != nil { // stsd
-		return err
-	}
-	if _, err := end(); err != nil { // stbl
-		return err
-	}
-	if _, err := end(); err != nil { // minf
-		return err
-	}
-	if _, err := end(); err != nil { // mdia
-		return err
-	}
-	if err := start(mp4.BoxTypeMvex()); err != nil {
-		return err
-	}
-	if err := start(mp4.BoxTypeTrex()); err != nil {
-		return err
-	}
-	if _, err := mp4.Marshal(mw, &mp4.Trex{
-		TrackID:                       hdr.SourceID,
-		DefaultSampleDescriptionIndex: 1,
-		DefaultSampleDuration:         1,
-		DefaultSampleFlags:            0x2000000,
-	}, mp4.Context{}); err != nil {
-		return err
-	}
-	if _, err := end(); err != nil { // trex
-		return err
-	}
-	if _, err := end(); err != nil { // mvex
-		return err
-	}
-	if _, err := end(); err != nil { // trak
-		return err
-	}
-	if _, err := end(); err != nil { // moov
-		return err
-	}
-	return nil
+	return buf.Bytes(), nil
 }
 
-// writeMoofMdat writes one fragment containing exactly one sample. The trun
-// DataOffset points from the moof start to the first payload byte of mdat.
+// memBuffer is an in-memory io.WriteSeeker with sparse-write support.
+type memBuffer struct {
+	data []byte
+	pos  int64
+}
+
+func (m *memBuffer) Write(p []byte) (int, error) {
+	end := m.pos + int64(len(p))
+	if end > int64(len(m.data)) {
+		grown := make([]byte, end)
+		copy(grown, m.data)
+		m.data = grown
+	}
+	copy(m.data[m.pos:end], p)
+	m.pos = end
+	return len(p), nil
+}
+
+func (m *memBuffer) Seek(offset int64, whence int) (int64, error) {
+	switch whence {
+	case io.SeekStart:
+		m.pos = offset
+	case io.SeekCurrent:
+		m.pos += offset
+	case io.SeekEnd:
+		m.pos = int64(len(m.data)) + offset
+	}
+	if m.pos < 0 {
+		return 0, errNegativeSeek
+	}
+	return m.pos, nil
+}
+
+func (m *memBuffer) Bytes() []byte { return m.data }
+
+var errNegativeSeek = errors.New("negative seek position")
+
+// writeMoov emits the init segment: one track, timescale 1_000_000 so each
+// track time unit is one microsecond, plus mvex/trex signalling fragmentation.
 func writeMoofMdat(mw *mp4.Writer, hdr FSEQHeader, seq uint32, fr *media.RawFrame) error {
 	start := func(t mp4.BoxType) error { _, err := mw.StartBox(&mp4.BoxInfo{Type: t}); return err }
 	end := mw.EndBox

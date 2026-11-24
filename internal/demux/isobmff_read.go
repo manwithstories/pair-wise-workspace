@@ -1,7 +1,7 @@
 package demux
 
 import (
-	"encoding/binary"
+	"bytes"
 	"io"
 
 	"github.com/abema/go-mp4"
@@ -9,47 +9,7 @@ import (
 	"relay/internal/media"
 )
 
-// MP4TrackInfo describes one track discovered in the init segment.
-type MP4TrackInfo struct {
-	SourceID  uint32
-	Kind      media.Kind
-	Timescale uint32
-	Width     uint32
-	Height    uint32
-}
-
-// rmtaPayload is the private "relay metadata, per fragment" box carried inside
-// each traf. Standard players ignore unknown boxes; the relay reader uses it to
-// recover capture anchors (clock ticks and reference nanoseconds).
-type rmtaPayload struct {
-	Sequence     uint64
-	ClockTicks   uint64
-	CaptureRefNS int64
-	TimescaleHz  uint32
-}
-
-func encodeRMTA(p rmtaPayload) []byte {
-	b := make([]byte, 32)
-	bin := binary.BigEndian
-	bin.PutUint64(b[0:8], p.Sequence)
-	bin.PutUint64(b[8:16], p.ClockTicks)
-	bin.PutUint64(b[16:24], uint64(p.CaptureRefNS))
-	bin.PutUint32(b[24:28], p.TimescaleHz)
-	return b
-}
-
-func decodeRMTA(b []byte) (rmtaPayload, error) {
-	if len(b) < 28 {
-		return rmtaPayload{}, media.NewError(media.ErrMetadata, 0, "short rmta box")
-	}
-	bin := binary.BigEndian
-	return rmtaPayload{
-		Sequence:     bin.Uint64(b[0:8]),
-		ClockTicks:   bin.Uint64(b[8:16]),
-		CaptureRefNS: int64(bin.Uint64(b[16:24])),
-		TimescaleHz:  bin.Uint32(b[24:28]),
-	}, nil
-}
+func bytesReader(b []byte) io.ReadSeeker { return bytes.NewReader(b) }
 
 // ReadFragmentedMP4 parses an fMP4 stream, validating box framing, trun/mdat
 // lengths, track consistency and per-sample hashes. Frames preserve their
@@ -115,93 +75,60 @@ type fragMeta struct {
 }
 
 func readMoof(r io.ReadSeeker, moof *mp4.BoxInfo) (*fragMeta, error) {
-	if _, err := moof.SeekToPayload(r); err != nil {
-		return nil, err
-	}
 	meta := &fragMeta{}
-	// Expect one traf child; walk all children of the moof.
-	for {
-		bi, err := mp4.ReadBoxInfo(r)
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, media.NewError(media.ErrTruncated, 0, "moof child: "+err.Error())
-		}
-		if bi.Type == mp4.BoxTypeTraf() {
-			if err := readTraf(r, bi, meta); err != nil {
-				return nil, err
-			}
-		}
-		if err := skipBox(r, bi); err != nil {
-			return nil, err
-		}
-		if atEnd(r, moof) {
-			break
-		}
-	}
-	if meta.SampleSize == 0 || meta.SampleSize > media.MaxFrameBytes {
-		return nil, media.NewError(media.ErrLengthMismatch, meta.TrackID, "trun sample size out of range")
-	}
-	return meta, nil
-}
-
-func readTraf(r io.ReadSeeker, traf *mp4.BoxInfo, meta *fragMeta) error {
-	if _, err := traf.SeekToPayload(r); err != nil {
-		return err
-	}
-	for {
-		bi, err := mp4.ReadBoxInfo(r)
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return media.NewError(media.ErrTruncated, 0, "traf child: "+err.Error())
-		}
-		payload, err := readBoxPayload(r, bi)
-		if err != nil {
-			return err
-		}
-		switch bi.Type {
+	handler := func(h *mp4.ReadHandle) (interface{}, error) {
+		switch h.BoxInfo.Type {
 		case mp4.BoxTypeTfhd():
-			box, _, err := mp4.UnmarshalAny(bytesReader(payload), bi.Type, uint64(len(payload)), mp4.Context{})
+			box, _, err := h.ReadPayload()
 			if err != nil {
-				return media.NewError(media.ErrMetadata, 0, "tfhd: "+err.Error())
+				return nil, media.NewError(media.ErrMetadata, 0, "tfhd: "+err.Error())
 			}
 			meta.TrackID = box.(*mp4.Tfhd).TrackID
 		case mp4.BoxTypeTfdt():
-			box, _, err := mp4.UnmarshalAny(bytesReader(payload), bi.Type, uint64(len(payload)), mp4.Context{})
+			box, _, err := h.ReadPayload()
 			if err != nil {
-				return media.NewError(media.ErrMetadata, 0, "tfdt: "+err.Error())
+				return nil, media.NewError(media.ErrMetadata, 0, "tfdt: "+err.Error())
 			}
 			meta.DecodeTime = box.(*mp4.Tfdt).GetBaseMediaDecodeTime()
 		case mp4.BoxTypeTrun():
-			box, _, err := mp4.UnmarshalAny(bytesReader(payload), bi.Type, uint64(len(payload)), mp4.Context{})
+			box, _, err := h.ReadPayload()
 			if err != nil {
-				return media.NewError(media.ErrMetadata, 0, "trun: "+err.Error())
+				return nil, media.NewError(media.ErrMetadata, 0, "trun: "+err.Error())
 			}
 			trun := box.(*mp4.Trun)
 			if trun.SampleCount != 1 || len(trun.Entries) != 1 {
-				return media.NewError(media.ErrMetadata, meta.TrackID, "only single-sample fragments supported")
+				return nil, media.NewError(media.ErrMetadata, meta.TrackID,
+					"only single-sample fragments supported")
 			}
 			meta.SampleSize = trun.Entries[0].SampleSize
 		default:
-			if bi.Type == rmtaBoxType() {
-				dec, err := decodeRMTA(payload)
-				if err != nil {
-					return err
+			if h.BoxInfo.Type == rmtaBoxType() {
+				bi := h.BoxInfo
+				data, derr := readBoxPayload(r, &bi)
+				if derr != nil {
+					return nil, derr
+				}
+				dec, derr := decodeRMTA(data)
+				if derr != nil {
+					return nil, derr
 				}
 				meta.RMTA = &dec
+				return nil, nil
+			}
+			if _, err := h.Expand(); err != nil {
+				return nil, err
 			}
 		}
-		if err := skipBox(r, bi); err != nil {
-			return err
-		}
-		if atEnd(r, traf) {
-			break
-		}
+		return nil, nil
 	}
-	return nil
+	if _, err := mp4.ReadBoxStructureFromInternal(r, moof, handler); err != nil {
+		return nil, err
+	}
+	if meta.SampleSize == 0 || meta.SampleSize > media.MaxFrameBytes {
+		return nil, media.NewError(media.ErrLengthMismatch, meta.TrackID,
+			"trun sample size out of range")
+	}
+	return meta, nil
 }
 
 func materialiseFragment(meta *fragMeta, mdat []byte, tracks map[uint32]MP4TrackInfo) (*media.RawFrame, error) {
@@ -251,10 +178,3 @@ func skipBox(r io.ReadSeeker, bi *mp4.BoxInfo) error {
 	_, err := r.Seek(int64(bi.Offset+bi.Size), io.SeekStart)
 	return err
 }
-
-func atEnd(r io.ReadSeeker, parent *mp4.BoxInfo) bool {
-	pos, err := r.Seek(0, io.SeekCurrent)
-	return err == nil && uint64(pos) >= parent.Offset+parent.Size
-}
-
-func bytesReader(b []byte) io.ReadSeeker { return bytesNewReader(b) }

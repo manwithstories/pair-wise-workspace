@@ -1,7 +1,6 @@
 package demux
 
 import (
-	"bytes"
 	"io"
 
 	"github.com/abema/go-mp4"
@@ -9,97 +8,64 @@ import (
 	"relay/internal/media"
 )
 
-// rmtaBoxType is the private relay metadata box carried inside each traf.
-func rmtaBoxType() mp4.BoxType { return mp4.StrToBoxType("rmta") }
-
-func bytesNewReader(b []byte) io.ReadSeeker { return bytes.NewReader(b) }
-
-// readMoovTracks walks the init segment and returns one MP4TrackInfo per trak.
+// readMoovTracks uses the library's full-box traversal to describe every
+// trak in the init segment, avoiding hand-rolled nested box walking.
 func readMoovTracks(r io.ReadSeeker, moov *mp4.BoxInfo) ([]MP4TrackInfo, error) {
-	if _, err := moov.SeekToPayload(r); err != nil {
-		return nil, err
-	}
 	var infos []MP4TrackInfo
-	for {
-		bi, err := mp4.ReadBoxInfo(r)
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, media.NewError(media.ErrTruncated, 0, "moov child: "+err.Error())
-		}
-		if bi.Type == mp4.BoxTypeTrak() {
-			ti, err := readTrak(r, bi)
-			if err != nil {
+	handler := func(h *mp4.ReadHandle) (interface{}, error) {
+		switch h.BoxInfo.Type {
+		case mp4.BoxTypeTrak():
+			// Register the track before descending so tkhd/mdhd/hdlr have a
+			// slot to fill regardless of their order inside the trak.
+			infos = append(infos, MP4TrackInfo{Timescale: 1_000_000})
+			if _, err := h.Expand(); err != nil {
 				return nil, err
 			}
-			infos = append(infos, ti)
+			return nil, nil
+		case mp4.BoxTypeTkhd():
+			box, _, err := h.ReadPayload()
+			if err != nil {
+				return nil, media.NewError(media.ErrMetadata, 0, "tkhd: "+err.Error())
+			}
+			tkhd := box.(*mp4.Tkhd)
+			ti := &infos[len(infos)-1]
+			ti.SourceID = tkhd.TrackID
+			ti.Width = tkhd.Width >> 16
+			ti.Height = tkhd.Height >> 16
+		case mp4.BoxTypeMdhd():
+			box, _, err := h.ReadPayload()
+			if err != nil {
+				return nil, media.NewError(media.ErrMetadata, 0, "mdhd: "+err.Error())
+			}
+			infos[len(infos)-1].Timescale = box.(*mp4.Mdhd).Timescale
+		case mp4.BoxTypeHdlr():
+			box, _, err := h.ReadPayload()
+			if err != nil {
+				return nil, media.NewError(media.ErrMetadata, 0, "hdlr: "+err.Error())
+			}
+			switch string(box.(*mp4.Hdlr).HandlerType[:]) {
+			case "vide":
+				infos[len(infos)-1].Kind = media.KindVideo
+			case "soun":
+				infos[len(infos)-1].Kind = media.KindAudio
+			default:
+				return nil, media.NewError(media.ErrMetadata, infos[len(infos)-1].SourceID,
+					"unsupported hdlr")
+			}
+		default:
+			if _, err := h.Expand(); err != nil {
+				return nil, err
+			}
 		}
-		if err := skipBox(r, bi); err != nil {
-			return nil, err
-		}
-		if atEnd(r, moov) {
-			break
+		return nil, nil
+	}
+	if _, err := mp4.ReadBoxStructureFromInternal(r, moov, handler); err != nil {
+		return nil, err
+	}
+	for _, ti := range infos {
+		if ti.Kind != media.KindVideo && ti.Kind != media.KindAudio {
+			return nil, media.NewError(media.ErrMetadata, ti.SourceID, "trak missing valid hdlr")
 		}
 	}
 	return infos, nil
-}
-
-func readTrak(r io.ReadSeeker, trak *mp4.BoxInfo) (MP4TrackInfo, error) {
-	ti := MP4TrackInfo{Timescale: 1_000_000}
-	if _, err := trak.SeekToPayload(r); err != nil {
-		return ti, err
-	}
-	for {
-		bi, err := mp4.ReadBoxInfo(r)
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return ti, media.NewError(media.ErrTruncated, 0, "trak child: "+err.Error())
-		}
-		payload, perr := readBoxPayload(r, bi)
-		if perr == nil {
-			switch bi.Type {
-			case mp4.BoxTypeTkhd():
-				box, _, err := mp4.UnmarshalAny(bytesReader(payload), bi.Type, uint64(len(payload)), mp4.Context{})
-				if err != nil {
-					return ti, media.NewError(media.ErrMetadata, 0, "tkhd: "+err.Error())
-				}
-				tkhd := box.(*mp4.Tkhd)
-				ti.SourceID = tkhd.TrackID
-				ti.Width = tkhd.Width >> 16
-				ti.Height = tkhd.Height >> 16
-			case mp4.BoxTypeMdhd():
-				box, _, err := mp4.UnmarshalAny(bytesReader(payload), bi.Type, uint64(len(payload)), mp4.Context{})
-				if err != nil {
-					return ti, media.NewError(media.ErrMetadata, 0, "mdhd: "+err.Error())
-				}
-				ti.Timescale = box.(*mp4.Mdhd).Timescale
-			case mp4.BoxTypeHdlr():
-				box, _, err := mp4.UnmarshalAny(bytesReader(payload), bi.Type, uint64(len(payload)), mp4.Context{})
-				if err != nil {
-					return ti, media.NewError(media.ErrMetadata, 0, "hdlr: "+err.Error())
-				}
-				switch string(box.(*mp4.Hdlr).HandlerType[:]) {
-				case "vide":
-					ti.Kind = media.KindVideo
-				case "soun":
-					ti.Kind = media.KindAudio
-				default:
-					ti.Kind = media.KindUnknown
-				}
-			}
-		}
-		if err := skipBox(r, bi); err != nil {
-			return ti, err
-		}
-		if atEnd(r, trak) {
-			break
-		}
-	}
-	if ti.Kind != media.KindVideo && ti.Kind != media.KindAudio {
-		return ti, media.NewError(media.ErrMetadata, ti.SourceID, "trak missing valid hdlr")
-	}
-	return ti, nil
 }
