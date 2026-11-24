@@ -8,9 +8,9 @@ import (
 
 // AVC NAL unit type constants (RFC 6184, low 5 bits of the header byte).
 const (
-	avcNALIDR  = 5
-	avcNALSPS  = 7
-	avcNALPPS  = 8
+	avcNALIDR = 5
+	avcNALSPS = 7
+	avcNALPPS = 8
 )
 
 // HEVC NAL unit type (high 6 bits of the header byte).

@@ -8,6 +8,33 @@ import (
 	"mediac/internal/core"
 )
 
+// extractTrunShape records the trun-declared sample count and per-sample
+// durations/sizes from moof bytes. It runs during the structural walk before
+// mdat is read, so a truncated media box cannot blank the expected sample
+// count. It deliberately does not emit faults; validateMoof owns that.
+func extractTrunShape(moof []byte, report *FragmentReport) {
+	r := bytes.NewReader(moof)
+	var trun *mp4.Trun
+	handler := func(h *mp4.ReadHandle) (interface{}, error) {
+		if h.BoxInfo.Type == mp4.BoxTypeTrun() {
+			box, _, err := h.ReadPayload()
+			if err != nil {
+				return nil, nil
+			}
+			trun, _ = box.(*mp4.Trun)
+			return nil, nil
+		}
+		return h.Expand()
+	}
+	if _, err := mp4.ReadBoxStructure(r, handler); err != nil || trun == nil {
+		return
+	}
+	report.ExpectedSamples = int(trun.SampleCount)
+	if cap(report.Samples) == 0 {
+		report.Samples = make([]SampleInfo, 0, trun.SampleCount)
+	}
+}
+
 // validateMoof re-parses the captured moof bytes to read the movie time base,
 // fragment decode time and per-sample duration/size table. A second parse on
 // bounded bytes keeps the structural walk independent from sample extraction.
@@ -77,6 +104,7 @@ func validateMoof(repID string, fragment int, moof []byte,
 		report.Truncated = true
 		return f
 	}
+	report.ExpectedSamples = int(trun.SampleCount)
 	report.Samples = make([]SampleInfo, 0, trun.SampleCount)
 	for i, e := range trun.Entries {
 		s := SampleInfo{

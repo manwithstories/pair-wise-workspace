@@ -7,8 +7,8 @@ import (
 
 // testSample is one encoded sample for fixture fragments.
 type testSample struct {
-	nalu      []byte // NAL payload without length prefix
-	duration  uint32
+	nalu     []byte // NAL payload without length prefix
+	duration uint32
 }
 
 // avcNAL builds an AVC NAL unit (header byte + payload) without any length

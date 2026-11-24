@@ -3,6 +3,7 @@
 package inspect
 
 import (
+	"fmt"
 	"io"
 
 	"github.com/abema/go-mp4"
@@ -17,24 +18,28 @@ const (
 
 // SampleInfo describes one trun sample after structural validation.
 type SampleInfo struct {
-	Index       int    `json:"index"`
-	Size        uint32 `json:"size"`
-	Duration    uint32 `json:"duration"` // movie timescale ticks
+	Index      int    `json:"index"`
+	Size       uint32 `json:"size"`
+	Duration   uint32 `json:"duration"` // movie timescale ticks
 	IsKeyframe bool   `json:"is_keyframe"`
-	NALTypes    []byte `json:"-"`
+	NALTypes   []byte `json:"-"`
 }
 
 // FragmentReport is the structural verdict for one fMP4 media fragment.
 type FragmentReport struct {
-	RepID        string       `json:"rep_id"`
-	Fragment     int          `json:"fragment"`
-	CodecHint    string       `json:"codec_hint,omitempty"`
-	Timescale    uint32       `json:"timescale"`
-	BaseDecodeT  uint64       `json:"base_decode_time"`
-	Samples      []SampleInfo `json:"samples"`
-	Truncated    bool         `json:"truncated"`
-	HasZeroDur   bool         `json:"has_zero_duration"`
-	HasInvalidNAL bool       `json:"has_invalid_nal"`
+	RepID       string       `json:"rep_id"`
+	Fragment    int          `json:"fragment"`
+	CodecHint   string       `json:"codec_hint,omitempty"`
+	Timescale   uint32       `json:"timescale"`
+	BaseDecodeT uint64       `json:"base_decode_time"`
+	Samples     []SampleInfo `json:"samples"`
+	// ExpectedSamples is the trun-declared sample count even when a truncated
+	// mdat prevents every sample from being analyzed. It keeps the valid-sample
+	// denominator correct for damaged fragments.
+	ExpectedSamples int  `json:"expected_samples"`
+	Truncated       bool `json:"truncated"`
+	HasZeroDur      bool `json:"has_zero_duration"`
+	HasInvalidNAL   bool `json:"has_invalid_nal"`
 	// BoxBoundaries records declared size vs. readable bytes per moof/mdat so
 	// truncation is demonstrable rather than inferred.
 	BoxBoundaries []BoxBoundary `json:"box_boundaries,omitempty"`
@@ -84,6 +89,10 @@ func InspectFragment(repID string, fragment int, codec string, r io.ReadSeeker,
 			}
 			if data, derr := readBoxData(r, h, bi); derr == nil {
 				moofPayload = data
+				// Capture the trun sample table up front. moof precedes mdat in
+				// fMP4, so even a truncated mdat below cannot erase the declared
+				// sample count used by the valid-sample denominator.
+				extractTrunShape(data, report)
 			}
 			return vals, err
 		default:
@@ -108,6 +117,23 @@ func InspectFragment(repID string, fragment int, codec string, r io.ReadSeeker,
 		report.Faults = append(report.Faults, f)
 		report.Truncated = true
 		return report, nil
+	}
+	// A truncated mdat keeps its header but loses payload: the bytes actually
+	// present fall short of the total sample size declared by trun. Detect this
+	// explicitly so the fragment is marked damaged even when the box boundary
+	// read itself succeeded.
+	var declaredSampleBytes uint64
+	for _, s := range report.Samples {
+		declaredSampleBytes += uint64(s.Size)
+	}
+	if uint64(len(mdatPayload)) < declaredSampleBytes {
+		report.Truncated = true
+		f := core.NewFault(core.FaultTruncatedBox, core.SevDamaged,
+			fmt.Sprintf("mdat payload %d bytes shorter than declared samples %d",
+				len(mdatPayload), declaredSampleBytes),
+			core.Source{RepID: repID, SegmentIndex: fragment})
+		rec.Add(f)
+		report.Faults = append(report.Faults, f)
 	}
 	analyzeSamples(repID, fragment, codec, mdatPayload, report, rec)
 	return report, nil
