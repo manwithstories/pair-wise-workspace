@@ -74,7 +74,8 @@ func writeAudioStsd(mw *gomp4.Writer, cfg MuxConfig) error {
 	if _, err := mw.Write(e.Bytes()); err != nil {
 		return err
 	}
-	if err := writeFullBox(mw, "pcmC", 0, [3]byte{}, []byte{0, byte(bits)}); err != nil {
+	// format_flags bit 0 marks little-endian PCM; the muxer encodes s16le.
+	if err := writeFullBox(mw, "pcmC", 0, [3]byte{}, []byte{0x01, byte(bits)}); err != nil {
 		return err
 	}
 	if _, err := mw.EndBox(); err != nil { // ipcm

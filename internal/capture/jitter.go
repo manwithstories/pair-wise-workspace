@@ -204,8 +204,6 @@ func (a *Assembler) Finish() error {
 			tr.Stats.ExpectedPackets = expected
 			tr.Stats.LossRate = float64(missing) / float64(expected)
 		}
-		tr.Stats.DuplicatePackets = tr.Stats.DuplicatePackets
-		tr.Stats.ReorderedPackets = tr.Stats.ReorderedPackets
 	}
 	return nil
 }
