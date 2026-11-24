@@ -28,6 +28,7 @@ type CaptureReport struct {
 	DamageOffset      int64          `json:"damage_offset"`
 	DamageOffsetError int64          `json:"damage_offset_error_bytes"`
 	Stats             reorder.Stats  `json:"stats"`
+	MissingFrames     int            `json:"missing_frames"`
 	PacketFrames      int            `json:"packet_frames"`
 	Rate              int            `json:"rate"`
 	Channels          int            `json:"channels"`

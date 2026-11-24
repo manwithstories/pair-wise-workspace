@@ -43,4 +43,5 @@ func loadCaptureReport(m *txn.Manager, res *Result) {
 	res.DamageOffset = r.DamageOffset
 	res.DamageOffsetError = r.DamageOffsetError
 	res.Reorder = r.Stats
+	res.MissingFrames = r.MissingFrames
 }

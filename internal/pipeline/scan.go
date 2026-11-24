@@ -102,7 +102,8 @@ func scanAndReorder(cfg Config, res *Result) (*CaptureReport, []reorder.Block, e
 	report := &CaptureReport{
 		Records: res.Records, IndexRebuilt: res.IndexRebuilt, Damages: sc.Report.Damages,
 		DamageOffset: damageOffset, DamageOffsetError: errBytes, Stats: stats,
-		PacketFrames: cfg.PacketFrames, Rate: cfg.Rate, Channels: cfg.Channels,
+		MissingFrames: stats.Lost * cfg.PacketFrames,
+		PacketFrames:  cfg.PacketFrames, Rate: cfg.Rate, Channels: cfg.Channels,
 	}
 	return report, blocks, nil
 }
