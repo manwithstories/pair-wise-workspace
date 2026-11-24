@@ -222,9 +222,14 @@ func BuildPreview(trackID uint32, frames int, seed int64, drop, dupEvery int, sh
 		}
 	}
 	if shuffle {
-		for i := len(out) - 1; i > 0; i-- {
-			j := int(rng.next() % uint64(i+1))
-			out[i], out[j] = out[j], out[i]
+		// Real networks reorder a minority of packets by a small distance, not
+		// wholesale. Swap a deterministic subset of neighbours so the
+		// reassembler's reordering count reflects a plausible stream.
+		for i := 1; i+1 < len(out); i++ {
+			if rng.next()%7 == 0 {
+				out[i], out[i+1] = out[i+1], out[i]
+				i++ // do not immediately unswap the pair
+			}
 		}
 	}
 	return out, nil

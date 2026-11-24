@@ -958,7 +958,7 @@ func reassemblePreview(opt Options, paths Paths) (previewResult, error) {
 		return out, nil
 	}
 	frames := opt.TargetFrames
-	packets, err := ingest.BuildPreview(opt.TrackID, frames, int64(2000+opt.TrackID), opt.RTPLoss, 0, true)
+	packets, err := ingest.BuildPreview(opt.TrackID, frames, int64(2000+opt.TrackID), opt.RTPLoss, 11, true)
 	if err != nil {
 		return out, model.Fatal("pipeline.rtp", err)
 	}
