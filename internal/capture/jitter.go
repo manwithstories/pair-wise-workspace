@@ -132,12 +132,19 @@ func (a *Assembler) ingestPacket(tr *Track, pkt *Packet) {
 		tr.maxSequence = pkt.ExtSequence
 	} else {
 		pkt.ExtSequence = ExtendUint16(tr.maxSequence, seq, true)
-		if pkt.ExtSequence < tr.maxSequence {
-			tr.Stats.ReorderedPackets++
-		}
-		if pkt.ExtSequence > tr.maxSequence {
-			tr.maxSequence = pkt.ExtSequence
-		}
+	}
+
+	tr.Stats.PacketsReceived++
+	if _, exists := tr.bySequence[pkt.ExtSequence]; exists {
+		// A repeated packet is duplicate, not a new reorder event.
+		tr.Stats.DuplicatePackets++
+		return
+	}
+	if tr.seqInitialized && pkt.ExtSequence < tr.maxSequence {
+		tr.Stats.ReorderedPackets++
+	}
+	if pkt.ExtSequence > tr.maxSequence {
+		tr.maxSequence = pkt.ExtSequence
 	}
 
 	ts := pkt.Timestamp()
@@ -152,12 +159,6 @@ func (a *Assembler) ingestPacket(tr *Track, pkt *Packet) {
 		}
 	}
 	tr.rawTSExt[ts] = pkt.ExtTimestamp
-
-	tr.Stats.PacketsReceived++
-	if _, exists := tr.bySequence[pkt.ExtSequence]; exists {
-		tr.Stats.DuplicatePackets++
-		return
-	}
 	tr.bySequence[pkt.ExtSequence] = pkt
 	tr.Stats.UniquePackets++
 }
