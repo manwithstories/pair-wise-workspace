@@ -4,6 +4,7 @@ package index
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -142,11 +143,11 @@ func marshalSIDX(tl *clock.Result, tt *clock.TrackTimeline, entries []SeekEntry)
 		ReferenceCount:             uint16(len(refs)),
 		References:                 refs,
 	}
-	var buf bytes.Buffer
-	if _, err := mp4.Marshal(&buf, box, mp4.Context{}); err != nil {
+	out, err := marshalBox("sidx", box)
+	if err != nil {
 		return nil, media.Corrupt("index", "sidx_marshal", "", 0, -1, "%v", err)
 	}
-	return buf.Bytes(), nil
+	return out, nil
 }
 
 func marshalTFRA(trackID uint32, entries []SeekEntry) ([]byte, error) {
@@ -170,11 +171,25 @@ func marshalTFRA(trackID uint32, entries []SeekEntry) ([]byte, error) {
 			SampleNumber: uint32(e.SampleIndex + 1),
 		})
 	}
-	var buf bytes.Buffer
-	if _, err := mp4.Marshal(&buf, box, mp4.Context{}); err != nil {
+	out, err := marshalBox("tfra", box)
+	if err != nil {
 		return nil, media.Corrupt("index", "tfra_marshal", "", 0, -1, "%v", err)
 	}
-	return buf.Bytes(), nil
+	return out, nil
+}
+
+// marshalBox adds the ISO-BMFF 8-byte box header around go-mp4's payload
+// marshaller output.
+func marshalBox(typ string, box mp4.IImmutableBox) ([]byte, error) {
+	var payload bytes.Buffer
+	if _, err := mp4.Marshal(&payload, box, mp4.Context{}); err != nil {
+		return nil, err
+	}
+	out := make([]byte, 8+payload.Len())
+	binary.BigEndian.PutUint32(out[0:4], uint32(len(out)))
+	copy(out[4:8], typ)
+	copy(out[8:], payload.Bytes())
+	return out, nil
 }
 
 func buildManifest(tt *clock.TrackTimeline, entries []SeekEntry) ([]byte, error) {

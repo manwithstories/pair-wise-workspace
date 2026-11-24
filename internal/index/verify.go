@@ -109,10 +109,10 @@ func verifyManifestDurations(a *Artifacts) (float64, error) {
 		}
 		want, ok := expected[line]
 		if !ok {
-			return 0, media.Corrupt("verify", "manifest_unknown_segment", "manifest.m3u8", 0, -1, line)
+			return 0, media.Corrupt("verify", "manifest_unknown_segment", "manifest.m3u8", 0, -1, "%s", line)
 		}
 		if !haveExtinf {
-			return 0, media.Corrupt("verify", "missing_extinf", "manifest.m3u8", 0, -1, line)
+			return 0, media.Corrupt("verify", "missing_extinf", "manifest.m3u8", 0, -1, "%s", line)
 		}
 		skew := math.Abs(extinf-want) * 1000
 		if skew > maxSkew {
