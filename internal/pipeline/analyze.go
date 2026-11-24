@@ -41,6 +41,11 @@ func OutputFramesPerPacket(spec source.Spec) int64 {
 
 // Analyze parses and orders an in-memory local fixture stream.
 func Analyze(input []byte, spec source.Spec) (*Analysis, error) {
+	return AnalyzeReader(bytes.NewReader(input), spec)
+}
+
+// AnalyzeReader incrementally parses and orders one local fixture stream.
+func AnalyzeReader(input io.Reader, spec source.Spec) (*Analysis, error) {
 	outFrames := OutputFramesPerPacket(spec)
 	a := &Analysis{
 		Clock:        core.NewClock(spec.SSRC, uint32(spec.SampleRate)),
@@ -50,7 +55,7 @@ func Analyze(input []byte, spec source.Spec) (*Analysis, error) {
 		RejectedLate: make(map[int64]bool),
 		FirstOffset:  -1,
 	}
-	r := ingest.NewReader(bytes.NewReader(input), ingest.DefaultMaxDatagramBytes)
+	r := ingest.NewReader(input, ingest.DefaultMaxDatagramBytes)
 	haveFirst := false
 
 	for {

@@ -1,8 +1,6 @@
 package pipeline
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"math"
 	"os"
@@ -56,7 +54,10 @@ func Run(opts Options) (*manifest.Manifest, error) {
 	}
 
 	inputPath := filepath.Join(opts.OutDir, InputName)
-	inputBytes, inputSHA, err := ensureInput(inputPath, spec)
+	if err := ensureInput(inputPath, spec); err != nil {
+		return nil, err
+	}
+	inputSHA, err := recovery.SHA256File(inputPath)
 	if err != nil {
 		return nil, err
 	}
@@ -82,9 +83,14 @@ func Run(opts Options) (*manifest.Manifest, error) {
 		cp = nil
 	}
 
-	a, err := Analyze(inputBytes, spec)
+	inputFile, err := os.Open(inputPath)
 	if err != nil {
-		return nil, err
+		return nil, core.New(core.KindIO, "open-fixture", err)
+	}
+	a, analyzeErr := AnalyzeReader(inputFile, spec)
+	_ = inputFile.Close()
+	if analyzeErr != nil {
+		return nil, analyzeErr
 	}
 	missing := a.MissingPackets()
 	missingSamples := int64(len(missing)) * OutputFramesPerPacket(spec)
@@ -208,18 +214,17 @@ func Run(opts Options) (*manifest.Manifest, error) {
 	return m, nil
 }
 
-func ensureInput(path string, spec source.Spec) ([]byte, string, error) {
+func ensureInput(path string, spec source.Spec) error {
 	generated, err := source.Generate(spec)
 	if err != nil {
-		return nil, "", core.New(core.KindConfig, "generate-fixture", err)
+		return core.New(core.KindConfig, "generate-fixture", err)
 	}
 	// The fixture is local and deterministic; writing it on every invocation
-	// makes a interrupted first run and a resumed run observe identical bytes.
+	// makes an interrupted first run and a resumed run observe identical bytes.
 	if err := os.WriteFile(path, generated, 0o644); err != nil {
-		return nil, "", core.New(core.KindIO, "write-fixture", err)
+		return core.New(core.KindIO, "write-fixture", err)
 	}
-	sum := sha256.Sum256(generated)
-	return generated, hex.EncodeToString(sum[:]), nil
+	return nil
 }
 
 func makeParams(spec source.Spec) manifest.Params {
