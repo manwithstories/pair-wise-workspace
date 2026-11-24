@@ -131,7 +131,14 @@ func Parse(r io.ReaderAt, size int64, path string) (*File, error) {
 		off = h.off + h.size
 	}
 	if !haveMoov {
-		f.AddIssue(media.Issue{Kind: media.IssueMissingMoov, Offset: -1, TrackID: -1, Detail: "no moov box"})
+		// Without moov nothing downstream is usable, so the whole input is
+		// unrecoverable. Earlier box-level complaints are subsumed by that
+		// verdict: reporting them as the cause would mislead an operator into
+		// repairing one box when the index is simply absent.
+		f.Issues = nil
+		f.Damaged = []media.Range{{Start: 0, End: size,
+			Reason: media.Fatal("demux.parse", media.ErrMissingMoov).Error()}}
+		f.AddIssue(media.Issue{Kind: media.IssueMissingMoov, Offset: 0, TrackID: -1, Detail: "no moov box"})
 		return f, media.Fatal("demux.parse", media.ErrMissingMoov)
 	}
 	if err := buildAllSamples(f, size); err != nil && firstErr == nil {

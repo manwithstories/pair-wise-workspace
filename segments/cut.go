@@ -80,6 +80,10 @@ func Cut(f *media.File, target int64) ([]Segment, error) {
 		bounds = append(bounds, b)
 	}
 	at, hasAudio := f.TrackByKind(media.TrackAudio)
+	var aud []media.Sample
+	if hasAudio {
+		aud = f.SamplesOf(at.ID) // hoisted: copying per segment is O(n^2)
+	}
 	segs := make([]Segment, 0, len(bounds))
 	vcursor, acursor := 0, 0
 	for i, b := range bounds {
@@ -102,7 +106,6 @@ func Cut(f *media.File, target int64) ([]Segment, error) {
 		if hasAudio {
 			aStart := seg.Start.ToTimescale(at.Timescale).Value
 			aEnd := seg.End.ToTimescale(at.Timescale).Value
-			aud := f.SamplesOf(at.ID)
 			for acursor < len(aud) && aud[acursor].DTS.Value < aStart {
 				acursor++
 			}

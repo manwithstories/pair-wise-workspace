@@ -66,6 +66,9 @@ func Run(ctx context.Context, p Params, cp *Checkpoint) (*Summary, error) {
 	}
 	dag.Execute(ctx, p.Workers)
 	sum := summarize(deliveries, dag, p)
+	if err := writeDamagedManifest(p.OutDir, sum); err != nil {
+		return nil, err
+	}
 	cp.SetMeta("params", sig)
 	cp.SetMeta("outdir", p.OutDir)
 	cp.SetMeta("primary", primary.name)
@@ -74,6 +77,32 @@ func Run(ctx context.Context, p Params, cp *Checkpoint) (*Summary, error) {
 		return nil, fmt.Errorf("pipeline: save checkpoint: %w", err)
 	}
 	return sum, nil
+}
+
+// writeDamagedManifest records every unsalvageable byte range next to the
+// outputs, so the damaged areas are auditable without re-parsing the inputs.
+func writeDamagedManifest(outDir string, sum *Summary) error {
+	path := filepath.Join(outDir, "damaged-ranges.txt")
+	tmp, err := os.CreateTemp(outDir, ".bcast-damaged-*")
+	if err != nil {
+		return fmt.Errorf("pipeline: damaged manifest: %w", err)
+	}
+	name := tmp.Name()
+	if _, err := tmp.WriteString(sum.DamagedManifest()); err != nil {
+		tmp.Close()
+		os.Remove(name)
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(name)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(name)
+		return err
+	}
+	return os.Rename(name, path)
 }
 
 // buildDeliveries always starts with the clean program (the primary

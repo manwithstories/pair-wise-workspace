@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"bcast/pipeline"
@@ -172,5 +173,31 @@ func TestVerifyDetectsTamperedOutput(t *testing.T) {
 func TestUnknownDamageRejected(t *testing.T) {
 	if _, err := pipeline.ParseDamage("truncate,bogus"); err == nil {
 		t.Fatal("unknown damage accepted")
+	}
+}
+
+func TestDamagedManifestWritten(t *testing.T) {
+	dir := t.TempDir()
+	p := demoParams()
+	p.OutDir = filepath.Join(dir, "out")
+	cp, _ := pipeline.LoadCheckpoint(filepath.Join(dir, "cp.json"))
+	sum, err := pipeline.Run(context.Background(), p, cp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(p.OutDir, "damaged-ranges.txt"))
+	if err != nil {
+		t.Fatalf("manifest: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "truncate") || !strings.Contains(text, "broken-box") {
+		t.Fatalf("manifest missing deliveries:\n%s", text)
+	}
+	// The deliberately corrupt input is missing moov, not a broken box.
+	if !strings.Contains(text, "missing moov") {
+		t.Fatalf("corrupt input misclassified:\n%s", text)
+	}
+	if len(sum.DamagedList) < 2 {
+		t.Fatalf("damaged list=%v", sum.DamagedList)
 	}
 }

@@ -32,6 +32,16 @@ type Summary struct {
 	DuplicateGroups    int
 	HashDigest         string // digest of the per-segment hash list
 	DamageKinds        []string
+	DamagedList        []DamagedRange // per-delivery damaged byte ranges
+}
+
+// DamagedRange is one unsalvageable byte interval with its delivery and the
+// reason the parser recorded, suitable for a human-readable manifest.
+type DamagedRange struct {
+	Delivery string
+	Start    int64
+	End      int64
+	Reason   string
 }
 
 // summarize re-derives every reported metric from the inputs and the files on
@@ -70,6 +80,9 @@ func summarize(ds []*delivery, dag *DAG, p Params) *Summary {
 		sum.DamagedRanges += len(f.Damaged)
 		for _, r := range f.Damaged {
 			seen[r.Reason] = true
+			sum.DamagedList = append(sum.DamagedList, DamagedRange{
+				Delivery: d.name, Start: r.Start, End: r.End, Reason: r.Reason,
+			})
 		}
 		for _, iss := range f.Issues {
 			seen[string(iss.Kind)] = true
@@ -79,6 +92,13 @@ func summarize(ds []*delivery, dag *DAG, p Params) *Summary {
 		sum.DamageKinds = append(sum.DamageKinds, k)
 	}
 	sort.Strings(sum.DamageKinds)
+	sort.Slice(sum.DamagedList, func(i, j int) bool {
+		a, b := sum.DamagedList[i], sum.DamagedList[j]
+		if a.Delivery != b.Delivery {
+			return a.Delivery < b.Delivery
+		}
+		return a.Start < b.Start
+	})
 	// Rates describe the primary (clean) deliverable only.
 	prim := ds[0]
 	f, err := prim.ensureIndexed()
@@ -168,5 +188,13 @@ func (s *Summary) Encode() string {
 	return b.String()
 }
 
-// plainSummary is the subset of Summary persisted verbatim for verify.
-func (s *Summary) plainSummary() string { return s.Encode() }
+// DamagedManifest renders the damaged-range list as a stable text manifest.
+// One line per range keeps it greppable from the terminal.
+func (s *Summary) DamagedManifest() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# damaged ranges: %d\n", len(s.DamagedList))
+	for _, r := range s.DamagedList {
+		fmt.Fprintf(&b, "%s\t%d\t%d\t%s\n", r.Delivery, r.Start, r.End, r.Reason)
+	}
+	return b.String()
+}
