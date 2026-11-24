@@ -12,17 +12,17 @@ import (
 type FaultKind string
 
 const (
-	FaultPathEscape        FaultKind = "path_escape"         // reference escapes input root
-	FaultMissingInit       FaultKind = "missing_init"        // initialization segment absent
-	FaultTimestampBackward FaultKind = "timestamp_backward"  // illegal non-monotonic timestamp
-	FaultDuplicatePacket   FaultKind = "rtp_duplicate"       // repeated RTP sequence number
-	FaultReorderedPacket   FaultKind = "rtp_reordered"       // out-of-order packet inside window
-	FaultBurstLoss         FaultKind = "rtp_burst_loss"      // unrecovered sequence gap
-	FaultLatePacket        FaultKind = "rtp_late"            // packet arriving past the window
-	FaultTruncatedBox      FaultKind = "truncated_box"       // moof/mdad shorter than declared
+	FaultPathEscape        FaultKind = "path_escape"        // reference escapes input root
+	FaultMissingInit       FaultKind = "missing_init"       // initialization segment absent
+	FaultTimestampBackward FaultKind = "timestamp_backward" // illegal non-monotonic timestamp
+	FaultDuplicatePacket   FaultKind = "rtp_duplicate"      // repeated RTP sequence number
+	FaultReorderedPacket   FaultKind = "rtp_reordered"      // out-of-order packet inside window
+	FaultBurstLoss         FaultKind = "rtp_burst_loss"     // unrecovered sequence gap
+	FaultLatePacket        FaultKind = "rtp_late"           // packet arriving past the window
+	FaultTruncatedBox      FaultKind = "truncated_box"      // moof/mdad shorter than declared
 	FaultZeroDuration      FaultKind = "zero_duration_sample"
-	FaultInvalidNAL        FaultKind = "invalid_nal"         // unparseable AVC/HEVC unit
-	FaultBlocked           FaultKind = "blocked_dependency"  // DAG node blocked upstream
+	FaultInvalidNAL        FaultKind = "invalid_nal"        // unparseable AVC/HEVC unit
+	FaultBlocked           FaultKind = "blocked_dependency" // DAG node blocked upstream
 	FaultRetryExhausted    FaultKind = "retry_exhausted"
 )
 
@@ -38,13 +38,13 @@ const (
 // Source locates a fault inside the delivery tree. Line is 1-based and only
 // set for manifest text; Packet/Sample identify transport or bitstream units.
 type Source struct {
-	RepID         string `json:"rep_id,omitempty"`
-	Segment       string `json:"segment,omitempty"`
-	SegmentIndex  int    `json:"segment_index,omitempty"`
-	Line           int    `json:"line,omitempty"`
-	PacketSeq      uint16 `json:"packet_seq,omitempty"`
-	SampleIndex    int    `json:"sample_index,omitempty"`
-	OffsetBytes    int64  `json:"offset_bytes,omitempty"`
+	RepID        string `json:"rep_id,omitempty"`
+	Segment      string `json:"segment,omitempty"`
+	SegmentIndex int    `json:"segment_index,omitempty"`
+	Line         int    `json:"line,omitempty"`
+	PacketSeq    uint16 `json:"packet_seq,omitempty"`
+	SampleIndex  int    `json:"sample_index,omitempty"`
+	OffsetBytes  int64  `json:"offset_bytes,omitempty"`
 }
 
 // TimeRange marks the affected span on the unified millisecond clock.
@@ -55,10 +55,10 @@ type TimeRange struct {
 
 // Fault is the single error record shared by all modules.
 type Fault struct {
-	Kind     FaultKind `json:"kind"`
-	Severity Severity  `json:"severity"`
-	Message  string    `json:"message"`
-	Source   Source    `json:"source"`
+	Kind     FaultKind  `json:"kind"`
+	Severity Severity   `json:"severity"`
+	Message  string     `json:"message"`
+	Source   Source     `json:"source"`
 	Range    *TimeRange `json:"range,omitempty"`
 }
 
@@ -84,11 +84,19 @@ type FaultError struct{ F Fault }
 
 func (e *FaultError) Error() string { return e.F.Error() }
 
-// AsFault extracts a Fault from any error produced by the tool.
+// AsFault extracts a Fault from any error produced by the tool. Both bare
+// Fault values and *FaultError wrappers are recognized.
 func AsFault(err error) (Fault, bool) {
+	if err == nil {
+		return Fault{}, false
+	}
 	var fe *FaultError
 	if errors.As(err, &fe) {
 		return fe.F, true
+	}
+	var f Fault
+	if errors.As(err, &f) {
+		return f, true
 	}
 	return Fault{}, false
 }
