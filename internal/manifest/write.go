@@ -46,16 +46,17 @@ type Params struct {
 
 // Counts contains parsing, loss and replay quality counters.
 type Counts struct {
-	RTPFrames        int   `json:"rtp_frames"`
-	RTCPFrames       int   `json:"rtcp_frames"`
-	ParseErrors      int   `json:"parse_errors"`
-	DuplicatePackets int   `json:"duplicate_packets"`
-	OutOfOrder       int   `json:"out_of_order_packets"`
-	GapPackets       int   `json:"gap_packets"`
-	LatePackets      int   `json:"late_packets"`
-	LateReplays      int   `json:"late_replays"`
-	LateExpired      int   `json:"late_expired"`
-	MissingSamples   int64 `json:"missing_samples"`
+	RTPFrames        int      `json:"rtp_frames"`
+	RTCPFrames       int      `json:"rtcp_frames"`
+	ParseErrors      int      `json:"parse_errors"`
+	DuplicatePackets int      `json:"duplicate_packets"`
+	OutOfOrder       int      `json:"out_of_order_packets"`
+	GapPackets       int      `json:"gap_packets"`
+	LatePackets      int      `json:"late_packets"`
+	LateReplays      int      `json:"late_replays"`
+	LateExpired      int      `json:"late_expired"`
+	MissingSamples   int64    `json:"missing_samples"`
+	MissingSeqRanges []string `json:"missing_seq_ranges,omitempty"`
 }
 
 // Quality contains bitrate, loudness and timeline verification values.

@@ -85,7 +85,8 @@ func Run(opts Options) (*manifest.Manifest, error) {
 	if err != nil {
 		return nil, err
 	}
-	missingSamples := a.MissingSamples(spec)
+	missing := a.MissingPackets()
+	missingSamples := int64(len(missing)) * OutputFramesPerPacket(spec)
 	if opts.Strict && (a.ParseErrors > 0 || missingSamples > 0 || a.Watermark.LateExpired > 0) {
 		return nil, core.New(core.KindStrict, "strict",
 			fmt.Errorf("input has parse_errors=%d missing_samples=%d late_expired=%d",
@@ -128,6 +129,7 @@ func Run(opts Options) (*manifest.Manifest, error) {
 			OutOfOrder: a.OutOfOrder, GapPackets: a.Reorder.Stats.GapPackets,
 			LatePackets: a.Reorder.Stats.LatePackets, LateReplays: a.Watermark.LateReplays,
 			LateExpired: a.Watermark.LateExpired, MissingSamples: missingSamples,
+			MissingSeqRanges: FormatSeqRanges(missing),
 		},
 		Quality: manifest.Quality{
 			TargetBPS: core.TargetBPS, ActualBPS: actualBPS, DeviationPct: deviationPct,

@@ -4,6 +4,7 @@ package pipeline
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 
 	"github.com/pion/rtp"
@@ -148,4 +149,22 @@ func (a *Analysis) MissingPackets() []int64 {
 // MissingSamples returns missing 48 kHz output frames.
 func (a *Analysis) MissingSamples(spec source.Spec) int64 {
 	return int64(len(a.MissingPackets())) * OutputFramesPerPacket(spec)
+}
+
+// FormatSeqRanges compresses sorted extended sequence numbers into ranges.
+func FormatSeqRanges(seqs []int64) []string {
+	var ranges []string
+	for i := 0; i < len(seqs); {
+		j := i
+		for j+1 < len(seqs) && seqs[j+1] == seqs[j]+1 {
+			j++
+		}
+		if i == j {
+			ranges = append(ranges, fmt.Sprintf("%d", seqs[i]))
+		} else {
+			ranges = append(ranges, fmt.Sprintf("%d-%d", seqs[i], seqs[j]))
+		}
+		i = j + 1
+	}
+	return ranges
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/clearliu/mediq/internal/core"
 	"github.com/clearliu/mediq/internal/manifest"
@@ -67,6 +68,9 @@ func printReport(w io.Writer, m *manifest.Manifest) {
 	fmt.Fprintf(w, "actual_bps=%.3f\n", m.Quality.ActualBPS)
 	fmt.Fprintf(w, "deviation_pct=%.6f\n", m.Quality.DeviationPct)
 	fmt.Fprintf(w, "missing_samples=%d\n", m.Counts.MissingSamples)
+	if len(m.Counts.MissingSeqRanges) > 0 {
+		fmt.Fprintf(w, "missing_seq_ranges=%s\n", strings.Join(m.Counts.MissingSeqRanges, ","))
+	}
 	fmt.Fprintf(w, "duplicate_packets=%d\n", m.Counts.DuplicatePackets)
 	fmt.Fprintf(w, "late_replays=%d\n", m.Counts.LateReplays)
 	fmt.Fprintf(w, "late_expired=%d\n", m.Counts.LateExpired)
