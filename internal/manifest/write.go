@@ -124,6 +124,8 @@ func WriteJSONAtomic(path string, v any) error {
 	}
 	tmpName := tmp.Name()
 	cleanup := func() { _ = os.Remove(tmpName) }
+	// os.CreateTemp defaults to 0600; deliverables are conventionally readable.
+	_ = tmp.Chmod(0o644)
 
 	enc := json.NewEncoder(tmp)
 	enc.SetIndent("", "  ")

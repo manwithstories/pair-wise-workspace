@@ -213,5 +213,26 @@ func buildManifest(cp *Checkpoint, plan *source.Plan, meta map[string]repMeta, c
 		},
 	}
 	hash := manifest.ResultHash(records, points, align.Aligned)
+	if mf.Fragments == nil {
+		mf.Fragments = []manifest.FragmentRecord{}
+	}
+	if mf.Quarantined == nil {
+		mf.Quarantined = []manifest.QuarantineRecord{}
+	}
+	if mf.SwitchPoints == nil {
+		mf.SwitchPoints = []manifest.SwitchPoint{}
+	}
+	if mf.AudioGroups == nil {
+		mf.AudioGroups = []metadata.AudioGroup{}
+	}
+	if mf.CompatibleVideo == nil {
+		mf.CompatibleVideo = []string{}
+	}
+	if mf.IncompatibleVideo == nil {
+		mf.IncompatibleVideo = []string{}
+	}
+	if mf.Issues == nil {
+		mf.Issues = []timeline.Issue{}
+	}
 	return mf, hash, align
 }
