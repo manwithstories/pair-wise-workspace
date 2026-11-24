@@ -11,37 +11,37 @@ import (
 
 // Source describes the self-generated RTP/RTCP input and source range.
 type Source struct {
-	Case               string  `json:"case"`
-	File               string  `json:"file"`
-	SHA256             string  `json:"sha256"`
-	SSRC               uint32  `json:"ssrc"`
-	PayloadType        uint8   `json:"payload_type"`
-	SampleRateHz       int     `json:"sample_rate_hz"`
-	Channels           int     `json:"channels"`
-	FramesPerPacket    int     `json:"frames_per_packet"`
-	RTPSeqFirst        uint16  `json:"rtp_seq_first"`
-	RTPSeqLast         uint16  `json:"rtp_seq_last"`
-	ExtendedSeqFirst   int64   `json:"extended_seq_first"`
-	ExtendedSeqLast    int64   `json:"extended_seq_last"`
-	RTPTimestampFirst  uint32  `json:"rtp_timestamp_first"`
-	RTPTimestampLast   uint32  `json:"rtp_timestamp_last"`
-	StartTimeMS        float64 `json:"start_time_ms"`
-	EndTimeMS          float64 `json:"end_time_ms"`
+	Case              string  `json:"case"`
+	File              string  `json:"file"`
+	SHA256            string  `json:"sha256"`
+	SSRC              uint32  `json:"ssrc"`
+	PayloadType       uint8   `json:"payload_type"`
+	SampleRateHz      int     `json:"sample_rate_hz"`
+	Channels          int     `json:"channels"`
+	FramesPerPacket   int     `json:"frames_per_packet"`
+	RTPSeqFirst       uint16  `json:"rtp_seq_first"`
+	RTPSeqLast        uint16  `json:"rtp_seq_last"`
+	ExtendedSeqFirst  int64   `json:"extended_seq_first"`
+	ExtendedSeqLast   int64   `json:"extended_seq_last"`
+	RTPTimestampFirst uint32  `json:"rtp_timestamp_first"`
+	RTPTimestampLast  uint32  `json:"rtp_timestamp_last"`
+	StartTimeMS       float64 `json:"start_time_ms"`
+	EndTimeMS         float64 `json:"end_time_ms"`
 }
 
 // Params records all processing parameters bound to the checkpoint.
 type Params struct {
-	OutputRateHz         int     `json:"output_rate_hz"`
-	OutputChannels       int     `json:"output_channels"`
-	OutputBitsPerSample  int     `json:"output_bits_per_sample"`
-	TargetBPS            int64   `json:"target_bps"`
-	Resampler             string  `json:"resampler"`
-	LoudnessTargetLUFS    float64 `json:"loudness_target_lufs"`
-	TruePeakCeilingDBTP    float64 `json:"true_peak_ceiling_dbtp"`
-	ReorderWindow         int     `json:"reorder_window"`
-	TimelineIntervalMS    int     `json:"timeline_interval_ms"`
-	RetentionIntervals    int     `json:"retention_intervals"`
-	MaxDatagramBytes      int     `json:"max_datagram_bytes"`
+	OutputRateHz        int     `json:"output_rate_hz"`
+	OutputChannels      int     `json:"output_channels"`
+	OutputBitsPerSample int     `json:"output_bits_per_sample"`
+	TargetBPS           int64   `json:"target_bps"`
+	Resampler           string  `json:"resampler"`
+	LoudnessTargetLUFS  float64 `json:"loudness_target_lufs"`
+	TruePeakCeilingDBTP float64 `json:"true_peak_ceiling_dbtp"`
+	ReorderWindow       int     `json:"reorder_window"`
+	TimelineIntervalMS  int     `json:"timeline_interval_ms"`
+	RetentionIntervals  int     `json:"retention_intervals"`
+	MaxDatagramBytes    int     `json:"max_datagram_bytes"`
 }
 
 // Counts contains parsing, loss and replay quality counters.
@@ -60,40 +60,40 @@ type Counts struct {
 
 // Quality contains bitrate, loudness and timeline verification values.
 type Quality struct {
-	TargetBPS        int64   `json:"target_bps"`
-	ActualBPS        float64 `json:"actual_bps"`
-	DeviationPct     float64 `json:"deviation_pct"`
-	DurationMS       float64 `json:"duration_ms"`
-	ExpectedMS       float64 `json:"expected_duration_ms"`
-	ManifestErrorMS  float64 `json:"manifest_error_ms"`
-	IntegratedLUFS   float64 `json:"integrated_lufs"`
-	TruePeakDBTP     float64 `json:"true_peak_dbtp"`
+	TargetBPS       int64   `json:"target_bps"`
+	ActualBPS       float64 `json:"actual_bps"`
+	DeviationPct    float64 `json:"deviation_pct"`
+	DurationMS      float64 `json:"duration_ms"`
+	ExpectedMS      float64 `json:"expected_duration_ms"`
+	ManifestErrorMS float64 `json:"manifest_error_ms"`
+	IntegratedLUFS  float64 `json:"integrated_lufs"`
+	TruePeakDBTP    float64 `json:"true_peak_dbtp"`
 }
 
 // Product identifies the MP4 artifact and hash.
 type Product struct {
-	File      string `json:"file"`
-	SHA256    string `json:"sha256"`
-	Bytes     int64  `json:"bytes"`
-	PCMBytes  int    `json:"pcm_bytes"`
+	File     string `json:"file"`
+	SHA256   string `json:"sha256"`
+	Bytes    int64  `json:"bytes"`
+	PCMBytes int    `json:"pcm_bytes"`
 }
 
 // Manifest is the complete delivery record.
 type Manifest struct {
-	SchemaVersion            int     `json:"schema_version"`
-	Status                   string  `json:"status"`
-	ExitCode                 int     `json:"exit_code"`
-	Strict                   bool    `json:"strict"`
-	FirstParseErrorOffset    int64   `json:"first_parse_error_offset"`
-	FirstParseError          string  `json:"first_parse_error,omitempty"`
-	InputExceptionCount      int     `json:"input_exception_count"`
-	CommittedOutputSamples   int64   `json:"committed_output_samples"`
-	CheckpointSHA256         string  `json:"checkpoint_sha256,omitempty"`
-	Source                   Source  `json:"source"`
-	Params                   Params  `json:"params"`
-	Counts                   Counts  `json:"counts"`
-	Quality                  Quality `json:"quality"`
-	Product                  Product `json:"product"`
+	SchemaVersion          int     `json:"schema_version"`
+	Status                 string  `json:"status"`
+	ExitCode               int     `json:"exit_code"`
+	Strict                 bool    `json:"strict"`
+	FirstParseErrorOffset  int64   `json:"first_parse_error_offset"`
+	FirstParseError        string  `json:"first_parse_error,omitempty"`
+	InputExceptionCount    int     `json:"input_exception_count"`
+	CommittedOutputSamples int64   `json:"committed_output_samples"`
+	CheckpointSHA256       string  `json:"checkpoint_sha256,omitempty"`
+	Source                 Source  `json:"source"`
+	Params                 Params  `json:"params"`
+	Counts                 Counts  `json:"counts"`
+	Quality                Quality `json:"quality"`
+	Product                Product `json:"product"`
 }
 
 // Write atomically writes manifest.json.

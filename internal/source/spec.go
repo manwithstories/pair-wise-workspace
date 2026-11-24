@@ -2,24 +2,24 @@ package source
 
 // Spec parameterizes a self-generated demo stream.
 type Spec struct {
-	Case              string
-	SampleRate        int
-	Channels          int
-	FramesPerPacket   int
-	PacketCount       int
-	SSRC              uint32
-	PayloadType       uint8
-	ReorderWindow     int
-	IntervalSamples   int
+	Case               string
+	SampleRate         int
+	Channels           int
+	FramesPerPacket    int
+	PacketCount        int
+	SSRC               uint32
+	PayloadType        uint8
+	ReorderWindow      int
+	IntervalSamples    int
 	RetentionIntervals int
 
 	// Damaged-case orchestration.
-	DuplicateSeq int
-	SwapA        int
-	SwapB        int
-	DroppedSeqs  []int
-	EarlyLateSeq int
-	LateSeq      int
+	DuplicateSeq   int
+	SwapA          int
+	SwapB          int
+	DroppedSeqs    []int
+	EarlyLateSeq   int
+	LateSeq        int
 	ExpiredLateSeq int
 }
 
