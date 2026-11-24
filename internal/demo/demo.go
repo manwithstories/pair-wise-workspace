@@ -300,28 +300,28 @@ func observeSync(coll *metrics.Collector, ix *index.Index) {
 	}
 }
 
-func sampleMS(tr index.Track, dts int64) float64 {
-	ticks := dts - tr.EditMediaTicks
-	if ticks < 0 {
-		ticks = 0
+// sampleTimeline converts a media tick position to absolute timeline seconds
+// using the same edit-media rule as the streaming stage.
+func sampleTimeline(tr index.Track, ticks int64) clock.Rational {
+	if ticks < tr.EditMediaTicks {
+		return tr.Origin
 	}
-	return float64(ticks)/float64(tr.Timescale)*1000 + tr.Origin.Seconds()*1000
-}
-
-func rationalMS(ticks int64, tr index.Track) clock.Rational {
-	if ticks < 0 {
-		ticks = 0
-	}
-	r, err := clock.FromTicks(ticks, tr.Timescale)
+	r, err := clock.FromTicks(ticks-tr.EditMediaTicks, tr.Timescale)
 	if err != nil {
 		return clock.Rational{Den: 1}
 	}
-	if tr.Origin.Num > 0 {
-		if sum, err := r.Add(tr.Origin); err == nil {
-			r = sum
-		}
+	if sum, err := r.Add(tr.Origin); err == nil {
+		return sum
 	}
 	return r
+}
+
+func sampleMS(tr index.Track, dts int64) float64 {
+	return sampleTimeline(tr, dts).Milliseconds()
+}
+
+func rationalMS(ticks int64, tr index.Track) clock.Rational {
+	return sampleTimeline(tr, ticks)
 }
 
 func spans(ix *index.Index) []metrics.CorruptSpan {
