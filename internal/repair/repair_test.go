@@ -168,6 +168,38 @@ func TestAnalyzeSequenceWrap(t *testing.T) {
 	}
 }
 
+func TestAnalyzeWrapNotCountedAsReorder(t *testing.T) {
+	var raws [][]byte
+	for i := 65530; i < 65536; i++ {
+		raws = append(raws, mkRTP(uint16(i), uint32(i)*3000, body(uint16(i)), nil))
+	}
+	for i := 0; i < 10; i++ {
+		raws = append(raws, mkRTP(uint16(i), uint32(i)*3000, body(uint16(i)), nil))
+	}
+	res := Analyze(raws)
+	if res.Reordered != 0 {
+		t.Fatalf("monotonic wrap must not be counted as reordering: %d", res.Reordered)
+	}
+	if len(res.Payloads) != 16 || res.Gaps != nil {
+		t.Fatalf("payloads=%d gaps=%v", len(res.Payloads), res.Gaps)
+	}
+}
+
+func TestAnalyzeLatePacketCountedOnce(t *testing.T) {
+	// Arrival order 0,1,2,5,3,4: packets 3 and 4 are late.
+	var raws [][]byte
+	for _, i := range []int{0, 1, 2, 5, 3, 4} {
+		raws = append(raws, mkRTP(uint16(i), uint32(i)*3000, body(uint16(i)), nil))
+	}
+	res := Analyze(raws)
+	if res.Reordered != 2 {
+		t.Fatalf("reordered=%d want 2", res.Reordered)
+	}
+	if res.Lost != 0 {
+		t.Fatalf("lost=%d", res.Lost)
+	}
+}
+
 func TestAnalyzeCorruptDatagram(t *testing.T) {
 	var raws [][]byte
 	raws = append(raws, mkRTP(0, 0, body(0), nil))

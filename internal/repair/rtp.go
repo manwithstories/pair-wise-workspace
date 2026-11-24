@@ -50,6 +50,8 @@ type Result struct {
 	LossPct     float64 // residual loss after recovery
 	RecoveryPct float64 // recovered / (recovered + lost)
 	Digest      string
+
+	highExt int64 // highest extended sequence seen, for reorder accounting
 }
 
 // Payload is one reconstructed media unit in presentation order.
@@ -106,8 +108,14 @@ func Analyze(raws [][]byte) Result {
 			ext = base
 			lastExt = ext
 		}
-		if ext < lastExt {
+		// Reordering is judged against the highest sequence seen so far, not
+		// just the immediately preceding arrival, so a single late packet is
+		// counted once rather than cascading.
+		if ext < res.highExt {
 			res.Reordered++
+		}
+		if ext > res.highExt {
+			res.highExt = ext
 		}
 		lastExt = ext
 		if ext > maxExt {
@@ -133,7 +141,6 @@ func Analyze(raws [][]byte) Result {
 	}
 
 	res.Expected = int(maxExt-minExt) + 1
-	recovered := make(map[int64]bool)
 	missing := make([]int64, 0, 8)
 
 	for ext := minExt; ext <= maxExt; ext++ {
@@ -154,7 +161,6 @@ func Analyze(raws [][]byte) Result {
 				Bytes:     next.pkt.Redundant.Bytes,
 				Recovered: true,
 			})
-			recovered[ext] = true
 			res.Recovered++
 			continue
 		}
