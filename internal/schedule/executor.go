@@ -15,12 +15,14 @@ type Config struct {
 }
 
 // RunContext is passed to each node Func. Store lets nodes persist artifacts
-// keyed by the node's idempotency key so resumed runs reuse prior outputs.
+// keyed by the node's idempotency key so resumed runs can reuse prior outputs;
+// Reused reports whether that artifact already existed before this execution.
 type RunContext struct {
 	store  *Store
 	rec    *core.Recorder
 	nodeID string
 	key    string
+	reused bool
 }
 
 // SaveArtifact records a node output under its idempotency key.
@@ -32,6 +34,12 @@ func (c *RunContext) SaveArtifact(data []byte) error {
 func (c *RunContext) LoadArtifact() ([]byte, bool) {
 	return c.store.get(c.key)
 }
+
+// Reused reports whether the node's artifact was already present (idempotent
+// cache hit) when the node started. Node logic must still recompute its
+// in-memory result deterministically; only expensive output writes need to be
+// gated on this flag.
+func (c *RunContext) Reused() bool { return c.reused }
 
 // Recorder exposes the shared fault sink to node implementations.
 func (c *RunContext) Recorder() *core.Recorder { return c.rec }
@@ -46,10 +54,10 @@ type nodeState struct {
 
 // Result summarizes the whole run.
 type Result struct {
-	Statuses     map[string]Status `json:"statuses"`
-	FirstBlocked string            `json:"first_blocked,omitempty"`
-	RetriedReused int              `json:"retry_reused"`
-	Failed       []string          `json:"failed,omitempty"`
+	Statuses      map[string]Status `json:"statuses"`
+	FirstBlocked  string            `json:"first_blocked,omitempty"`
+	RetriedReused int               `json:"retry_reused"`
+	Failed        []string          `json:"failed,omitempty"`
 }
 
 // Executor runs a validated DAG.
@@ -162,18 +170,22 @@ func (e *Executor) Run(d *DAG) (*Result, error) {
 	return e.buildResult(d, states, reused), nil
 }
 
-// runNode applies retries against the idempotency key. An artifact already in
-// the store means the node (or a prior attempt) produced output, so it is
-// reused instead of recomputed — the resume/idempotency guarantee.
+// runNode applies retries against the idempotency key. When an artifact is
+// already present (a resumed/interrupted run), the node Func still executes so
+// its deterministic in-memory result is reproduced, but Reused() lets it skip
+// redundant output writes; the run counts one idempotent reuse.
 func (e *Executor) runNode(n *Node, st *nodeState, reused *int) error {
+	cached := false
 	if _, ok := e.store.get(st.key); ok {
+		cached = true
 		*reused++
-		return nil
 	}
 	var lastErr error
 	for attempt := 0; attempt <= e.cfg.MaxRetry; attempt++ {
 		st.tries = attempt + 1
-		ctx := &RunContext{store: e.store, rec: e.rec, nodeID: n.ID, key: st.key}
+		ctx := &RunContext{
+			store: e.store, rec: e.rec, nodeID: n.ID, key: st.key, reused: cached,
+		}
 		if err := n.Run(ctx); err != nil {
 			lastErr = err
 			e.rec.Add(core.NewFault(core.FaultRetryExhausted, core.SevWarn,

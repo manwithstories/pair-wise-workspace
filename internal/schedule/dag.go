@@ -13,11 +13,11 @@ import (
 type Status string
 
 const (
-	StatusPending  Status = "pending"  // 待执行
-	StatusRunning  Status = "running"  // 运行中
-	StatusSuccess  Status = "success"  // 成功
-	StatusFailed   Status = "failed"   // 失败（重试已耗尽）
-	StatusBlocked  Status = "blocked"  // 阻塞（上游失败，无法运行）
+	StatusPending Status = "pending" // 待执行
+	StatusRunning Status = "running" // 运行中
+	StatusSuccess Status = "success" // 成功
+	StatusFailed  Status = "failed"  // 失败（重试已耗尽）
+	StatusBlocked Status = "blocked" // 阻塞（上游失败，无法运行）
 )
 
 // Func is the unit of work a node runs. Implementations must be idempotent
@@ -27,13 +27,13 @@ type Func func(ctx *RunContext) error
 
 // Node is one DAG vertex.
 type Node struct {
-	ID       string
-	Deps     []string
+	ID   string
+	Deps []string
 	// InputSummary and ParamSummary feed the idempotency key. They capture the
 	// inputs the node consumes and the parameters that change its behavior.
-	InputSummary  string
-	ParamSummary  string
-	Run           Func
+	InputSummary string
+	ParamSummary string
+	Run          Func
 }
 
 // Key returns the deterministic idempotency key for a node execution.

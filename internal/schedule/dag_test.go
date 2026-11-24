@@ -103,11 +103,26 @@ func TestRetryAndIdempotentReuse(t *testing.T) {
 	if hash1 == "" {
 		t.Fatal("artifact not persisted")
 	}
-	// Second run must reuse the artifact and never re-execute.
+	// Second run: the idempotent key hits the store (RetriedReused=1). The Func
+	// still executes to reproduce its deterministic result, but Reused() lets it
+	// skip redundant writes, and the artifact hash stays identical.
+	var secondRuns int
+	n2 := n
+	n2.Run = func(ctx *RunContext) error {
+		secondRuns++
+		if !ctx.Reused() {
+			t.Fatal("resumed node must report Reused()=true")
+		}
+		return ctx.SaveArtifact([]byte("stable-output"))
+	}
+	d2, _ := NewDAG([]Node{n2})
 	exec2 := NewExecutor(Config{Workers: 1, MaxRetry: 2}, store, core.NewRecorder())
-	res2, _ := exec2.Run(d)
+	res2, _ := exec2.Run(d2)
 	if res2.RetriedReused != 1 {
 		t.Fatalf("reused=%d want 1", res2.RetriedReused)
+	}
+	if secondRuns != 1 {
+		t.Fatalf("resumed node re-ran %d times, want 1", secondRuns)
 	}
 	if store.Hash(key) != hash1 {
 		t.Fatal("resume changed the artifact hash")
