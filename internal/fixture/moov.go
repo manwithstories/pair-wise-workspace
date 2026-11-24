@@ -130,3 +130,51 @@ func (b *builder) dinf() []byte {
 	dref = append(dref, url...)
 	return containerBox("dinf", dref)
 }
+
+func (b *builder) stsd(lay trackLayout) []byte {
+	var entry []byte
+	if lay.spec.Kind == "video" {
+		entry = box("avc1", videoSampleEntry())
+	} else {
+		entry = box("mp4a", audioSampleEntry())
+	}
+	p := binary.BigEndian.AppendUint32(nil, 1)
+	return fullbox("stsd", 0, 0, append(p, entry...))
+}
+
+// videoSampleEntry is a 78-byte VisualSampleEntry payload (86 with header).
+func videoSampleEntry() []byte {
+	p := make([]byte, 0, 78)
+	p = append(p, make([]byte, 6)...)       // reserved
+	p = binary.BigEndian.AppendUint16(p, 1) // data ref index
+	p = binary.BigEndian.AppendUint16(p, 0) // predefined
+	p = binary.BigEndian.AppendUint16(p, 0) // reserved
+	p = append(p, make([]byte, 12)...)      // predefined2
+	p = binary.BigEndian.AppendUint16(p, 160)
+	p = binary.BigEndian.AppendUint16(p, 90)
+	p = binary.BigEndian.AppendUint32(p, 0x00480000)
+	p = binary.BigEndian.AppendUint32(p, 0x00480000)
+	p = binary.BigEndian.AppendUint32(p, 0)
+	p = binary.BigEndian.AppendUint16(p, 1) // frame count
+	compressor := make([]byte, 32)
+	compressor[0] = 4
+	copy(compressor[1:], "meds")
+	p = append(p, compressor...)
+	p = binary.BigEndian.AppendUint16(p, 0x0018)
+	p = binary.BigEndian.AppendUint16(p, 0xffff)
+	return p // 78 bytes
+}
+
+// audioSampleEntry is a 28-byte AudioSampleEntry payload (36 with header).
+func audioSampleEntry() []byte {
+	p := make([]byte, 0, 28)
+	p = append(p, make([]byte, 6)...)
+	p = binary.BigEndian.AppendUint16(p, 1)
+	p = append(p, make([]byte, 8)...) // version/revision/vendor
+	p = binary.BigEndian.AppendUint16(p, 2)
+	p = binary.BigEndian.AppendUint16(p, 16)
+	p = binary.BigEndian.AppendUint16(p, 0)
+	p = binary.BigEndian.AppendUint16(p, 0)
+	p = binary.BigEndian.AppendUint32(p, 48000<<16)
+	return p // 28 bytes
+}
