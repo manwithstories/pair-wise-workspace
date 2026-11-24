@@ -105,7 +105,7 @@ func resampleLinear(in *Buffer, out *Buffer, outFrames int) {
 		for ch := 0; ch < in.Channels; ch++ {
 			a := in.Interleaved[i0*in.Channels+ch]
 			b := in.Interleaved[i1*in.Channels+ch]
-			out.Interleaved[n*in.Channels+ch] = a+(b-a)*frac
+			out.Interleaved[n*in.Channels+ch] = a + (b-a)*frac
 		}
 	}
 }

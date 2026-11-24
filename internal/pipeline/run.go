@@ -111,8 +111,8 @@ func Run(opts Options) (*manifest.Manifest, error) {
 		ExitCode:              0,
 		Strict:                opts.Strict,
 		FirstParseErrorOffset: a.FirstOffset,
-		FirstParseError:        a.FirstError,
-		InputExceptionCount:    a.ParseErrors,
+		FirstParseError:       a.FirstError,
+		InputExceptionCount:   a.ParseErrors,
 		Source: manifest.Source{
 			Case: opts.Case, File: InputName, SHA256: inputSHA, SSRC: spec.SSRC,
 			PayloadType: spec.PayloadType, SampleRateHz: spec.SampleRate, Channels: spec.Channels,
@@ -133,7 +133,7 @@ func Run(opts Options) (*manifest.Manifest, error) {
 			TargetBPS: core.TargetBPS, ActualBPS: actualBPS, DeviationPct: deviationPct,
 			DurationMS: durationMS, ExpectedMS: expectedMS,
 			ManifestErrorMS: math.Abs(durationMS - expectedMS),
-			IntegratedLUFS:   norm.OutputLUFS, TruePeakDBTP: norm.TruePeakDBTP,
+			IntegratedLUFS:  norm.OutputLUFS, TruePeakDBTP: norm.TruePeakDBTP,
 		},
 	}
 
@@ -155,8 +155,8 @@ func Run(opts Options) (*manifest.Manifest, error) {
 		newCP := recovery.Checkpoint{
 			Case: opts.Case, InputSHA256: inputSHA, ParamsSHA256: paramsSHA,
 			CommittedOutputSamples: end, CommittedExtendedSeq: a.ExtLast,
-			ProcessedRecords:       a.Reorder.Stats.AcceptedPackets + a.RTCPFrames + a.ParseErrors,
-			Completed:              end == totalFrames,
+			ProcessedRecords: a.Reorder.Stats.AcceptedPackets + a.RTCPFrames + a.ParseErrors,
+			Completed:        end == totalFrames,
 		}
 		if err := store.Save(newCP); err != nil {
 			return m, err
@@ -187,7 +187,7 @@ func Run(opts Options) (*manifest.Manifest, error) {
 		Case: opts.Case, InputSHA256: inputSHA, ParamsSHA256: paramsSHA,
 		CommittedOutputSamples: totalFrames, CommittedExtendedSeq: a.ExtLast,
 		ProcessedRecords: a.Reorder.Stats.AcceptedPackets + a.RTCPFrames + a.ParseErrors,
-		Completed: true, ProductSHA256: prod.SHA256,
+		Completed:        true, ProductSHA256: prod.SHA256,
 	}
 	if err := store.Save(finalCP); err != nil {
 		return m, err

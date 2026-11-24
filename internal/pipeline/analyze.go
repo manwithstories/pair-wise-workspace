@@ -16,10 +16,10 @@ import (
 
 // Analysis is the deterministic result of reading and ordering one feed.
 type Analysis struct {
-	Clock       *core.Clock
-	Reorder     *ingest.ReorderBuffer
-	Watermark   *timeline.Watermark
-	Packets     map[int64]*rtp.Packet
+	Clock        *core.Clock
+	Reorder      *ingest.ReorderBuffer
+	Watermark    *timeline.Watermark
+	Packets      map[int64]*rtp.Packet
 	RejectedLate map[int64]bool
 
 	ParseErrors      int
@@ -42,12 +42,12 @@ func OutputFramesPerPacket(spec source.Spec) int64 {
 func Analyze(input []byte, spec source.Spec) (*Analysis, error) {
 	outFrames := OutputFramesPerPacket(spec)
 	a := &Analysis{
-		Clock:     core.NewClock(spec.SSRC, uint32(spec.SampleRate)),
-		Reorder:   ingest.NewReorderBuffer(spec.ReorderWindow),
-		Watermark: timeline.New(timeline.Config{IntervalSamples: int64(spec.IntervalSamples), RetentionIntervals: int64(spec.RetentionIntervals)}),
-		Packets:   make(map[int64]*rtp.Packet),
+		Clock:        core.NewClock(spec.SSRC, uint32(spec.SampleRate)),
+		Reorder:      ingest.NewReorderBuffer(spec.ReorderWindow),
+		Watermark:    timeline.New(timeline.Config{IntervalSamples: int64(spec.IntervalSamples), RetentionIntervals: int64(spec.RetentionIntervals)}),
+		Packets:      make(map[int64]*rtp.Packet),
 		RejectedLate: make(map[int64]bool),
-		FirstOffset:   -1,
+		FirstOffset:  -1,
 	}
 	r := ingest.NewReader(bytes.NewReader(input), ingest.DefaultMaxDatagramBytes)
 	haveFirst := false

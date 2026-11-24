@@ -25,30 +25,30 @@ func (r Range) Length() int64 { return r.End.Samples() - r.Start.Samples() }
 
 // Checkpoint is a deterministic rollback point for one committed interval.
 type Checkpoint struct {
-	Interval        int64
-	Start           core.Time
-	End             core.Time
-	Watermark       core.Time
-	CommittedEnd    core.Time
-	Token           string
+	Interval     int64
+	Start        core.Time
+	End          core.Time
+	Watermark    core.Time
+	CommittedEnd core.Time
+	Token        string
 }
 
 // Config bounds watermark lateness and checkpoint retention.
 type Config struct {
-	IntervalSamples  int64
-	LatenessSamples  int64
+	IntervalSamples    int64
+	LatenessSamples    int64
 	RetentionIntervals int64
 }
 
 // Watermark advances event time and retains bounded rollback checkpoints.
 type Watermark struct {
-	cfg            Config
-	maxEnd         core.Time
-	watermark      core.Time
-	committedEnd   core.Time
-	checkpoints    []Checkpoint
-	LateReplays    int
-	LateExpired    int
+	cfg          Config
+	maxEnd       core.Time
+	watermark    core.Time
+	committedEnd core.Time
+	checkpoints  []Checkpoint
+	LateReplays  int
+	LateExpired  int
 }
 
 // New creates a watermark. Zero config values receive bounded defaults.

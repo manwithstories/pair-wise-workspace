@@ -16,15 +16,15 @@ import (
 
 // Checkpoint is the resumable committed position plus input/parameter binds.
 type Checkpoint struct {
-	Version                 int    `json:"version"`
-	Case                    string `json:"case,omitempty"`
-	InputSHA256             string `json:"input_sha256"`
-	ParamsSHA256            string `json:"params_sha256"`
-	CommittedOutputSamples  int64  `json:"committed_output_samples"`
-	CommittedExtendedSeq    int64  `json:"committed_extended_seq"`
-	ProcessedRecords        int    `json:"processed_records"`
-	Completed               bool   `json:"completed"`
-	ProductSHA256           string `json:"product_sha256,omitempty"`
+	Version                int    `json:"version"`
+	Case                   string `json:"case,omitempty"`
+	InputSHA256            string `json:"input_sha256"`
+	ParamsSHA256           string `json:"params_sha256"`
+	CommittedOutputSamples int64  `json:"committed_output_samples"`
+	CommittedExtendedSeq   int64  `json:"committed_extended_seq"`
+	ProcessedRecords       int    `json:"processed_records"`
+	Completed              bool   `json:"completed"`
+	ProductSHA256          string `json:"product_sha256,omitempty"`
 }
 
 // Store saves checkpoints at one path with injectable crash points.

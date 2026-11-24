@@ -45,17 +45,17 @@ type Clock struct {
 	SourceRateHz uint32
 	SSRC         uint32
 
-	originSet   bool
-	originRTP   int64
+	originSet    bool
+	originRTP    int64
 	lastExtended int64
-	hasLast     bool
+	hasLast      bool
 
-	hasSR       bool
-	srRTP       int64
-	srNTP       float64
-	baseRTP     int64
-	baseNTP     float64
-	driftPPM    float64
+	hasSR        bool
+	srRTP        int64
+	srNTP        float64
+	baseRTP      int64
+	baseNTP      float64
+	driftPPM     float64
 	observations int
 }
 
