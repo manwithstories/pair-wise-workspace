@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	mp4adapter "media-check/internal/adapter/mp4"
+	"media-check/internal/manifest"
 	"media-check/internal/model"
 )
 
@@ -14,7 +15,8 @@ type RemuxResult struct {
 	Data        []byte // output MP4
 	Frames      int
 	Range       model.TimeRange
-	RoundtripOK bool // re-parsed output reproduces every source payload hash
+	DstHash     [32]byte // hash of frames rebuilt from the remuxed output
+	RoundtripOK bool     // re-parsed output reproduces every source payload hash
 }
 
 // RemuxSegment repackages one segment's frames into the MP4 container
@@ -60,5 +62,12 @@ func RemuxSegment(a mp4adapter.Adapter, frames []model.Frame, segIdx int, delta 
 			return res, fmt.Errorf("segment %d: frame %d payload changed across remux", segIdx, i)
 		}
 	}
+	// DstHash is computed from the samples actually extracted back out
+	// of the remuxed container, not copied from the source.
+	out := make([]model.Frame, len(frames))
+	for i, f := range frames {
+		out[i] = model.Frame{Seq: f.Seq, Time: f.Time, Keyframe: f.Keyframe, Payload: got[i]}
+	}
+	res.DstHash = manifest.HashFrames(out)
 	return res, nil
 }
