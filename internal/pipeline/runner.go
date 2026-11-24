@@ -125,6 +125,12 @@ func (rn *Runner) Run(ctx context.Context, man *manifest.Manifest,
 	for _, id := range matIDs {
 		src := sources[id]
 		totalMaterials++
+		if int64(len(src.Data)) > rn.limits.MaxInputLength {
+			return nil, model.At(model.KindLimitExceeded, "pipeline", "input length",
+				int64(src.Material.Line),
+				fmt.Sprintf("material %s is %d bytes, exceeds limit %d",
+					id, len(src.Data), rn.limits.MaxInputLength))
+		}
 		if rn.cfg.CorruptMaterial[id] {
 			// A damaged material is detected and isolated; other tracks continue.
 			isolated = append(isolated, id)

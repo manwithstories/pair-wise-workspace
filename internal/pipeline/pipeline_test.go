@@ -240,6 +240,22 @@ func (alwaysFailWriter) Write([]byte) (int, error) {
 	return 0, model.New(model.KindIO, "pipeline", "write", "permanent archive fault")
 }
 
+func TestOversizedInputRejected(t *testing.T) {
+	man, _ := manifest.Parse(stringReader(testManifestText))
+	src := buildSources(t)
+	cpPath := filepath.Join(t.TempDir(), "cp.json")
+	rn := NewRunner(cpPath, baseConfig())
+	// Tighten the input-length bound below the smallest material.
+	rn.limits.MaxInputLength = 4
+	_, err := rn.Run(context.Background(), man, []byte(testManifestText), src)
+	if model.KindOf(err) != model.KindLimitExceeded {
+		t.Fatalf("oversized input must be KindLimitExceeded, got %v", err)
+	}
+	if model.PositionOf(err) < 0 {
+		t.Fatalf("limit error must carry the manifest line position: %v", err)
+	}
+}
+
 func TestPermanentWriterErrorIsClassifiedIO(t *testing.T) {
 	// Exercise SegmentWriter directly with a permanently failing sink so no
 	// retry can succeed; the error must be KindIO and carry a packet position.
