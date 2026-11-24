@@ -115,7 +115,8 @@ func (e *runEnv) execute() (string, error) {
 		if err != nil {
 			return probeCache{}, nil, err
 		}
-		pc := probeCache{Sync: syncMs, P95: p95Latency(e.build.set.Latencies), Findings: len(prep.Findings)}
+		p95 := p95Latency(measurePlanLatency(e.plansGroup, e.opt.Now, 20))
+		pc := probeCache{Sync: syncMs, P95: p95, Findings: len(prep.Findings)}
 		b, err := json.Marshal(pc)
 		return pc, b, err
 	}

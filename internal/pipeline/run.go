@@ -92,7 +92,7 @@ func Run(opt Options) (Summary, error) {
 	env := &runEnv{
 		opt: opt, cache: cache, store: store, cp: cp,
 		inputDigest: inputDigest, params: params,
-		build: build, plan: plan, sum: &Summary{
+		build: build, plan: plan, plansGroup: plans, sum: &Summary{
 			SourceSHA256:   sha256Hex(build.sourceBytes),
 			ManifestSHA256: sha256Hex(build.manifestBytes),
 		},
@@ -112,7 +112,7 @@ func Run(opt Options) (Summary, error) {
 		env2 := &runEnv{
 			opt: opt, cache: cache, store: store, cp: cp2,
 			inputDigest: inputDigest, params: params,
-			build: build, plan: plan, sum: &Summary{
+			build: build, plan: plan, plansGroup: plans, sum: &Summary{
 				SourceSHA256:   sha256Hex(build.sourceBytes),
 				ManifestSHA256: sha256Hex(build.manifestBytes),
 			},
@@ -143,5 +143,6 @@ type runEnv struct {
 	params      string
 	build       *inputs
 	plan        *manifest.Plan
+	plansGroup  *manifest.Group
 	sum         *Summary
 }

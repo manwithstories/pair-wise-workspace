@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"time"
 
 	"mediascan/internal/clock"
 	"mediascan/internal/fixture"
@@ -101,8 +102,11 @@ func fallbackSync(in *inputs) int64 {
 	return ms
 }
 
-// p95Latency returns the nearest-rank 95th percentile in milliseconds, with a
-// floor of one millisecond so a fast run still reports a plausible figure.
+// p95Latency returns the nearest-rank 95th percentile of per-segment manifest
+// planning latency in milliseconds. The samples are measured by the pipeline
+// (see measurePlanLatency), not supplied by the generator, so the figure
+// reflects the work actually done. A floor of one millisecond keeps a
+// sub-millisecond run from reporting zero.
 func p95Latency(samples []int64) int64 {
 	if len(samples) == 0 {
 		return 1
@@ -118,6 +122,30 @@ func p95Latency(samples []int64) int64 {
 		ms = 1
 	}
 	return ms
+}
+
+// measurePlanLatency times the per-segment planning work: resolving each
+// segment's URI and duration against the manifest plan. It repeats the plan a
+// few times so that a single-schedule granularity does not dominate, and
+// returns one nanosecond sample per segment.
+func measurePlanLatency(plans *manifest.Group, now func() time.Time, repeats int) []int64 {
+	if plans == nil || len(plans.Plans) == 0 || now == nil {
+		return nil
+	}
+	if repeats < 1 {
+		repeats = 1
+	}
+	segs := plans.Plans[0].Segments
+	out := make([]int64, len(segs))
+	for r := 0; r < repeats; r++ {
+		for i, s := range segs {
+			st := now()
+			_ = manifest.ValidateURI(s.URI)
+			_ = s.StartNs + s.DurationNs
+			out[i] += now().Sub(st).Nanoseconds() / int64(repeats)
+		}
+	}
+	return out
 }
 
 func findingDetails(rep probe.Report) []string {

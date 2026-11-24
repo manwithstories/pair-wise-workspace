@@ -136,9 +136,6 @@ func Generate(opt Options) *Set {
 
 	set.Representations = buildRepresentations(video, audio, opt)
 	set.AVOffsetNs = avOffsetNs
-	for i := 0; i < 200; i++ {
-		set.Latencies = append(set.Latencies, int64(20+rng.Intn(180))*1_000_000)
-	}
 	set.RTP = GenerateRTP(RTPOptions{
 		Packets:   SegmentCount * 40,
 		DropEvery: opt.DropEvery,
