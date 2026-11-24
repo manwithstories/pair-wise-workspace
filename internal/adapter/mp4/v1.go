@@ -87,6 +87,19 @@ func (m *memWriteSeeker) Seek(offset int64, whence int) (int64, error) {
 	return abs, nil
 }
 
+// writeBox emits one complete leaf box: header (patched by EndBox),
+// payload via go-mp4 Marshal, then the closing size patch.
+func writeBox(mw *gomp4.Writer, box gomp4.IImmutableBox) error {
+	if _, err := mw.StartBox(&gomp4.BoxInfo{Type: box.GetType()}); err != nil {
+		return err
+	}
+	if _, err := gomp4.Marshal(mw, box, gomp4.Context{}); err != nil {
+		return err
+	}
+	_, err := mw.EndBox()
+	return err
+}
+
 // Marshal builds a complete MP4 file: ftyp, mdat (samples concatenated),
 // then moov carrying the sample tables with offsets pointing into mdat.
 // keySamples are 1-based sample numbers; nil means "no index written".
@@ -97,13 +110,13 @@ func (a Adapter) Marshal(samples [][]byte, keySamples []uint32, timescale, delta
 	w := &memWriteSeeker{}
 	mw := gomp4.NewWriter(w)
 
-	if _, err := gomp4.Marshal(mw, &gomp4.Ftyp{
+	if err := writeBox(mw, &gomp4.Ftyp{
 		MajorBrand:   [4]byte{'i', 's', 'o', 'm'},
 		MinorVersion: 1,
 		CompatibleBrands: []gomp4.CompatibleBrandElem{
 			{CompatibleBrand: [4]byte{'i', 's', 'o', 'm'}},
 		},
-	}, gomp4.Context{}); err != nil {
+	}); err != nil {
 		return nil, err
 	}
 
@@ -126,7 +139,7 @@ func (a Adapter) Marshal(samples [][]byte, keySamples []uint32, timescale, delta
 	if _, err := mw.StartBox(&gomp4.BoxInfo{Type: gomp4.BoxTypeMoov()}); err != nil {
 		return nil, err
 	}
-	if _, err := gomp4.Marshal(mw, &gomp4.Mvhd{
+	if err := writeBox(mw, &gomp4.Mvhd{
 		FullBox:            gomp4.FullBox{Version: 0},
 		CreationTimeV0:     0,
 		ModificationTimeV0: 0,
@@ -136,7 +149,7 @@ func (a Adapter) Marshal(samples [][]byte, keySamples []uint32, timescale, delta
 		Volume:             0x0100,
 		Matrix:             [9]int32{0x10000, 0, 0, 0, 0x10000, 0, 0, 0, 0x40000000},
 		NextTrackID:        2,
-	}, gomp4.Context{}); err != nil {
+	}); err != nil {
 		return nil, err
 	}
 	if err := a.writeTrack(mw, payloadStart, sizes, keySamples, timescale, delta); err != nil {
@@ -158,41 +171,41 @@ func (a Adapter) writeTrack(mw *gomp4.Writer, chunkOffset uint64, sizes []uint32
 			return err
 		}
 	}
-	if _, err := gomp4.Marshal(mw, &gomp4.Mdhd{
+	if err := writeBox(mw, &gomp4.Mdhd{
 		FullBox:            gomp4.FullBox{Version: 0},
 		CreationTimeV0:     0,
 		ModificationTimeV0: 0,
 		Timescale:          timescale,
 		DurationV0:         uint32(len(sizes)) * delta,
-	}, gomp4.Context{}); err != nil {
+	}); err != nil {
 		return err
 	}
-	if _, err := gomp4.Marshal(mw, &gomp4.Stts{
+	if err := writeBox(mw, &gomp4.Stts{
 		EntryCount: 1,
 		Entries:    []gomp4.SttsEntry{{SampleCount: uint32(len(sizes)), SampleDelta: delta}},
-	}, gomp4.Context{}); err != nil {
+	}); err != nil {
 		return err
 	}
-	if _, err := gomp4.Marshal(mw, &gomp4.Stsc{
+	if err := writeBox(mw, &gomp4.Stsc{
 		EntryCount: 1,
 		Entries:    []gomp4.StscEntry{{FirstChunk: 1, SamplesPerChunk: uint32(len(sizes)), SampleDescriptionIndex: 1}},
-	}, gomp4.Context{}); err != nil {
+	}); err != nil {
 		return err
 	}
-	if _, err := gomp4.Marshal(mw, &gomp4.Stsz{
+	if err := writeBox(mw, &gomp4.Stsz{
 		SampleSize: 0, SampleCount: uint32(len(sizes)), EntrySize: sizes,
-	}, gomp4.Context{}); err != nil {
+	}); err != nil {
 		return err
 	}
-	if _, err := gomp4.Marshal(mw, &gomp4.Stco{
+	if err := writeBox(mw, &gomp4.Stco{
 		EntryCount: 1, ChunkOffset: []uint32{uint32(chunkOffset)},
-	}, gomp4.Context{}); err != nil {
+	}); err != nil {
 		return err
 	}
 	if keySamples != nil {
-		if _, err := gomp4.Marshal(mw, &gomp4.Stss{
+		if err := writeBox(mw, &gomp4.Stss{
 			EntryCount: uint32(len(keySamples)), SampleNumber: keySamples,
-		}, gomp4.Context{}); err != nil {
+		}); err != nil {
 			return err
 		}
 	}

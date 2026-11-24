@@ -65,6 +65,18 @@ func layoutForChannels(ch int) (string, bool) {
 	return "", false
 }
 
+// channelsForLayout is the inverse check: a canonical layout implies an
+// exact channel count.
+func channelsForLayout(layout string) (int, bool) {
+	switch layout {
+	case "mono":
+		return 1, true
+	case "stereo":
+		return 2, true
+	}
+	return 0, false
+}
+
 // Normalize applies the batch policy: the reference is the first
 // non-isolated segment's canonical layout and sample rate. A segment
 // whose layout or rate cannot be mapped losslessly onto the reference is
@@ -100,9 +112,9 @@ func (a Adapter) Normalize(metas []Meta) Result {
 			}
 		}
 		// Step 2: consistency between layout and channel count.
-		if expect, ok := layoutForChannels(m.Channels); ok && m.Layout != "" && m.Layout != expect {
+		if expect, ok := channelsForLayout(m.Layout); ok && m.Channels != expect {
 			res.isolate(a, i, orig, fmt.Sprintf(
-				"layout %q conflicts with %d channels", m.Layout, m.Channels))
+				"layout %q implies %d channels, got %d", m.Layout, expect, m.Channels))
 			continue
 		}
 		// Step 3: reference match. Unmappable rate/layout → isolate.
