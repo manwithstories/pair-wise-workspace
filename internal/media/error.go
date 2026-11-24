@@ -1,7 +1,6 @@
 package media
 
 import (
-	"errors"
 	"fmt"
 )
 
@@ -105,22 +104,24 @@ func BlockedBy(node string, upstream *PipelineError) *PipelineError {
 	}
 }
 
-// FirstBlocker walks the dependency chain and returns the originating node
-// name, or "" when the error has no dependency chain.
+// FirstBlocker walks the dependency chain and returns the originating
+// blocker name: the root error's explicit Dependency when present,
+// otherwise the root node name. Returns "" for a non-pipeline error.
 func FirstBlocker(err error) string {
-	var pe *PipelineError
-	if !errors.As(err, &pe) {
+	pe, ok := err.(*PipelineError)
+	if !ok {
 		return ""
 	}
-	for pe.Cause != nil {
-		var inner *PipelineError
-		if !errors.As(pe.Cause, &inner) {
+	root := pe
+	for {
+		inner, ok := root.Cause.(*PipelineError)
+		if !ok {
 			break
 		}
-		pe = inner
+		root = inner
 	}
-	if pe.Dependency != "" {
-		return pe.Dependency
+	if root.Dependency != "" {
+		return root.Dependency
 	}
-	return pe.Node
+	return root.Node
 }
