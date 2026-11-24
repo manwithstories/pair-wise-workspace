@@ -113,14 +113,33 @@ func Run(ctx context.Context, cfg Config) (Result, error) {
 		return res, err
 	}
 	resumeStart := time.Now()
-	state := store.LoadOrRollback(
-		checkpoint.State{Version: 1, PerTrack: map[uint32]int{}, InputDigest: cfg.InputDigest},
-		func(*fault.Fault) {})
+	fallback := checkpoint.State{Version: 1, PerTrack: map[uint32]int{},
+		InputDigest: cfg.InputDigest}
+	state := store.LoadOrRollback(fallback, func(*fault.Fault) {})
+	// A checkpoint pinned to a different input cannot be resumed safely.
+	if state.InputDigest != "" && state.InputDigest != cfg.InputDigest {
+		state = fallback
+	}
 	res.ResumeMS = time.Since(resumeStart).Milliseconds()
-	startSeq := state.CommittedInputSeq
+	committedSeq := state.CommittedInputSeq
+	if committedSeq < 0 || committedSeq > len(sel) {
+		committedSeq = 0 // never resume past the available input
+	}
+	// Only the uncommitted tail goes through the worker pool; the committed
+	// prefix is already durable and passes straight to the deterministic merge.
+	// This avoids redoing committed work while still emitting the complete
+	// output container, so the checksum stays stable across reruns.
+	committedPrefix := sel
+	pending := sel
+	if committedSeq > 0 {
+		committedPrefix = sel[:committedSeq]
+		pending = sel[committedSeq:]
+	} else {
+		committedPrefix = nil
+	}
 
 	// --- Bounded pool + deterministic merge -----------------------------
-	ordered, cancelled, uncommitted, err := processThroughPool(ctx, cfg, sel, startSeq)
+	tailOrdered, cancelled, uncommitted, err := processThroughPool(ctx, cfg, pending, committedSeq)
 	if err != nil {
 		return res, mapFault(err)
 	}
@@ -131,10 +150,16 @@ func Run(ctx context.Context, cfg Config) (Result, error) {
 		return res, nil
 	}
 
-	// Verify concurrency-independent ordering against a sequential reference.
-	ref := referenceOrder(sel, startSeq)
-	res.OrderedEqual = merge.Equal(ref, ordered)
-	res.Samples = len(ordered)
+	// The committed prefix flows straight through; concatenate with the freshly
+	// processed tail, then impose the single deterministic total order.
+	processed := append(append([]*sample.Sample{}, committedPrefix...), tailOrdered...)
+	ordered := referenceOrder(processed, 0)
+
+	// Verify the tail alone is concurrency-independent against a sequential
+	// reference computed over the same uncommitted boundary.
+	tailRef := referenceOrder(pending, committedSeq)
+	res.OrderedEqual = merge.Equal(tailRef, tailOrdered)
+	res.Samples = len(sel) // total samples in the logical output
 
 	// --- Remux + checksum ------------------------------------------------
 	metrics, err := remuxTo(cfg, ordered)
@@ -143,12 +168,15 @@ func Run(ctx context.Context, cfg Config) (Result, error) {
 	}
 	res.SHA256 = metrics.SHA256
 
-	// Commit the final boundary atomically.
+	// Commit the absolute boundary. Counts are totals over the whole input, so
+	// reruns converge to the same value instead of accumulating.
 	finalState := checkpoint.State{
-		Version: 1, CommittedInputSeq: startSeq + len(sel),
-		CommittedSamples: state.CommittedSamples + len(sel),
-		PerTrack:         metrics.PerTrack, ResumeTick: int64(lastPTS(ordered)),
-		InputDigest: cfg.InputDigest,
+		Version:           1,
+		CommittedInputSeq: len(sel),
+		CommittedSamples:  len(sel),
+		PerTrack:          absolutePerTrack(sel),
+		ResumeTick:        int64(lastPTS(ordered)),
+		InputDigest:       cfg.InputDigest,
 	}
 	if err := store.Save(finalState); err != nil {
 		return res, err

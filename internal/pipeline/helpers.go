@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"mediacore/internal/clock"
-	"mediacore/internal/fixture"
 	"mediacore/internal/merge"
 	"mediacore/internal/pool"
 	"mediacore/internal/remux"
@@ -48,6 +47,12 @@ func timelineSelect(in []*sample.Sample) []*sample.Sample {
 // uncommitted input sequence.
 func processThroughPool(ctx context.Context, cfg Config, in []*sample.Sample,
 	startSeq int) (out []*sample.Sample, cancelled bool, uncommitted int, err error) {
+
+	// Nothing left to process (fully committed resume): short-circuit without
+	// starting the pool so the consumer never waits on absent results.
+	if len(in) == 0 {
+		return nil, false, startSeq, nil
+	}
 
 	p := pool.New(ctx, cfg.Workers, cfg.QueueCap, func(ctx context.Context, j pool.Job) (any, error) {
 		if cfg.WorkerGate != nil {
@@ -174,4 +179,12 @@ func profilesFor(ordered []*sample.Sample) []remux.TrackProfile {
 	return out
 }
 
-var _ = fixture.ModeOK
+// absolutePerTrack counts total selected samples per mapped track, giving the
+// absolute (non-accumulating) per-track committed counts.
+func absolutePerTrack(sel []*sample.Sample) map[uint32]int {
+	out := map[uint32]int{}
+	for _, s := range sel {
+		out[s.TrackID]++
+	}
+	return out
+}
