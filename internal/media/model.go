@@ -44,7 +44,8 @@ type FrameMeta struct {
 	SourceID       uint32
 	Sequence       uint64
 	ClockTicks     uint64 // raw source clock value, already unwrapped if needed
-	TimescaleHz   uint64 // ticks per second on the source clock
+	TimescaleHz    uint64 // ticks per second on the source clock
+	CaptureRefNS   int64  // capture wall-clock reference (drift-fit anchor), ns
 	PresentationNS int64  // filled by the clock stage: unified nanosecond PTS
 	Width          uint32
 	Height         uint32
