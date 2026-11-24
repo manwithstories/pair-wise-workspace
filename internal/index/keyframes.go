@@ -25,18 +25,20 @@ type Entry struct {
 // Index is the ordered sample table for one video track selection.
 type Index struct {
 	Track     uint32
+	Source    uint32
 	Entries   []Entry
 	Keyframes []Entry
 }
 
-// Build indexes every block of the requested video track in timeline
-// order. Keyframe flags come from the Matroska SimpleBlock bit; blocks
-// without any keyframe are rejected because frame export needs sync points.
-func Build(track uint32, blocks []mkv.Block) (*Index, error) {
-	idx := &Index{Track: track}
+// Build indexes every block of the requested video track from one source
+// document in timeline order. Keyframe flags come from the Matroska
+// SimpleBlock bit; blocks without any keyframe are rejected because frame
+// export needs sync points.
+func Build(source, track uint32, blocks []mkv.Block) (*Index, error) {
+	idx := &Index{Track: track, Source: source}
 	ordinal := 0
 	for _, b := range blocks {
-		if b.Track != track {
+		if b.Track != track || b.Source != source {
 			continue
 		}
 		e := Entry{
@@ -109,8 +111,10 @@ type PreviewRow struct {
 	Keyframe   bool
 }
 
-// PreviewRows converts entries to a constant-delta preview table. The
-// delta is the median gap expressed in timescale units.
+// PreviewRows converts entries to a preview table. Each row's timestamp is
+// scaled exactly from its MediaTime; the returned delta is the median gap
+// in timescale units, suitable for a representative stts entry while the
+// per-row times stay exact.
 func (ix *Index) PreviewRows(timescale uint32) ([]PreviewRow, uint32, error) {
 	if timescale == 0 {
 		return nil, 0, media.NewInternal("keyframe-index", "zero timescale", nil)
@@ -119,16 +123,34 @@ func (ix *Index) PreviewRows(timescale uint32) ([]PreviewRow, uint32, error) {
 		return nil, 0, media.NewBoundary("keyframe-index",
 			"need at least two samples to derive a delta", ix.Track, -1, nil)
 	}
-	deltaNS := ix.Entries[1].Time.Nanoseconds() - ix.Entries[0].Time.Nanoseconds()
-	if deltaNS <= 0 {
-		return nil, 0, media.NewBoundary("keyframe-index",
-			"non-increasing sample timestamps", ix.Track, ix.Entries[1].Offset, nil)
+	// Validate strict time ordering before projecting.
+	for i := 1; i < len(ix.Entries); i++ {
+		if ix.Entries[i].Time <= ix.Entries[i-1].Time {
+			return nil, 0, media.NewBoundary("keyframe-index",
+				"non-increasing sample timestamps", ix.Track, ix.Entries[i].Offset, nil)
+		}
 	}
-	delta := uint32(deltaNS * int64(timescale) / media.NanosPerSecond)
 	rows := make([]PreviewRow, len(ix.Entries))
 	for i, e := range ix.Entries {
 		scaled := uint32(e.Time.Nanoseconds() * int64(timescale) / media.NanosPerSecond)
 		rows[i] = PreviewRow{Sample: e.Sample, TimeScaled: scaled, Keyframe: e.Keyframe}
 	}
+	delta := medianDelta(ix.Entries, timescale)
 	return rows, delta, nil
+}
+
+// medianDelta returns the median consecutive time gap expressed in the
+// target timescale. It never assumes a constant frame rate.
+func medianDelta(entries []Entry, timescale uint32) uint32 {
+	gaps := make([]int64, 0, len(entries)-1)
+	for i := 1; i < len(entries); i++ {
+		gapNS := entries[i].Time.Nanoseconds() - entries[i-1].Time.Nanoseconds()
+		gaps = append(gaps, gapNS*int64(timescale)/media.NanosPerSecond)
+	}
+	sort.Slice(gaps, func(i, j int) bool { return gaps[i] < gaps[j] })
+	mid := gaps[len(gaps)/2]
+	if mid <= 0 {
+		mid = 1
+	}
+	return uint32(mid)
 }

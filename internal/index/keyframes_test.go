@@ -28,7 +28,7 @@ func studioTimeline(t *testing.T) *timeline.Timeline {
 
 func TestBuildIndexesKeyframes(t *testing.T) {
 	tl := studioTimeline(t)
-	ix, err := Build(1, tl.Blocks)
+	ix, err := Build(0, 1, tl.Blocks)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestBuildIndexesKeyframes(t *testing.T) {
 
 func TestBuildRejectsEmptyAndKeylessTrack(t *testing.T) {
 	tl := studioTimeline(t)
-	if _, err := Build(999, tl.Blocks); err == nil {
+	if _, err := Build(0, 999, tl.Blocks); err == nil {
 		t.Fatal("missing track must error")
 	}
 	// Strip keyframe flags.
@@ -61,14 +61,14 @@ func TestBuildRejectsEmptyAndKeylessTrack(t *testing.T) {
 		stripped[i].Keyframe = false
 	}
 	var pe *media.PipelineError
-	if _, err := Build(1, stripped); !errors.As(err, &pe) {
+	if _, err := Build(0, 1, stripped); !errors.As(err, &pe) {
 		t.Fatalf("keyless track must pipeline-error, got %v", err)
 	}
 }
 
 func TestNearestKeyframeAndHitRate(t *testing.T) {
 	tl := studioTimeline(t)
-	ix, err := Build(1, tl.Blocks)
+	ix, err := Build(0, 1, tl.Blocks)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestNearestKeyframeAndHitRate(t *testing.T) {
 
 func TestPreviewRowsProjection(t *testing.T) {
 	tl := studioTimeline(t)
-	ix, err := Build(1, tl.Blocks)
+	ix, err := Build(0, 1, tl.Blocks)
 	if err != nil {
 		t.Fatal(err)
 	}
