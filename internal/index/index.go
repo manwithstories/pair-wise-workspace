@@ -36,17 +36,35 @@ func (s *source) Build(repair *clock.Map) (*Index, error) {
 				continue
 			}
 			t := sm.timeNs - origin
+			id := repairID(repair, t)
+			// A point that falls inside a quarantined segment is isolated: it
+			// is omitted from the index and the omission is reported, never
+			// hidden by a fabricated mapping.
+			if repair != nil {
+				if e, ok := repair.SegmentAt(t); ok && !e.Available {
+					idx.Quarantined++
+					continue
+				}
+			}
 			tr.Points = append(tr.Points, Point{
 				TimeNs:     t,
 				DurationNs: sm.durNs,
 				Offset:     sm.offset,
 				Size:       sm.size,
 				Sync:       true,
-				SegmentID:  repairID(repair, t),
+				SegmentID:  id,
 			})
 		}
 		idx.Tracks = append(idx.Tracks, tr)
 	}
+	// Drop tracks whose every point was quarantined.
+	kept := idx.Tracks[:0]
+	for _, tr := range idx.Tracks {
+		if len(tr.Points) > 0 {
+			kept = append(kept, tr)
+		}
+	}
+	idx.Tracks = kept
 	if len(idx.Tracks) == 0 {
 		return nil, ErrNoSamples
 	}
@@ -57,7 +75,9 @@ func (s *source) Build(repair *clock.Map) (*Index, error) {
 	return idx, nil
 }
 
-// repairID finds the repair entry whose start is nearest the sample time.
+// repairID finds the repair entry that covers the sample time: the entry whose
+// start is nearest, preferring available entries so a sample inside a
+// quarantined gap maps to a real neighbouring segment rather than the gap.
 func repairID(m *clock.Map, tNs int64) string {
 	if m == nil {
 		return ""
@@ -65,6 +85,9 @@ func repairID(m *clock.Map, tNs int64) string {
 	best := ""
 	bestDelta := int64(1<<62 - 1)
 	for _, e := range m.Entries {
+		if !e.Available {
+			continue
+		}
 		d := e.Start - tNs
 		if d < 0 {
 			d = -d

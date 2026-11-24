@@ -43,10 +43,11 @@ type Track struct {
 
 // Index is the rebuilt random-access index.
 type Index struct {
-	Tracks     []Track
-	MOOVOffset int64
-	Truncated  bool
-	Warnings   []string
+	Tracks      []Track
+	MOOVOffset  int64
+	Truncated   bool
+	Quarantined int // points omitted because their segment was quarantined
+	Warnings    []string
 }
 
 // Report is the verification outcome.
