@@ -87,7 +87,9 @@ func TestWraparoundExpanded(t *testing.T) {
 		if e.Action == ActionUnwrapped {
 			sawWrap = true
 		}
-		want := NanosDelta(int64(shift)+int64(i*90000*2), 90000)
+		// The mapping is relative to the first timestamp, so segment i starts
+		// at i*2s regardless of where the raw counter sat.
+		want := int64(i) * ms(2000)
 		if e.Start != want {
 			t.Fatalf("entry %d start %d want %d action %s", i, e.Start, want, e.Action)
 		}

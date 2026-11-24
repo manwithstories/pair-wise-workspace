@@ -145,6 +145,8 @@ func Build(observed []Observed, opts Options) Map {
 	havePrevExt := false
 	var prevRaw uint64
 	havePrevRaw := false
+	var baseExt int64 // first extended value, subtracted to give a 0-based timeline
+	haveBase := false
 	var sawWrap bool
 
 	for _, obs := range observed {
@@ -176,6 +178,16 @@ func Build(observed []Observed, opts Options) Map {
 				}
 			}
 			hasTs = true
+			if !haveBase {
+				baseExt = ext
+				haveBase = true
+			}
+		}
+		// rel is the timestamp on a 0-based programme timeline. Expressing it
+		// as a delta keeps the first segment at zero even when the raw counter
+		// started near the wraparound point.
+		trackNs := func(e int64) int64 {
+			return NanosDelta(e, opts.Timescale) - NanosDelta(baseExt, opts.Timescale)
 		}
 
 		entry := Repair{ID: obs.ID, Duration: dur, Action: ActionOK, Available: true}
@@ -202,14 +214,14 @@ func Build(observed []Observed, opts Options) Map {
 			}
 
 		case !haveCursor:
-			entry.Start = NanosDelta(ext, opts.Timescale)
+			entry.Start = trackNs(ext)
 			if wrapped {
 				entry.Action = ActionUnwrapped
 				entry.Note = "wraparound expanded at time-base start"
 			}
 
 		default:
-			obsNs := NanosDelta(ext, opts.Timescale)
+			obsNs := trackNs(ext)
 			diff := obsNs - cursor
 			dup := havePrevRaw && obs.Start == prevRaw
 
