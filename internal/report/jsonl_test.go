@@ -22,10 +22,10 @@ func TestJSONLRoundTripAndSelfHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := w.Append(sampleRecord("clean")); err != nil {
+	if _, err := w.Append(sampleRecord("clean")); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.Append(sampleRecord("duplicate")); err != nil {
+	if _, err := w.Append(sampleRecord("duplicate")); err != nil {
 		t.Fatal(err)
 	}
 	if err := w.Close(); err != nil {
@@ -49,12 +49,12 @@ func TestContentHashStableAcrossReruns(t *testing.T) {
 	write := func() string {
 		path := filepath.Join(t.TempDir(), "run.jsonl")
 		w, _ := NewWriter(path)
-		_ = w.Append(sampleRecord("clean"))
-		_ = w.Append(sampleRecord("reorder"))
+		_, _ = w.Append(sampleRecord("clean"))
+		_, _ = w.Append(sampleRecord("reorder"))
 		_ = w.Close()
 		w2, _ := NewWriter(path) // reopen truncates, same logical content
-		_ = w2.Append(sampleRecord("clean"))
-		_ = w2.Append(sampleRecord("reorder"))
+		_, _ = w2.Append(sampleRecord("clean"))
+		_, _ = w2.Append(sampleRecord("reorder"))
 		_ = w2.Close()
 		return w2.ContentHash()
 	}
@@ -84,9 +84,9 @@ func TestSelfHashExcludesItself(t *testing.T) {
 	r2 := sampleRecord("x")
 	r2.ReportSHA256 = "deadbeef"
 	w1, _ := NewWriter(filepath.Join(t.TempDir(), "a.jsonl"))
-	_ = w1.Append(r1)
+	_, _ = w1.Append(r1)
 	w2, _ := NewWriter(filepath.Join(t.TempDir(), "b.jsonl"))
-	_ = w2.Append(r2)
+	_, _ = w2.Append(r2)
 	if w1.ContentHash() != w2.ContentHash() {
 		t.Fatal("self-hash field leaked into content hash")
 	}

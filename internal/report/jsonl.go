@@ -18,19 +18,19 @@ import (
 // Record is one JSONL object. Field order follows the acceptance contract so
 // the emitted lines are self-describing without a separate schema.
 type Record struct {
-	Case             string             `json:"case"`
-	Representations  int                `json:"representations"`
-	Segments         int                `json:"segments"`
-	TargetBPS        int64              `json:"target_bps"`
-	ActualBPS        int64              `json:"actual_bps"`
-	BitrateDeltaPct  float64            `json:"bitrate_delta_pct"`
-	ValidSamplePct   float64            `json:"valid_sample_pct"`
-	GOPP95Ms         float64            `json:"gop_p95_ms"`
-	DamagedRanges    []DamagedRangeJSON `json:"damaged_ranges"`
-	AlignmentMaxMs   int64              `json:"alignment_max_ms"`
-	RetryReused      int                `json:"retry_reused"`
-	FirstBlocked     string             `json:"first_blocked,omitempty"`
-	ReportSHA256     string             `json:"report_sha256"`
+	Case            string             `json:"case"`
+	Representations int                `json:"representations"`
+	Segments        int                `json:"segments"`
+	TargetBPS       int64              `json:"target_bps"`
+	ActualBPS       int64              `json:"actual_bps"`
+	BitrateDeltaPct float64            `json:"bitrate_delta_pct"`
+	ValidSamplePct  float64            `json:"valid_sample_pct"`
+	GOPP95Ms        float64            `json:"gop_p95_ms"`
+	DamagedRanges   []DamagedRangeJSON `json:"damaged_ranges"`
+	AlignmentMaxMs  int64              `json:"alignment_max_ms"`
+	RetryReused     int                `json:"retry_reused"`
+	FirstBlocked    string             `json:"first_blocked,omitempty"`
+	ReportSHA256    string             `json:"report_sha256"`
 }
 
 // DamagedRangeJSON is the stable JSON shape of one damaged span.
@@ -68,30 +68,35 @@ func NewWriter(path string) (*Writer, error) {
 	}, nil
 }
 
-// Append writes one record. The record's own ReportSHA256 is computed from the
-// canonical encoding of all other fields so it stays independent of itself.
-func (w *Writer) Append(r Record) error {
-	r.ReportSHA256 = ""
-	canonical, err := json.Marshal(r)
+// Append writes one record and returns the stored copy, which has the
+// ReportSHA256 field populated. The self-hash and running content hash are
+// computed from a canonical encoding that excludes both the self-hash and the
+// runtime-only RetryReused counter, so a resumed run (which reuses artifacts)
+// hashes identically to a fresh run over the same media.
+func (w *Writer) Append(r Record) (Record, error) {
+	content := r
+	content.ReportSHA256 = ""
+	content.RetryReused = 0
+	canonical, err := json.Marshal(content)
 	if err != nil {
-		return err
+		return r, err
 	}
 	sum := sha256.Sum256(canonical)
 	r.ReportSHA256 = hex.EncodeToString(sum[:])
 	line, err := json.Marshal(r)
 	if err != nil {
-		return err
+		return r, err
 	}
-	// Hash the canonical (hash-free) line plus newline, keeping the running
-	// digest stable across reruns regardless of the self-hash field.
+	// Hash the canonical, runtime-field-free line plus newline so the digest
+	// depends only on the media verdict, not on scheduler reuse counters.
 	if _, err := w.hasher.Write(append(canonical, '\n')); err != nil {
-		return err
+		return r, err
 	}
 	if _, err := w.bw.Write(append(line, '\n')); err != nil {
-		return err
+		return r, err
 	}
 	w.records++
-	return nil
+	return r, nil
 }
 
 // Close flushes buffers and closes the file.
