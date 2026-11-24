@@ -11,14 +11,14 @@ import (
 type Kind uint8
 
 const (
-	KindUnknown Kind = iota
-	KindInvalidInput  // bad manifest, parameters or container fields
-	KindCorruptMedia  // damaged MP4/RTP payload detected during demux
-	KindOverflow      // arithmetic overflow or time-base conversion failure
-	KindLimitExceeded // configured bound (size, tracks, packets) exceeded
-	KindConflict      // duplicate mapping, duplicate edit range, digest mismatch
-	KindCancelled     // context cancellation propagated through the pipeline
-	KindIO            // output or storage failure
+	KindUnknown       Kind = iota
+	KindInvalidInput       // bad manifest, parameters or container fields
+	KindCorruptMedia       // damaged MP4/RTP payload detected during demux
+	KindOverflow           // arithmetic overflow or time-base conversion failure
+	KindLimitExceeded      // configured bound (size, tracks, packets) exceeded
+	KindConflict           // duplicate mapping, duplicate edit range, digest mismatch
+	KindCancelled          // context cancellation propagated through the pipeline
+	KindIO                 // output or storage failure
 )
 
 // Error is the unified error type used by all modules. It records the first
