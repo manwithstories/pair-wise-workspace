@@ -19,17 +19,19 @@ type Unwrapper struct {
 }
 
 // Next feeds one raw 32-bit timestamp and returns its expanded 64-bit form.
+// A jump of at least half the range is treated as a wrap (negative delta);
+// smaller out-of-order steps retain their current high bits.
 func (u *Unwrapper) Next(raw uint32) uint64 {
 	if !u.haveValue {
 		u.haveValue = true
 		u.last = uint64(raw)
 		return u.last
 	}
-	delta := int64(uint32(uint64(raw) - u.last)) // signed mod 2^32
-	if delta < 0 {
-		delta += wrapMod32
+	delta := (uint64(raw) - u.last) % wrapMod32
+	if delta >= halfRange32 {
+		delta -= wrapMod32
 	}
-	u.last = u.last + uint64(delta)
+	u.last += delta
 	return u.last
 }
 
@@ -52,26 +54,20 @@ type SeqUnwrapper struct {
 }
 
 // Next feeds one raw 16-bit sequence number and returns its expanded form.
+// The forward-wrapping rule is strict: only a jump that covers at least half
+// the 16-bit range increments the high bits, so small out-of-order steps keep
+// their wrap while genuine 0xffff->0 wraps advance correctly.
 func (s *SeqUnwrapper) Next(raw uint16) uint64 {
 	if !s.haveValue {
 		s.haveValue = true
 		s.last = uint64(raw)
 		return s.last
 	}
-	delta := int64(uint16(uint32(raw) - uint32(s.last))) // mod 2^16
-	if delta < 0 {
-		delta += 1 << 16
+	mod := uint64(1 << 16)
+	delta := (uint64(raw) - s.last) % mod
+	if delta >= mod/2 {
+		delta -= mod
 	}
-	s.last = s.last + uint64(delta)
+	s.last += delta
 	return s.last
-}
-
-// UnwrapSequence expands a whole 16-bit series in arrival order.
-func UnwrapSequence(raw []uint16) []uint64 {
-	out := make([]uint64, len(raw))
-	var s SeqUnwrapper
-	for i, v := range raw {
-		out[i] = s.Next(v)
-	}
-	return out
 }

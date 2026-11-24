@@ -77,9 +77,11 @@ func NewEstimator(timescaleHz uint64) *Estimator {
 	return &Estimator{timescale: timescaleHz, dirty: true}
 }
 
-// AddAnchor records one (ticks, reference nanoseconds) observation.
+// AddAnchor records one (ticks, reference nanoseconds) observation. The
+// origin is the earliest anchor by ticks, regardless of arrival order, so a
+// late-arriving early sample still gets PTS 0 rather than a negative value.
 func (e *Estimator) AddAnchor(ticks uint64, refNS int64) {
-	if len(e.anchors) == 0 {
+	if len(e.anchors) == 0 || ticks < e.originTicks {
 		e.originTicks = ticks
 		e.originRef = refNS
 	}
@@ -97,18 +99,13 @@ func (e *Estimator) Fit() Fit {
 }
 
 // ToNS maps source ticks to unified presentation nanoseconds relative to the
-// first anchor (PTS 0 at the origin), correcting estimated drift.
+// first anchor (PTS 0 at the origin), correcting estimated drift. The origin
+// is the observed reference of the first anchor, so PTS can never go negative
+// for in-range samples even when the fitted line has an intercept.
 func (e *Estimator) ToNS(ticks uint64) int64 {
 	f := e.Fit()
-	origin := f.Apply(e.originTicks)
-	if len(e.anchors) == 0 {
-		origin = int64(math.Round(f.Slope * float64(e.originTicks)))
-	}
-	return f.Apply(ticks) - origin
+	return f.Apply(ticks) - e.originRef
 }
-
-// OriginRefNS returns the reference time of the first anchor.
-func (e *Estimator) OriginRefNS() int64 { return e.originRef }
 
 // AssignPresentation builds one estimator per source from the frames'
 // capture anchors, fills every frame's PresentationNS and returns the frames
