@@ -107,7 +107,9 @@ func (b *Buffer) extendSequence(seq uint16) int64 {
 		b.maxExtSeq = int64(seq)
 		return int64(seq)
 	}
-	delta := int32(seq - uint16(b.maxExtSeq))
+	// The intermediate uint16 subtraction wraps modulo 2^16; converting via
+	// int16 yields the signed shortest modular distance (including -1).
+	delta := int32(int16(seq - uint16(b.maxExtSeq)))
 	return b.maxExtSeq + int64(delta)
 }
 
