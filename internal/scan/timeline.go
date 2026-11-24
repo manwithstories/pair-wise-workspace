@@ -127,6 +127,10 @@ func scanTrack(ctx context.Context, mt manifest.Track, path string, opts Options
 	}
 	tr.EditMediaTicks = editOffset
 	tr.Edits = buildEdits(meta, mt)
+	// Pre-size the per-sample tables from the known sample count so the index
+	// never reallocates a growing slice.
+	tr.Samples = make([]index.Sample, 0, len(layout.sizes))
+	tr.Keyframes = make([]int64, 0, min(len(layout.sizes), len(meta.stss)+1))
 
 	dts := int64(0)
 	runs := newRangeBuilder(tb, tr.ID, editOffset)

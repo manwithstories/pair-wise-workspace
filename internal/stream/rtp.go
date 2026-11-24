@@ -98,32 +98,56 @@ func packetize(samples []float32, framesPerPacket int, seq *uint16) []*pionrtp.P
 	return packets
 }
 
-// simulateNetwork feeds packets to the recoverer in a deterministically
-// shuffled order that mimics a lossy link: local reordering is injected so the
-// recovery module has something to recover.
+// simulateNetwork feeds packets to the recoverer in a locally shuffled order
+// that mimics a lossy link. Reordering is injected with a small sliding window
+// so the working set stays constant regardless of how long the track is; the
+// recoverer still sees genuine out-of-order arrivals to recover.
 func simulateNetwork(ctx context.Context, packets []*pionrtp.Packet, rec **rtp.Recoverer, res *Result, sink Sink, at clock.Rational, lossBurst int, burstDropped *bool) error {
 	if len(packets) == 0 {
 		return nil
 	}
 	rng := rand.New(rand.NewSource(int64(len(packets)) * 31))
-	// Swap each packet with one of the next few to create bounded reordering.
-	shuffled := append([]*pionrtp.Packet(nil), packets...)
-	for i := 0; i+3 < len(shuffled); i += 4 {
-		j := i + 1 + rng.Intn(2)
-		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
-	}
+	const holdWindow = 4
 	burstStart := -1
-	if lossBurst > 0 && !*burstDropped && len(shuffled) > lossBurst {
-		burstStart = len(shuffled)/2 - lossBurst/2
+	if lossBurst > 0 && !*burstDropped && len(packets) > lossBurst {
+		burstStart = len(packets)/2 - lossBurst/2
 		*burstDropped = true
 	}
-	for i, p := range shuffled {
+	held := make([]*pionrtp.Packet, 0, 2*holdWindow)
+	for i, p := range packets {
 		if err := ctx.Err(); err != nil {
 			return canceled(err)
 		}
 		if burstStart >= 0 && i >= burstStart && i < burstStart+lossBurst {
 			continue
 		}
+		held = append(held, p)
+		if len(held) > holdWindow {
+			// Emit a random packet from the window, creating a bounded delay.
+			j := rng.Intn(len(held))
+			if err := pushPacket(ctx, held[j], rec, sink, at); err != nil {
+				return err
+			}
+			held = append(held[:j], held[j+1:]...)
+		}
+	}
+	for len(held) > 0 {
+		j := rng.Intn(len(held))
+		if err := pushPacket(ctx, held[j], rec, sink, at); err != nil {
+			return err
+		}
+		held = append(held[:j], held[j+1:]...)
+	}
+	return nil
+}
+
+// pushPacket feeds one packet to the recoverer and emits every ordered packet
+// it releases.
+func pushPacket(ctx context.Context, p *pionrtp.Packet, rec **rtp.Recoverer, sink Sink, at clock.Rational) error {
+	if err := ctx.Err(); err != nil {
+		return canceled(err)
+	}
+	{
 		out, err := (*rec).Push(p)
 		if err != nil {
 			return err
@@ -131,9 +155,8 @@ func simulateNetwork(ctx context.Context, packets []*pionrtp.Packet, rec **rtp.R
 		for _, q := range out {
 			sink(Event{
 				Kind: EventRTP, TrackID: 0, Source: at,
-				Output:  clock.Rational{Num: int64(q.Timestamp), Den: audio.TargetRate},
-				Bytes:   len(q.Payload),
-				Latency: 0,
+				Output: clock.Rational{Num: int64(q.Timestamp), Den: audio.TargetRate},
+				Bytes:  len(q.Payload),
 			})
 		}
 	}

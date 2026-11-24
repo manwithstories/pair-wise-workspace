@@ -93,58 +93,67 @@ type trackPlan struct {
 	pcm          bool            // fill payload with interleaved stereo PCM
 }
 
-// buildTrack renders a self-contained single-track MP4.
+// buildTrack renders a self-contained single-track MP4. Payloads are streamed
+// straight into mdat; the sample table holds only sizes, so memory stays flat
+// as the fixture grows.
 func buildTrack(rng *rand.Rand, plan trackPlan) ([]byte, error) {
+	src, err := buildTrackFile(rng, plan)
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(src)
+	return os.ReadFile(src)
+}
+
+// buildTrackFile renders a single-track MP4 into a temporary file and returns
+// its path. The caller owns the file and must remove it.
+func buildTrackFile(rng *rand.Rand, plan trackPlan) (string, error) {
 	sizes := make([]uint32, plan.count)
-	payloads := make([][]byte, plan.count)
 	for i := 0; i < plan.count; i++ {
 		n := plan.payloadBytes
 		if n <= 0 {
 			n = 64 + rng.Intn(97)
 		}
-		payloads[i] = make([]byte, n)
-		if plan.pcm {
-			fillPCM(payloads[i], i*n/4)
-		} else if _, err := rng.Read(payloads[i]); err != nil {
-			return nil, err
-		}
 		sizes[i] = uint32(n)
 	}
 	tmp, err := os.CreateTemp("", "mediaroute-fixture-*.mp4")
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	name := tmp.Name()
-	defer os.Remove(name)
-
 	stcoEntry, err := writeMovie(tmp, plan, sizes)
 	if err != nil {
 		tmp.Close()
-		return nil, err
+		os.Remove(name)
+		return "", err
 	}
 	start, err := tmp.Seek(0, io.SeekCurrent)
 	if err != nil {
 		tmp.Close()
-		return nil, err
+		os.Remove(name)
+		return "", err
 	}
 	offsets := make([]uint32, plan.count)
 	cur := start
-	for i, p := range payloads {
+	for i, n := range sizes {
 		offsets[i] = uint32(cur)
-		cur += int64(len(p))
+		cur += int64(n)
 	}
-	if err := writeMdat(tmp, payloads); err != nil {
+	if err := writeMdatStream(tmp, sizes, plan.pcm, rng); err != nil {
 		tmp.Close()
-		return nil, err
+		os.Remove(name)
+		return "", err
 	}
 	if err := patchStco(tmp, stcoEntry, offsets); err != nil {
 		tmp.Close()
-		return nil, err
+		os.Remove(name)
+		return "", err
 	}
 	if err := tmp.Close(); err != nil {
-		return nil, err
+		os.Remove(name)
+		return "", err
 	}
-	return os.ReadFile(name)
+	return name, nil
 }
 
 // writeMovie writes ftyp+moov and returns the offset of the first stco entry.
@@ -369,10 +378,11 @@ func fillPCM(buf []byte, startFrame int) {
 	}
 }
 
-func writeMdat(f *os.File, payloads [][]byte) error {
+// writeMdatStream writes mdat with payloads generated one at a time.
+func writeMdatStream(f *os.File, sizes []uint32, pcm bool, rng *rand.Rand) error {
 	var size uint32 = 8
-	for _, p := range payloads {
-		size += uint32(len(p))
+	for _, n := range sizes {
+		size += n
 	}
 	var hdr [8]byte
 	binary.BigEndian.PutUint32(hdr[0:4], size)
@@ -380,10 +390,22 @@ func writeMdat(f *os.File, payloads [][]byte) error {
 	if _, err := f.Write(hdr[:]); err != nil {
 		return err
 	}
-	for _, p := range payloads {
-		if _, err := f.Write(p); err != nil {
+	var buf []byte
+	frameOffset := 0
+	for _, n := range sizes {
+		if cap(buf) < int(n) {
+			buf = make([]byte, n)
+		}
+		buf = buf[:n]
+		if pcm {
+			fillPCM(buf, frameOffset/(2*2))
+		} else if _, err := rng.Read(buf); err != nil {
 			return err
 		}
+		if _, err := f.Write(buf); err != nil {
+			return err
+		}
+		frameOffset += int(n)
 	}
 	return nil
 }

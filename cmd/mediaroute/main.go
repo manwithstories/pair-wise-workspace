@@ -88,6 +88,7 @@ func runDemo(args []string) int {
 	reorderWindow := fs.Int("reorder-window", 64, "RTP reorder window in packets")
 	keep := fs.Bool("keep", false, "keep the working directory after the run")
 	reuse := fs.Bool("reuse", false, "keep media already present in --dir instead of regenerating it")
+	durationScale := fs.Int("duration-scale", 1, "multiply fixture length (proves memory stays bounded)")
 	if err := fs.Parse(args); err != nil {
 		return 1
 	}
@@ -100,6 +101,7 @@ func runDemo(args []string) int {
 		ReorderWindow: *reorderWindow,
 		KeepWorkDir:   *keep,
 		ReuseExisting: *reuse,
+		DurationScale: *durationScale,
 		Quiet:         cf.quiet,
 		JSON:          cf.jsonOut,
 		Progress:      os.Stderr,

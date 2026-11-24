@@ -6,6 +6,7 @@ package fixtures
 import (
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -107,7 +108,7 @@ func Build(dir string, spec Spec, v Variant) (*Asset, error) {
 		{SegmentDurationV0: 120, MediaTimeV0: -1, MediaRateInteger: 1},
 		{SegmentDurationV0: uint32(spec.VideoSamples * 40), MediaTimeV0: 0, MediaRateInteger: 1},
 	}
-	video, err := buildTrack(videoRng, trackPlan{
+	videoSrc, err := buildTrackFile(videoRng, trackPlan{
 		kind: "video", trackID: 1, timescale: videoTimescale,
 		count: spec.VideoSamples, delta: videoFrameTick,
 		keyEvery: spec.KeyframeEvery, emptyEdits: videoEdits,
@@ -115,13 +116,14 @@ func Build(dir string, spec Spec, v Variant) (*Asset, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fixtures: build video: %w", err)
 	}
+	defer os.Remove(videoSrc)
 	// Apply the same leading empty edit to audio so both tracks share one
 	// presentation shift and remain synchronised.
 	audioEdits := []mp4.ElstEntry{
 		{SegmentDurationV0: 120, MediaTimeV0: -1, MediaRateInteger: 1},
 		{SegmentDurationV0: uint32(spec.AudioSamples * audioFrame * 1000 / audioTimescale), MediaTimeV0: 0, MediaRateInteger: 1},
 	}
-	audio, err := buildTrack(audioRng, trackPlan{
+	audioSrc, err := buildTrackFile(audioRng, trackPlan{
 		kind: "audio", trackID: 2, timescale: audioTimescale,
 		count: spec.AudioSamples, delta: audioFrame, keyEvery: 0,
 		emptyEdits: audioEdits,
@@ -132,14 +134,13 @@ func Build(dir string, spec Spec, v Variant) (*Asset, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fixtures: build audio: %w", err)
 	}
-	video, audio, err = corrupt(v, video, audio, spec.TruncateTailBytes)
+	defer os.Remove(audioSrc)
+	vBytes, err := publishTrack(videoSrc, vpath, v, true, spec)
 	if err != nil {
 		return nil, err
 	}
-	if err := writeUnlessKept(vpath, video, spec.KeepExisting); err != nil {
-		return nil, err
-	}
-	if err := writeUnlessKept(apath, audio, spec.KeepExisting); err != nil {
+	aBytes, err := publishTrack(audioSrc, apath, v, false, spec)
+	if err != nil {
 		return nil, err
 	}
 	man := manifestJSON(base, spec)
@@ -148,9 +149,50 @@ func Build(dir string, spec Spec, v Variant) (*Asset, error) {
 		return nil, err
 	}
 	a := &Asset{Variant: v, VideoPath: vpath, AudioPath: apath, Manifest: mpath}
-	a.VideoBytes = int64(len(video))
-	a.AudioBytes = int64(len(audio))
+	a.VideoBytes = vBytes
+	a.AudioBytes = aBytes
 	return a, nil
+}
+
+// publishTrack applies the variant corruption to one track file and copies it
+// to dst. Only a bounded scratch buffer is held, so large fixtures do not
+// inflate memory.
+func publishTrack(src, dst string, v Variant, isVideo bool, spec Spec) (int64, error) {
+	if spec.KeepExisting {
+		if st, err := os.Stat(dst); err == nil {
+			return st.Size(), nil
+		}
+	}
+	if err := copyFile(src, dst); err != nil {
+		return 0, err
+	}
+	if isVideo {
+		if err := applyVariantInPlace(dst, v, spec.TruncateTailBytes); err != nil {
+			return 0, err
+		}
+	}
+	st, err := os.Stat(dst)
+	if err != nil {
+		return 0, err
+	}
+	return st.Size(), nil
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 func manifestJSON(base string, spec Spec) string {
@@ -178,69 +220,6 @@ func manifestJSON(base string, spec Spec) string {
 `, base, spec.OriginMS, spec.VideoSamples*40, base, spec.OriginMS, spec.Layout)
 }
 
-// corrupt applies the variant mutation and returns replacement byte slices.
-func corrupt(v Variant, video, audio []byte, truncateBytes int) ([]byte, []byte, error) {
-	switch v {
-	case VariantNormal:
-		return video, audio, nil
-	case VariantTruncated:
-		if truncateBytes <= 0 {
-			truncateBytes = 4096
-		}
-		// Remove bytes from the end so the last samples point past EOF.
-		if len(video) <= truncateBytes+1024 {
-			return nil, nil, fmt.Errorf("fixtures: video too small to truncate by %d bytes", truncateBytes)
-		}
-		video = append([]byte(nil), video[:len(video)-truncateBytes]...)
-		return video, audio, nil
-	case VariantOutOfRange:
-		video = append([]byte(nil), video...)
-		if err := patchChunkOffset(video, 5, 1<<30); err != nil {
-			return nil, nil, fmt.Errorf("fixtures: out-of-range: %w", err)
-		}
-		return video, audio, nil
-	case VariantMissingPages:
-		video = append([]byte(nil), video...)
-		start := len(video) * 2 / 3
-		end := start + 1024
-		if end > len(video) {
-			end = len(video)
-		}
-		for i := start; i < end; i++ {
-			video[i] = 0
-		}
-		return video, audio, nil
-	default:
-		return nil, nil, fmt.Errorf("fixtures: unknown variant %q", v)
-	}
-}
-
-// writeUnlessKept writes data unless keep is set and path already exists.
-func writeUnlessKept(path string, data []byte, keep bool) error {
-	if keep {
-		if _, err := os.Stat(path); err == nil {
-			return nil
-		}
-	}
-	return os.WriteFile(path, data, 0o644)
-}
-
-// patchChunkOffset rewrites stco entry n. The writer emits one chunk per
-// sample, so entry n corresponds to sample n.
-func patchChunkOffset(b []byte, n int, off uint32) error {
-	idx := findBox(b, "stco", 0)
-	if idx < 0 {
-		return fmt.Errorf("stco not found")
-	}
-	entryCount := int(binary.BigEndian.Uint32(b[idx+12 : idx+16]))
-	if n < 0 || n >= entryCount {
-		return fmt.Errorf("stco has %d entries, want index %d", entryCount, n)
-	}
-	pos := idx + 16 + n*4
-	binary.BigEndian.PutUint32(b[pos:pos+4], off)
-	return nil
-}
-
 // findBox locates the first payload occurrence of a 4CC starting at from.
 func findBox(b []byte, typ string, from int) int {
 	for i := from; i+8 <= len(b); i++ {
@@ -249,4 +228,85 @@ func findBox(b []byte, typ string, from int) int {
 		}
 	}
 	return -1
+}
+
+// applyVariantInPlace applies a corruption variant to a media file, touching
+// only the bytes it must change so large fixtures are not loaded wholesale.
+func applyVariantInPlace(path string, v Variant, truncateBytes int) error {
+	switch v {
+	case VariantNormal:
+		return nil
+	case VariantTruncated:
+		if truncateBytes <= 0 {
+			truncateBytes = 4096
+		}
+		st, err := os.Stat(path)
+		if err != nil {
+			return err
+		}
+		if st.Size() <= int64(truncateBytes)+1024 {
+			return fmt.Errorf("fixtures: file too small to truncate by %d bytes", truncateBytes)
+		}
+		return os.Truncate(path, st.Size()-int64(truncateBytes))
+	case VariantOutOfRange:
+		off, err := stcoEntryOffset(path, 5)
+		if err != nil {
+			return err
+		}
+		f, err := os.OpenFile(path, os.O_WRONLY, 0)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		var buf [4]byte
+		binary.BigEndian.PutUint32(buf[:], 1<<30)
+		_, err = f.WriteAt(buf[:], off)
+		return err
+	case VariantMissingPages:
+		st, err := os.Stat(path)
+		if err != nil {
+			return err
+		}
+		start := st.Size() * 2 / 3
+		end := start + 1024
+		if end > st.Size() {
+			end = st.Size()
+		}
+		f, err := os.OpenFile(path, os.O_WRONLY, 0)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		zeros := make([]byte, end-start)
+		_, err = f.WriteAt(zeros, start)
+		return err
+	default:
+		return fmt.Errorf("fixtures: unknown variant %q", v)
+	}
+}
+
+// stcoEntryOffset locates the file offset of stco entry n by scanning the moov
+// region in bounded chunks.
+func stcoEntryOffset(path string, n int) (int64, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+	// The moov box precedes mdat in generated files; read up to the first mdat.
+	head := make([]byte, 2<<20)
+	read, _ := io.ReadFull(f, head)
+	head = head[:read]
+	idx := findBox(head, "stco", 0)
+	if idx < 0 {
+		return 0, fmt.Errorf("fixtures: stco not found")
+	}
+	if idx+16 > len(head) {
+		return 0, fmt.Errorf("fixtures: stco header truncated")
+	}
+	count := int(binary.BigEndian.Uint32(head[idx+12 : idx+16]))
+	if n < 0 || n >= count {
+		return 0, fmt.Errorf("fixtures: stco has %d entries, want %d", count, n)
+	}
+	return int64(idx + 16 + n*4), nil
 }

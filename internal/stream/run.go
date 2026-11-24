@@ -358,12 +358,20 @@ func processAudio(ctx context.Context, tr index.Track, block []float32, at clock
 	if *rec == nil {
 		return nil
 	}
-	// Packetise the normalised block into 20 ms RTP packets and feed the
-	// recoverer with a deterministic shuffle to model network reordering.
-	framesPerPacket := audio.TargetRate / 50 // 20 ms
-	packets := packetize(norm.Samples, framesPerPacket, seq)
-	if err := simulateNetwork(ctx, packets, rec, res, sink, at, opts.LossBurst, dropped); err != nil {
-		return err
+	// Packetise and reorder in bounded sub-blocks so neither the packet slice
+	// nor the simulation window grows with the analysis block size.
+	const packetsPerBurst = 25 // 500 ms of 20 ms packets
+	framesPerPacket := audio.TargetRate / 50
+	perBurst := framesPerPacket * audio.TargetChannels * packetsPerBurst
+	for start := 0; start < len(norm.Samples); start += perBurst {
+		end := start + perBurst
+		if end > len(norm.Samples) {
+			end = len(norm.Samples)
+		}
+		packets := packetize(norm.Samples[start:end], framesPerPacket, seq)
+		if err := simulateNetwork(ctx, packets, rec, res, sink, at, opts.LossBurst, dropped); err != nil {
+			return err
+		}
 	}
 	return nil
 }

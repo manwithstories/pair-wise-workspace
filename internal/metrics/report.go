@@ -79,7 +79,7 @@ type CorruptSpan struct {
 // Collector accumulates events. It is safe for concurrent use.
 type Collector struct {
 	mu      sync.Mutex
-	latency []float64
+	latency latencySketch
 	syncDev []float64
 	sync    []SyncSample
 	report  Report
@@ -100,7 +100,7 @@ func (c *Collector) Event(ev stream.Event) {
 	switch ev.Kind {
 	case stream.EventSample:
 		c.report.ProcessedSamples++
-		c.latency = append(c.latency, float64(ev.Latency.Microseconds())/1000)
+		c.latency.add(float64(ev.Latency.Microseconds()) / 1000)
 	case stream.EventCorrupt:
 		c.report.IsolatedSamples++
 	case stream.EventAudio:
@@ -124,7 +124,7 @@ func (c *Collector) Event(ev stream.Event) {
 				c.report.OutputLUFS = ev.Audio.OutputLUFS
 			}
 		}
-		c.latency = append(c.latency, float64(ev.Latency.Microseconds())/1000)
+		c.latency.add(float64(ev.Latency.Microseconds()) / 1000)
 	case stream.EventSync:
 		// Sync events are derived at report time from sample times.
 	}
@@ -171,8 +171,8 @@ func (c *Collector) Finalize(res *stream.Result, ix interface {
 		}
 	}
 	r.SyncSamples = c.sync
-	r.LatencyMSP95 = percentile(c.latency, 95)
-	r.LatencyMSMax = maxOf(c.latency)
+	r.LatencyMSP95 = c.latency.percentile(95)
+	r.LatencyMSMax = c.latency.max()
 	if ix != nil {
 		r.IndexedSamples = ix.Samples()
 		r.CorruptRanges = ix.CorruptCount()
