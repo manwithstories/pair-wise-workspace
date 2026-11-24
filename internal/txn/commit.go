@@ -143,6 +143,33 @@ func LoadCommit(out string) (*CommitRecord, error, bool) {
 	return &rec, nil, true
 }
 
+// VerifyCommit recomputes the deterministic aggregate hash of a published
+// generation and compares it with the commit marker.
+func VerifyCommit(out string, rec *CommitRecord) error {
+	if rec == nil {
+		return media.Corrupt("resume", "nil_commit", CommitMarker, 0, -1, "commit record is nil")
+	}
+	finalDir := filepath.Join(out, "committed", rec.Generation)
+	files, _, aggregate, err := hashStage(finalDir)
+	if err != nil {
+		return err
+	}
+	if aggregate != rec.SHA256 {
+		return media.Corrupt("resume", "commit_sha256_mismatch", finalDir, 0, -1,
+			"recomputed %s, marker %s", aggregate, rec.SHA256)
+	}
+	for name, want := range rec.Files {
+		if name == "SHA256SUMS" {
+			continue // aggregate digest, not the literal sums-file digest
+		}
+		if got := files[name]; got != want {
+			return media.Corrupt("resume", "artifact_sha256_mismatch", filepath.Join(finalDir, name), 0, -1,
+				"artifact %s", name)
+		}
+	}
+	return nil
+}
+
 // StagingGenerations lists uncommitted staging directories.
 func StagingGenerations(out string) ([]string, error) {
 	root := filepath.Join(out, "staging")

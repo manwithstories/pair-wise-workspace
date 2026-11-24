@@ -169,6 +169,9 @@ func Resume(out string) (*metrics.Report, error) {
 }
 
 func loadCommitted(out string, rec *txn.CommitRecord, recovered int) (*metrics.Report, error) {
+	if err := txn.VerifyCommit(out, rec); err != nil {
+		return nil, err
+	}
 	path := filepath.Join(out, "committed", rec.Generation, index.ReportFile)
 	b, err := os.ReadFile(path)
 	if err != nil {

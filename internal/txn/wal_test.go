@@ -116,6 +116,31 @@ func TestRollbackStagingGeneration(t *testing.T) {
 	}
 }
 
+func TestVerifyCommitDetectsTamperedArtifact(t *testing.T) {
+	out := t.TempDir()
+	tx, err := Begin(out, "gen-tamper")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.WriteArtifact("report.json", []byte("{\"ok\":true}\n")); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := tx.Commit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyCommit(out, rec); err != nil {
+		t.Fatalf("fresh commit verification: %v", err)
+	}
+	artifact := filepath.Join(out, "committed", rec.Generation, "report.json")
+	if err := os.WriteFile(artifact, []byte("{\"ok\":false}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyCommit(out, rec); err == nil {
+		t.Fatal("expected tamper to fail SHA verification")
+	}
+}
+
 func TestWriteFileAtomicMapsDiskPathError(t *testing.T) {
 	dir := t.TempDir()
 	blocker := filepath.Join(dir, "afile")
