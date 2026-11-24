@@ -2,6 +2,7 @@ package graph
 
 import (
 	"errors"
+	"fmt"
 	"sort"
 
 	"mediasim/internal/clock"
@@ -73,6 +74,12 @@ func Build(t *Timeline) (*Graph, error) {
 	if err := g.addSegments(); err != nil {
 		return nil, err
 	}
+	if err := g.addEditPieces(); err != nil {
+		return nil, err
+	}
+	if err := g.addTransitions(); err != nil {
+		return nil, err
+	}
 	if err := g.checkDependencies(); err != nil {
 		return nil, err
 	}
@@ -119,6 +126,52 @@ func (g *Graph) addSegments() error {
 				errs = append(errs, err)
 			}
 			prev = n.ID
+		}
+	}
+	return joinOrNil(errs)
+}
+
+func (g *Graph) addEditPieces() error {
+	var errs []error
+	for _, tr := range g.Timeline.Tracks {
+		for _, s := range tr.Segments {
+			bounds := append([]int64{0}, s.EditPoints...)
+			bounds = append(bounds, s.Duration)
+			for i := 0; i+1 < len(bounds); i++ {
+				start, dur := bounds[i], bounds[i+1]-bounds[i]
+				if dur == 0 {
+					continue
+				}
+				n := Node{
+					ID:   NodeID(fmt.Sprintf("piece:%s:%d", s.ID, i)),
+					Kind: NodeEditPiece, Track: tr.ID, Segment: s.ID,
+					Start: s.Start + start, Duration: dur,
+					Deps: []NodeID{segmentNodeID(s.ID)},
+				}
+				if err := g.addNode(n); err != nil {
+					errs = append(errs, err)
+				}
+			}
+		}
+	}
+	return joinOrNil(errs)
+}
+
+func (g *Graph) addTransitions() error {
+	var errs []error
+	for _, tr := range g.Timeline.Transitions {
+		from, _ := g.Timeline.Segment(tr.From)
+		n := Node{
+			ID:       NodeID("tr:" + tr.ID),
+			Kind:     NodeTransition,
+			Track:    from.Track,
+			Segment:  tr.From,
+			Start:    from.Start + from.Duration - tr.Duration,
+			Duration: tr.Duration,
+			Deps:     []NodeID{segmentNodeID(tr.From), segmentNodeID(tr.To)},
+		}
+		if err := g.addNode(n); err != nil {
+			errs = append(errs, err)
 		}
 	}
 	return joinOrNil(errs)

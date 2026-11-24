@@ -46,8 +46,16 @@ func TestBuildDerivesEdges(t *testing.T) {
 	}
 	// v1 depends on v0 (same track order).
 	assertDeps(t, g, "seg:v1", "seg:v0")
+	// The edit piece of v0 depends on the whole segment.
+	assertDeps(t, g, "piece:v0:0", "seg:v0")
+	assertDeps(t, g, "piece:v0:1", "seg:v0")
+	// A transition depends on both endpoints.
+	assertDeps(t, g, "tr:xf", "seg:v0", "seg:v1")
 	// The audio segment has no predecessor.
 	assertDeps(t, g, "seg:a0")
+	if n, ok := g.Node("tr:xf"); !ok || n.Start != 1000 || n.Duration != 0 {
+		t.Fatalf("transition node=%+v ok=%v", n, ok)
+	}
 }
 
 func TestMissingDependencyReported(t *testing.T) {
