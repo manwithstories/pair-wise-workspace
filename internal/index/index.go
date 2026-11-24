@@ -17,18 +17,22 @@ func (s *source) Build(repair *clock.Map) (*Index, error) {
 		if len(ts.samples) == 0 {
 			continue
 		}
+		// Rebase onto a 0-based timeline so the index and the repair mapping
+		// share the same origin even when tfdt starts near the wraparound.
+		origin := ts.samples[0].timeNs
 		tr := Track{ID: ts.id, Timescale: ts.timescale, Handler: ts.handler, Samples: len(ts.samples)}
 		for _, sm := range ts.samples {
 			if !sm.sync {
 				continue
 			}
+			t := sm.timeNs - origin
 			tr.Points = append(tr.Points, Point{
-				TimeNs:     sm.timeNs,
+				TimeNs:     t,
 				DurationNs: sm.durNs,
 				Offset:     sm.offset,
 				Size:       sm.size,
 				Sync:       true,
-				SegmentID:  repairID(repair, sm.timeNs),
+				SegmentID:  repairID(repair, t),
 			})
 		}
 		idx.Tracks = append(idx.Tracks, tr)
