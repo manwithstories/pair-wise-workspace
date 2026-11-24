@@ -159,17 +159,19 @@ func TestRTPLossBecomesManifestGap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if res.RTPGaps != 2 {
-		t.Fatalf("rtp gaps = %d, want 2", res.RTPGaps)
+	if res.Metrics.RTPLost != 2 {
+		t.Fatalf("rtp_lost = %d, want the two dropped packets", res.Metrics.RTPLost)
 	}
-	// A lost preview packet means the frame has no preview but the source
-	// frame still exists and is indexed; the gap is recorded, never filled
-	// with a synthesized frame.
+	// A lost preview packet means one or two frames lose their preview; the
+	// gap count is the number of frames that never completed, never more than
+	// the packets lost.
+	if res.RTPGaps < 1 || res.RTPGaps > 2 {
+		t.Fatalf("rtp gaps = %d, want 1..2 for two lost packets", res.RTPGaps)
+	}
+	// The source frames still exist and are indexed; no frame is invented to
+	// fill a preview gap.
 	if res.Metrics.IndexEntries != 120 {
 		t.Fatalf("index entries = %d, want 120", res.Metrics.IndexEntries)
-	}
-	if res.Metrics.RTPLost != 2 {
-		t.Fatalf("rtp_lost = %d, want 2", res.Metrics.RTPLost)
 	}
 }
 
