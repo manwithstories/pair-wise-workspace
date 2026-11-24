@@ -28,6 +28,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "demo":
 		return runDemo(args[1:], stdout, stderr)
+	case "generate-fixture", "fixture":
+		return runGenerate(args[1:], stdout, stderr)
 	case "run", "process":
 		return runPipeline(args[1:], stdout, stderr)
 	case "scan":
@@ -50,6 +52,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 func printUsage(w io.Writer) {
 	fmt.Fprintln(w, `usage:
   mediad demo --seed 29 --seconds 12 --out DIR
+  mediad generate-fixture --seed 29 --seconds 12 --out DIR
   mediad run --input INPUT.mdr --out final.mp4 --work WORK [--index index.json] [--inject-stage mp4]
   mediad scan --input INPUT.mdr
   mediad index --input INPUT.mdr --index index.json`)
