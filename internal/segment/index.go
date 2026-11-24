@@ -136,6 +136,23 @@ func BuildIndex(frags []*ExtractedFragment, tl *clock.Timeline) (*Index, error) 
 	}, nil
 }
 
+// VerifyIndex 对一个已生成（或从持久化产物重新读取）的索引做独立核验：
+// 重算 SHA256、校验键数、时间严格单调、同片段偏移/样本号单调、偏移位于
+// 文件边界内。任何不一致都返回错误，绝不信任未经核验的索引。
+func VerifyIndex(idx *Index) error {
+	if idx == nil {
+		return ErrBoxOverflow
+	}
+	if idx.Keys != len(idx.Entries) {
+		return &FragmentError{Op: "verify key count", Err: ErrBoxOverflow}
+	}
+	want := sha256.Sum256(canonicalEntries(idx.Entries))
+	if hex.EncodeToString(want[:]) != idx.SHA256 {
+		return &FragmentError{Op: "verify hash", Err: ErrBoxOverflow}
+	}
+	return verifyMonotonic(idx.Entries)
+}
+
 // verifyMonotonic 独立核验三条单调性/边界不变量。
 func verifyMonotonic(entries []IndexEntry) error {
 	for i, e := range entries {

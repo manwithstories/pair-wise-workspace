@@ -1,6 +1,7 @@
 package segment
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -124,8 +125,7 @@ func TestBuildIndexIndependentVerification(t *testing.T) {
 	}
 }
 
-func TestBuildIndexDeterministicHash(t *testing.T) {
-	frag := buildTwoFragments(t)
+func TestBuildIndexDeterministicHash(t *testing.T) {	frag := buildTwoFragments(t)
 	tl := buildTimelineFor(t, frag)
 	idx1, err := BuildIndex(frag, tl)
 	if err != nil {
@@ -192,4 +192,44 @@ func buildTimelineFor(t *testing.T, frags []*ExtractedFragment) *clock.Timeline 
 		t.Fatalf("repair: %v", err)
 	}
 	return tl
+}
+
+// TestVerifyIndexAfterRoundTrip 模拟索引落盘后被独立进程重新读取：
+// JSON 序列化 → 反序列化 → VerifyIndex 全量核验单调性、边界与摘要。
+func TestVerifyIndexAfterRoundTrip(t *testing.T) {
+	frag := buildTwoFragments(t)
+	tl := buildTimelineFor(t, frag)
+	idx, err := BuildIndex(frag, tl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(idx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reread Index
+	if err := json.Unmarshal(raw, &reread); err != nil {
+		t.Fatalf("reread index: %v", err)
+	}
+	if err := VerifyIndex(&reread); err != nil {
+		t.Fatalf("re-read index failed verification: %v", err)
+	}
+	// 篡改任一条目偏移到文件外，核验必须失败。
+	tampered := reread
+	tampered.Entries[0].Offset = tampered.Entries[0].FileSize + 5
+	if err := VerifyIndex(&tampered); !errors.Is(err, ErrBoxOverflow) {
+		t.Fatalf("tampered offset must fail verification, got %v", err)
+	}
+	// 篡改时间破坏单调性，核验必须失败。
+	tampered2 := reread
+	tampered2.Entries[1].Time = tampered2.Entries[0].Time
+	if err := VerifyIndex(&tampered2); err == nil {
+		t.Fatal("non-monotone time must fail verification")
+	}
+	// 仅改哈希不改条目，重算哈希不一致，核验必须失败。
+	tampered3 := reread
+	tampered3.SHA256 = "00"
+	if err := VerifyIndex(&tampered3); err == nil {
+		t.Fatal("hash mismatch must fail verification")
+	}
 }
