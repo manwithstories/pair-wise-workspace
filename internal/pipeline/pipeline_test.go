@@ -72,6 +72,13 @@ func TestRunAcceptanceThresholds(t *testing.T) {
 	if s.Truth == nil || len(s.Truth) != 3 {
 		t.Fatalf("truth = %+v", s.Truth)
 	}
+	if s.Recovered == 0 {
+		t.Fatal("expected reordered packets to be counted as recovered")
+	}
+	if s.PacketsDelivered+s.Unrecoverable+s.PacketsLost != s.PacketsSent {
+		t.Fatalf("packet accounting does not add up: %d+%d+%d != %d",
+			s.PacketsDelivered, s.Unrecoverable, s.PacketsLost, s.PacketsSent)
+	}
 }
 
 func TestRunReproducibleAcrossSeeds(t *testing.T) {

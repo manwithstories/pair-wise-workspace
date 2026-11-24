@@ -34,13 +34,15 @@ type Summary struct {
 	SyncErrorMS           float64          `json:"sync_error_ms"`
 	BoundaryMismatch      bool             `json:"boundary_mismatch"`
 
-	LossRecoveryRate float64 `json:"loss_recovery_rate"`
-	PacketsSent      int     `json:"packets_sent"`
-	PacketsDelivered int     `json:"packets_delivered"`
-	PacketsLost      int     `json:"packets_lost"`
-	Unrecoverable    int     `json:"unrecoverable_packets"`
-	Duplicates       int     `json:"duplicate_packets"`
-	Reordered        int     `json:"reordered_packets"`
+	LossRecoveryRate         float64 `json:"loss_recovery_rate"`
+	PacketsSent              int     `json:"packets_sent"`
+	PacketsDelivered         int     `json:"packets_delivered"`
+	PacketsLost              int     `json:"packets_lost"`
+	Unrecoverable            int     `json:"unrecoverable_packets"`
+	Duplicates               int     `json:"duplicate_packets"`
+	Reordered                int     `json:"reordered_packets"`
+	Recovered                int     `json:"recovered_packets"`
+	UnrecoverableOutOfWindow int     `json:"unrecoverable_out_of_window"`
 
 	LatencyP50MS float64 `json:"p50_latency_ms"`
 	LatencyP95MS float64 `json:"p95_latency_ms"`
@@ -191,7 +193,7 @@ func (s *Summary) aggregateGOP() {
 }
 
 func (s *Summary) aggregateTransport() {
-	sent, delivered, lost, unrecoverable, dups, reordered := 0, 0, 0, 0, 0, 0
+	sent, delivered, lost, unrecoverable, dups, reordered, recovered, outOfWindow := 0, 0, 0, 0, 0, 0, 0, 0
 	for _, l := range s.Layers {
 		sent += l.Transport.PacketsSent
 		delivered += l.Transport.Delivered
@@ -199,10 +201,13 @@ func (s *Summary) aggregateTransport() {
 		unrecoverable += l.Transport.Unrecoverable
 		dups += l.Transport.Duplicates
 		reordered += l.Transport.Reordered
+		recovered += l.Transport.Recovered
+		outOfWindow += l.Transport.UnrecoverableOutOfWindow
 	}
 	s.PacketsSent, s.PacketsDelivered = sent, delivered
 	s.PacketsLost, s.Unrecoverable = lost, unrecoverable
 	s.Duplicates, s.Reordered = dups, reordered
+	s.Recovered, s.UnrecoverableOutOfWindow = recovered, outOfWindow
 	if sent > 0 {
 		s.LossRecoveryRate = round4(float64(delivered) / float64(sent))
 	} else {

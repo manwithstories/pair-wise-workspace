@@ -186,3 +186,42 @@ func makeEnv(t *testing.T, n int) []Envelope {
 	}
 	return envs
 }
+
+func TestRecoveredCountsReorderedPackets(t *testing.T) {
+	// Deliver 0,2,1: packet 1 arrives out of order and is recovered.
+	recv := NewReceiver(16, 90000)
+	base := &rtp.Packet{Header: rtp.Header{SequenceNumber: 0, Timestamp: 0}}
+	p2 := &rtp.Packet{Header: rtp.Header{SequenceNumber: 2, Timestamp: 6000}}
+	p1 := &rtp.Packet{Header: rtp.Header{SequenceNumber: 1, Timestamp: 3000}}
+	recv.Push(base, 0)
+	recv.Push(p2, 1000)
+	recv.Push(p1, 2000)
+	st := recv.Finish(0, 3)
+	if st.Recovered != 1 {
+		t.Fatalf("recovered = %d, want 1", st.Recovered)
+	}
+	if st.Reordered != 1 {
+		t.Fatalf("reordered = %d", st.Reordered)
+	}
+	if st.Delivered != 3 || st.Unrecoverable != 0 {
+		t.Fatalf("stats = %+v", st)
+	}
+}
+
+func TestOutOfWindowUnrecoverable(t *testing.T) {
+	// Push the window far ahead, then deliver an old packet that no longer
+	// fits: it must be counted as unrecoverable, not as plain loss.
+	recv := NewReceiver(4, 90000)
+	recv.Push(&rtp.Packet{Header: rtp.Header{SequenceNumber: 0}}, 0)
+	recv.Push(&rtp.Packet{Header: rtp.Header{SequenceNumber: 2}}, 1000)
+	recv.Push(&rtp.Packet{Header: rtp.Header{SequenceNumber: 5}}, 2000)
+	recv.Push(&rtp.Packet{Header: rtp.Header{SequenceNumber: 1}}, 3000)
+	st := recv.Finish(0, 6)
+	if st.UnrecoverableOutOfWindow != 1 {
+		t.Fatalf("out-of-window unrecoverable = %d (stats %+v)", st.UnrecoverableOutOfWindow, st)
+	}
+	// Sequences 3 and 4 never arrived at all; 1 arrived but too late.
+	if st.Lost != 2 {
+		t.Fatalf("lost = %d, want 2 (sequences 3 and 4)", st.Lost)
+	}
+}

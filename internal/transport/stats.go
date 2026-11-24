@@ -8,19 +8,21 @@ import (
 
 // Stats is the deterministic accounting for one RTP stream.
 type Stats struct {
-	PacketsSent          int     `json:"packets_sent"`
-	PacketsReceived      int     `json:"packets_received"`
-	UniquePackets        int     `json:"unique_packets"`
-	Delivered            int     `json:"delivered"`
-	Duplicates           int     `json:"duplicates"`
-	Reordered            int     `json:"reordered"`
-	Lost                 int     `json:"lost"`
-	Unrecoverable        int     `json:"unrecoverable"`
-	TimestampRegressions int     `json:"timestamp_regressions"`
-	RecoveryRate         float64 `json:"recovery_rate"`
-	JitterMS             float64 `json:"jitter_ms"`
-	WindowSize           int     `json:"reorder_window"`
-	OutOfWindow          int     `json:"out_of_window"`
+	PacketsSent              int     `json:"packets_sent"`
+	PacketsReceived          int     `json:"packets_received"`
+	UniquePackets            int     `json:"unique_packets"`
+	Delivered                int     `json:"delivered"`
+	Duplicates               int     `json:"duplicates"`
+	Reordered                int     `json:"reordered"`
+	Recovered                int     `json:"recovered"`
+	Lost                     int     `json:"lost"`
+	Unrecoverable            int     `json:"unrecoverable"`
+	UnrecoverableOutOfWindow int     `json:"unrecoverable_out_of_window"`
+	TimestampRegressions     int     `json:"timestamp_regressions"`
+	RecoveryRate             float64 `json:"recovery_rate"`
+	JitterMS                 float64 `json:"jitter_ms"`
+	WindowSize               int     `json:"reorder_window"`
+	OutOfWindow              int     `json:"out_of_window"`
 }
 
 // Receiver reassembles one RTP stream within a bounded reorder window. It
@@ -31,6 +33,7 @@ type Receiver struct {
 	stats     Stats
 	arrivals  map[uint16]int
 	delivered map[uint16]bool
+	lateOnly  map[uint16]bool
 	high      uint16
 	haveHigh  bool
 	lastTs    uint32
@@ -52,6 +55,7 @@ func NewReceiver(windowSize int, clockRate int64) *Receiver {
 		window:    NewReorderWindow(windowSize),
 		arrivals:  make(map[uint16]int),
 		delivered: make(map[uint16]bool),
+		lateOnly:  make(map[uint16]bool),
 		clockRate: clockRate,
 	}
 }
@@ -71,8 +75,10 @@ func (r *Receiver) Push(pkt *rtp.Packet, arrivalUs int64) []*rtp.Packet {
 		return nil
 	}
 
-	// Reordered means this sequence is behind the highest already seen.
-	if r.haveHigh && seqLess(seq, r.high) {
+	// Reordered means this sequence is behind the highest already seen. Such a
+	// packet can still be recovered if it fits inside the window.
+	wasBehind := r.haveHigh && seqLess(seq, r.high)
+	if wasBehind {
 		r.stats.Reordered++
 	}
 	if !r.haveHigh || seqLess(r.high, seq) {
@@ -84,10 +90,23 @@ func (r *Receiver) Push(pkt *rtp.Packet, arrivalUs int64) []*rtp.Packet {
 
 	ready, accepted := r.window.Push(pkt)
 	if !accepted {
+		// The packet arrived, but the window had already advanced past its
+		// position; record it so the summary can report an out-of-window
+		// unrecoverable count rather than lumping it in with plain loss.
+		if wasBehind {
+			r.lateOnly[seq] = true
+		}
 		return nil
 	}
+	delivered := false
 	for _, p := range ready {
 		r.delivered[p.SequenceNumber] = true
+		if p.SequenceNumber == seq {
+			delivered = true
+		}
+	}
+	if wasBehind && delivered {
+		r.stats.Recovered++
 	}
 	return ready
 }
@@ -129,6 +148,9 @@ func (r *Receiver) Finish(sentSeq0 uint16, sentCount int) Stats {
 			r.stats.Delivered++
 		case r.arrivals[seq] > 0:
 			r.stats.Unrecoverable++
+			if r.lateOnly[seq] {
+				r.stats.UnrecoverableOutOfWindow++
+			}
 		default:
 			r.stats.Lost++
 		}
