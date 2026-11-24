@@ -3,6 +3,7 @@ package fixture
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"mediac/internal/transport"
 )
@@ -24,9 +25,19 @@ func buildFault(t *Tree, caseName string) error {
 	}
 	switch caseName {
 	case CaseDuplicate:
-		return injectCapture(t, duplicateMutator)
+		// Duplicates are the headline defect, but alone they are recoverable
+		// warnings; combine one segment's duplication with a burst loss on the
+		// second segment so the case also yields a damaged range.
+		return injectCapture(t, func(frames []frameEnvelope) []frameEnvelope {
+			return burstLossMutator(duplicateMutator(frames))
+		})
 	case CaseReorder:
-		return injectCapture(t, reorderMutator)
+		// Reordering is the headline behavior and stays inside the window
+		// (fully recoverable, reported as warnings); a second fault segment also
+		// carries a window-overflow burst so the case yields damaged ranges.
+		return injectCapture(t, func(frames []frameEnvelope) []frameEnvelope {
+			return burstLossOnOneSegment(reorderMutator(frames), faultSegB)
+		})
 	case CaseBurstLoss:
 		return injectCapture(t, burstLossMutator)
 	case CaseTruncatedBox:
@@ -122,44 +133,67 @@ func duplicateMutator(frames []frameEnvelope) []frameEnvelope {
 	return out
 }
 
-// reorderMutator swaps adjacent packets within the fault segments while
-// keeping every packet, so the bounded window recovers the byte stream but
-// records reordered events.
+// reorderMutator swaps two adjacent packets in the middle of each fault
+// segment while keeping every packet. The swap stays inside the reorder
+// window, so recovery fully restores the byte stream (no damage) but records
+// reordered events that propagate into the analysis timeline.
 func reorderMutator(frames []frameEnvelope) []frameEnvelope {
 	out := append([]frameEnvelope(nil), frames...)
-	swapWithinSegment(out, faultSegA)
-	swapWithinSegment(out, faultSegB)
+	swapMiddlePair(out, faultSegA)
+	swapMiddlePair(out, faultSegB)
 	return out
 }
 
-func swapWithinSegment(frames []frameEnvelope, segment int) {
+func swapMiddlePair(frames []frameEnvelope, segment int) {
 	var idxs []int
 	for i, f := range frames {
 		if f.fragment == segment {
 			idxs = append(idxs, i)
 		}
 	}
-	if len(idxs) >= 2 {
-		frames[idxs[0]], frames[idxs[1]] = frames[idxs[1]], frames[idxs[0]]
+	if len(idxs) < 4 {
+		return
 	}
+	mid := len(idxs) / 2
+	a, b := idxs[mid], idxs[mid+1]
+	frames[a], frames[b] = frames[b], frames[a]
 }
 
-// burstLossMutator removes a contiguous run of packets from each fault
-// segment. The removed span exceeds the default reorder window once later
-// packets arrive, so recovery reports unrecovered burst gaps rather than
-// silently filling them.
-func burstLossMutator(frames []frameEnvelope) []frameEnvelope {
-	drop := map[int]int{faultSegA: 0, faultSegB: 0}
+// burstLossOnOneSegment applies the window-overflow middle-burst drop to a
+// single fragment, leaving the other fault segment to demonstrate recoverable
+// reordering.
+func burstLossOnOneSegment(frames []frameEnvelope, onlySegment int) []frameEnvelope {
+	const headKeep = 4
+	dropRun := transport.DefaultReorderWindow + 3
+	seen := map[int]int{}
 	var out []frameEnvelope
 	for _, f := range frames {
-		if n, ok := drop[f.fragment]; ok {
-			// Drop the first packets of each affected fragment (a burst at the
-			// fragment head), keeping the later packets that force the window
-			// overflow.
-			dropCount := transport.DefaultReorderWindow + 2
-			if n < dropCount {
-				drop[f.fragment] = n + 1
-				continue
+		idx := seen[f.fragment]
+		seen[f.fragment] = idx + 1
+		if f.fragment == onlySegment && idx >= headKeep && idx < headKeep+dropRun {
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
+// burstLossMutator keeps the head packets of each fault fragment, removes a
+// middle run longer than the reorder window, and keeps the tail. Because the
+// reconstructor has already established the fragment frontier from the head,
+// the surviving tail arrives more than one window ahead of the expected next
+// sequence, forcing a declared (never silently filled) burst-loss gap.
+func burstLossMutator(frames []frameEnvelope) []frameEnvelope {
+	const headKeep = 4
+	dropRun := transport.DefaultReorderWindow + 3
+	seen := map[int]int{}
+	var out []frameEnvelope
+	for _, f := range frames {
+		idx := seen[f.fragment]
+		seen[f.fragment] = idx + 1
+		if f.fragment == faultSegA || f.fragment == faultSegB {
+			if idx >= headKeep && idx < headKeep+dropRun {
+				continue // dropped middle burst
 			}
 		}
 		out = append(out, f)
@@ -186,10 +220,13 @@ func injectTruncatedBox(t *Tree) error {
 	return nil
 }
 
-// injectClockReset rewrites the HLS media playlists and DASH templates so the
-// second fault segment declares a backwards media time. The manifest parser
-// must reject the non-monotonic timeline instead of treating it as valid.
+// injectClockReset rewrites both the DASH MPD and HLS media playlists so a
+// segment declares a backwards media time. The manifest parser must reject
+// the non-monotonic timeline instead of treating the clock reset as valid.
 func injectClockReset(t *Tree) error {
+	if err := injectDASHClockReset(t); err != nil {
+		return err
+	}
 	for _, spec := range Layout {
 		media := t.HLSMedia[spec.ID]
 		data, err := os.ReadFile(media)
@@ -207,6 +244,52 @@ func injectClockReset(t *Tree) error {
 		}
 	}
 	return nil
+}
+
+// injectDASHClockReset turns the fixed-duration templates into explicit
+// SegmentTimeline lists containing a backwards <S> entry, which the DASH
+// parser rejects as a timestamp regression.
+func injectDASHClockReset(t *Tree) error {
+	data, err := os.ReadFile(t.DASHMPD)
+	if err != nil {
+		return err
+	}
+	var b strings.Builder
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.Contains(line, "<SegmentTemplate") {
+			b.WriteString(line)
+			b.WriteString("\n")
+			continue
+		}
+		indent := line[:len(line)-len(strings.TrimLeft(line, " "))]
+		// Extract the per-rep attributes we must preserve.
+		initSeg := attr(line, "initialization")
+		mediaPat := attr(line, "media")
+		b.WriteString(indent + `<SegmentTemplate timescale="1000" initialization="` +
+			initSeg + `" media="` + mediaPat + `">` + "\n")
+		b.WriteString(indent + "  <SegmentTimeline>\n")
+		b.WriteString(indent + `    <S t="0" d="1000"/>` + "\n")
+		// Illegal regression: 500 < previous end (1000).
+		b.WriteString(indent + `    <S t="500" d="1000"/>` + "\n")
+		b.WriteString(indent + "  </SegmentTimeline>\n")
+		b.WriteString(indent + "</SegmentTemplate>\n")
+	}
+	return os.WriteFile(t.DASHMPD, []byte(strings.TrimRight(b.String(), "\n")+"\n"), 0o644)
+}
+
+// attr extracts an XML attribute value from a single element line.
+func attr(line, name string) string {
+	key := name + "=\""
+	i := strings.Index(line, key)
+	if i < 0 {
+		return ""
+	}
+	rest := line[i+len(key):]
+	j := strings.Index(rest, "\"")
+	if j < 0 {
+		return ""
+	}
+	return rest[:j]
 }
 
 func segFileName(seg int) string {
