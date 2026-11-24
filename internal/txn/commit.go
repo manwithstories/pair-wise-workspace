@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"relay/internal/media"
+	"relay/internal/safepath"
 )
 
 // CrashPoint names the fault-injection moments recognised by a Txn.
@@ -265,16 +265,12 @@ func DecodeManifest(b []byte) (Manifest, error) {
 // checkWithin refuses paths that escape the work directory, enforcing the
 // local-only, workspace-confined input constraint.
 func checkWithin(workDir, target string) error {
-	absWork, err := filepath.Abs(filepath.Clean(workDir))
+	root, err := safepath.NewRoot(workDir)
 	if err != nil {
 		return err
 	}
-	absTarget, err := filepath.Abs(filepath.Clean(target))
-	if err != nil {
-		return err
-	}
-	if absTarget != absWork && !strings.HasPrefix(absTarget, absWork+string(os.PathSeparator)) {
-		return fmt.Errorf("txn: path %s escapes work directory %s", absTarget, absWork)
+	if !root.Contains(target) {
+		return fmt.Errorf("txn: path %s escapes work directory %s", target, workDir)
 	}
 	return nil
 }

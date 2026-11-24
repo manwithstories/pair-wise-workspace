@@ -262,8 +262,10 @@ func hashPayload(p []byte) [32]byte {
 	return sha256.Sum256(p)
 }
 
-// CaptureRefExtProfile identifies the raw RTP header extension used to carry
-// the 8-byte big-endian capture wall-clock reference (a drift anchor).
+// CaptureRefExtProfile marks the RTP header-extension area whose first bytes
+// carry the 8-byte big-endian capture wall-clock reference (a drift anchor).
+// RFC 8285 one-byte framing (0x18 length nibble precedes the anchor) is used
+// so pion parses the packet and the raw reader locates the anchor directly.
 const CaptureRefExtProfile = 0xBEDE
 
 func captureRefNS(p *rtp.Packet) int64 {
