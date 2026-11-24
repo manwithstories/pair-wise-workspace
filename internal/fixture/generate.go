@@ -102,7 +102,8 @@ func GenerateConfig(cfg Config) error {
 	var anchors []anchorRecord
 	for seq := uint32(1); seq <= uint32(cfg.FragmentCount); seq++ {
 		durs, cto := timingFor(cfg)
-		tfdt := uint64((seq - 1)) * uint64(fragDur)
+		trueTFDT := uint64((seq - 1)) * uint64(fragDur)
+		tfdt := trueTFDT
 		if cfg.FallbackAt == seq {
 			// Deliberately old base: exercises tfdt fallback repair.
 			tfdt = uint64(2) * uint64(fragDur)
@@ -123,7 +124,7 @@ func GenerateConfig(cfg Config) error {
 		if err := WriteSegment(spec); err != nil {
 			return err
 		}
-		rec, err := makeAnchor(cfg, seq, int64(tfdt))
+		rec, err := makeAnchor(cfg, seq, int64(trueTFDT))
 		if err != nil {
 			return err
 		}
