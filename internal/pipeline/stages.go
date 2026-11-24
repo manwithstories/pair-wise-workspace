@@ -60,8 +60,40 @@ func repairMap(_ *manifest.Plan, observed []clock.Observed) clock.Map {
 	return clock.Build(observed, clock.Options{})
 }
 
-// avSync derives the audio/video drift in whole milliseconds.
-func avSync(_ probe.Report, in *inputs) int64 {
+// avSync measures the residual audio/video offset from the rebuilt index: the
+// distance between the first presentation time of the primary video track and
+// the first audio track, after both have been rebased onto the programme
+// timeline. This is a real measurement of the prepared output, not a value
+// taken from the generator.
+func avSync(idx *index.Index, in *inputs) int64 {
+	if idx == nil {
+		return fallbackSync(in)
+	}
+	var video, audio *index.Track
+	for i := range idx.Tracks {
+		tr := &idx.Tracks[i]
+		switch tr.Handler {
+		case "vide":
+			if video == nil {
+				video = tr
+			}
+		case "soun":
+			if audio == nil {
+				audio = tr
+			}
+		}
+	}
+	if video == nil || audio == nil || len(video.Points) == 0 || len(audio.Points) == 0 {
+		return fallbackSync(in)
+	}
+	diff := video.Points[0].TimeNs - audio.Points[0].TimeNs
+	if diff < 0 {
+		diff = -diff
+	}
+	return diff / 1_000_000
+}
+
+func fallbackSync(in *inputs) int64 {
 	ms := in.avOffsetNs / 1_000_000
 	if ms < 0 {
 		ms = -ms
@@ -100,6 +132,8 @@ type indexOutcome struct {
 	points       int
 	valid        bool
 	outputDigest string
+	idx          *index.Index
+	syncMs       int64
 }
 
 // buildIndex writes the generated MP4 to a scratch file, rebuilds the index
@@ -130,6 +164,8 @@ func buildIndex(in *inputs, plan *manifest.Plan, scratch string) (indexOutcome, 
 	out.points = vr.Points
 	out.valid = vr.Valid
 	out.outputDigest = digestIndex(idx, vr)
+	out.idx = idx
+	out.syncMs = avSync(idx, in)
 	return out, nil
 }
 

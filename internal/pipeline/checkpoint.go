@@ -17,7 +17,7 @@ const (
 )
 
 // StageOrder lists the stages in execution order.
-var StageOrder = []string{StageManifest, StageRepair, StageProbe, StageIndex}
+var StageOrder = []string{StageManifest, StageRepair, StageIndex, StageProbe}
 
 // StageRecord is the verified state of one stage.
 type StageRecord struct {
