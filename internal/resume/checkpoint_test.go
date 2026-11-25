@@ -16,7 +16,7 @@ func TestCheckpointPrefixTamperAndOutputHash(t *testing.T) {
 		t.Fatal(err)
 	}
 	cp := New(73021, dir, 128)
-	if err := cp.RecordInputPrefix("r0", input, 8, 1, 90000); err != nil {
+	if err := cp.RecordInputPrefix("r0", input, 8, 0, 1, 90000); err != nil {
 		t.Fatal(err)
 	}
 	cpPath := filepath.Join(dir, "checkpoint.json")

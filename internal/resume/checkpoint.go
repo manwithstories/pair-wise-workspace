@@ -22,6 +22,7 @@ type InputState struct {
 	Size            int64  `json:"size"`
 	PrefixOffset    int64  `json:"prefix_offset"`
 	PrefixSHA256    string `json:"prefix_sha256"`
+	SafeOffset      int64  `json:"safe_offset"`
 	PacketsOccurred int    `json:"packets_occurred"`
 	LastSafePTS     int64  `json:"last_safe_pts"`
 }
@@ -105,7 +106,7 @@ func HashPrefix(path string, n int64) (string, error) {
 }
 
 // RecordInputPrefix calculates and stores an input prefix hash.
-func (c *Checkpoint) RecordInputPrefix(id, path string, prefixOffset int64, packets int, safePTS int64) error {
+func (c *Checkpoint) RecordInputPrefix(id, path string, prefixOffset, safeOffset int64, packets int, safePTS int64) error {
 	st, err := os.Stat(path)
 	if err != nil {
 		return mediaerr.Wrap(mediaerr.KindPrefixMismatch, -1, 0, false, err)
@@ -121,12 +122,12 @@ func (c *Checkpoint) RecordInputPrefix(id, path string, prefixOffset int64, pack
 	for i := range c.Inputs {
 		if c.Inputs[i].ID == id {
 			c.Inputs[i] = InputState{ID: id, Path: path, Size: st.Size(), PrefixOffset: prefixOffset,
-				PrefixSHA256: hash, PacketsOccurred: packets, LastSafePTS: safePTS}
+				PrefixSHA256: hash, SafeOffset: safeOffset, PacketsOccurred: packets, LastSafePTS: safePTS}
 			return nil
 		}
 	}
 	c.Inputs = append(c.Inputs, InputState{ID: id, Path: path, Size: st.Size(), PrefixOffset: prefixOffset,
-		PrefixSHA256: hash, PacketsOccurred: packets, LastSafePTS: safePTS})
+		PrefixSHA256: hash, SafeOffset: safeOffset, PacketsOccurred: packets, LastSafePTS: safePTS})
 	return nil
 }
 
