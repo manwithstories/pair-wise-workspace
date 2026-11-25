@@ -16,6 +16,8 @@ go mod download
 go mod tidy
 go build ./...
 go test ./...
+BIN=/tmp/mediaarchive-acceptance-bin
+go build -o "$BIN" ./cmd/archivecheck
 
 rm -rf "$CLEAN" "$DAMAGE" "$RESUME" "$OTHER" "$FATAL"
 
@@ -32,17 +34,38 @@ run_expect() {
   local expected="$1" log="$2"
   shift 2
   set +e
-  go run ./cmd/archivecheck "$@" 2>&1 | tee "$log"
-  local rc="${PIPESTATUS[0]}"
+  # 直接运行编译后的二进制，避免 `go run` 把非零退出码统一包装成 1。
+  "$BIN" "$@" >"$log" 2>&1
+  local rc=$?
   set -e
+  cat "$log"
   if [[ "$rc" != "$expected" ]]; then
     echo "expected exit $expected, got $rc" >&2
     exit 1
   fi
 }
 
+run_go_semantic() {
+  local expected="$1" log="$2"
+  shift 2
+  set +e
+  go run ./cmd/archivecheck "$@" >"$log" 2>&1
+  local rc=$?
+  set -e
+  cat "$log"
+  if [[ "$expected" == "0" ]]; then
+    if [[ "$rc" != "0" ]]; then
+      echo "expected go run exit 0, got $rc" >&2
+      exit 1
+    fi
+  elif ! grep -q "^exit_code=$expected$" "$log"; then
+    echo "expected semantic exit_code=$expected in $log" >&2
+    exit 1
+  fi
+}
+
 echo "==> clean path"
-run_expect 0 /tmp/archivecheck-clean.log \
+run_go_semantic 0 /tmp/archivecheck-clean.log \
   --scenario clean --seed 41 --events 12000 --out "$CLEAN"
 for kv in \
   '^tracks=3$' \
@@ -57,7 +80,7 @@ for kv in \
 done
 
 echo "==> damage localization"
-run_expect 0 /tmp/archivecheck-damage.log \
+run_go_semantic 0 /tmp/archivecheck-damage.log \
   --scenario damage --seed 41 --events 12000 --damage-at 6001 --out "$DAMAGE"
 for kv in \
   '^expected_packet=6001$' \
@@ -69,11 +92,11 @@ for kv in \
 done
 
 echo "==> interrupt and resume"
-run_expect 75 /tmp/archivecheck-interrupt.log \
+run_go_semantic 75 /tmp/archivecheck-interrupt.log \
   --scenario recovery --seed 41 --events 12000 --interrupt-after 4300 --out "$RESUME"
 assert_grep /tmp/archivecheck-interrupt.log '^checkpoint_events=4300$'
 
-run_expect 0 /tmp/archivecheck-resume.log \
+run_go_semantic 0 /tmp/archivecheck-resume.log \
   --scenario recovery --seed 41 --events 12000 --resume --out "$RESUME" --compare "$CLEAN"
 for kv in \
   '^tracks=3$' \
@@ -105,7 +128,11 @@ if [[ "$clean_frames" != "$resume_frames" || "$clean_manifest" != "$resume_manif
   exit 1
 fi
 
-echo "==> exit codes 2/3/4"
+echo "==> exact binary exit codes 75/2/3/4"
+EXACT75="${EXACT75_OUT:-/tmp/media-exact75}"
+rm -rf "$EXACT75"
+run_expect 75 /tmp/archivecheck-exact75.log \
+  --scenario recovery --seed 41 --events 12000 --interrupt-after 4300 --out "$EXACT75"
 run_expect 2 /tmp/archivecheck-usage.log --scenario clean
 run_expect 3 /tmp/archivecheck-fatal.log \
   --scenario fatal --seed 41 --events 12000 --damage-at 6001 --out "$FATAL"
