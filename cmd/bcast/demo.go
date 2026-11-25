@@ -44,6 +44,9 @@ func runDemo(args []string) error {
 		return err
 	}
 	root := set.Root
+	if err := resetDemoBatch(root); err != nil {
+		return err
+	}
 
 	scan, err := index.ScanInputs(root, set.InputRels)
 	if err != nil {
@@ -118,6 +121,26 @@ func runDemo(args []string) error {
 		return err
 	}
 	printHashes(rep.Hashes)
+	return nil
+}
+
+func resetDemoBatch(root *safe.Root) error {
+	for _, rel := range []string{"frames", "mp4", "manifests"} {
+		p, err := root.Resolve(rel)
+		if err != nil {
+			return err
+		}
+		if err := os.RemoveAll(p); err != nil {
+			return fault.E(fault.WriteFailed, "cli", "resetDemoBatch.dir", err).WithPath(rel)
+		}
+	}
+	cp, err := root.Resolve("state/checkpoint.json")
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(cp); err != nil && !os.IsNotExist(err) {
+		return fault.E(fault.WriteFailed, "cli", "resetDemoBatch.checkpoint", err).WithPath("state/checkpoint.json")
+	}
 	return nil
 }
 
