@@ -82,11 +82,11 @@ func payloadSize(track string) uint32 {
 
 // rtpOutcome records the exact injected loss budget for the oracle.
 type rtpOutcome struct {
-	Groups              int
-	TotalLost           int
-	Recovered           int
-	UnrecoveredGaps     int
-	UnrecoveredPackets  int
+	Groups             int
+	TotalLost          int
+	Recovered          int
+	UnrecoveredGaps    int
+	UnrecoveredPackets int
 }
 
 // writeRTP builds the length-prefixed captured RTP stream and the

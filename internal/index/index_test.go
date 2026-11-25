@@ -70,9 +70,9 @@ func TestDigestTreeInvalidatesOnMutation(t *testing.T) {
 func sampleIndex() *Index {
 	return &Index{
 		Version: IndexVersion, InputSHA256: "abc", CommonTimescale: 720000,
-		Chunks: []Chunk{{ID: "v-seg000", TrackID: "v", SegmentIndex: 0, StartCommon: 0, EndCommon: 720000}},
+		Chunks:      []Chunk{{ID: "v-seg000", TrackID: "v", SegmentIndex: 0, StartCommon: 0, EndCommon: 720000}},
 		Breakpoints: []Breakpoint{{TrackID: "v", SegmentIndex: 2, Kind: "declared_discontinuity"}},
-		RTP: []RTPSummary{{Stream: "audio", TotalLost: 32, Recovered: 30, UnrecoveredGaps: 1, LossRecovery: 0.9375}},
+		RTP:         []RTPSummary{{Stream: "audio", TotalLost: 32, Recovered: 30, UnrecoveredGaps: 1, LossRecovery: 0.9375}},
 	}
 }
 

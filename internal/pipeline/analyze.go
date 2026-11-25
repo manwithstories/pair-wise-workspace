@@ -18,15 +18,15 @@ import (
 
 // Analysis is the repaired, in-memory view of one group's inputs.
 type Analysis struct {
-	InputDigest string
-	HLS         *manifest.Manifest
-	DASH        *manifest.Manifest
-	SegmentCount int
+	InputDigest   string
+	HLS           *manifest.Manifest
+	DASH          *manifest.Manifest
+	SegmentCount  int
 	Discontinuity map[int]bool
-	Timelines   map[string]*repair.TrackTimeline
-	Fragments   map[string]map[int]*scan.Fragment
-	RTP         *repair.RTPReport
-	Conflicts   []index.MetadataConflict
+	Timelines     map[string]*repair.TrackTimeline
+	Fragments     map[string]map[int]*scan.Fragment
+	RTP           *repair.RTPReport
+	Conflicts     []index.MetadataConflict
 }
 
 // Analyze digests inputs, parses manifests and metadata, scans and

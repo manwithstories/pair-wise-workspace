@@ -39,16 +39,16 @@ type RecoveredPacket struct {
 
 // RTPReport summarizes order, duplication and loss recovery.
 type RTPReport struct {
-	PacketCount       int                `json:"packet_count"`
-	Duplicates        int                `json:"duplicates"`
-	Reordered         int                `json:"reordered"`
-	FirstExtended     int64              `json:"first_extended"`
-	LastExtended      int64              `json:"last_extended"`
-	TotalLost         int                `json:"total_lost"`
-	Recovered         int                `json:"recovered"`
-	LossRecovery      float64            `json:"loss_recovery"`
-	UnrecoveredGaps   []Gap              `json:"unrecovered_gaps"`
-	RecoveredPackets  []RecoveredPacket  `json:"-"`
+	PacketCount      int               `json:"packet_count"`
+	Duplicates       int               `json:"duplicates"`
+	Reordered        int               `json:"reordered"`
+	FirstExtended    int64             `json:"first_extended"`
+	LastExtended     int64             `json:"last_extended"`
+	TotalLost        int               `json:"total_lost"`
+	Recovered        int               `json:"recovered"`
+	LossRecovery     float64           `json:"loss_recovery"`
+	UnrecoveredGaps  []Gap             `json:"unrecovered_gaps"`
+	RecoveredPackets []RecoveredPacket `json:"-"`
 }
 
 // Unwrap16 extends a 16-bit sequence relative to prevExtended using

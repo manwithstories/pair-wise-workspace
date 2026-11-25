@@ -14,37 +14,37 @@ import (
 
 // Sample is one trun entry expanded with absolute timing and location.
 type Sample struct {
-	Index             int   `json:"index"`
+	Index             int    `json:"index"`
 	Duration          uint32 `json:"duration"`
 	Size              uint32 `json:"size"`
 	Flags             uint32 `json:"flags"`
-	Sync              bool  `json:"sync"`
-	CompositionOffset int64 `json:"composition_offset"`
-	DTS               int64 `json:"dts"`
-	PTS               int64 `json:"pts"`
-	PayloadOffset     int64 `json:"payload_offset"`
+	Sync              bool   `json:"sync"`
+	CompositionOffset int64  `json:"composition_offset"`
+	DTS               int64  `json:"dts"`
+	PTS               int64  `json:"pts"`
+	PayloadOffset     int64  `json:"payload_offset"`
 }
 
 // TFDTInfo locates and decodes the track fragment decode time.
 type TFDTInfo struct {
-	Version    uint8  `json:"version"`
-	Base       uint64 `json:"base"`
-	ValueOffset int64 `json:"value_offset"`
-	ValueWidth int    `json:"value_width"`
+	Version     uint8  `json:"version"`
+	Base        uint64 `json:"base"`
+	ValueOffset int64  `json:"value_offset"`
+	ValueWidth  int    `json:"value_width"`
 }
 
 // Fragment is one parsed moof/traf unit.
 type Fragment struct {
-	TrackID            uint32   `json:"track_id"`
-	MoofOffset         int64    `json:"moof_offset"`
-	SequenceNumber     uint32   `json:"sequence_number"`
-	HasTFDT            bool     `json:"has_tfdt"`
-	TFDT               TFDTInfo `json:"tfdt"`
-	DataOffset         int32    `json:"data_offset"`
-	PayloadBase        int64    `json:"payload_base"`
-	Samples            []Sample `json:"samples"`
-	SyncSampleIndexes  []int    `json:"sync_sample_indexes"`
-	Truncated          bool     `json:"truncated"`
+	TrackID           uint32   `json:"track_id"`
+	MoofOffset        int64    `json:"moof_offset"`
+	SequenceNumber    uint32   `json:"sequence_number"`
+	HasTFDT           bool     `json:"has_tfdt"`
+	TFDT              TFDTInfo `json:"tfdt"`
+	DataOffset        int32    `json:"data_offset"`
+	PayloadBase       int64    `json:"payload_base"`
+	Samples           []Sample `json:"samples"`
+	SyncSampleIndexes []int    `json:"sync_sample_indexes"`
+	Truncated         bool     `json:"truncated"`
 }
 
 // Report is the scan result for one segment file.

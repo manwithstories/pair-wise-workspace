@@ -30,14 +30,14 @@ type Breakpoint struct {
 
 // NormalizedSample is a sample laid onto clock.CommonTimescale.
 type NormalizedSample struct {
-	SegmentIndex int    `json:"segment_index"`
-	SampleIndex  int    `json:"sample_index"`
-	DTS          int64  `json:"dts_common"`
-	PTS          int64  `json:"pts_common"`
-	Duration     int64  `json:"duration_common"`
-	Size         uint32 `json:"size"`
-	Sync         bool   `json:"sync"`
-	PayloadOffset int64 `json:"payload_offset"`
+	SegmentIndex  int    `json:"segment_index"`
+	SampleIndex   int    `json:"sample_index"`
+	DTS           int64  `json:"dts_common"`
+	PTS           int64  `json:"pts_common"`
+	Duration      int64  `json:"duration_common"`
+	Size          uint32 `json:"size"`
+	Sync          bool   `json:"sync"`
+	PayloadOffset int64  `json:"payload_offset"`
 }
 
 // SegmentRange records the normalized span and the corrected native
@@ -56,13 +56,13 @@ type SegmentRange struct {
 
 // TrackTimeline is the repaired, monotonically ordered timeline.
 type TrackTimeline struct {
-	TrackID      string             `json:"track_id"`
-	Timescale    uint32             `json:"timescale"`
-	Samples      []NormalizedSample `json:"samples"`
-	Ranges       []SegmentRange     `json:"ranges"`
-	Breakpoints  []Breakpoint       `json:"breakpoints,omitempty"`
-	IsolatedRanges []SegmentRange   `json:"isolated_ranges,omitempty"`
-	Record       *fault.Record      `json:"-"`
+	TrackID        string             `json:"track_id"`
+	Timescale      uint32             `json:"timescale"`
+	Samples        []NormalizedSample `json:"samples"`
+	Ranges         []SegmentRange     `json:"ranges"`
+	Breakpoints    []Breakpoint       `json:"breakpoints,omitempty"`
+	IsolatedRanges []SegmentRange     `json:"isolated_ranges,omitempty"`
+	Record         *fault.Record      `json:"-"`
 }
 
 // RepairTrack orders segments by manifest index, resolves 32-bit tfdt

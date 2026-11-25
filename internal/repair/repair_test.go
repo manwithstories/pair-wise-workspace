@@ -106,7 +106,7 @@ func TestTimelineRebaseMonotonicAndAVSync(t *testing.T) {
 	}
 	video := repair.RepairTrack("v", 90000, []repair.Segment{
 		mk(1, 90000, 9_090_000+90000, 45000, false), // delivered out of order
-		mk(0, 90000, 9_090_000, 45000, false),      // arbitrary non-zero start
+		mk(0, 90000, 9_090_000, 45000, false),       // arbitrary non-zero start
 	})
 	audio := repair.RepairTrack("a", 48000, []repair.Segment{
 		mk(0, 48000, 777_000, 24000, false),

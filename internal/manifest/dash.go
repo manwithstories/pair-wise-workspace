@@ -34,14 +34,14 @@ type dashPeriod struct {
 }
 
 type dashAS struct {
-	ID             string           `xml:"id,attr"`
-	ContentType    string           `xml:"contentType,attr"`
-	MimeType       string           `xml:"mimeType,attr"`
-	Lang           string           `xml:"lang,attr"`
-	SamplingRate   string           `xml:"audioSamplingRate,attr"`
-	ChannelConfig  []dashChanCfg    `xml:"AudioChannelConfiguration"`
-	Representations []dashRepr      `xml:"Representation"`
-	Template       *dashTemplate    `xml:"SegmentTemplate"`
+	ID              string        `xml:"id,attr"`
+	ContentType     string        `xml:"contentType,attr"`
+	MimeType        string        `xml:"mimeType,attr"`
+	Lang            string        `xml:"lang,attr"`
+	SamplingRate    string        `xml:"audioSamplingRate,attr"`
+	ChannelConfig   []dashChanCfg `xml:"AudioChannelConfiguration"`
+	Representations []dashRepr    `xml:"Representation"`
+	Template        *dashTemplate `xml:"SegmentTemplate"`
 }
 
 type dashChanCfg struct {

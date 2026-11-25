@@ -21,15 +21,15 @@ const ProfileBoundaryV1 = "boundary-v1"
 // Oracle records exactly what damage was injected so verification can
 // distinguish expected fixtures from unexpected corruption.
 type Oracle struct {
-	Profile                  string `json:"profile"`
-	Group                    string `json:"group"`
-	Segments                 int    `json:"segments"`
-	Seed                     int64  `json:"seed"`
-	Discontinuities          []int  `json:"discontinuities"`
-	RTP                      rtpOutcome `json:"rtp"`
-	ExpectStructuralFault    bool   `json:"expect_structural_fault"`
-	ExpectMetadataConflict   bool   `json:"expect_metadata_conflict"`
-	ExpectedUnrecoveredGaps  int    `json:"expected_unrecovered_gaps"`
+	Profile                 string     `json:"profile"`
+	Group                   string     `json:"group"`
+	Segments                int        `json:"segments"`
+	Seed                    int64      `json:"seed"`
+	Discontinuities         []int      `json:"discontinuities"`
+	RTP                     rtpOutcome `json:"rtp"`
+	ExpectStructuralFault   bool       `json:"expect_structural_fault"`
+	ExpectMetadataConflict  bool       `json:"expect_metadata_conflict"`
+	ExpectedUnrecoveredGaps int        `json:"expected_unrecovered_gaps"`
 }
 
 // Generate creates <root>/clean and <root>/damaged workspaces.

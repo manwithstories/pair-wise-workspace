@@ -20,9 +20,9 @@ import (
 
 // Thresholds from the acceptance contract.
 const (
-	MaxAVSyncMS   = 1.0
-	MinLossRecov  = 0.90
-	MaxSegmentP95 = 40.0
+	MaxAVSyncMS    = 1.0
+	MinLossRecov   = 0.90
+	MaxSegmentP95  = 40.0
 	SeekCheckCount = 24
 )
 

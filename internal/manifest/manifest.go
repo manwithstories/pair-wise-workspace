@@ -30,15 +30,15 @@ const (
 // TrackDesc carries the track-level metadata that must be preserved
 // verbatim across timestamp repair.
 type TrackDesc struct {
-	ID             string    `json:"id"`
-	Kind           TrackKind `json:"kind"`
-	Codec          string    `json:"codec,omitempty"`
-	Timescale      uint32    `json:"timescale"`
-	Channels       int       `json:"channels,omitempty"`
-	ChannelLayout  string    `json:"channel_layout,omitempty"`
-	SampleRate     uint32    `json:"sample_rate,omitempty"`
-	ColorInfo      string    `json:"color_info,omitempty"`
-	MetadataConflict string  `json:"metadata_conflict,omitempty"`
+	ID               string    `json:"id"`
+	Kind             TrackKind `json:"kind"`
+	Codec            string    `json:"codec,omitempty"`
+	Timescale        uint32    `json:"timescale"`
+	Channels         int       `json:"channels,omitempty"`
+	ChannelLayout    string    `json:"channel_layout,omitempty"`
+	SampleRate       uint32    `json:"sample_rate,omitempty"`
+	ColorInfo        string    `json:"color_info,omitempty"`
+	MetadataConflict string    `json:"metadata_conflict,omitempty"`
 }
 
 // Segment is one playlist entry in presentation order.
@@ -76,13 +76,13 @@ type Anchor struct {
 
 // Manifest is the format-neutral playlist model consumed by repair.
 type Manifest struct {
-	Kind                     Kind        `json:"kind"`
-	SourcePath               string      `json:"source_path"`
-	Tracks                   []TrackDesc `json:"tracks"`
-	Segments                 []Segment   `json:"segments"`
-	Anchors                  []Anchor    `json:"anchors,omitempty"`
-	MediaSequence            int64       `json:"media_sequence,omitempty"`
-	PresentationTimeOffset  int64       `json:"presentation_time_offset,omitempty"`
+	Kind                   Kind        `json:"kind"`
+	SourcePath             string      `json:"source_path"`
+	Tracks                 []TrackDesc `json:"tracks"`
+	Segments               []Segment   `json:"segments"`
+	Anchors                []Anchor    `json:"anchors,omitempty"`
+	MediaSequence          int64       `json:"media_sequence,omitempty"`
+	PresentationTimeOffset int64       `json:"presentation_time_offset,omitempty"`
 }
 
 // Track returns the described track by id.

@@ -63,7 +63,7 @@ func TestParseHLSDiscontinuityMapSequence(t *testing.T) {
 
 func TestParseHLSRejectsRemoteAndTraversal(t *testing.T) {
 	cases := map[string]string{
-		"remote":   "#EXTM3U\n#EXTINF:1,\nhttps://evil/x.m4s\n",
+		"remote":    "#EXTM3U\n#EXTINF:1,\nhttps://evil/x.m4s\n",
 		"traversal": "#EXTM3U\n#EXT-X-MAP:URI=\"../../init.mp4\"\n#EXTINF:1,\na.m4s\n",
 	}
 	for name, doc := range cases {

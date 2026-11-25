@@ -50,7 +50,7 @@ func BuildFragment(spec FragmentSpec) []byte {
 	// default-sample-flags(non-sync).
 	tfhd := buildFullBoxPayload(0, 0x020022)
 	tfhd = binary.BigEndian.AppendUint32(tfhd, spec.TrackID)
-	tfhd = binary.BigEndian.AppendUint32(tfhd, 1)        // sample_description_index
+	tfhd = binary.BigEndian.AppendUint32(tfhd, 1)          // sample_description_index
 	tfhd = binary.BigEndian.AppendUint32(tfhd, 0x00010000) // default: non-sync
 	tfhdBox := box("tfhd", tfhd)
 

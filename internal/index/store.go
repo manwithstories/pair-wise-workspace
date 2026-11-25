@@ -50,13 +50,13 @@ type Breakpoint struct {
 // RTPSummary records packet-loss recovery in the index so that loss
 // outcomes propagate into IndexSHA256.
 type RTPSummary struct {
-	Stream           string `json:"stream"`
-	TotalLost        int     `json:"total_lost"`
-	Recovered        int     `json:"recovered"`
-	Duplicates       int     `json:"duplicates"`
-	Reordered        int     `json:"reordered"`
-	UnrecoveredGaps  int     `json:"unrecovered_gaps"`
-	LossRecovery     float64 `json:"loss_recovery"`
+	Stream          string  `json:"stream"`
+	TotalLost       int     `json:"total_lost"`
+	Recovered       int     `json:"recovered"`
+	Duplicates      int     `json:"duplicates"`
+	Reordered       int     `json:"reordered"`
+	UnrecoveredGaps int     `json:"unrecovered_gaps"`
+	LossRecovery    float64 `json:"loss_recovery"`
 }
 
 // MetadataConflict pins a track whose metadata could not be uniquely

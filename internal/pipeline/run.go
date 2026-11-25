@@ -23,17 +23,17 @@ type Options struct {
 
 // Report summarizes a completed group run.
 type Report struct {
-	Group             string  `json:"group"`
-	IndexSHA256       string  `json:"index_sha256"`
-	InputSHA256       string  `json:"input_sha256"`
-	ChunkCount        int     `json:"chunk_count"`
-	Written           int     `json:"written"`
-	Skipped           int     `json:"skipped"`
-	AVSyncMaxMS       float64 `json:"av_sync_max_ms"`
-	LossRecovery      float64 `json:"loss_recovery"`
-	UnrecoveredGaps   int     `json:"unrecovered_gaps"`
-	Duplicates        int     `json:"rtp_duplicates"`
-	Reordered         int     `json:"rtp_reordered"`
+	Group           string  `json:"group"`
+	IndexSHA256     string  `json:"index_sha256"`
+	InputSHA256     string  `json:"input_sha256"`
+	ChunkCount      int     `json:"chunk_count"`
+	Written         int     `json:"written"`
+	Skipped         int     `json:"skipped"`
+	AVSyncMaxMS     float64 `json:"av_sync_max_ms"`
+	LossRecovery    float64 `json:"loss_recovery"`
+	UnrecoveredGaps int     `json:"unrecovered_gaps"`
+	Duplicates      int     `json:"rtp_duplicates"`
+	Reordered       int     `json:"rtp_reordered"`
 }
 
 // Run scans/repairs inputs, streams every chunk atomically and saves the

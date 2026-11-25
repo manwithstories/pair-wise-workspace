@@ -9,14 +9,14 @@ import (
 )
 
 const (
-	InputDir   = "in"
-	OutputDir  = "out"
-	HLSName    = "index.m3u8"
-	DASHName   = "manifest.mpd"
-	IndexName  = "index.json"
-	ReportName = "report.json"
-	FECName    = "rtp/fec.json"
-	CaptureName = "rtp/capture.rtpbin"
+	InputDir       = "in"
+	OutputDir      = "out"
+	HLSName        = "index.m3u8"
+	DASHName       = "manifest.mpd"
+	IndexName      = "index.json"
+	ReportName     = "report.json"
+	FECName        = "rtp/fec.json"
+	CaptureName    = "rtp/capture.rtpbin"
 	TracksMetaName = "meta/tracks.json"
 	StructuralName = "structural/truncated_trun.m4s"
 )
