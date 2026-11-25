@@ -89,6 +89,15 @@ type Clock struct {
 	Last      time.Duration
 	Gaps      []Interval
 	Invalid   []Interval
+
+	pcrOriginSet bool
+	pcrOrigin    uint64
+
+	lastPTS      *uint64
+	ptsFull      uint64
+	ptsOrigin    uint64
+	ptsOriginSet bool
+	PTSWrapCount int
 }
 
 // WrapCount returns the number of PCR wrap events observed.
@@ -131,13 +140,69 @@ func (c *Clock) ExtendPCR(raw uint64) (uint64, error) {
 	return c.unwrapped, nil
 }
 
-// FeedPCR extends raw PCR and returns its unified duration.
+// FeedPCR extends raw PCR and returns its duration since PCR value zero.
 func (c *Clock) FeedPCR(raw uint64) (time.Duration, error) {
 	full, err := c.ExtendPCR(raw)
 	if err != nil {
 		return 0, err
 	}
 	return PCRDuration(full), nil
+}
+
+// FeedPCRRelative extends PCR and subtracts the first observed PCR, giving a
+// media timeline that starts at zero even when the fixture begins near wrap.
+func (c *Clock) FeedPCRRelative(raw uint64) (time.Duration, error) {
+	full, err := c.ExtendPCR(raw)
+	if err != nil {
+		return 0, err
+	}
+	if !c.pcrOriginSet {
+		c.pcrOrigin = full
+		c.pcrOriginSet = true
+	}
+	return PCRDuration(full - c.pcrOrigin), nil
+}
+
+// ExtendPTS extends an independent 33-bit PTS/DTS counter.
+func (c *Clock) ExtendPTS(raw uint64) (uint64, error) {
+	if raw >= PCRModulus {
+		return 0, NewError(ErrPCRRange, fmt.Sprintf("PTS %d exceeds 33 bits", raw), nil)
+	}
+	if c.lastPTS == nil {
+		v := raw
+		c.lastPTS = &v
+		c.ptsFull = raw
+		return raw, nil
+	}
+	prev := *c.lastPTS
+	delta := int64(raw) - int64(prev)
+	if delta > int64(PCRModulus/2) {
+		delta -= int64(PCRModulus)
+	} else if delta < -int64(PCRModulus/2) {
+		delta += int64(PCRModulus)
+		c.PTSWrapCount++
+	}
+	if delta < 0 {
+		return c.ptsFull, NewError(ErrPCRBackward,
+			fmt.Sprintf("PTS moved backward: raw %d after %d", raw, prev), ErrUndecidable)
+	}
+	c.ptsFull += uint64(delta)
+	*c.lastPTS = raw
+	return c.ptsFull, nil
+}
+
+// FeedPTSRelative extends PTS and normalizes the first observed value to zero.
+func (c *Clock) FeedPTSRelative(raw uint64) (time.Duration, uint64, error) {
+	full, err := c.ExtendPTS(raw)
+	if err != nil {
+		return 0, full, err
+	}
+	if !c.ptsOriginSet {
+		c.ptsOrigin = full
+		c.ptsOriginSet = true
+	}
+	relative := full - c.ptsOrigin
+	return PCRDuration(relative), relative, nil
 }
 
 // PCRDuration converts 90 kHz ticks to time.Duration.
