@@ -1,7 +1,10 @@
 package remux_test
 
 import (
+	"bytes"
 	"testing"
+
+	"github.com/abema/go-mp4"
 
 	"mediqc/internal/audit"
 	"mediqc/internal/media"
@@ -54,6 +57,9 @@ func TestFMP4OutputCanBeAuditedSampleBySample(t *testing.T) {
 	b, err := remux.BuildFMP4(tracks(), frags)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if _, err := mp4.Probe(bytes.NewReader(b)); err != nil {
+		t.Fatalf("go-mp4 probe rejected output: %v", err)
 	}
 	got, merr := audit.ExtractFMP4Samples(b)
 	if merr != nil {
