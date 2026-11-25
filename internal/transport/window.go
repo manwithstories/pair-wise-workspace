@@ -80,6 +80,7 @@ func (w *ReorderWindow) AcceptBytes(raw []byte) ([]OrderedPacket, error) {
 // Accept feeds a parsed RTP packet and returns any newly contiguous packets.
 func (w *ReorderWindow) Accept(p *rtp.Packet, raw []byte) ([]OrderedPacket, error) {
 	w.Counters.Packets++
+	previousHigh := w.MaxExtendedSequence
 	extSeq, err := w.sequence.Extend(uint64(p.SequenceNumber))
 	if err != nil {
 		return nil, err
@@ -100,7 +101,9 @@ func (w *ReorderWindow) Accept(p *rtp.Packet, raw []byte) ([]OrderedPacket, erro
 		return nil, nil
 	}
 
-	if extSeq > w.next {
+	if extSeq < previousHigh {
+		// A missing-before-newer hole is reordering; sequential packets after a
+		// lost burst still have extSeq > previousHigh and are not counted.
 		w.Counters.Reordered++
 	}
 
