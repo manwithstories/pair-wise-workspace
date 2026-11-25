@@ -55,11 +55,12 @@ type BatchItem struct {
 
 // Runner holds the shared stores for a batch.
 type Runner struct {
-	Root     string
-	Batch    string
-	Cache    *archive.Cache
-	Checkpt  *archive.Checkpoint
-	ParseCfg demux.ParseConfig
+	Root           string
+	Batch          string
+	Cache          *archive.Cache
+	Checkpt        *archive.Checkpoint
+	ParseCfg       demux.ParseConfig
+	ForceRecompute map[string]bool
 }
 
 // NewRunner wires the cache and checkpoint for a batch under root.
@@ -74,8 +75,21 @@ func NewRunner(root, batch string) (*Runner, error) {
 	}
 	return &Runner{
 		Root: root, Batch: batch, Cache: cache, Checkpt: cp,
-		ParseCfg: demux.DefaultParseConfig(),
+		ParseCfg:       demux.DefaultParseConfig(),
+		ForceRecompute: map[string]bool{},
 	}, nil
+}
+
+// ForceRecomputeSegment drops one segment's checkpoint and cache entry so the
+// next run recomputes it. It models a forged/tampered cache being detected and
+// rejected rather than blindly trusted.
+func (r *Runner) ForceRecomputeSegment(segment string) error {
+	if st := r.Checkpt.Get(segment); st != nil && st.CacheKey != "" {
+		if err := r.Cache.Invalidate(st.CacheKey); err != nil {
+			return err
+		}
+	}
+	return r.Checkpt.Rollback(segment)
 }
 
 // Run processes every item, isolating failures so one bad segment never blocks
@@ -114,8 +128,9 @@ func (r *Runner) process(item BatchItem, allFaults *media.FaultSet) SegmentResul
 	}
 
 	// Resume: a fully recovered, unchanged segment is served from its record
-	// without touching the demuxer, so re-runs cannot duplicate samples.
-	if r.Checkpt.IsDone(item.ID, sourceSHA) {
+	// without touching the demuxer, so re-runs cannot duplicate samples. A
+	// segment flagged for forced recompute (forged cache) bypasses this path.
+	if !r.ForceRecompute[item.ID] && r.Checkpt.IsDone(item.ID, sourceSHA) {
 		st := r.Checkpt.Get(item.ID)
 		return SegmentResult{
 			Segment: item.ID, Status: "cache_hit", SourceSHA: sourceSHA,

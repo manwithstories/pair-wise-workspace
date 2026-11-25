@@ -133,3 +133,48 @@ func TestQuarantineDoesNotBlockBatch(t *testing.T) {
 		t.Fatal("every segment must be accounted for exactly once")
 	}
 }
+
+// TestForgedCacheForcesRecompute is the digest-failure path: invalidating one
+// segment's cache and forcing recompute yields one fewer cache hit while the
+// recomputed fragment keeps the same deterministic digest as the first run.
+func TestForgedCacheForcesRecompute(t *testing.T) {
+	root := t.TempDir()
+	entries, _ := fixtgen.GenerateAll(root)
+	runner, _ := pipeline.NewRunner(root, "batch-d")
+	first, err := runner.Run(batchItems(root, entries))
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstHash := map[string]string{}
+	for _, sr := range first.Segments {
+		firstHash[sr.Segment] = sr.FragmentSHA
+	}
+
+	// Target a clean, recoverable segment and tamper with its cached entry.
+	target := entries[0].ID
+	if err := runner.ForceRecomputeSegment(target); err != nil {
+		t.Fatalf("force recompute: %v", err)
+	}
+	second, err := runner.Run(batchItems(root, entries))
+	if err != nil {
+		t.Fatalf("recompute must not fail the batch: %v", err)
+	}
+	// All other recovered segments stay cache hits; the target is recomputed.
+	if second.Stats.CacheHits != first.Stats.Recovered-1 {
+		t.Fatalf("cache hits = %d, want %d after one recompute",
+			second.Stats.CacheHits, first.Stats.Recovered-1)
+	}
+	for _, sr := range second.Segments {
+		if sr.Segment == target {
+			if sr.CacheHit {
+				t.Fatal("tampered segment must not be served as a cache hit")
+			}
+			if sr.FragmentSHA != firstHash[target] {
+				t.Fatal("recomputed fragment digest must match the deterministic original")
+			}
+		}
+	}
+	if second.Stats.Duplicates != 0 {
+		t.Fatal("forced recompute must not duplicate any sample")
+	}
+}

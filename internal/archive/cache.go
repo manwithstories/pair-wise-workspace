@@ -165,6 +165,18 @@ func (c *Cache) Restore(key, dst string) error {
 // DigestSource hashes an entire source file, used both for keys and verification.
 func DigestSource(path string) (string, error) { return digestFile(path) }
 
+// Invalidate removes a cached blob and its metadata. It is used to simulate a
+// forged/tampered cache entry before a resume run, forcing recomputation.
+func (c *Cache) Invalidate(key string) error {
+	if err := os.Remove(c.blobPath(key)); err != nil && !os.IsNotExist(err) {
+		return media.NewFault(media.KindIO, "", 0, -1, "remove blob: %s", err)
+	}
+	if err := os.Remove(c.metaPath(key)); err != nil && !os.IsNotExist(err) {
+		return media.NewFault(media.KindIO, "", 0, -1, "remove meta: %s", err)
+	}
+	return nil
+}
+
 func digestFile(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {

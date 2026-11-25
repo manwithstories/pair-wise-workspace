@@ -15,19 +15,25 @@ type ManifestEntry struct {
 	Recoverable bool `json:"recoverable"`
 }
 
-// GenerateAll creates the full reproducible fixture batch under root.
-// Layout:
+// GenerateAll creates the full reproducible fixture batch under root using the
+// canonical fault plan. Layout:
 //
 //	root/sources/segNN/segNN.mp4 | .rtp
 //	root/manifest.json
 //
 // Source files are never modified by the pipeline; outputs go elsewhere.
 func GenerateAll(root string) ([]ManifestEntry, error) {
+	return GeneratePlan(root, Plan())
+}
+
+// GeneratePlan renders an explicit segment plan under root, allowing callers
+// (the clean-baseline demo) to produce an all-clean batch independently of the
+// canonical fault-injected batch.
+func GeneratePlan(root string, plan []Segment) ([]ManifestEntry, error) {
 	srcRoot := filepath.Join(root, "sources")
 	if err := os.MkdirAll(srcRoot, 0o755); err != nil {
 		return nil, err
 	}
-	plan := Plan()
 	entries := make([]ManifestEntry, 0, len(plan))
 	for _, seg := range plan {
 		dir := filepath.Join(srcRoot, seg.ID)
