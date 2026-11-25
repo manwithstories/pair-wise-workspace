@@ -44,7 +44,7 @@ func TestPlanCutsLegalBoundariesAndCoverage(t *testing.T) {
 }
 
 func TestSplitSamplesHalfOpen(t *testing.T) {
-	segs := []clock.Interval{{0, 10}, {10, 20}}
+	segs := []clock.Interval{{Start: 0, End: 10}, {Start: 10, End: 20}}
 	samples := []TimedSample{{PTS: 0, Data: []byte("a")}, {PTS: 9, Data: []byte("b")}, {PTS: 10, Data: []byte("c")}}
 	parts, counts := SplitSamples(samples, segs)
 	if counts[0] != 2 || counts[1] != 1 || string(parts[1][0].Data) != "c" {
@@ -53,7 +53,7 @@ func TestSplitSamplesHalfOpen(t *testing.T) {
 }
 
 func TestCoverageRejectsGap(t *testing.T) {
-	err := Coverage([]clock.Interval{{0, 10}, {11, 20}}, 20)
+	err := Coverage([]clock.Interval{{Start: 0, End: 10}, {Start: 11, End: 20}}, 20)
 	if err == nil {
 		t.Fatal("expected gap error")
 	}
