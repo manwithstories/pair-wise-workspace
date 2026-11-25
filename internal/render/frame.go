@@ -44,8 +44,10 @@ func DecodeRGBRange(ctx context.Context, ffmpegBin, path string, startFrame, cou
 	if ffmpegBin == "" {
 		ffmpegBin = "ffmpeg"
 	}
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	expr := fmt.Sprintf("between(n\\,%d\\,%d)", startFrame, startFrame+count-1)
-	cmd := exec.CommandContext(ctx, ffmpegBin, "-v", "error", "-i", path,
+	cmd := exec.CommandContext(runCtx, ffmpegBin, "-v", "error", "-i", path,
 		"-vf", "select="+expr+",setpts=N/FRAME_RATE/TB",
 		"-fps_mode", "passthrough", "-frames:v", strconv.Itoa(count),
 		"-pix_fmt", "rgb24", "-f", "rawvideo", "-")
@@ -69,6 +71,7 @@ func DecodeRGBRange(ctx context.Context, ffmpegBin, path string, startFrame, cou
 		fr := Frame{Index: i, SourceFrame: int64(startFrame + i), RGB: rgb}
 		if onFrame != nil {
 			if err := onFrame(fr); err != nil {
+				cancel()
 				_ = cmd.Wait()
 				return err
 			}
