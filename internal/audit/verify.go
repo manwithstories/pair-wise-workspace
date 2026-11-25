@@ -83,9 +83,8 @@ func VerifyDirectory(dir string) (*VerifiedSuite, *media.Error) {
 		if verr != nil {
 			return nil, verr
 		}
-		media.AssignDurations(outSamples, 3000)
-		auditedDuration := media.DurationMS(outSamples)
-		skew := abs64(cm.DurationMS - auditedDuration)
+		auditedDuration, skew := DurationSkew(cm.DurationMS, outSamples)
+		cm.AuditedDurationMS = auditedDuration
 		if skew > maxSkew {
 			maxSkew = skew
 		}

@@ -83,14 +83,9 @@ func Run(opts Options) (*audit.SuiteManifest, *media.Error) {
 		suite.BitrateTargetBPS = acceptedTarget / bitrateCases
 		suite.BitrateActualBPS = acceptedActual / bitrateCases
 	}
-	suite.BitrateDeltaPPM = ppm(suite.BitrateTargetBPS, suite.BitrateActualBPS)
+	suite.BitrateDeltaPPM = audit.PPM(suite.BitrateTargetBPS, suite.BitrateActualBPS)
 	if suite.SampleHashTotal > 0 {
-		pct := float64(suite.SampleHashMatched) * 100 / float64(suite.SampleHashTotal)
-		if pct == 100 {
-			suite.SampleHashMatch = "100%"
-		} else {
-			suite.SampleHashMatch = fmt.Sprintf("%.2f%%", pct)
-		}
+		suite.SampleHashMatch = audit.FormatPercent(suite.SampleHashMatched, suite.SampleHashTotal)
 	}
 	if err := checkpoint.WriteJSONAtomic(filepath.Join(opts.Out, "suite-manifest.json"), suite); err != nil {
 		return nil, err
@@ -103,11 +98,4 @@ func boolInt(v bool) int {
 		return 1
 	}
 	return 0
-}
-
-func ppm(target, actual int64) int64 {
-	if target == 0 {
-		return 0
-	}
-	return int64(float64(actual-target) / float64(target) * 1_000_000)
 }
