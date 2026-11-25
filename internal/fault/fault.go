@@ -43,7 +43,7 @@ type Fault struct {
 }
 
 func New(code Code, path string, offset int64, format string, args ...any) *Fault {
-	return &Fault{Code: code, Path: path, Offset: offset, Err: fmt.Errorf(format, args...)}
+	return &Fault{Code: code, Path: path, Offset: offset, BoxOffset: -1, Err: fmt.Errorf(format, args...)}
 }
 
 func At(code Code, path string, offset, boxOffset int64, err error) *Fault {
