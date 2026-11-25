@@ -93,3 +93,19 @@ func TestQueueBackpressureAndCancel(t *testing.T) {
 		t.Fatalf("delayed Pop err=%v", err)
 	}
 }
+
+func TestLimitedReaderBoundsInput(t *testing.T) {
+	raw, err := BuildPacket(PacketOptions{PID: 0x100, CC: 0, Payload: []byte("limited")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := NewLimitedReader(bytes.NewReader(append(raw, 0x47, 0x00)), int64(PacketSize+2))
+	if _, err := r.Read(); err != nil {
+		t.Fatal(err)
+	}
+	_, err = r.Read()
+	var te *TruncatedError
+	if !errors.As(err, &te) || te.Got != 2 {
+		t.Fatalf("limited tail err=%v", err)
+	}
+}
