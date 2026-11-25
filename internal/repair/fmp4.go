@@ -29,22 +29,24 @@ func fullBox(boxType string, version byte, flags uint32, payload []byte) []byte 
 // BuildInitSegment creates a deterministic initialization segment. Timescale is
 // encoded in an mdhd box and is also resolved through media.Timeline.
 func BuildInitSegment(trackID string, timescale uint32) ([]byte, error) {
-	var ftypBuf bytes.Buffer
-	ftyp := &mp4.Ftyp{MajorBrand: [4]byte{'i', 's', 'o', 'm'}, MinorVersion: 0x200}
-	ftyp.AddCompatibleBrand([4]byte{'i', 's', 'o', 'm'})
-	ftyp.AddCompatibleBrand([4]byte{'m', 'p', '4', '1'})
-	if _, err := mp4.Marshal(&ftypBuf, ftyp, mp4.Context{}); err != nil {
-		return nil, media.Wrap(err, media.CodeInternal, "repair.fmp4", "ftyp", "marshal failed")
-	}
+	ftypPayload := make([]byte, 0, 16)
+	ftypPayload = append(ftypPayload, []byte("isom")...)
+	minor := make([]byte, 4)
+	binary.BigEndian.PutUint32(minor, 0x200)
+	ftypPayload = append(ftypPayload, minor...)
+	ftypPayload = append(ftypPayload, []byte("isom")...)
+	ftypPayload = append(ftypPayload, []byte("mp41")...)
+	ftyp := box("ftyp", ftypPayload)
+
 	mdhdPayload := make([]byte, 20)
-	binary.BigEndian.PutUint32(mdhdPayload[12:16], timescale)
+	binary.BigEndian.PutUint32(mdhdPayload[8:12], timescale)
 	binary.BigEndian.PutUint16(mdhdPayload[16:18], 0x55c4) // undetermined language "und"
 	mdhd := fullBox("mdhd", 0, 0, mdhdPayload)
 	hdlr := fullBox("hdlr", 0, 0, append([]byte{0, 0, 0, 0}, []byte("vide")...))
 	mdia := box("mdia", append(mdhd, hdlr...))
 	trak := box("trak", mdia)
 	moov := box("moov", trak)
-	return append(ftypBuf.Bytes(), moov...), nil
+	return append(ftyp, moov...), nil
 }
 
 // FragmentOptions are the deterministic fields encoded into a fragment.
