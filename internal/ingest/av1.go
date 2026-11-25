@@ -13,33 +13,6 @@ const (
 // av1OBUType extracts the four-bit obu_type.
 func av1OBUType(b byte) uint8 { return (b >> 3) & 0x0f }
 
-// av1FrameIsKey reads the show_existing_frame / frame_type fields from a
-// frame header OBU. frame_type == 0 is KEY_FRAME; the synthetic generator
-// writes a minimal header so the bit layout is fixed.
-func av1FrameIsKey(obu []byte) bool {
-	// obu layout: header byte, optional leb128 size, then payload.
-	if len(obu) < 3 {
-		return false
-	}
-	pos := 1
-	if obu[0]&0x02 != 0 { // obu_has_size_field
-		_, n := readLEB128(obu[pos:])
-		if n <= 0 {
-			return false
-		}
-		pos += n
-	}
-	payload := obu[pos:]
-	// payload: 3-bit show_existing_frame, then 2-bit frame_type.
-	if len(payload) == 0 {
-		return false
-	}
-	if payload[0]&0x04 != 0 { // show_existing_frame == 1
-		return false
-	}
-	return (payload[0]>>1)&0x03 == 0
-}
-
 // readLEB128 decodes an unsigned LEB128 value, returning the value and the
 // number of bytes consumed (0 on error).
 func readLEB128(b []byte) (uint64, int) {
@@ -53,36 +26,58 @@ func readLEB128(b []byte) (uint64, int) {
 	return 0, 0
 }
 
-// av1Keyframe walks the OBUs of a low-overhead bitstream format unit and
-// reports a keyframe: a temporal unit carrying both a sequence header and a
-// KEY_FRAME frame header.
+// av1Keyframe walks the OBUs of a low-overhead temporal unit (one start
+// code followed by concatenated OBUs) and reports a keyframe: the unit must
+// carry both a sequence header and a KEY_FRAME frame header.
 func av1Keyframe(payload []byte) bool {
+	sc := findStartCode(payload, 0)
+	if sc != 0 {
+		return false
+	}
+	pos := startCodeLen(payload, sc)
 	hasSeq, hasKey := false, false
-	i := 0
-	for i < len(payload) {
-		sc := findStartCode(payload, i)
-		if sc < 0 {
-			break
+	for pos < len(payload) {
+		hdr := payload[pos]
+		t := av1OBUType(hdr)
+		pos++
+		size := len(payload) - pos
+		if hdr&0x02 != 0 { // obu_has_size_field
+			v, n := readLEB128(payload[pos:])
+			if n <= 0 {
+				return false
+			}
+			pos += n
+			size = int(v)
 		}
-		off := sc + 3
-		if sc+4 < len(payload) && payload[sc+2] == 0 && payload[sc+3] == 1 {
-			off = sc + 4
+		if pos+size > len(payload) {
+			return false
 		}
-		if off >= len(payload) {
-			break
-		}
-		t := av1OBUType(payload[off])
+		obu := payload[pos : pos+size]
 		switch t {
 		case obuTypeSequenceHeader:
 			hasSeq = true
 		case obuTypeFrameHeader, obuTypeFrame:
-			if av1FrameIsKey(payload[off:]) {
+			if frameHeaderIsKey(obu) {
 				hasKey = true
 			}
 		}
-		i = off
+		pos += size
 	}
 	return hasSeq && hasKey
+}
+
+// frameHeaderIsKey reads the show_existing_frame / frame_type bits from the
+// frame header OBU's payload (header and size already stripped).
+func frameHeaderIsKey(payload []byte) bool {
+	if len(payload) == 0 {
+		return false
+	}
+	// 3-bit show_existing_frame at the top, then 2-bit frame_type. With the
+	// synthetic minimal header the low two bits hold frame_type directly.
+	if payload[0]&0x04 != 0 { // show_existing_frame == 1
+		return false
+	}
+	return payload[0]&0x03 == 0
 }
 
 // ScanAV1 scans an AV1 low-overhead bitstream against its manifest.

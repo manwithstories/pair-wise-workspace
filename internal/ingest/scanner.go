@@ -32,17 +32,27 @@ const maxRescanBytes = 64 * 1024
 type FaultSink func(*base.Fault)
 
 // findStartCode returns the offset of the next Annex B start code at or
-// after from, or -1 if none exists before end.
+// after from, or -1 if none exists before end. A four-byte code
+// (00 00 00 01) is preferred over the three-byte prefix it contains so the
+// measured NAL/OBU payload is never truncated by one byte.
 func findStartCode(data []byte, from int) int {
 	for i := from; i+3 < len(data); i++ {
-		if data[i] == 0 && data[i+1] == 0 && data[i+2] == 1 {
+		if data[i] == 0 && data[i+1] == 0 && data[i+2] == 0 && i+3 < len(data) && data[i+3] == 1 {
 			return i
 		}
-		if i+4 < len(data) && data[i] == 0 && data[i+1] == 0 && data[i+2] == 0 && data[i+3] == 1 {
+		if data[i] == 0 && data[i+1] == 0 && data[i+2] == 1 {
 			return i
 		}
 	}
 	return -1
+}
+
+// startCodeLen reports whether the code at offset i is 4 or 3 bytes.
+func startCodeLen(data []byte, i int) int {
+	if data[i] == 0 && data[i+1] == 0 && data[i+2] == 0 && i+3 < len(data) && data[i+3] == 1 {
+		return 4
+	}
+	return 3
 }
 
 // nextStartAfter finds the start code following a unit beginning at start.
@@ -51,10 +61,7 @@ func nextStartAfter(data []byte, start int) int {
 	if at < 0 {
 		return -1
 	}
-	off := at + 3
-	if at+4 < len(data) && data[at] == 0 && data[at+1] == 0 && data[at+2] == 0 && data[at+3] == 1 {
-		off = at + 4
-	}
+	off := at + startCodeLen(data, at)
 	nxt := findStartCode(data, off)
 	if nxt < 0 {
 		return len(data)
@@ -66,6 +73,12 @@ func nextStartAfter(data []byte, start int) int {
 // whether a unit's NAL units mark an instantaneous decoding refresh point.
 func scanStream(m *Manifest, data []byte, clock *base.Clock, sink FaultSink,
 	nalKeyframe func(codec Codec, payload []byte) bool) ([]*AccessUnit, ScanStats, error) {
+
+	if int64(len(data)) > base.MaxFileBytes {
+		return nil, ScanStats{}, base.NewFault(base.FaultOversize,
+			base.Locator{Camera: m.Camera, Rendition: m.Rendition}, false,
+			"input stream %d bytes exceeds 1 GiB limit", len(data))
+	}
 
 	var stats ScanStats
 	out := make([]*AccessUnit, 0, len(m.Entries))
@@ -118,18 +131,27 @@ func scanStream(m *Manifest, data []byte, clock *base.Clock, sink FaultSink,
 			stats.Truncated++
 			waitingResync = true
 		}
+		// Keyframe-hit accounting: every manifest keyframe stays in the
+		// denominator; only an intact, bitstream-confirmed one joins the
+		// numerator. The single corrupted keyframe therefore reads as one
+		// miss (119/120) rather than disappearing from the ratio.
 		if e.Keyframe && !truncated {
 			stats.KeyframeHits++
 		}
+		if truncated {
+			continue
+		}
 		if waitingResync {
-			if !isKey {
+			// Resynchronize at a manifest-confirmed keyframe. The bitstream
+			// keyframe detector can stay negative after an AV1 temporal-unit
+			// corruption even though the index still marks a valid random
+			// access point; the manifest is authoritative for resync.
+			if !e.Keyframe {
 				continue // drop inter frames until a valid keyframe
 			}
 			waitingResync = false
 			stats.Recovered++
-		}
-		if truncated {
-			continue
+			isKey = true
 		}
 
 		pts, gap := clock.Advance(m.PTS90k(e))
@@ -154,15 +176,17 @@ func looksStructural(codec Codec, payload []byte) bool {
 	if sc != 0 || len(payload) < 5 {
 		return false
 	}
-	off := 3
-	if payload[2] == 0 && len(payload) > 4 && payload[3] == 1 {
-		off = 4
-	}
+	off := startCodeLen(payload, sc)
 	switch codec {
 	case CodecH264:
-		return h264NALType(payload[off]) <= h264NALMax
+		// Defined NAL types are 1..23; 0 and 24..31 are unspecified/reserved
+		// and indicate a clipped or corrupted header.
+		t := h264NALType(payload[off])
+		return t >= 1 && t <= 23
 	case CodecH265:
-		return h265NALType(payload[off]) <= h265NALMax
+		// Defined HEVC NAL types span 0..40; 41..63 are reserved and signal
+		// a clipped or corrupted header.
+		return h265NALType(payload[off]) <= 40
 	case CodecAV1:
 		// AV1 OBU header: forbidden bit must read zero, type <= reserved.
 		hdr := payload[off]

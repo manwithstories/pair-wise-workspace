@@ -24,10 +24,7 @@ func h264Keyframe(payload []byte) bool {
 		if sc < 0 {
 			return false
 		}
-		off := sc + 3
-		if sc+4 < len(payload) && payload[sc+2] == 0 && payload[sc+3] == 1 {
-			off = sc + 4
-		}
+		off := sc + startCodeLen(payload, sc)
 		if off >= len(payload) {
 			return false
 		}
