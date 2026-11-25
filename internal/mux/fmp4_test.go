@@ -47,6 +47,40 @@ func TestBuildFMP4IsDeterministicAndParseable(t *testing.T) {
 	}
 }
 
+func TestTrunDataOffsetPointsToSampleBytes(t *testing.T) {
+	payload := bytes.Repeat([]byte("mc"), 64) // 128 bytes
+	payload[0], payload[1] = 0xCA, 0xFE
+	video := []mux.Fragment{{TrackID: 1, BasePTS: 0, Samples: []mux.Sample{{
+		Duration: 3000, Data: payload, Keyframe: true,
+	}}}}
+	result, err := mux.BuildFMP4(mux.Config{DurationTicks: 3000}, video, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := bytes.NewReader(result.Bytes)
+	moofs, err := mp4.ExtractBox(r, nil, mp4.BoxPath{mp4.BoxTypeMoof()})
+	if err != nil || len(moofs) != 1 {
+		t.Fatalf("moofs=%d err=%v", len(moofs), err)
+	}
+	truns, err := mp4.ExtractBoxWithPayload(r, nil, mp4.BoxPath{
+		mp4.BoxTypeMoof(), mp4.BoxTypeTraf(), mp4.BoxTypeTrun(),
+	})
+	if err != nil || len(truns) != 1 {
+		t.Fatalf("truns=%d err=%v", len(truns), err)
+	}
+	trun, ok := truns[0].Payload.(*mp4.Trun)
+	if !ok {
+		t.Fatalf("payload type %T", truns[0].Payload)
+	}
+	offset := int64(moofs[0].Offset) + int64(trun.DataOffset)
+	if offset < 0 || offset+int64(len(payload)) > int64(len(result.Bytes)) {
+		t.Fatalf("data offset %d out of range", trun.DataOffset)
+	}
+	if got := result.Bytes[offset : offset+2]; got[0] != 0xCA || got[1] != 0xFE {
+		t.Fatalf("sample bytes at offset %d = %x", offset, got)
+	}
+}
+
 func TestAnnexBLengthConversion(t *testing.T) {
 	nal := []byte{0x65, 0x01, 0x02}
 	out := mux.AnnexBToLengthPrefixed(nal)
