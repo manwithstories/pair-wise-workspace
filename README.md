@@ -23,7 +23,9 @@ go run ./cmd/mediad demo --seed 41 --profile corrupt --truncate-moof 17
 ```
 
 Exit status: `0` completed and verified, `2` expected damaged input identified
-and quarantined, `1` usage / I/O / internal error.
+and quarantined, `1` usage / I/O / internal error. The demo also prints
+`exit_status=N` so the semantic status is observable under `go run` (which
+reports any non-zero child status as 1).
 
 | profile | required output |
 |---------|-----------------|

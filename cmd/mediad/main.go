@@ -164,10 +164,14 @@ func runDemo(args []string) int {
 	printReport(rep)
 
 	if runErr != nil {
+		code := 1
 		if media.Isolated(runErr) {
-			return 2
+			code = 2
 		}
-		return 1
+		// `go run` reports any non-zero child status as 1; emit the semantic
+		// status explicitly so it is observable regardless of the launcher.
+		fmt.Printf("exit_status=%d\n", code)
+		return code
 	}
 	if err := checkInvariants(d, info, rep); err != nil {
 		fmt.Fprintf(os.Stderr, "mediad demo: invariant violated: %v\n", err)
@@ -175,6 +179,7 @@ func runDemo(args []string) int {
 		return 1
 	}
 	printJSON(map[string]any{"ok": true, "profile": d.profile, "output": filepath.Join(out, "output.mp4")})
+	fmt.Println("exit_status=0")
 	return 0
 }
 
