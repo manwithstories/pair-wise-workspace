@@ -118,7 +118,7 @@ func executeDemo(cfg demoConfig) error {
 	for _, c := range codecs {
 		res, err := pipeline.Run(pipeline.Options{
 			OutDir: filepath.Join(cfg.out, "normal", string(c)), Codec: c, Media: normal,
-			InjectDuplicate: cfg.inject["duplicate"],
+			InjectDuplicate: cfg.inject["duplicate"], Resume: cfg.resume,
 		})
 		if err != nil {
 			return err
@@ -135,6 +135,7 @@ func executeDemo(cfg demoConfig) error {
 		res, err := pipeline.Run(pipeline.Options{
 			OutDir: filepath.Join(cfg.out, "corrupt", string(codecs[0])),
 			Codec:  codecs[0], Media: corrupt, InjectDuplicate: cfg.inject["duplicate"],
+			Resume: cfg.resume,
 		})
 		if err != nil {
 			return err
