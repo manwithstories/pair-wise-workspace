@@ -358,7 +358,6 @@ func runRTP(cfg Config, rep *Report) error {
 		if err != nil {
 			return err
 		}
-		t0 := time.Now()
 		packets := make([]*rtp.Packet, 0, len(trace.Received))
 		repairs := make(recovery.Redundancy, len(trace.Received))
 		for _, rec := range trace.Received {
@@ -369,11 +368,14 @@ func runRTP(cfg Config, rep *Report) error {
 				})
 			}
 		}
+		t0 := time.Now()
 		res, err := recovery.Recover(trace.SSRC, trace.Camera, packets, repairs,
 			recovery.Options{Limits: cfg.Limits, SentSeqs: trace.SentSeqs})
+		recoverDur := time.Since(t0)
 		if err != nil {
 			return err
 		}
+		latencies = append(latencies, recoverDur)
 		totalLost += res.LostInTransit
 		totalUnrecoverable += res.Unrecoverable
 		totalDup += res.DupCount
@@ -384,14 +386,26 @@ func runRTP(cfg Config, rep *Report) error {
 			ID: 1, Kind: media.KindVideo, Codec: "avc1", EntryType: "avc1", Timescale: media.TickRate,
 		}}}
 		keys := map[uint32]media.TrackKey{1: key}
-		samples, err := ad.ParseSegment(adapter.SegmentRequest{
-			Pos: media.SourcePos{File: tracePath}, Init: init, Keys: keys, Limits: cfg.Limits,
-			// res.Packets already interleaves received and repair-restored packets.
-			RTP: &adapter.RTPInput{Packets: resPackets(res)},
-		})
-		latencies = append(latencies, time.Since(t0))
-		if err != nil {
-			return err
+		// Adapt in fixed-size chunks so latency reflects per-segment processing
+		// rather than a whole camera trace.
+		packetList := resPackets(res)
+		var samples []media.Sample
+		const chunkPackets = 64 // one access unit per few frames
+		for start := 0; start < len(packetList); start += chunkPackets {
+			end := start + chunkPackets
+			if end > len(packetList) {
+				end = len(packetList)
+			}
+			tz := time.Now()
+			got, err := ad.ParseSegment(adapter.SegmentRequest{
+				Pos: media.SourcePos{File: tracePath}, Init: init, Keys: keys, Limits: cfg.Limits,
+				RTP: &adapter.RTPInput{Packets: packetList[start:end]},
+			})
+			latencies = append(latencies, time.Since(tz))
+			if err != nil {
+				return err
+			}
+			samples = append(samples, got...)
 		}
 		trackInputs = append(trackInputs, &remux.TrackInput{
 			Key: key, TrackID: 1, Kind: media.KindVideo, Timescale: media.TickRate,

@@ -186,6 +186,7 @@ func Generate(opts Options) (*Info, error) {
 			wrapBase: opts.WrapPTS,
 			fragDur:  opts.FragmentDur,
 			frames:   opts.FramesPerFrag,
+			grid:     sharedGrid(opts),
 		}
 		if err := os.MkdirAll(filepath.Join(mediaDir, cam.Name), 0o755); err != nil {
 			return nil, err
@@ -246,6 +247,28 @@ type camState struct {
 	wrapBase int64
 	fragDur  int64
 	frames   int
+	// grid holds shared frame start offsets across the whole capture. All
+	// cameras observe the same scene, so VFR durations must agree; only each
+	// camera's clock drift differs.
+	grid []int64
+}
+
+// sharedGrid precomputes the reference frame start times for the whole capture
+// from the global seed, so every camera uses the identical VFR pattern.
+func sharedGrid(opts Options) []int64 {
+	total := opts.Segments*opts.FramesPerFrag + 1
+	grid := make([]int64, total)
+	rng := rand.New(rand.NewSource(opts.Seed*31 + 7))
+	var t int64
+	for i := 0; i < total; i++ {
+		grid[i] = t
+		dur := int64(3000)
+		if opts.VFR {
+			dur += int64(rng.Intn(1201)) - 600
+		}
+		t += dur
+	}
+	return grid
 }
 
 // localTicks maps a reference tick to this camera's local clock. A wrapBase
@@ -258,16 +281,15 @@ func (st *camState) localTicks(ref int64) int64 {
 
 // buildSegment returns the segment bytes and the ordered sample payloads.
 func (st *camState) buildSegment(index int) ([]byte, [][]byte, error) {
-	refStart := int64(index) * st.fragDur
+	frameBase := index * st.frames
+	if frameBase+st.frames >= len(st.grid) {
+		return nil, nil, fmt.Errorf("fixture: frame grid exhausted at segment %d", index)
+	}
+	refStart := st.grid[frameBase]
 	payloads := make([][]byte, st.frames)
 	durs := make([]int64, st.frames)
 	for f := 0; f < st.frames; f++ {
-		dur := int64(3000)
-		if st.vfr {
-			// Deterministic VFR jitter, still positive frame duration.
-			dur += int64(st.rng.Intn(1201)) - 600
-		}
-		durs[f] = dur
+		durs[f] = st.grid[frameBase+f+1] - st.grid[frameBase+f]
 		payloads[f] = samplePayload(st.cam, index, f)
 	}
 	localStart := st.localTicks(refStart)
