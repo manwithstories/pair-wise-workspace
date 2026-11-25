@@ -245,6 +245,13 @@ func Validate(b []byte, wanted ...string) error {
 	found := make(map[string]int)
 	_, err := mp4.ReadBoxStructure(bytes.NewReader(b), func(h *mp4.ReadHandle) (any, error) {
 		found[h.BoxInfo.Type.String()]++
+		switch h.BoxInfo.Type {
+		case mp4.BoxTypeMoov(), mp4.BoxTypeTrak(), mp4.BoxTypeMdia(), mp4.BoxTypeMinf(),
+			mp4.BoxTypeStbl(), mp4.BoxTypeMoof(), mp4.BoxTypeTraf(), mp4.BoxTypeMvex():
+			if _, err := h.Expand(); err != nil {
+				return nil, fmt.Errorf("expand %s: %w", h.BoxInfo.Type, err)
+			}
+		}
 		if h.ReadPayload != nil && (h.BoxInfo.Type == mp4.BoxTypeTrun() ||
 			h.BoxInfo.Type == mp4.BoxTypeTfdt() || h.BoxInfo.Type == mp4.BoxTypeTfhd()) {
 			if _, _, err := h.ReadPayload(); err != nil {
