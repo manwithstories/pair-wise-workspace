@@ -22,20 +22,26 @@ func DefaultLayer() Layer {
 }
 
 type attrClaim[T comparable] struct {
-	source Source
-	value  T
-	set    bool
+	source   Source
+	value    T
+	set      bool
+	explicit bool // false only for the built-in default fallback
 }
 
-// resolveAttr applies override > track > container > default and records one
-// conflict when two present sources disagree. Claims must be supplied highest
-// precedence first.
+// resolveAttr applies override > track > container > default. A conflict is
+// recorded only when two *explicit* sources (override/track/container)
+// disagree; the default is a fallback and never itself starts a conflict.
+// Claims must be supplied highest precedence first.
 func resolveAttr[T comparable](trackID int64, name string, claims []attrClaim[T], out *[]Conflict) (T, Source, bool) {
 	var zero T
 	present := make([]attrClaim[T], 0, len(claims))
+	explicit := make([]attrClaim[T], 0, len(claims))
 	for _, c := range claims {
 		if c.set {
 			present = append(present, c)
+			if c.explicit {
+				explicit = append(explicit, c)
+			}
 		}
 	}
 	if len(present) == 0 {
@@ -44,28 +50,30 @@ func resolveAttr[T comparable](trackID int64, name string, claims []attrClaim[T]
 	chosen := present[0].value
 	chosenSrc := present[0].source
 
-	allEqual := true
-	for _, c := range present[1:] {
-		if c.value != chosen {
-			allEqual = false
-			break
+	if len(explicit) >= 2 {
+		allEqual := true
+		for _, c := range explicit[1:] {
+			if c.value != explicit[0].value {
+				allEqual = false
+				break
+			}
 		}
-	}
-	if !allEqual {
-		sources := make([]string, len(present))
-		values := make([]string, len(present))
-		for i, c := range present {
-			sources[i] = c.source.String()
-			values[i] = fmt.Sprintf("%v", c.value)
+		if !allEqual {
+			sources := make([]string, len(explicit))
+			values := make([]string, len(explicit))
+			for i, c := range explicit {
+				sources[i] = c.source.String()
+				values[i] = fmt.Sprintf("%v", c.value)
+			}
+			*out = append(*out, Conflict{
+				TrackID:   trackID,
+				Attribute: name,
+				Sources:   sources,
+				Values:    values,
+				Chosen:    chosenSrc.String(),
+				Message:   fmt.Sprintf("%s disagreement on track %d; selected %s", name, trackID, chosenSrc),
+			})
 		}
-		*out = append(*out, Conflict{
-			TrackID:   trackID,
-			Attribute: name,
-			Sources:   sources,
-			Values:    values,
-			Chosen:    chosenSrc.String(),
-			Message:   fmt.Sprintf("%s disagreement on track %d; selected %s", name, trackID, chosenSrc),
-		})
 	}
 	return chosen, chosenSrc, true
 }
@@ -87,6 +95,11 @@ type ReconcileInput struct {
 // fault, when returned, already carries the track id and exact time range.
 func ReconcileTrack(in ReconcileInput) (ResolvedTrack, *media.Fault) {
 	conflicts := []Conflict{}
+
+	// Always adjudicate against concrete defaults unless the caller supplied one.
+	if in.Default == (Layer{}) {
+		in.Default = DefaultLayer()
+	}
 
 	tr := ResolvedTrack{
 		ID: in.TrackID, Type: in.Type,
@@ -110,9 +123,9 @@ func ReconcileTrack(in ReconcileInput) (ResolvedTrack, *media.Fault) {
 	tr.TimeRange = media.TimeRange{Start: start, End: end}
 
 	rot, _, hasRot := resolveAttr(in.TrackID, "rotation", []attrClaim[Rotation]{
-		{source: SourceOverride, value: derefRot(in.Override.Rotation), set: in.Override.Rotation != nil},
-		{source: SourceTrack, value: derefRot(in.Track.Rotation), set: in.Track.Rotation != nil},
-		{source: SourceContainer, value: derefRot(in.Container.Rotation), set: in.Container.Rotation != nil},
+		{source: SourceOverride, explicit: true, value: derefRot(in.Override.Rotation), set: in.Override.Rotation != nil},
+		{source: SourceTrack, explicit: true, value: derefRot(in.Track.Rotation), set: in.Track.Rotation != nil},
+		{source: SourceContainer, explicit: true, value: derefRot(in.Container.Rotation), set: in.Container.Rotation != nil},
 		{source: SourceDefault, value: derefRot(in.Default.Rotation), set: in.Default.Rotation != nil},
 	}, &conflicts)
 	if hasRot {
@@ -124,9 +137,9 @@ func ReconcileTrack(in ReconcileInput) (ResolvedTrack, *media.Fault) {
 	}
 
 	crop, _, hasCrop := resolveAttr(in.TrackID, "crop", []attrClaim[Crop]{
-		{source: SourceOverride, value: derefCrop(in.Override.Crop), set: in.Override.Crop != nil},
-		{source: SourceTrack, value: derefCrop(in.Track.Crop), set: in.Track.Crop != nil},
-		{source: SourceContainer, value: derefCrop(in.Container.Crop), set: in.Container.Crop != nil},
+		{source: SourceOverride, explicit: true, value: derefCrop(in.Override.Crop), set: in.Override.Crop != nil},
+		{source: SourceTrack, explicit: true, value: derefCrop(in.Track.Crop), set: in.Track.Crop != nil},
+		{source: SourceContainer, explicit: true, value: derefCrop(in.Container.Crop), set: in.Container.Crop != nil},
 		{source: SourceDefault, value: derefCrop(in.Default.Crop), set: in.Default.Crop != nil},
 	}, &conflicts)
 	if hasCrop {
@@ -139,9 +152,9 @@ func ReconcileTrack(in ReconcileInput) (ResolvedTrack, *media.Fault) {
 	}
 
 	col, _, hasColor := resolveAttr(in.TrackID, "color", []attrClaim[Color]{
-		{source: SourceOverride, value: derefColor(in.Override.Color), set: in.Override.Color != nil},
-		{source: SourceTrack, value: derefColor(in.Track.Color), set: in.Track.Color != nil},
-		{source: SourceContainer, value: derefColor(in.Container.Color), set: in.Container.Color != nil},
+		{source: SourceOverride, explicit: true, value: derefColor(in.Override.Color), set: in.Override.Color != nil},
+		{source: SourceTrack, explicit: true, value: derefColor(in.Track.Color), set: in.Track.Color != nil},
+		{source: SourceContainer, explicit: true, value: derefColor(in.Container.Color), set: in.Container.Color != nil},
 		{source: SourceDefault, value: derefColor(in.Default.Color), set: in.Default.Color != nil},
 	}, &conflicts)
 	if hasColor {
