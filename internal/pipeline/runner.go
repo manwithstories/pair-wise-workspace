@@ -139,6 +139,9 @@ func (r *Runner) Run(ctx context.Context, consume func(context.Context, Item) er
 			}
 			if err := consume(ctx, item); err != nil {
 				r.release(item.Size)
+				if ctx.Err() != nil {
+					return r.cancelCleanup(ctx)
+				}
 				return err
 			}
 			r.release(item.Size)
