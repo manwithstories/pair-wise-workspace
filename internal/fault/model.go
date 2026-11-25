@@ -19,16 +19,17 @@ const (
 type Kind string
 
 const (
-	KindUsage       Kind = "usage"
-	KindStructure   Kind = "structure"
-	KindBounds      Kind = "bounds"
-	KindFormat      Kind = "format"
-	KindConflict    Kind = "identity_conflict"
-	KindHole        Kind = "sequence_hole"
-	KindLate        Kind = "late_behind_watermark"
-	KindCheckpoint  Kind = "checkpoint"
-	KindIntegrity   Kind = "integrity"
-	KindUnsupported Kind = "unsupported"
+	KindUsage         Kind = "usage"
+	KindStructure     Kind = "structure"
+	KindBounds        Kind = "bounds"
+	KindFormat        Kind = "format"
+	KindConflict      Kind = "identity_conflict"
+	KindHole          Kind = "sequence_hole"
+	KindLate          Kind = "late_behind_watermark"
+	KindCheckpoint    Kind = "checkpoint"
+	KindIntegrity     Kind = "integrity"
+	KindUnsupported   Kind = "unsupported"
+	KindUnrecoverable Kind = "unrecoverable"
 )
 
 // Location 精确定位源文件中的 box、RTP 记录或样本偏移。
