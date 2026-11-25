@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"fieldcut/internal/clock"
+	"fieldcut/internal/ingest"
 )
 
 // CandidateKind explains why a cut point was chosen.
@@ -200,4 +201,12 @@ func Coverage(segments []clock.Interval, duration clock.Ns) error {
 		return clock.Errorf(clock.CodeCoverage, -1, "coverage ends at %d, want %d", last, duration)
 	}
 	return nil
+}
+
+// PackageFragment encapsulates one cut window's samples as a deterministic
+// fragmented MP4. Keeping the wrapper here makes split-and-package one stage.
+func PackageFragment(trackID int, timeScale uint32, color ingest.ColorInfo, samples []ingest.MP4Sample) ([]byte, error) {
+	return ingest.BuildFragmentedMP4(&ingest.MP4Track{
+		TrackID: trackID, TimeScale: timeScale, Color: color, Samples: samples,
+	})
 }

@@ -39,16 +39,14 @@ func buildPackage(director, stage *ingest.MP4Track, pcm *audio.PCM, segs []clock
 		if len(ds) == 0 {
 			return nil, clock.Errorf(clock.CodeCoverage, director.TrackID, "segment %d has no director samples", i)
 		}
-		segDirector := &ingest.MP4Track{TrackID: director.TrackID, TimeScale: director.TimeScale, Color: director.Color, Samples: ds}
-		videoBlob, err := ingest.BuildFragmentedMP4(segDirector)
+		videoBlob, err := cut.PackageFragment(director.TrackID, director.TimeScale, director.Color, ds)
 		if err != nil {
 			return nil, err
 		}
 		ss := samplesInSegment(stage, iv)
 		var stageBlob []byte
 		if len(ss) > 0 {
-			segStage := &ingest.MP4Track{TrackID: stage.TrackID, TimeScale: stage.TimeScale, Color: stage.Color, Samples: ss}
-			stageBlob, err = ingest.BuildFragmentedMP4(segStage)
+			stageBlob, err = cut.PackageFragment(stage.TrackID, stage.TimeScale, stage.Color, ss)
 			if err != nil {
 				return nil, err
 			}
@@ -153,6 +151,3 @@ func assignmentsForSegment(a []events.Assignment, idx int) []events.Assignment {
 	}
 	return out
 }
-
-// ensure cut import is used by future boundary-aware packaging.
-var _ = cut.Candidate{}

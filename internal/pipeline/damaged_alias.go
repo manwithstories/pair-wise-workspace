@@ -43,9 +43,7 @@ func runDamaged(req Request, j *recover.Journal, b *Bundle, partial *ingestTrack
 		first := clock.Interval{Start: 0, End: clock.NsPerSecond}
 		ss := samplesInSegment(partial, first)
 		if len(ss) > 0 {
-			blob, err := ingest.BuildFragmentedMP4(&ingest.MP4Track{
-				TrackID: partial.TrackID, TimeScale: partial.TimeScale, Color: partial.Color, Samples: ss,
-			})
+			blob, err := cut.PackageFragment(partial.TrackID, partial.TimeScale, partial.Color, ss)
 			if err != nil {
 				return nil, err
 			}
