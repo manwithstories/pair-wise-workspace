@@ -91,13 +91,8 @@ func (w *Window) Push(pkt *rtp.Packet) Result {
 
 	forward := seq - w.next
 	if forward >= 32768 {
-		behind := 65536 - int(forward)
-		if behind <= int(w.depth) {
-			// A repeat whose delivery marker has already aged out is still a
-			// duplicate rather than new media.
-			w.Duplicates++
-			return Result{Decision: DecisionDuplicate, Sequence: seq}
-		}
+		// The recent-set check above handles actual repeats. Any other packet
+		// behind next is late beyond the contiguous frontier and is a gap.
 		w.OutsideWindow++
 		w.Gaps++
 		return Result{Decision: DecisionOutsideWindow, Sequence: seq}
