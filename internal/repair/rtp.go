@@ -106,6 +106,22 @@ func RepairRTP(packets []rtp.Packet, groups []FECGroup) *RTPReport {
 
 	lo := minKey(received)
 	hi := maxKey(received)
+
+	// FEC-protected sequence numbers define the expected span too, so a
+	// loss at the very edge (before the first received packet) is counted.
+	groupMembers := make([][]int64, len(groups))
+	for gi, g := range groups {
+		for _, s16 := range g.Sequences {
+			ext := resolveWithin(s16, lo, hi)
+			groupMembers[gi] = append(groupMembers[gi], ext)
+			if ext < lo {
+				lo = ext
+			}
+			if ext > hi {
+				hi = ext
+			}
+		}
+	}
 	rep.FirstExtended, rep.LastExtended = lo, hi
 	rep.PacketCount = len(received)
 
@@ -116,12 +132,10 @@ func RepairRTP(packets []rtp.Packet, groups []FECGroup) *RTPReport {
 
 	// Apply XOR redundancy.
 	recovered := map[int64][]byte{}
-	for _, g := range groups {
-		var members []int64
-		missing := []int64{}
-		for _, s16 := range g.Sequences {
-			ext := resolveWithin(s16, lo, hi)
-			members = append(members, ext)
+	for gi, g := range groups {
+		members := groupMembers[gi]
+		var missing []int64
+		for _, ext := range members {
 			if !present[ext] {
 				missing = append(missing, ext)
 			}
