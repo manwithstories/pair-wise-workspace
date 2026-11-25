@@ -55,7 +55,6 @@ type boundaryInfo struct {
 // stream. A bad AU is reported but never causes later offsets to be adjusted.
 func ValidateStream(c Codec, stream []byte, indexes []timeline.Index) []Report {
 	reports := make([]Report, 0, len(indexes))
-	var lastOffset int64 = -1
 	for i, idx := range indexes {
 		rep := Report{
 			Codec:           c,
@@ -80,14 +79,6 @@ func ValidateStream(c Codec, stream []byte, indexes []timeline.Index) []Report {
 			reports = append(reports, rep)
 			continue
 		}
-		if idx.Offset < lastOffset {
-			rep.fail(idx.Offset, timeline.New(timeline.KindUnrecoverable, "codec.index", i, idx.Offset,
-				"offset moved backwards: %d < previous %d", idx.Offset, lastOffset))
-			reports = append(reports, rep)
-			continue
-		}
-		lastOffset = idx.Offset
-
 		end := idx.Offset + int64(idx.Length)
 		if idx.Offset > int64(len(stream)) || end > int64(len(stream)) {
 			first := int64(len(stream))
