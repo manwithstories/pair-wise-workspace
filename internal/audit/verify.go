@@ -51,6 +51,10 @@ func VerifyDirectory(dir string) (*VerifiedSuite, *media.Error) {
 			return nil, verr
 		}
 
+		inputHashes, inputCount, verr := readTSHashes(filepath.Join(dir, cm.Input.Path))
+		if verr != nil {
+			return nil, verr
+		}
 		tsHashes, tsCount, verr := readTSHashes(filepath.Join(dir, cm.OutputTS.Path))
 		if verr != nil {
 			return nil, verr
@@ -59,15 +63,18 @@ func VerifyDirectory(dir string) (*VerifiedSuite, *media.Error) {
 		if verr != nil {
 			return nil, verr
 		}
-		if tsCount != len(cm.Samples) || len(fmp4Hashes) != len(cm.Samples) {
+		if inputCount != len(cm.Samples) || tsCount != len(cm.Samples) || len(fmp4Hashes) != len(cm.Samples) {
 			return nil, &media.Error{
 				Code: media.CodeCountInvalid, Component: "audit.verify",
-				Message: fmt.Sprintf("%s sample counts manifest=%d ts=%d fmp4=%d", cm.CaseID, len(cm.Samples), tsCount, len(fmp4Hashes)),
+				Message: fmt.Sprintf("%s sample counts manifest=%d input=%d ts=%d fmp4=%d", cm.CaseID, len(cm.Samples), inputCount, tsCount, len(fmp4Hashes)),
 			}
 		}
 
-		total += 2 * len(cm.Samples)
+		total += 3 * len(cm.Samples)
 		for _, ref := range cm.Samples {
+			if consumeHash(inputHashes, ref.SHA256) {
+				matched++
+			}
 			if consumeHash(tsHashes, ref.SHA256) {
 				matched++
 			}
