@@ -43,6 +43,9 @@ type Result struct {
 	Rotation int
 	Crop     model.Rect
 	Err      error
+	// PNG carries the encoded bytes between RenderFrame and WriteRendered so
+	// the decode stage never touches the filesystem.
+	PNG []byte
 }
 
 // Frame renders one already-decoded JPEG sample, applying rotation first and
@@ -194,6 +197,58 @@ func WriteFrame(dir string, frameNo int, sample []byte, codec model.Codec, desc 
 	res.Height = img.Bounds().Dy()
 	res.Written = true
 	return res
+}
+
+// RenderFrame decodes one sample and encodes its PNG into memory without
+// touching the filesystem. It is the concurrency-safe half of WriteFrame: many
+// workers may call it in parallel. WriteRendered publishes the result.
+func RenderFrame(frameNo int, sample []byte, codec model.Codec, desc model.Description, opts Options) Result {
+	res := Result{Frame: frameNo, Rotation: desc.Rotation, Crop: desc.Crop}
+	sum := sha256.Sum256(sample)
+	res.Sample = fmt.Sprintf("%x", sum)
+	if !codec.Decodable() {
+		res.Err = fault.New(-1, 0, fault.KindUnsupported, true,
+			"codec %s cannot be decoded to pixels; sample hash %s retained", codec, res.Sample)
+		return res
+	}
+	img, err := Frame(sample, desc, opts)
+	if err != nil {
+		if fe, ok := fault.As(err); ok {
+			res.Err = fe
+		} else {
+			res.Err = fault.Wrap(-1, 0, fault.KindCorrupt, true, err)
+		}
+		return res
+	}
+	pngBytes, err := EncodePNG(img, opts.PNGCompression)
+	if err != nil {
+		res.Err = fault.Wrap(-1, 0, fault.KindCorrupt, false, err)
+		return res
+	}
+	res.PNG = pngBytes
+	res.Path = fmt.Sprintf("frame_%04d.png", frameNo)
+	res.Width = img.Bounds().Dx()
+	res.Height = img.Bounds().Dy()
+	return res
+}
+
+// WriteRendered writes a previously rendered frame and records its digest. It
+// is called from a single goroutine, so no two workers ever write at once.
+func WriteRendered(dir string, res Result) (Result, error) {
+	if res.Err != nil {
+		return res, res.Err
+	}
+	if res.PNG == nil {
+		return res, fault.New(-1, 0, fault.KindCorrupt, false, "frame %d has no encoded PNG", res.Frame)
+	}
+	if err := writeFileAtomic(filepath.Join(dir, res.Path), res.PNG); err != nil {
+		return res, fault.Wrap(-1, 0, fault.KindCorrupt, false, err)
+	}
+	outSum := sha256.Sum256(res.PNG)
+	res.OutHash = fmt.Sprintf("%x", outSum)
+	res.Written = true
+	res.PNG = nil
+	return res, nil
 }
 
 // writeFileAtomic writes to a temporary file in the same directory and renames

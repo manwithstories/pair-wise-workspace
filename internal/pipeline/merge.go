@@ -142,11 +142,14 @@ func Run(ctx context.Context, cfg Config, opts RunOptions) (RunResult, error) {
 	// locked so this is safe.
 	// The producer runs to completion (or cancellation) before Close, because
 	// Close closes the job queue the producer sends on.
+	// The producer owns its own counters and publishes them through the
+	// channel close, which happens-before the reads below.
+	submitted, skipped := 0, 0
 	go func() {
 		defer close(producerDone)
 		for id, item := range opts.Items {
 			if pool.Canceled() {
-				res.Skipped = len(opts.Items) - id
+				skipped = len(opts.Items) - id
 				pool.Cancel()
 				return
 			}
@@ -170,11 +173,11 @@ func Run(ctx context.Context, cfg Config, opts RunOptions) (RunResult, error) {
 				},
 			}
 			if !pool.Submit(job) {
-				res.Skipped = len(opts.Items) - jobID
+				skipped = len(opts.Items) - jobID
 				pool.Cancel()
 				return
 			}
-			res.Submitted++
+			submitted++
 		}
 	}()
 
@@ -182,6 +185,8 @@ func Run(ctx context.Context, cfg Config, opts RunOptions) (RunResult, error) {
 	// producer stops writing to jobs. Wait for the producer first, then close.
 	<-producerDone
 	pool.Close()
+	res.Submitted = submitted
+	res.Skipped = skipped
 
 	// Cancellation is recorded explicitly by the producer and by the writer,
 	// never inferred from the pool's own context cleanup.

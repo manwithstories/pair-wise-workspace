@@ -68,7 +68,12 @@ func Resolve(trak *model.Track, opts Options) Result {
 		Sources: map[string]model.Source{},
 		Faults:  &fault.List{},
 	}
-	trak.Claims.Policy = map[string]string{}
+	// The caller policy is overlaid on any policy claims already present, so
+	// an explicit --policy flag always outranks description layers without
+	// discarding policy values carried on the track itself.
+	if trak.Claims.Policy == nil {
+		trak.Claims.Policy = map[string]string{}
+	}
 	for k, v := range opts.Policy {
 		trak.Claims.Policy[k] = v
 	}
@@ -177,10 +182,11 @@ func resolveCrop(trak *model.Track, desc *model.Description, res *Result) *fault
 	if cw <= 0 || ch <= 0 {
 		return nil
 	}
-	// The aperture describes the unrotated coded frame. Rotating a frame by
-	// 90 or 270 degrees swaps its width and height, so the aperture must be
-	// swapped too for the inset to land on the correct axis.
+	// The aperture is expressed in the unrotated coded frame. Rotation by 90
+	// or 270 degrees swaps width and height, so both the frame and the
+	// aperture are swapped before the inset is computed in final space.
 	if desc.Rotation == 90 || desc.Rotation == 270 {
+		cw, ch = ch, cw
 		aw, ah = ah, aw
 	}
 	rect := apertureCrop(cw, ch, aw, ah)

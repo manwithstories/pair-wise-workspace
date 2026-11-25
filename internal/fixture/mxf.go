@@ -247,3 +247,10 @@ func indexValue(tr MXFTrackSpec, offsets []uint32) []byte {
 	local.Write(localItem(0x3f03, entries.Bytes()))
 	return local.Bytes()
 }
+
+// MXFHeaderForTest exposes the header partition universal label for tests that
+// build damaged containers by hand.
+func MXFHeaderForTest() []byte { return append([]byte(nil), ulHeaderPartition...) }
+
+// MXFEssenceKeyForTest exposes the picture essence universal label.
+func MXFEssenceKeyForTest() []byte { return append([]byte(nil), ulPictureEssence...) }
