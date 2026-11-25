@@ -1,6 +1,8 @@
 package fixture
 
 import (
+	"sort"
+
 	"math/rand"
 
 	"mediqc/internal/media"
@@ -106,4 +108,15 @@ func hashLabel(s string) uint32 {
 		h *= 16777619
 	}
 	return h
+}
+
+func interleaveByDecodeTime(in []media.Sample) []media.Sample {
+	out := append([]media.Sample(nil), in...)
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].DTS != out[j].DTS {
+			return out[i].DTS < out[j].DTS
+		}
+		return out[i].TrackID < out[j].TrackID
+	})
+	return out
 }

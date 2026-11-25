@@ -56,14 +56,15 @@ func Suite(seed int64) ([]*Case, *media.Error) {
 	cases := make([]*Case, 0, len(specs))
 	for i, sp := range specs {
 		samples := makeSamples(seed+int64(i)*1009, sp.id, sp.vfr, sp.wrap)
-		ts, merr := remux.BuildTS(tracks, samples, remux.TSOptions{})
+		muxSamples := interleaveByDecodeTime(samples)
+		ts, merr := remux.BuildTS(tracks, muxSamples, remux.TSOptions{})
 		if merr != nil {
 			return nil, merr
 		}
 		c := &Case{
 			ID: fmt.Sprintf("%02d-%s", i+1, sp.id), Order: i + 1, Title: sp.title,
 			Seed: seed, InputMode: sp.mode, Tracks: append([]media.Track(nil), tracks...),
-			SourceSamples: samples, TargetBitrateBPS: 1_000_000,
+			SourceSamples: muxSamples, TargetBitrateBPS: 1_000_000,
 			ExpectedClass: sp.class, WantCCGaps: sp.cc, WantPSISwitches: sp.psi,
 			WantPCRWraps: sp.pcr, WantLateReplays: sp.late,
 			TraceID: fmt.Sprintf("trace-%s-%d", sp.id, seed),
@@ -75,7 +76,7 @@ func Suite(seed int64) ([]*Case, *media.Error) {
 		case "cc-jump":
 			c.TS = withCCJump(ts, 0x0100)
 		case "psi-update":
-			c.TS = withPSIUpdate(ts, tracks, samples)
+			c.TS = withPSIUpdate(ts, tracks, muxSamples)
 		case "truncated":
 			c.TS = ts[:len(ts)-37]
 		default:
