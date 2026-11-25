@@ -56,6 +56,7 @@ type RTPGen struct {
 	ts         uint32
 	ticks      uint32
 	idx        int
+	Offset     uint32 // constant timestamp offset (sync jitter injection)
 	Loss       float64
 	Retransmit float64
 	BurstAt    int // absolute packet index where a burst starts; <0 off
@@ -77,41 +78,49 @@ func NewRTPGen(seed int64, ticksPerPacket uint32, loss, retransmit float64) *RTP
 	}
 }
 
-// Next returns the next n packets in transmit order.
-func (g *RTPGen) Next(n int) []*rtp.Packet {
-	out := make([]*rtp.Packet, 0, n)
-	for len(out) < n {
-		kept := g.queue[:0]
-		for _, r := range g.queue {
-			if r.at <= g.idx && len(out) < n {
-				out = append(out, r.pkt)
-			} else {
-				kept = append(kept, r)
-			}
+// NextWindow advances the media index by n and returns every packet
+// transmitted meanwhile, so each call covers exactly n ticks of media
+// regardless of loss. Lost packets simply do not appear; retransmits
+// due during the window are included.
+func (g *RTPGen) NextWindow(n int) []*rtp.Packet {
+	end := g.idx + n
+	var out []*rtp.Packet
+	for g.idx < end {
+		out = g.step(out)
+	}
+	return out
+}
+
+// step emits due retransmits or generates the next packet, appending at
+// most one transmitted packet to out.
+func (g *RTPGen) step(out []*rtp.Packet) []*rtp.Packet {
+	kept := g.queue[:0]
+	for _, r := range g.queue {
+		if r.at <= g.idx {
+			out = append(out, r.pkt)
+		} else {
+			kept = append(kept, r)
 		}
-		g.queue = kept
-		if len(out) >= n {
-			break
+	}
+	g.queue = kept
+	pkt := &rtp.Packet{
+		Header:  rtp.Header{Version: 2, SequenceNumber: g.seq, Timestamp: g.ts + g.Offset, SSRC: 7},
+		Payload: []byte{byte(g.seq), byte(g.idx)},
+	}
+	g.seq++
+	g.ts += g.ticks
+	i := g.idx
+	g.idx++
+	inBurst := g.BurstAt >= 0 && i >= g.BurstAt && i < g.BurstAt+g.BurstLen
+	switch {
+	case inBurst:
+		// burst loss: never seen again
+	case g.rng.Float64() < g.Loss:
+		if g.rng.Float64() < g.Retransmit {
+			g.queue = append(g.queue, retransmit{pkt, i + 2 + g.rng.Intn(3)})
 		}
-		pkt := &rtp.Packet{
-			Header:  rtp.Header{Version: 2, SequenceNumber: g.seq, Timestamp: g.ts, SSRC: 7},
-			Payload: []byte{byte(g.seq), byte(g.idx)},
-		}
-		g.seq++
-		g.ts += g.ticks
-		i := g.idx
-		g.idx++
-		inBurst := g.BurstAt >= 0 && i >= g.BurstAt && i < g.BurstAt+g.BurstLen
-		switch {
-		case inBurst:
-			// burst loss: never seen again
-		case g.rng.Float64() < g.Loss:
-			if g.rng.Float64() < g.Retransmit {
-				g.queue = append(g.queue, retransmit{pkt, i + 2 + g.rng.Intn(3)})
-			}
-		default:
-			out = append(out, pkt)
-		}
+	default:
+		out = append(out, pkt)
 	}
 	return out
 }
