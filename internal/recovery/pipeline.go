@@ -2,6 +2,7 @@ package recovery
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 
 	"mediad/internal/clock"
@@ -112,6 +113,9 @@ func loadCompatibleCheckpoint(root string, hashes []string, p Params) (*Checkpoi
 	}
 	if old.Key != key {
 		// Inputs, parameters or adapter version changed: old downstream state is invalid.
+		if err := os.Remove(LedgerPath(root)); err != nil && !os.IsNotExist(err) {
+			return nil, false, fault.New(fault.IO, LedgerPath(root), -1, "invalidate ledger: %v", err)
+		}
 		cp, nerr := NewCheckpoint(hashes, p, AdapterVersion)
 		if nerr != nil {
 			return nil, false, nerr
