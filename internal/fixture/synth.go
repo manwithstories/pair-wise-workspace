@@ -91,6 +91,17 @@ func (g *RTPGen) NextWindow(n int) []*rtp.Packet {
 	return out
 }
 
+// Next returns packets in transmit order until at least n have been
+// emitted. It is a compatibility wrapper; NextWindow is the precise
+// media-index-bounded entry point used by the pipeline.
+func (g *RTPGen) Next(n int) []*rtp.Packet {
+	var out []*rtp.Packet
+	for len(out) < n {
+		out = g.step(out)
+	}
+	return out
+}
+
 // step emits due retransmits or generates the next packet, appending at
 // most one transmitted packet to out.
 func (g *RTPGen) step(out []*rtp.Packet) []*rtp.Packet {
