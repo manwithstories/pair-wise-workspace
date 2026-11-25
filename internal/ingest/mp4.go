@@ -31,7 +31,7 @@ func ReadFragmentedMP4(data []byte, expectedTrackID int) (*MP4Track, error) {
 		if err != nil {
 			return nil, truncatedError(expectedTrackID, pos, "short box header: "+err.Error())
 		}
-		if bi.Size < bi.HeaderSize || bi.Offset+bi.Size > fileSize {
+		if bi.Size < bi.HeaderSize || !rangeWithin(fileSize, bi.Offset, bi.Size) {
 			return nil, truncatedError(expectedTrackID, int64(bi.Offset),
 				fmt.Sprintf("box %s declared size %d ends beyond file size %d", bi.Type.String(), bi.Size, fileSize))
 		}
@@ -62,7 +62,13 @@ func ReadFragmentedMP4(data []byte, expectedTrackID int) (*MP4Track, error) {
 				return nil, truncatedError(track.TrackID, int64(boxStart), "moof data offset points outside file")
 			}
 			ticks := base
+			const maxInt64Ticks = uint64(1<<63 - 1)
 			for i, en := range entries {
+				if ticks > maxInt64Ticks {
+					return nil, &clock.Error{Code: clock.CodeOverflow, TrackID: track.TrackID,
+						OriginalTimestamp: int64(en.duration), OriginalValue: "tfdt/trun decode time overflow",
+						Message: "sample timestamp exceeds signed nanosecond range"}
+				}
 				end := dataPos + int64(en.size)
 				if en.size == 0 || end > int64(len(data)) {
 					return track, truncatedError(track.TrackID, dataPos,
@@ -81,6 +87,10 @@ func ReadFragmentedMP4(data []byte, expectedTrackID int) (*MP4Track, error) {
 					return nil, clock.Errorf(clock.CodeConfig, track.TrackID, "too many MP4 samples")
 				}
 				dataPos = end
+				if uint64(en.duration) > maxInt64Ticks-ticks {
+					return nil, &clock.Error{Code: clock.CodeOverflow, TrackID: track.TrackID,
+						OriginalTimestamp: int64(en.duration), Message: "cumulative MP4 timestamp overflows"}
+				}
 				ticks += uint64(en.duration)
 			}
 		}
@@ -98,6 +108,10 @@ func ReadFragmentedMP4(data []byte, expectedTrackID int) (*MP4Track, error) {
 func durationToNs(ticks uint32, timescale uint32) clock.Ns {
 	ns, _ := clock.TicksToNs(int64(ticks), 1, int64(timescale))
 	return ns
+}
+
+func rangeWithin(length, offset, size uint64) bool {
+	return offset <= length && size <= length-offset
 }
 
 func truncatedError(trackID int, offset int64, message string) *clock.Error {
@@ -126,7 +140,7 @@ func parseMoof(data []byte, bi *gomp4.BoxInfo) (trackID uint32, base uint64, ent
 			return 0, 0, nil, 0, truncatedError(-1, int64(bi.Offset)+pos, "short moof child header")
 		}
 		cs, ce := child.Offset+child.HeaderSize, child.Offset+child.Size
-		if ce > uint64(len(payload)) {
+		if child.Size < child.HeaderSize || !rangeWithin(uint64(len(payload)), child.Offset, child.Size) {
 			return 0, 0, nil, 0, truncatedError(-1, int64(bi.Offset)+int64(child.Offset),
 				fmt.Sprintf("moof child %s is truncated", child.Type.String()))
 		}
@@ -160,7 +174,7 @@ func parseTraf(payload []byte) (trackID uint32, base uint64, entries []trunEntry
 			return 0, 0, nil, 0, clock.Errorf(clock.CodeTruncatedMP4, -1, "short traf child header")
 		}
 		s, end := box.Offset+box.HeaderSize, box.Offset+box.Size
-		if end > uint64(len(payload)) {
+		if box.Size < box.HeaderSize || !rangeWithin(uint64(len(payload)), box.Offset, box.Size) {
 			return 0, 0, nil, 0, clock.Errorf(clock.CodeTruncatedMP4, -1, "traf child %s truncated", box.Type.String())
 		}
 		p := payload[s:end]
@@ -207,6 +221,9 @@ func parseTRUN(p []byte) ([]trunEntry, int32, error) {
 	}
 	flags := uint32(p[1])<<16 | uint32(p[2])<<8 | uint32(p[3])
 	count := binary.BigEndian.Uint32(p[4:8])
+	if count > MaxMP4Samples {
+		return nil, 0, clock.Errorf(clock.CodeConfig, -1, "trun sample count %d exceeds cap %d", count, MaxMP4Samples)
+	}
 	off := 8
 	var dataOffset int32
 	if flags&0x000001 != 0 {

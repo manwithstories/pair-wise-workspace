@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"fieldcut/internal/clock"
 	"fieldcut/internal/events"
@@ -114,11 +115,19 @@ func Verify(outDir string) (*Manifest, error) {
 		return nil, err
 	}
 	for _, seg := range m.Segments {
-		if err := verifyHash(filepath.Join(outDir, seg.File), seg.SHA256); err != nil {
+		path, err := safeArtifactPath(outDir, seg.File)
+		if err != nil {
+			return m, err
+		}
+		if err := verifyHash(path, seg.SHA256); err != nil {
 			return m, fmt.Errorf("segment %d: %w", seg.Index, err)
 		}
 		if seg.AudioFile != "" {
-			if err := verifyHash(filepath.Join(outDir, seg.AudioFile), seg.AudioSHA256); err != nil {
+			audioPath, err := safeArtifactPath(outDir, seg.AudioFile)
+			if err != nil {
+				return m, err
+			}
+			if err := verifyHash(audioPath, seg.AudioSHA256); err != nil {
 				return m, fmt.Errorf("segment %d audio: %w", seg.Index, err)
 			}
 		}
@@ -130,6 +139,17 @@ func Verify(outDir string) (*Manifest, error) {
 		return m, fmt.Errorf("max skew %d ns exceeds %d", m.Metrics.ManifestMaxSkewNs, clock.NsPerMs)
 	}
 	return m, nil
+}
+
+func safeArtifactPath(base, rel string) (string, error) {
+	if rel == "" || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("invalid artifact path %q", rel)
+	}
+	clean := filepath.Clean(rel)
+	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("artifact path escapes output directory: %q", rel)
+	}
+	return filepath.Join(base, clean), nil
 }
 
 func verifyHash(path, want string) error {
