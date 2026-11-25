@@ -10,6 +10,9 @@ import (
 // valid PMT v1 at GOP 3 and present a corrupt CRC v2 at GOP 6 which the
 // parser must reject while retaining v1.
 func (g *generator) emitPSI(frame, gop int, pat, pmtV0, pmtV1, pmtBad []byte) {
+	// PAT first: the parser only recognizes the PMT PID after a valid PAT,
+	// so emitting the PMT first would misroute it into PES reassembly.
+	g.emit(g.mux.PacketizePSI(ts.PIDPAT, pat))
 	switch {
 	case (g.cfg.Case == CasePSI || g.cfg.Case == CaseDamaged) && gop == 6:
 		g.emit(g.mux.PacketizePSI(PMTPID, pmtBad))
@@ -18,7 +21,6 @@ func (g *generator) emitPSI(frame, gop int, pat, pmtV0, pmtV1, pmtBad []byte) {
 	default:
 		g.emit(g.mux.PacketizePSI(PMTPID, pmtV0))
 	}
-	g.emit(g.mux.PacketizePSI(ts.PIDPAT, pat))
 }
 
 // emitAudio flushes all 20 ms audio frames due up to the current video tick.
@@ -91,8 +93,8 @@ func (g *generator) runWith(sliceBytes int) {
 		ticks := int64(f) * frameTicks
 		isIDR := f%cfg.GOPFrames == 0
 		if isIDR {
-			g.emit(g.mux.PacketizePSI(PMTPID, pmt))
 			g.emit(g.mux.PacketizePSI(ts.PIDPAT, pat))
+			g.emit(g.mux.PacketizePSI(PMTPID, pmt))
 		}
 		var nal [][]byte
 		if isIDR {

@@ -35,8 +35,11 @@ func (m *Muxer) nextCC(pid uint16) uint8 {
 		c = (c + 3) & 0x0F
 		m.ccJump[pid] = false
 	}
-	m.cc[pid] = c + 1
-	return c
+	// Continuity counters are 4 bits and wrap modulo 16; without the mask the
+	// stored value grows past 0x0F and corrupts the adaptation/payload bits.
+	out := c & 0x0F
+	m.cc[pid] = (c + 1) & 0x0F
+	return out
 }
 
 // PacketizePSI wraps one PSI section in payload-only packets, PUSI with a
@@ -48,7 +51,10 @@ func (m *Muxer) PacketizePSI(pid uint16, section []byte) [][]byte {
 	for len(rest) > 0 {
 		pkt := make([]byte, ts.PacketSize)
 		pkt[0] = 0x47
-		pkt[1] = byte(pid>>8) | 0x10
+		// payload-unit-start + payload-only, then the 13-bit PID across
+		// byte1 low 5 bits and byte2. Setting 0x10 unconditionally would
+		// corrupt low-PID streams such as PAT (PID 0).
+		pkt[1] = byte(pid>>8) & 0x1F
 		pkt[2] = byte(pid)
 		off := 4
 		if first {
@@ -62,7 +68,7 @@ func (m *Muxer) PacketizePSI(pid uint16, section []byte) [][]byte {
 		for i := off + n; i < ts.PacketSize; i++ {
 			pkt[i] = 0xFF
 		}
-		pkt[3] = 0x10 | m.nextCC(pid)
+		pkt[3] |= 0x10 | m.nextCC(pid)
 		out = append(out, pkt)
 	}
 	return out
@@ -77,7 +83,7 @@ func (m *Muxer) PacketizePES(pid uint16, pes []byte, pcr *uint64, randomAccess b
 	for len(rest) > 0 {
 		pkt := make([]byte, ts.PacketSize)
 		pkt[0] = 0x47
-		pkt[1] = byte(pid>>8) | 0x10
+		pkt[1] = byte(pid>>8) & 0x1F
 		pkt[2] = byte(pid)
 		off := 4
 		if first {
@@ -90,7 +96,7 @@ func (m *Muxer) PacketizePES(pid uint16, pes []byte, pcr *uint64, randomAccess b
 		for i := off + n; i < ts.PacketSize; i++ {
 			pkt[i] = 0xFF
 		}
-		pkt[3] = 0x10 | m.nextCC(pid)
+		pkt[3] |= 0x10 | m.nextCC(pid)
 		out = append(out, pkt)
 	}
 	return out
@@ -130,7 +136,7 @@ func (m *Muxer) writeAdaptation(pkt []byte, pcr *uint64, randomAccess bool) int 
 func (m *Muxer) PCROnlyPacket(pid uint16, pcr uint64) []byte {
 	pkt := make([]byte, ts.PacketSize)
 	pkt[0] = 0x47
-	pkt[1] = byte(pid>>8) | 0x10
+	pkt[1] = byte(pid>>8) & 0x1F
 	pkt[2] = byte(pid)
 	pcrPtr := pcr
 	off := m.writeAdaptation(pkt, &pcrPtr, false)
