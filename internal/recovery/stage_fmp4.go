@@ -7,20 +7,19 @@ import (
 )
 
 func (e *exec) stageFMP4() error {
-	validatedInit := map[string]string{}
 	for _, seg := range e.segs {
-		initHash := ""
-		if seg.hls.InitURI != "" {
-			initPath := manifest.ResolveURI(e.hls.Path, seg.hls.InitURI)
-			initData, h, err := readAndHash(initPath)
-			if err != nil {
-				return err
-			}
-			if _, err := manifest.ValidateInit(initPath, initData); err != nil {
-				return err
-			}
-			initHash = h
-			validatedInit[seg.hls.InitURI] = h
+		if seg.hls.InitURI == "" {
+			return fault.New(fault.InitMissing, e.hls.Path, seg.hls.LineOffset,
+				"segment %d in period %d has no EXT-X-MAP after discontinuity",
+				seg.index, seg.hls.Period)
+		}
+		initPath := manifest.ResolveURI(e.hls.Path, seg.hls.InitURI)
+		initData, initHash, err := readAndHash(initPath)
+		if err != nil {
+			return err
+		}
+		if _, err := manifest.ValidateInit(initPath, initData); err != nil {
+			return err
 		}
 
 		fragment, err := manifest.ParseFragment(seg.path, seg.data)
