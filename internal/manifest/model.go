@@ -40,9 +40,10 @@ type Manifest struct {
 
 // CodecDescriptor identifies the container and codecs at a parsing boundary.
 type CodecDescriptor struct {
-	Container     string `json:"container"`
-	VideoCodec    string `json:"video_codec,omitempty"`
-	AudioCodec    string `json:"audio_codec,omitempty"`
-	AdapterVersion int   `json:"adapter_version"`
-	SpecVersion   string `json:"spec_version"`
+	Path           string `json:"path,omitempty"`
+	Container      string `json:"container"`
+	VideoCodec     string `json:"video_codec,omitempty"`
+	AudioCodec     string `json:"audio_codec,omitempty"`
+	AdapterVersion int    `json:"adapter_version"`
+	SpecVersion    string `json:"spec_version"`
 }
