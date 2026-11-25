@@ -40,6 +40,8 @@ type Queue[T any] struct {
 	pops   int64
 	// waiters counts blocked producers and consumers for diagnostics.
 	waiters int32
+	// waits counts how many times a producer had to block on the budget.
+	waits int64
 }
 
 // NewQueue returns a queue with the given byte budget. sizing must return a
@@ -94,6 +96,7 @@ func (q *Queue[T]) Push(ctx context.Context, item T) error {
 		if q.size+cost <= q.budget {
 			break
 		}
+		q.waits++
 		q.notFull.Wait()
 	}
 	q.items = append(q.items, item)
@@ -201,6 +204,7 @@ type Stats struct {
 	Pushes  int64
 	Pops    int64
 	Dropped int64
+	Waits   int64
 	Closed  bool
 }
 
@@ -216,6 +220,7 @@ func (q *Queue[T]) Stats() Stats {
 		Pushes:  q.pushes,
 		Pops:    q.pops,
 		Dropped: atomic.LoadInt64(&q.dropped),
+		Waits:   q.waits,
 		Closed:  q.closed,
 	}
 }

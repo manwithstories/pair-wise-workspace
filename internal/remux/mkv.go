@@ -356,16 +356,12 @@ type errSinkClosed struct{}
 
 func (errSinkClosed) Error() string { return "sink already closed" }
 
-// VerifySinkOutput re-demuxes a written Matroska/WebM file and compares every
-// payload with the source packet it came from. Because the writer copies bytes
-// verbatim, a mismatch means either the writer or the muxer corrupted media.
-// The key is (output track, DTS); both sides are sorted before comparison.
+// VerifySinkOutput compares a written file with the source packets it came
+// from. Matroska/WebM output is re-demuxed and matched per (output track, DTS);
+// fMP4 output is read back through Fragments. Because both writers copy bytes
+// verbatim, any mismatch means the writer corrupted media.
 func VerifySinkOutput(data []byte, source []media.Packet, plan *mapping.Plan) (VerifyResult, error) {
-	res := VerifyResult{}
-	written, err := demux.Demux(bytes.NewReader(data), demux.DefaultLimits())
-	if err != nil && len(written.Packets) == 0 {
-		return res, err
-	}
+	res := VerifyResult{SourcePackets: len(source)}
 	type key struct {
 		track uint64
 		dts   media.Timestamp
@@ -379,13 +375,40 @@ func VerifySinkOutput(data []byte, source []media.Packet, plan *mapping.Plan) (V
 		k := key{out, p.DTS}
 		want[k] = append(want[k], crc32.ChecksumIEEE(p.Data))
 	}
-	res.SourcePackets = len(source)
+	if plan.Target == mapping.TargetFMP4 {
+		samples, err := Fragments(data)
+		if err != nil {
+			return res, err
+		}
+		res.OutputPackets = len(samples)
+		for _, s := range samples {
+			k := key{uint64(s.TrackID), s.DTS}
+			list, ok := want[k]
+			if !ok || len(list) == 0 {
+				res.Mismatches++
+				continue
+			}
+			if crc32.ChecksumIEEE(s.Data) != list[0] {
+				res.Mismatches++
+				continue
+			}
+			want[k] = list[1:]
+			res.Matched++
+		}
+		for _, list := range want {
+			res.Mismatches += len(list)
+		}
+		return res, nil
+	}
+	written, err := demux.Demux(bytes.NewReader(data), demux.DefaultLimits())
+	if err != nil && len(written.Packets) == 0 {
+		return res, err
+	}
 	res.OutputPackets = len(written.Packets)
 	if checked, bad, verr := VerifyCRCs(data, true); verr == nil {
 		_ = checked
 		res.CRCErrors = bad
 	}
-	matched := 0
 	for _, p := range written.Packets {
 		k := key{p.Track, p.DTS}
 		list, ok := want[k]
@@ -393,16 +416,13 @@ func VerifySinkOutput(data []byte, source []media.Packet, plan *mapping.Plan) (V
 			res.Mismatches++
 			continue
 		}
-		got := crc32.ChecksumIEEE(p.Data)
-		if got != list[0] {
+		if crc32.ChecksumIEEE(p.Data) != list[0] {
 			res.Mismatches++
 			continue
 		}
 		want[k] = list[1:]
-		matched++
+		res.Matched++
 	}
-	res.Matched = matched
-	// Any source packet not consumed means the writer dropped data.
 	for _, list := range want {
 		res.Mismatches += len(list)
 	}

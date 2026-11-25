@@ -129,9 +129,16 @@ func (hw *hasherWriter) Write(p []byte) (int, error) {
 		hw.h.Write(p[:n])
 	}
 	if err != nil {
-		hw.err = err
+		// An I/O failure while writing output is recoverable: the caller can
+		// resume from the last checkpoint.
+		hw.err = media.NewError("remux.write", media.ClassInterrupted, err)
+		return n, hw.err
 	}
-	return n, err
+	if n != len(p) {
+		hw.err = media.NewError("remux.write", media.ClassInterrupted, io.ErrShortWrite)
+		return n, hw.err
+	}
+	return n, nil
 }
 
 func (hw *hasherWriter) Summary() Summary {

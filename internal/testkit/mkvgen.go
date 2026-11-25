@@ -163,8 +163,8 @@ func writeCluster(w *ebml.Writer, spec Spec, g clusterGroup) {
 	items := append([]SyncSample(nil), g.items...)
 	if spec.LateFrames > 0 {
 		sort.SliceStable(items, func(i, j int) bool {
-			ai := items[i].DTS - items[i].LateBy
-			aj := items[j].DTS - items[j].LateBy
+			ai := items[i].DTS + items[i].LateBy
+			aj := items[j].DTS + items[j].LateBy
 			if ai != aj {
 				return ai < aj
 			}
@@ -191,10 +191,14 @@ func writeCluster(w *ebml.Writer, spec Spec, g clusterGroup) {
 		blocks = append(blocks, block{first: cur.DTS, items: items[i : i+group]})
 		i += group
 	}
-	// Emit blocks in effective arrival order, stable on DTS then track.
+	// Emit blocks in effective arrival order. LateBy pulls a block earlier in
+	// the write stream while its DTS stays untouched, which is exactly the
+	// out-of-order pattern the watermark engine must retract.
 	sort.SliceStable(blocks, func(i, j int) bool {
-		if blocks[i].first != blocks[j].first {
-			return blocks[i].first < blocks[j].first
+		ai := blocks[i].first + blocks[i].items[0].LateBy
+		aj := blocks[j].first + blocks[j].items[0].LateBy
+		if ai != aj {
+			return ai < aj
 		}
 		return blocks[i].items[0].Track < blocks[j].items[0].Track
 	})

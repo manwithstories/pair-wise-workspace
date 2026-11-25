@@ -74,14 +74,28 @@ func TestDemuxLateFixturePreservesTimestamps(t *testing.T) {
 	}
 	// Even though frames are written out of order, each packet's DTS is the
 	// absolute time encoded in the block, so timestamps stay attached to the
-	// payload rather than the write position.
-	for i, p := range res.Packets {
-		src := late.Samples[i]
-		if p.Track != src.Track || p.DTS != src.DTS {
-			t.Fatalf("packet %d: track=%d dts=%d want track=%d dts=%d", i, p.Track, p.DTS, src.Track, src.DTS)
+	// payload rather than the write position. Compare as a multiset.
+	type key struct {
+		track uint64
+		dts   media.Timestamp
+	}
+	want := make(map[key]int, len(late.Samples))
+	for _, s := range late.Samples {
+		want[key{s.Track, s.DTS}]++
+	}
+	for _, p := range res.Packets {
+		k := key{p.Track, p.DTS}
+		if want[k] == 0 {
+			t.Fatalf("unexpected packet track=%d dts=%d", p.Track, p.DTS)
 		}
+		want[k]--
 		if p.CRC == 0 {
-			t.Fatalf("packet %d has zero CRC", i)
+			t.Fatalf("packet track=%d dts=%d has zero CRC", p.Track, p.DTS)
+		}
+	}
+	for k, n := range want {
+		if n != 0 {
+			t.Fatalf("missing %d packets for track=%d dts=%d", n, k.track, k.dts)
 		}
 	}
 }
