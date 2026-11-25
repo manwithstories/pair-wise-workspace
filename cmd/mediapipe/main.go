@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"time"
 
 	"mediapipe/internal/audit"
@@ -124,7 +125,30 @@ func runDemo(args []string) int {
 	for _, c := range cases {
 		printCase(c)
 	}
+	if verbose {
+		printSummary(cases, opts)
+	}
 	return exit
+}
+
+// printSummary folds the per-case facts into the delivery-level totals a
+// sign-off sheet needs.
+func printSummary(cases []demoCase, opts jobOptions) {
+	var committed int
+	var mismatch, crc int
+	var peak int64
+	for _, c := range cases {
+		if c.Manifest.Committed {
+			committed++
+		}
+		mismatch += c.Mismatch
+		crc += c.CRCErrors
+		if c.BufferPeak > peak {
+			peak = c.BufferPeak
+		}
+	}
+	fmt.Fprintf(stdout, "summary cases=%d committed=%d payload_hash_mismatch=%d crc_errors=%d buffer_peak_bytes=%d budget_bytes=%d target=%s seed=%d\n",
+		len(cases), committed, mismatch, crc, peak, opts.Budget, opts.Target, opts.Seed)
 }
 
 func printCase(c demoCase) {
@@ -327,6 +351,15 @@ func summarizeCase(name string, opts jobOptions, res *processResult) demoCase {
 		c.Note = err.Error()
 	}
 	c.Manifest = b.Manifest()
+	// Persist a manifest per case when a workdir is available, so a delivery
+	// lead can inspect the recorded tracks, mapping, and timeline.
+	if opts.WorkDir != "" {
+		path := filepath.Join(opts.WorkDir, "manifests", name+".json")
+		if err := b.WriteFile(path); err != nil && c.ExitCode == 0 {
+			c.ExitCode = media.ExitCode(err)
+			c.Note = err.Error()
+		}
+	}
 	return c
 }
 

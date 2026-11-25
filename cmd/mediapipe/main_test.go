@@ -2,12 +2,15 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
+
+	"mediapipe/internal/audit"
 )
 
 // runDemoCapture executes the demo with stdout captured.
@@ -265,10 +268,45 @@ func TestManifestWrittenWhenWorkdirGiven(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit=%d\n%s", code, out)
 	}
-	// The resume case creates the checkpoint dir; it is cleaned by the case.
-	// A manifest is only persisted in the pipeline helper, so verify the
-	// directory is still usable.
-	if _, err := os.Stat(filepath.Join(dir, "resume")); err != nil {
-		t.Fatalf("resume workdir missing: %v", err)
+	path := filepath.Join(dir, "manifests", "success.json")
+	m, err := readManifest(path)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
 	}
+	if m.JobID == "" || m.Target != "matroska" {
+		t.Fatalf("manifest missing identity: %+v", m)
+	}
+	if len(m.Tracks) != 3 {
+		t.Fatalf("manifest tracks=%d", len(m.Tracks))
+	}
+	if m.OutputDigest == "" || m.ReplayDigest == "" {
+		t.Fatal("manifest missing digests")
+	}
+	// The late case must also write a manifest with recomputed windows.
+	lm, err := readManifest(filepath.Join(dir, "manifests", "late.json"))
+	if err != nil {
+		t.Fatalf("read late manifest: %v", err)
+	}
+	recomputed := 0
+	for _, w := range lm.Windows {
+		if w.Recomputed {
+			recomputed++
+		}
+	}
+	if recomputed == 0 {
+		t.Fatal("late manifest has no recomputed windows")
+	}
+}
+
+// readManifest loads a manifest written by the demo.
+func readManifest(path string) (audit.Manifest, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return audit.Manifest{}, err
+	}
+	var m audit.Manifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		return audit.Manifest{}, err
+	}
+	return m, nil
 }
