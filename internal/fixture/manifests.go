@@ -17,7 +17,7 @@ func writeDASH() string {
 		fmt.Fprintf(&reps, `
       <Representation id="%s" codecs="%s" bandwidth="%d" width="%d" height="%d">
         <SegmentTemplate timescale="44100" startNumber="1"
-          initialization="init-0.mp4" media="segments/seg-$Number%02d$.m4s">
+          initialization="init-0.mp4" media="segments/seg-$Number%%02d$.m4s">
           <SegmentTimeline><S t="0" d="23520" r="8"/></SegmentTimeline>
         </SegmentTemplate>
       </Representation>`, r.id, r.codecs, r.bw, r.w, r.h)
@@ -30,7 +30,7 @@ func writeDASH() string {
     <AdaptationSet contentType="audio" mimeType="audio/mp4">
       <Representation id="audio6" codecs="ipcm" bandwidth="1500000">
         <SegmentTemplate timescale="44100" startNumber="1"
-          initialization="init-0.mp4" media="segments/seg-$Number%02d$.m4s">
+          initialization="init-0.mp4" media="segments/seg-$Number%%02d$.m4s">
           <SegmentTimeline><S t="0" d="23520" r="8"/></SegmentTimeline>
         </SegmentTemplate>
       </Representation>
