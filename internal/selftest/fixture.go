@@ -43,7 +43,7 @@ func Generate(opts Options) (*Fixtures, error) {
 	stereo48 := filepath.Join(srcDir, "stereo48.mp4")
 	if err := renderClip(renderSpec{
 		out: stereo48, dur: 4, size: "320x240", fps: 25,
-		channels: 2, rate: 48000,
+		channels: 2, rate: 48000, silenceAt: 3,
 		color: colorFlags("bt709", "bt709", "bt709"),
 	}); err != nil {
 		return nil, err
@@ -110,15 +110,16 @@ func Generate(opts Options) (*Fixtures, error) {
 }
 
 type renderSpec struct {
-	out      string
-	dur      int
-	size     string
-	fps      int
-	channels int
-	rate     int
-	format   string
-	noAudio  bool
-	color    []string
+	out       string
+	dur       int
+	size      string
+	fps       int
+	channels  int
+	rate      int
+	format    string
+	noAudio   bool
+	silenceAt int // when >0, audio switches to silence from this second
+	color     []string
 }
 
 func renderClip(s renderSpec) error {
@@ -128,9 +129,22 @@ func renderClip(s renderSpec) error {
 		fmt.Sprintf("color=c=black:size=%s:rate=%d:duration=%d", s.size, s.fps, s.dur),
 	}
 	if !s.noAudio {
-		args = append(args, "-f", "lavfi", "-i",
-			fmt.Sprintf("sine=frequency=440:duration=%d", s.dur))
-		args = append(args, "-map", "0:v", "-map", "1:a")
+		if s.silenceAt > 0 && s.silenceAt < s.dur {
+			// Tone for the first part, then digital silence to the end so the
+			// end-to-end silence detector has a real range to find.
+			args = append(args,
+				"-f", "lavfi", "-i",
+				fmt.Sprintf("sine=frequency=440:duration=%d", s.silenceAt),
+				"-f", "lavfi", "-i",
+				fmt.Sprintf("anullsrc=r=%d:cl=stereo:duration=%d", s.rate, s.dur-s.silenceAt),
+				"-filter_complex",
+				fmt.Sprintf("[1:a][2:a]concat=n=2:v=0:a=1[aout]"),
+				"-map", "0:v", "-map", "[aout]")
+		} else {
+			args = append(args, "-f", "lavfi", "-i",
+				fmt.Sprintf("sine=frequency=440:duration=%d", s.dur))
+			args = append(args, "-map", "0:v", "-map", "1:a")
+		}
 	} else {
 		args = append(args, "-map", "0:v")
 	}
