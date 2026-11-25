@@ -155,6 +155,22 @@ func TestCorruptMDATStopsAtNALLength(t *testing.T) {
 	}
 }
 
+func TestTruncatedFirstBoxStopsAtOffsetZero(t *testing.T) {
+	b := generate(t, fixture.DamageTruncatedBox)
+	data, err := os.ReadFile(b.Segments[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = manifest.ScanAllBoxes(b.Segments[0], data)
+	f, ok := fault.As(err)
+	if !ok || f.Code != fault.BoxTruncated {
+		t.Fatalf("err=%v want E_BOX_TRUNCATED", err)
+	}
+	if f.BoxOffset != 0 || f.Offset != b.Damage.ErrorOffset {
+		t.Fatalf("offsets box=%d error=%d", f.BoxOffset, f.Offset)
+	}
+}
+
 func TestMissingDiscontinuityInitPropagatesToTimeline(t *testing.T) {
 	b := generate(t, fixture.DamageMissingInit)
 	data, err := os.ReadFile(b.HLSPath)
