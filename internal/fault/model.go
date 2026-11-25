@@ -145,14 +145,15 @@ type Conflict struct {
 
 // LateImpact 记录跨水位迟到包影响的回放和帧范围。
 type LateImpact struct {
-	Track            string `json:"track"`
-	ExtSeq           uint64 `json:"ext_seq"`
-	EventEndTicks    int64  `json:"event_end_ticks"`
-	WatermarkTicks   int64  `json:"watermark_ticks"`
-	CheckpointCursor int    `json:"checkpoint_cursor"`
-	ReplayedFrom     int    `json:"replayed_from"`
-	ReplayedTo       int    `json:"replayed_to"`
-	AffectedFrames   []int  `json:"affected_frames"`
+	Track            string    `json:"track"`
+	ExtSeq           uint64    `json:"ext_seq"`
+	EventEndTicks    int64     `json:"event_end_ticks"`
+	WatermarkTicks   int64     `json:"watermark_ticks"`
+	CheckpointCursor int       `json:"checkpoint_cursor"`
+	ReplayedFrom     int       `json:"replayed_from"`
+	ReplayedTo       int       `json:"replayed_to"`
+	AffectedFrames   []int     `json:"affected_frames"`
+	Location         *Location `json:"location,omitempty"`
 }
 
 // Report 是 archive/report.json 的内存模型。
