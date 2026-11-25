@@ -71,3 +71,9 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Go build and test artifacts ----
+/mediad
+*.test
+*.out
+coverage.txt
