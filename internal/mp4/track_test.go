@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	goMp4 "github.com/abema/go-mp4"
+
 	"medpipe/internal/clock"
 )
 
@@ -160,6 +162,38 @@ func TestParseTruncatedBox(t *testing.T) {
 	}
 	if pe.Offset < 0 {
 		t.Fatalf("corruption offset missing: %v", pe)
+	}
+}
+
+func TestBackwardTimestampReportsContext(t *testing.T) {
+	// Build a track whose second sample has TimeDelta=0, i.e. a
+	// non-monotonic decode timestamp. buildTimeline must surface track id,
+	// the offending tick and the byte offset together.
+	tr := &goMp4.Track{
+		TrackID: 7, Timescale: 48000, Duration: 1024, Codec: goMp4.CodecMP4A,
+		MP4A: &goMp4.MP4AInfo{ChannelCount: 2},
+		Chunks: []*goMp4.Chunk{
+			{DataOffset: 4096, SamplesPerChunk: 2},
+		},
+		Samples: goMp4.Samples{
+			{Size: 100, TimeDelta: 1024},
+			{Size: 100, TimeDelta: 0}, // zero/backward DTS
+		},
+	}
+	out := &Track{ID: tr.TrackID, Timescale: tr.Timescale}
+	err := buildTimeline(out, tr, DefaultLimits)
+	var pe *clock.Error
+	if !errors.As(err, &pe) || pe.Kind != clock.KindCorrupt {
+		t.Fatalf("want corrupt error, got %v", err)
+	}
+	if pe.TrackID != 7 {
+		t.Fatalf("track id not reported: %+v", pe)
+	}
+	if pe.Timestamp == nil {
+		t.Fatalf("timestamp not reported: %+v", pe)
+	}
+	if pe.Offset != 4196 { // 4096 + first sample 100 bytes
+		t.Fatalf("byte offset = %d, want 4196", pe.Offset)
 	}
 }
 
