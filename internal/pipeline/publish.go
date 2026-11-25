@@ -27,9 +27,9 @@ func Publish(dir string, specs []fixture.RenditionSpec, b *Built, cp *resume.Che
 		}
 		if replayed {
 			rep.Replayed++
-		} else {
-			rep.Committed++
+			return nil
 		}
+		rep.Committed++
 		return cp.Save(checkpointPath)
 	}
 
