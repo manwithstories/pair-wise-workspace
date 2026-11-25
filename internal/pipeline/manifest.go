@@ -27,6 +27,8 @@ type Manifest struct {
 	Codec            string            `json:"codec"`
 	Seed             int64             `json:"seed"`
 	TargetBPS        int               `json:"target_bps"`
+	ActualBPS        int64             `json:"actual_bps"`
+	DeltaPct         float64           `json:"delta_pct"`
 	DriftPPM         int               `json:"drift_ppm"`
 	TimescaleNS      uint32            `json:"timescale_ns"`
 	InitFile         string            `json:"init_file"`
@@ -42,6 +44,9 @@ type Manifest struct {
 	DupSavedBytes    int64             `json:"dup_saved_bytes"`
 	AlignMaxAbsNS    int64             `json:"align_max_abs_ns"`
 	AlignMaxMS       float64           `json:"align_max_ms"`
+	RTPDuplicates    int64             `json:"rtp_duplicates"`
+	PausedReads      int64             `json:"paused_reads"`
+	FirstErrorByte   int64             `json:"first_error_byte"`
 }
 
 // Save writes the manifest atomically and returns its file hash.
