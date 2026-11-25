@@ -80,3 +80,23 @@ func TestDemoVerifyExit0AndTamperExit4(t *testing.T) {
 		t.Fatalf("tampered verify code=%d want 4", code)
 	}
 }
+
+func TestVerifyStructuralInputDamageExit3(t *testing.T) {
+	root := t.TempDir()
+	if code := run([]string{"demo", "--root", root, "--segments", "12"}); code != 0 {
+		t.Fatalf("demo code=%d want 0", code)
+	}
+	// Replace an indexed INPUT fragment with a truncated-trun variant.
+	src := filepath.Join(root, "damaged", "in", "video", "seg_004.m4s")
+	good, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad := scan.TruncateInsideTrun(good, 6)
+	if err := os.WriteFile(src, bad, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code := run([]string{"verify", "--root", root, "--repeat", "1"}); code != 3 {
+		t.Fatalf("structural input verify code=%d want 3", code)
+	}
+}
