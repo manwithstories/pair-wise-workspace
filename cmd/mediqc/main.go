@@ -25,6 +25,8 @@ func run(args []string) int {
 		return runBatch(args[1:])
 	case "verify":
 		return runVerify(args[1:])
+	case "inspect":
+		return runInspect(args[1:])
 	case "-h", "--help", "help":
 		printUsage(os.Stdout)
 		return 0
@@ -135,4 +137,5 @@ func printUsage(w *os.File) {
 	fmt.Fprintln(w, "usage:")
 	fmt.Fprintln(w, "  mediqc run --seed N --suite all --out DIR")
 	fmt.Fprintln(w, "  mediqc verify --dir DIR")
+	fmt.Fprintln(w, "  mediqc inspect --input FILE.ts")
 }
