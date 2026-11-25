@@ -21,12 +21,14 @@ var StageOrder = []string{
 
 // Params are the user-controlled transformation parameters.
 type Params struct {
-	Seed      int64   `json:"seed"`
-	Rate      int     `json:"rate"`
-	Layout    string  `json:"layout"`
-	LUFS      float64 `json:"lufs"`
-	Damage    string  `json:"damage,omitempty"`
-	Interrupt string  `json:"interrupt_after,omitempty"`
+	Seed           int64   `json:"seed"`
+	Rate           int     `json:"rate"`
+	Layout         string  `json:"layout"`
+	LUFS           float64 `json:"lufs"`
+	SourceRate     int     `json:"source_rate"`
+	SourceChannels int     `json:"source_channels"`
+	Damage         string  `json:"damage,omitempty"`
+	Interrupt      string  `json:"-"`
 }
 
 // SegmentState is the resume point for one source fragment.
@@ -49,6 +51,7 @@ type Checkpoint struct {
 	Params         Params                   `json:"params"`
 	Stages         map[string]bool          `json:"stages"`
 	Segments       map[string]*SegmentState `json:"segments"`
+	Artifacts      map[string]string        `json:"artifacts,omitempty"`
 	InterruptedAt  string                   `json:"interrupted_at,omitempty"`
 }
 
@@ -87,6 +90,7 @@ func NewCheckpoint(inputHashes []string, p Params, adapterVersion string) (*Chec
 		Version: CheckpointVersion, Key: key, ConfigHash: cfg, InputRootHash: root,
 		AdapterVersion: adapterVersion, Params: p,
 		Stages: map[string]bool{}, Segments: map[string]*SegmentState{},
+		Artifacts: map[string]string{},
 	}, nil
 }
 
