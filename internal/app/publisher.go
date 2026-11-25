@@ -28,6 +28,10 @@ type publisher struct {
 
 func newPublisher(out string) (*publisher, error) {
 	segDir := filepath.Join(out, "segments")
+	// Remove stale artifacts from a previous run of a different fault profile.
+	if err := os.RemoveAll(segDir); err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(segDir, 0o755); err != nil {
 		return nil, err
 	}
