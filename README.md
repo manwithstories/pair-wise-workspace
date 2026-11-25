@@ -19,7 +19,8 @@ go run ./cmd/mediaproc demo \
   --queue 4 \
   --slow-consumer 20ms
 # roundtrip=100.00% keyframe_hit=100.00% segments=6 hash_ok=6/6 \
-# silence=2 dedup=1 peak_queue=4 peak_memory=14238 peak_memory<=8388608
+# silence=2 dedup=1 peak_queue=4 peak_memory<=8388608
+# Peak bytes are recorded as peak_memory in out/report.json.
 
 go run ./cmd/mediaproc demo \
   --seed 41 \

@@ -40,12 +40,13 @@ type Report struct {
 	ExitCode         int     `json:"exit_code"`
 }
 
-// NormalSummary returns the required happy-path terminal line.
+// NormalSummary returns the required happy-path terminal line. Peak bytes are
+// available in report.json; stdout keeps the acceptance field order exact.
 func (r Report) NormalSummary() string {
 	return fmt.Sprintf(
-		"roundtrip=%s keyframe_hit=%s segments=%d hash_ok=%d/%d silence=%d dedup=%d peak_queue=%d peak_memory=%d peak_memory<=%d",
+		"roundtrip=%s keyframe_hit=%s segments=%d hash_ok=%d/%d silence=%d dedup=%d peak_queue=%d peak_memory<=%d",
 		r.RoundtripPercent, r.KeyframePercent, r.Segments, r.HashOK, r.HashTotal,
-		r.Silence, r.Dedup, r.PeakQueue, r.PeakMemory, r.MemoryLimit,
+		r.Silence, r.Dedup, r.PeakQueue, r.MemoryLimit,
 	)
 }
 
