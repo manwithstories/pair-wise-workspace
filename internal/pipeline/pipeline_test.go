@@ -56,4 +56,14 @@ func TestGeneratedFaultSampleCrossModule(t *testing.T) {
 	if len(rep.Cut.Segments[1].Silence) == 0 {
 		t.Fatal("expected silence interval in PSI-v2 audio clip")
 	}
+	for i := 1; i < 4; i++ {
+		if rep.Cut.Segments[i].AudioFrames != 1 || len(rep.Cut.Segments[i].Silence) != 1 {
+			t.Fatalf("segment %d audio frames=%d silence=%+v pcm=%d",
+				i, rep.Cut.Segments[i].AudioFrames, rep.Cut.Segments[i].Silence, len(rep.Cut.Segments[i].AudioPCM))
+		}
+	}
+	if rep.Cut.Segments[0].ClipSHA256 != rep.Cut.Segments[3].ClipSHA256 {
+		t.Fatalf("duplicate bodies hashes differ: %s vs %s",
+			rep.Cut.Segments[0].ClipSHA256, rep.Cut.Segments[3].ClipSHA256)
+	}
 }

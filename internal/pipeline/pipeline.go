@@ -80,7 +80,6 @@ func Run(ctx context.Context, r io.Reader, opts Options) (*Report, error) {
 	clock := &timeline.Clock{}
 	dmx := demux.NewDemuxer()
 	ccTracker := transport.NewCCTracker()
-	ptsClocks := make(map[uint16]*timeline.Clock)
 	prevVideoPTS := time.Duration(0)
 	lastPCRTime := time.Duration(0)
 
@@ -124,12 +123,8 @@ func Run(ctx context.Context, r io.Reader, opts Options) (*Report, error) {
 				return err
 			}
 			if frame != nil {
-				pc := ptsClocks[frame.PID]
-				if pc == nil {
-					pc = &timeline.Clock{}
-					ptsClocks[frame.PID] = pc
-				}
-				pts, ticks, err := pc.FeedPTSRelative(frame.PTSTicks)
+				// All elementary tracks share the program PTS origin/extension.
+				pts, ticks, err := clock.FeedPTSRelative(frame.PTSTicks)
 				if err != nil {
 					return err
 				}
@@ -161,9 +156,7 @@ func Run(ctx context.Context, r io.Reader, opts Options) (*Report, error) {
 	rep.QueueHighWater = q.HighWater()
 	rep.Gaps = ccTracker.Gaps()
 	rep.PCRWraps = clock.WrapCount()
-	for _, pc := range ptsClocks {
-		rep.PTSWraps += pc.PTSWrapCount
-	}
+	rep.PTSWraps = clock.PTSWrapCount
 	rep.BadCRC = reg.BadCRC
 	rep.PSIVersion = reg.PMTVersion(0x1000)
 	rep.ClockGaps = append([]timeline.Interval(nil), clock.Gaps...)

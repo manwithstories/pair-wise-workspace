@@ -59,11 +59,13 @@ func Generate(cfg Config) (*Sample, error) {
 
 	bodies := make([][]byte, Clips)
 	for i := range Clips {
-		body := make([]byte, 64)
 		if i == Clips-1 {
 			// Reuse clip one's exact elementary body to create provenance duplicate.
-			body = append(body, bodies[0]...)
-		} else if _, err := rng.Read(body); err != nil {
+			bodies[i] = append([]byte(nil), bodies[0]...)
+			continue
+		}
+		body := make([]byte, 64)
+		if _, err := rng.Read(body); err != nil {
 			return nil, err
 		}
 		bodies[i] = body
@@ -93,6 +95,18 @@ func Generate(cfg Config) (*Sample, error) {
 			}
 		}
 
+		// Audio shares the clip's first PTS. Write it before later video frames
+		// so assembly order is non-decreasing on the shared program PTS clock.
+		// With PSI update, audio becomes known at clip 1; without it PMT v1
+		// already advertised PCM and all clips carry audio.
+		if !psiUpdate || clip >= 1 {
+			pcm := generatePCM()
+			audioMedia := demux.BuildMediaFrame(100+uint32(clip), false, pcm)
+			if err := b.AppendPES(AudioPID, 0xc0, rawTicks(clipBase), audioMedia, nil); err != nil {
+				return nil, err
+			}
+		}
+
 		for frame := range FramesPerClip {
 			mediaTick := clipBase + uint64(frame)*FrameTick
 			seq := uint32(clip*FramesPerClip + frame + 1)
@@ -101,24 +115,12 @@ func Generate(cfg Config) (*Sample, error) {
 			pts := rawTicks(mediaTick)
 			pcr := rawTicks(mediaTick)
 
-			var err error
 			if clip == 1 && frame == 0 && faults["cc-gap"] {
 				// Four prior video packets used CC 0..3 and the builder's next
 				// CC is 4. Skip to 5 so the reader reports missing CC 4.
 				b.cc[VideoPID] = 5
 			}
-			err = b.AppendPES(VideoPID, 0xe0, pts, media, &pcr)
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		// With PSI update, audio becomes known at clip 1. Without it, PMT v1
-		// already advertised PCM and all clips carry audio.
-		if !psiUpdate || clip >= 1 {
-			pcm := generatePCM()
-			audioMedia := demux.BuildMediaFrame(100+uint32(clip), false, pcm)
-			if err := b.AppendPES(AudioPID, 0xc0, rawTicks(clipBase), audioMedia, nil); err != nil {
+			if err := b.AppendPES(VideoPID, 0xe0, pts, media, &pcr); err != nil {
 				return nil, err
 			}
 		}
