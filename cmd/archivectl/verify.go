@@ -68,6 +68,9 @@ func printFidelity(r container.FidelityReport, maxMS float64, manifestPath strin
 	fmt.Printf("timestamp_mismatch=%d\n", r.TimestampMismatch)
 	fmt.Printf("missing_tracks=%d\n", r.MissingTracks)
 	fmt.Printf("samples=%d\n", r.SampleCount)
+	fmt.Printf("source_payload_bytes=%d\n", r.SourcePayloadBytes)
+	fmt.Printf("output_payload_bytes=%d\n", r.OutputPayloadBytes)
+	fmt.Printf("byte_count_mismatch=%d\n", r.ByteCountMismatch)
 	fmt.Printf("payload_bytes=%d\n", r.PayloadBytes)
 	fmt.Printf("manifest_max_error_ms=%.6f\n", maxMS)
 	if manifestHash != "" {

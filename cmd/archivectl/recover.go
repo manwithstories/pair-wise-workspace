@@ -116,6 +116,7 @@ func executeRecover(opts recoverOptions) (recoverMetrics, manifest.Journal, erro
 	}
 	fidelity, err := container.VerifyAssets(asset, outAsset)
 	m.payloadMismatch = fidelity.PayloadHashMismatch
+	m.byteCountMismatch = fidelity.ByteCountMismatch
 	m.timestampMismatch = fidelity.TimestampMismatch
 	m.sampleCount = fidelity.SampleCount
 	m.payloadBytes = fidelity.PayloadBytes

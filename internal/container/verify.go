@@ -11,6 +11,9 @@ type FidelityReport struct {
 	TrackCount          int
 	SampleCount         int
 	PayloadBytes        int64
+	SourcePayloadBytes  int64
+	OutputPayloadBytes  int64
+	ByteCountMismatch   int
 	PayloadHashMismatch int
 	TimestampMismatch   int
 	MissingTracks       int
@@ -27,7 +30,16 @@ func VerifyAssets(source, output *Asset) (FidelityReport, error) {
 		ot, ok := output.TrackByID(st.ID)
 		if !ok {
 			r.MissingTracks++
+			for _, a := range st.Samples {
+				r.SourcePayloadBytes += int64(a.Size)
+			}
 			continue
+		}
+		for _, a := range st.Samples {
+			r.SourcePayloadBytes += int64(a.Size)
+		}
+		for _, b := range ot.Samples {
+			r.OutputPayloadBytes += int64(b.Size)
 		}
 		if len(ot.Samples) != len(st.Samples) {
 			r.PayloadHashMismatch += absInt(len(ot.Samples) - len(st.Samples))
@@ -54,10 +66,14 @@ func VerifyAssets(source, output *Asset) (FidelityReport, error) {
 			}
 		}
 	}
-	if r.MissingTracks > 0 || r.PayloadHashMismatch > 0 || r.TimestampMismatch > 0 {
+	r.PayloadBytes = r.SourcePayloadBytes
+	if r.SourcePayloadBytes != r.OutputPayloadBytes {
+		r.ByteCountMismatch = 1
+	}
+	if r.MissingTracks > 0 || r.ByteCountMismatch > 0 || r.PayloadHashMismatch > 0 || r.TimestampMismatch > 0 {
 		return r, &timeline.Error{Code: timeline.CodeIntegrity, Op: "verify remux", Offset: -1,
-			Detail: fmt.Sprintf("missing_tracks=%d payload_hash_mismatch=%d timestamp_mismatch=%d",
-				r.MissingTracks, r.PayloadHashMismatch, r.TimestampMismatch)}
+			Detail: fmt.Sprintf("missing_tracks=%d byte_count_mismatch=%d payload_hash_mismatch=%d timestamp_mismatch=%d",
+				r.MissingTracks, r.ByteCountMismatch, r.PayloadHashMismatch, r.TimestampMismatch)}
 	}
 	return r, nil
 }

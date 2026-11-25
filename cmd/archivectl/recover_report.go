@@ -19,6 +19,7 @@ type recoverMetrics struct {
 	gaps               int
 	gapRanges          int
 	payloadMismatch    int
+	byteCountMismatch  int
 	timestampMismatch  int
 	manifestMaxErrorMS float64
 	outputHash         string
@@ -42,6 +43,7 @@ func printRecoverMetrics(m recoverMetrics, j manifest.Journal) {
 	fmt.Printf("gaps=%d\n", m.gaps)
 	fmt.Printf("gap_ranges=%d\n", m.gapRanges)
 	fmt.Printf("fabricated=0\n")
+	fmt.Printf("byte_count_mismatch=%d\n", m.byteCountMismatch)
 	fmt.Printf("payload_hash_mismatch=%d\n", m.payloadMismatch)
 	fmt.Printf("timestamp_mismatch=%d\n", m.timestampMismatch)
 	fmt.Printf("manifest_max_error_ms=%.6f\n", m.manifestMaxErrorMS)
