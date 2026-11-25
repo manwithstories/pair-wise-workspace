@@ -57,4 +57,9 @@ go run ./cmd/mediaproc demo \
   --recover \
   --queue 4 >/dev/null
 
+echo "== full queue cancellation =="
+QUEUE_CANCEL="$(go run ./cmd/mediaproc demo --fault queue-cancel --queue 4)"
+echo "$QUEUE_CANCEL"
+grep -Eq "queue_cancel=1 first_error_offset=[0-9]+ cleaned=4 peak_queue=4" <<<"$QUEUE_CANCEL"
+
 echo "acceptance: ok"
