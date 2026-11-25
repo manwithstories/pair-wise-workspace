@@ -39,6 +39,16 @@ func main() {
 		Recover:      *recoverFault,
 		CancelAfter:  *cancelAfter,
 	}
+	if *fault == "queue-cancel" {
+		report, err := app.RunQueueCancelDemo(opts)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "mediaproc: %v\n", err)
+			os.Exit(model.ExitCode(err))
+		}
+		fmt.Println(report.CancelSummary())
+		os.Exit(0)
+	}
+
 	report, err := app.RunDemo(opts)
 	if err != nil {
 		if report != nil && report.Recoveries > 0 {
