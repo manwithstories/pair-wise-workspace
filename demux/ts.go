@@ -34,6 +34,9 @@ func ParseTS(segmentID, source string, data []byte) (*core.Segment, error) {
 			"truncated TS packet: %d trailing bytes", rem)
 	}
 	asms := map[uint16]*pesAssembly{}
+	pmtPIDs := map[uint16]bool{}
+	psiTracks := map[uint16]core.Track{}
+	pidKinds := map[uint16]core.TrackKind{}
 	var samples []core.Sample
 	packetCount := len(data) / TSPacketSize
 
@@ -82,12 +85,32 @@ func ParseTS(segmentID, source string, data []byte) (*core.Segment, error) {
 			continue // adaptation only
 		}
 		payload := pkt[payloadStart:]
+		if pid == 0x0000 {
+			if pusi {
+				for _, p := range parsePAT(payload) {
+					pmtPIDs[p] = true
+				}
+			}
+			continue
+		}
+		if pmtPIDs[pid] {
+			if pusi {
+				for id, tr := range parsePMT(payload) {
+					psiTracks[id] = tr
+					pidKinds[id] = tr.Kind
+				}
+			}
+			continue
+		}
 
 		if pusi {
 			if a.buf.Len() > 0 {
 				sm, err := parsePES(segmentID, source, int64(base), a.pid, a.buf.Bytes())
 				if err != nil {
 					return nil, err
+				}
+				if pidKinds[a.pid] == "" {
+					pidKinds[a.pid] = pesStreamKind(a.buf.Bytes())
 				}
 				samples = append(samples, sm)
 			}
@@ -105,15 +128,15 @@ func ParseTS(segmentID, source string, data []byte) (*core.Segment, error) {
 		if err != nil {
 			return nil, err
 		}
+		if pidKinds[pid] == "" {
+			pidKinds[pid] = pesStreamKind(a.buf.Bytes())
+		}
 		samples = append(samples, sm)
 	}
 	if len(samples) == 0 {
 		return nil, core.UnrecoverableError(core.StageDemux, source, segmentID, 0, "TS contains no PES access units")
 	}
-	tracks := []core.Track{
-		{ID: tsPIDVideo, Kind: core.TrackVideo, Codec: "avc1", Timescale: 90000},
-		{ID: tsPIDAudio, Kind: core.TrackAudio, Codec: "mp4a", Timescale: 90000, Channels: 2},
-	}
+	tracks := tsTracks(pidKinds, psiTracks)
 	if err := finalizeSamples(segmentID, source, tracks, samples); err != nil {
 		return nil, err
 	}
@@ -166,7 +189,8 @@ func parsePES(segmentID, source string, offset int64, pid uint16, b []byte) (cor
 	}
 	payload := append([]byte(nil), b[9+hdrLen:]...)
 	var trackID uint32 = uint32(pid)
-	sf := flagsFromEssence(trackID, payload)
+	isVideo := streamID >= 0xe0 && streamID <= 0xef
+	sf := flagsFromEssence(isVideo, payload)
 	return core.Sample{TrackID: trackID, PTS: pts, DTS: dts, Flags: sf, Data: payload, DataOffset: offset}, nil
 }
 
@@ -182,8 +206,8 @@ func decodePTS(b []byte) (core.Ticks, error) {
 	return core.Ticks(v), nil
 }
 
-func flagsFromEssence(trackID uint32, payload []byte) uint32 {
-	if trackID != tsPIDVideo {
+func flagsFromEssence(isVideo bool, payload []byte) uint32 {
+	if !isVideo {
 		return core.FlagSync
 	}
 	nal := firstNALType(payload)
