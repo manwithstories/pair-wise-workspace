@@ -1,8 +1,6 @@
 package clock
 
 import (
-	"fmt"
-
 	"mediad/internal/fault"
 )
 
@@ -143,16 +141,4 @@ func (tl *Timeline) Ranges() []TimeRange {
 		})
 	}
 	return out
-}
-
-// CheckOverflowMul is a test/helper proving extreme time bases are rejected.
-func CheckOverflowMul(a, b Rational) error {
-	_, err := Mul(a, b)
-	if err != nil {
-		return err
-	}
-	if a.N > (1<<62) || b.N > (1<<62) {
-		return fault.New(fault.TimestampOverflow, "", -1, fmt.Sprintf("product %s*%s too large", a, b))
-	}
-	return nil
 }
