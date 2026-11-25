@@ -22,7 +22,7 @@ const (
 
 // buildSamples 依据 tfdt 基准时间与 trun 条目还原每个样本的时间、大小与关键帧标志，
 // 并校验样本声明总长度是否落在 mdat 负载范围内。
-func buildSamples(rep *model.FragmentReport, seq int, md *moofData, timeScale uint32, mdat *boxInfo) {
+func buildSamples(rep *model.FragmentReport, seq int, md *moofData, timeScale uint32, moofOff int64, mdat *boxInfo) {
 	sampleIdx := 0
 	curTicks := int64(md.baseDecodeTime)
 	var mdatPayloadLen int64
@@ -38,7 +38,8 @@ func buildSamples(rep *model.FragmentReport, seq int, md *moofData, timeScale ui
 		flags := trun.GetFlags()
 		var runCursor int64 // 相对 mdat 负载起点的样本写入位置
 		if flags&trunDataOffset != 0 {
-			runCursor = int64(trun.DataOffset)
+			// trun.DataOffset 相对 moof 起点，换算为相对 mdat 负载起点。
+			runCursor = moofOff + int64(trun.DataOffset) - mdatPayloadOff
 		}
 		for i := uint32(0); i < trun.SampleCount; i++ {
 			e := trun.Entries[i]

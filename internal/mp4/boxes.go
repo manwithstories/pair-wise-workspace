@@ -96,13 +96,14 @@ func (l *limitedReader) readBoxBytes(b boxInfo) ([]byte, error) {
 }
 
 // parseMoof 用 go-mp4 解析 moof 负载，抽取 tfdt/tfhd/trun。
+// go-mp4 不会自动下钻，容器盒（moof/traf）须显式 Expand 才会回调子盒。
 func parseMoof(raw []byte) (*moofData, error) {
 	r := bytes.NewReader(raw)
 	var md moofData
 	handler := func(h *gomp4.ReadHandle) (interface{}, error) {
-		payload, _, err := h.ReadPayload()
-		if err != nil {
-			return nil, err
+		payload, _, perr := h.ReadPayload()
+		if perr != nil {
+			return nil, perr
 		}
 		switch b := payload.(type) {
 		case *gomp4.Tfdt:
@@ -123,6 +124,12 @@ func parseMoof(raw []byte) (*moofData, error) {
 			}
 		case *gomp4.Trun:
 			md.truns = append(md.truns, *b)
+		}
+		switch string(h.BoxInfo.Type[:]) {
+		case "moof", "traf":
+			if _, err := h.Expand(); err != nil {
+				return nil, err
+			}
 		}
 		return nil, nil
 	}

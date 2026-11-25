@@ -51,6 +51,7 @@ func ParseFragment(path string, seq int, timeScale uint32, mem *model.MemTracker
 
 	lr := &limitedReader{r: f, base: 0, end: fileLen, pos: 0}
 	var moof *moofData
+	var moofOff int64
 	var mdatBox *boxInfo
 	off := int64(0)
 	for off < fileLen {
@@ -63,7 +64,10 @@ func ParseFragment(path string, seq int, timeScale uint32, mem *model.MemTracker
 				Kind: model.FaultBoxTruncated, Segment: seq, Offset: b.off,
 				Detail: err.Error(),
 			}, &rep.FirstBadOff)
-			return rep, nil // 顶层盒无法可靠定位后续边界，本分片到此为止
+			if moof != nil {
+				break // moof 完整：保留已解析样本，跳过损坏的尾部盒
+			}
+			return rep, nil
 		}
 		switch b.typ {
 		case "moof":
@@ -80,6 +84,7 @@ func ParseFragment(path string, seq int, timeScale uint32, mem *model.MemTracker
 				}, &rep.FirstBadOff)
 			} else {
 				moof = md
+				moofOff = b.off
 			}
 		case "mdat":
 			bc := b
@@ -102,7 +107,7 @@ func ParseFragment(path string, seq int, timeScale uint32, mem *model.MemTracker
 		}, &rep.FirstBadOff)
 		return rep, nil
 	}
-	buildSamples(&rep, seq, moof, timeScale, mdatBox)
+	buildSamples(&rep, seq, moof, timeScale, moofOff, mdatBox)
 	return rep, nil
 }
 
