@@ -8,11 +8,11 @@ import (
 
 // ParseResult is the output of a frame-container parse.
 type ParseResult struct {
-	Frames      []media.Frame
-	Index       []IndexEntry
-	Audio       []AudioHeader
+	Frames       []media.Frame
+	Index        []IndexEntry
+	Audio        []AudioHeader
 	UsedFallback bool
-	Errors      []*media.Error
+	Errors       []*media.Error
 }
 
 // AudioHeader is one aligned PCM block descriptor. When the parse succeeds

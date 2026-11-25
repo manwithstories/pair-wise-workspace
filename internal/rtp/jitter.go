@@ -49,9 +49,11 @@ func SimulateNetwork(pkts []*rtp.Packet, cfg NetworkConfig) []TimedPacket {
 			lost = true
 			burstLeft = cfg.Burst
 		}
-		jitter := uint64(0)
+		// Jitter draws only when enabled, so the loss RNG sequence stays
+		// independent of whether jitter simulation is turned on.
+		var jitter uint64
 		if cfg.JitterTicks > 0 {
-			jitter = uint64(rng.Int63n(int64(2*cfg.JitterTicks + 1)))
+			jitter = uint64(rng.Int63n(int64(cfg.JitterTicks + 1)))
 		}
 		out[i] = TimedPacket{
 			Packet:    p,
@@ -83,9 +85,11 @@ type JitterBuffer struct {
 	window90k uint64
 	buf       map[uint16]*rtp.Packet
 	nextSeq   uint16
-	started   bool
-	// expireAt is the playout clock at which the currently missing nextSeq
-	// gives up waiting. waiting indicates a window is armed.
+	// haveNext is false until the first packet establishes the cursor.
+	haveNext bool
+	// playing becomes true once Drain has emitted the first packet; before
+	// then out-of-order arrivals may still lower the cursor.
+	playing   bool
 	expireAt  uint64
 	waiting   bool
 	lateDrops int
@@ -105,22 +109,20 @@ func NewJitterBuffer(capacity int, window90k uint64) *JitterBuffer {
 // Push stores one received packet. A full buffer returns a locatable
 // limit-exceeded error so callers can surface cache pressure.
 func (b *JitterBuffer) Push(p *rtp.Packet) error {
-	if !b.started {
-		b.nextSeq = p.SequenceNumber
-		b.started = true
-	}
 	if _, exists := b.buf[p.SequenceNumber]; exists {
 		return nil // duplicate, ignore idempotently
 	}
-	// A packet strictly behind the playout cursor can never be used. With
-	// uint16 wrap, a forward packet has a small positive modular distance;
-	// a late (behind) packet wraps to a value above half the space.
-	if b.started {
-		dist := p.SequenceNumber - b.nextSeq
-		if dist > 1<<15 {
-			b.lateDrops++
-			return nil
-		}
+	if !b.haveNext {
+		b.nextSeq = p.SequenceNumber
+		b.haveNext = true
+	} else if !b.playing && seqLess(p.SequenceNumber, b.nextSeq) {
+		// Reordering arrived before playout: adopt the lower sequence as the
+		// true start so earlier packets are not mistaken for late ones.
+		b.nextSeq = p.SequenceNumber
+	} else if b.playing && seqLess(p.SequenceNumber, b.nextSeq) {
+		// Playout has passed this sequence; the packet can never be used.
+		b.lateDrops++
+		return nil
 	}
 	if len(b.buf) >= b.capacity {
 		b.overflows++
@@ -129,6 +131,12 @@ func (b *JitterBuffer) Push(p *rtp.Packet) error {
 	}
 	b.buf[p.SequenceNumber] = p
 	return nil
+}
+
+// seqLess reports whether sequence a precedes b, handling uint16 wrap-around
+// by interpreting the modular difference as signed.
+func seqLess(a, b uint16) bool {
+	return int16(a-b) < 0
 }
 
 // Drain emits every in-order packet currently available. It only starts a
@@ -140,6 +148,7 @@ func (b *JitterBuffer) Drain(now90k uint64) []Playout {
 	for {
 		// Fast path: emit every contiguous packet already in the buffer.
 		if p, ok := b.buf[b.nextSeq]; ok {
+			b.playing = true
 			out = append(out, Playout{Packet: p, Seq: b.nextSeq})
 			delete(b.buf, b.nextSeq)
 			b.nextSeq++
@@ -154,10 +163,36 @@ func (b *JitterBuffer) Drain(now90k uint64) []Playout {
 		if now90k < b.expireAt {
 			break // still inside the wait window for this sequence
 		}
+		b.playing = true
 		out = append(out, Playout{Seq: b.nextSeq, Gap: true})
 		b.nextSeq++
 		// Re-arm for the next possibly missing sequence.
 		b.waiting = false
+	}
+	return out
+}
+
+// Flush emits every remaining buffered packet in sequence order and, given
+// the total expected sequence count, fills every still-missing sequence with
+// an explicit gap. It ignores wait windows and is used for end-of-stream
+// settlement so no late gap is silently swallowed.
+func (b *JitterBuffer) Flush(expectedCount uint16) []Playout {
+	if !b.haveNext || expectedCount == 0 {
+		return nil
+	}
+	var out []Playout
+	// Drain buffered packets first so their order is preserved.
+	for len(b.buf) > 0 {
+		if p, ok := b.buf[b.nextSeq]; ok {
+			b.playing = true
+			out = append(out, Playout{Packet: p, Seq: b.nextSeq})
+			delete(b.buf, b.nextSeq)
+			b.nextSeq++
+			continue
+		}
+		out = append(out, Playout{Seq: b.nextSeq, Gap: true})
+		b.playing = true
+		b.nextSeq++
 	}
 	return out
 }

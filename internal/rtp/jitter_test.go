@@ -101,6 +101,29 @@ func TestJitterCapacityLimit(t *testing.T) {
 	}
 }
 
+func TestFlushFillsEndOfStreamGaps(t *testing.T) {
+	jb := NewJitterBuffer(64, 1000)
+	// Sequences 1 and 3 never arrive; 0, 2, 4 do.
+	for _, seq := range []uint16{0, 2, 4} {
+		if err := jb.Push(mediaPkt(seq, uint32(seq)*3000, byte(seq))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out := jb.Flush(5)
+	if len(out) != 5 {
+		t.Fatalf("flush playouts=%d, want 5", len(out))
+	}
+	wantGap := map[uint16]bool{1: true, 3: true}
+	for i, po := range out {
+		if po.Seq != uint16(i) {
+			t.Fatalf("out[%d] seq=%d, want %d", i, po.Seq, i)
+		}
+		if po.Gap != wantGap[po.Seq] {
+			t.Fatalf("seq %d gap=%v, want %v", po.Seq, po.Gap, wantGap[po.Seq])
+		}
+	}
+}
+
 func TestPacketizeSkipsCorrupt(t *testing.T) {
 	frames := []media.Frame{
 		{Sequence: 0, PTS90k: 0, Payload: []byte{1}},
