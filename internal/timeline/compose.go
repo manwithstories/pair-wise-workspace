@@ -179,13 +179,13 @@ type ComposeOptions struct {
 
 // Composition is the composed timeline plus per-track diagnostics.
 type Composition struct {
-	Entries    []Entry
-	Drift      map[int]DriftFit
-	Unaligned  []int // track numbers excluded for excessive drift
-	Discarded  int   // samples starting before Base90k
-	VFRTracks  int   // tracks with at least three distinct sample durations
+	Entries      []Entry
+	Drift        map[int]DriftFit
+	Unaligned    []int // track numbers excluded for excessive drift
+	Discarded    int   // samples starting before Base90k
+	VFRTracks    int   // tracks with at least three distinct sample durations
 	MaxIntervals int
-	Faults     *fault.List
+	Faults       *fault.List
 }
 
 // Compose places every track's samples on one timeline. Samples keep their own

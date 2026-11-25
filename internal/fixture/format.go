@@ -22,9 +22,10 @@ const (
 	MXFEditRate = 90000
 	// MXFFirstFrame is the first global frame carried by the MXF clip.
 	MXFFirstFrame = 24
-	// MP4KeyInterval and MXFKeyInterval determine the 48 keyframes.
+	// MP4KeyInterval and MXFKeyInterval determine the 48 keyframes: 120/5 in
+	// the MP4 clip plus 72/3 in the MXF clip.
 	MP4KeyInterval = 5
-	MXFKeyInterval = 4
+	MXFKeyInterval = 3
 	// DriftPPM is the deliberate clock skew of the RTP senders.
 	DriftPPM = 180
 	// UnalignedPPM exceeds the 500 ppm alignment bound.
