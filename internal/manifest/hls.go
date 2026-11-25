@@ -82,7 +82,7 @@ func ParseHLS(r io.Reader) (Playlist, error) {
 			if err != nil || d.Num < 0 {
 				return Playlist{}, fmt.Errorf("%w: bad EXTINF %q", ErrBadPlaylist, val)
 			}
-			pendingDur = d
+			pendingDur = d.MulInt(1_000_000_000) // 秒 -> 纳秒
 			haveDur = true
 		}
 	}
