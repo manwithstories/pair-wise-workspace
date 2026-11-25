@@ -20,7 +20,12 @@ type Interval struct {
 }
 
 // RMS returns the root-mean-square amplitude of int16 LE samples (0..1).
-func RMS(payload []byte) float64 {
+// header bytes (e.g. the 1-byte Opus TOC) are skipped so samples align.
+func RMS(payload []byte, header int) float64 {
+	if header > len(payload) {
+		header = len(payload)
+	}
+	payload = payload[header:]
 	n := len(payload) / 2
 	if n == 0 {
 		return 0
@@ -34,12 +39,13 @@ func RMS(payload []byte) float64 {
 }
 
 // Detect finds silent intervals in one track's units. Zero-duration units
-// are ignored (they carry no audio).
-func Detect(trackID string, units []codec.AccessUnit, threshold float64) []Interval {
+// are ignored (they carry no audio). header is the codec header size in
+// bytes (1 for Opus TOC, 0 for AAC).
+func Detect(trackID string, units []codec.AccessUnit, threshold float64, header int) []Interval {
 	var out []Interval
 	var open *Interval
 	for _, u := range units {
-		silent := u.Dur.Ticks > 0 && RMS(u.Payload) < threshold
+		silent := u.Dur.Ticks > 0 && RMS(u.Payload, header) < threshold
 		switch {
 		case silent && open == nil:
 			open = &Interval{Track: trackID, Start: u.Start, End: u.End()}
@@ -57,10 +63,10 @@ func Detect(trackID string, units []codec.AccessUnit, threshold float64) []Inter
 }
 
 // DetectAll runs Detect over every track of a segment set.
-func DetectAll(units map[string][]codec.AccessUnit, threshold float64) []Interval {
+func DetectAll(units map[string][]codec.AccessUnit, threshold float64, header int) []Interval {
 	var out []Interval
 	for track, us := range units {
-		out = append(out, Detect(track, us, threshold)...)
+		out = append(out, Detect(track, us, threshold, header)...)
 	}
 	return out
 }

@@ -25,11 +25,16 @@ func unit(start, dur int64, payload []byte) codec.AccessUnit {
 }
 
 func TestRMS(t *testing.T) {
-	if r := RMS(nil); r != 0 {
+	if r := RMS(nil, 0); r != 0 {
 		t.Fatalf("empty RMS=%f, want 0", r)
 	}
-	if r := RMS(pcm(16384, 100)); r < 0.49 || r > 0.51 {
+	if r := RMS(pcm(16384, 100), 0); r < 0.49 || r > 0.51 {
 		t.Fatalf("RMS=%f, want ~0.5", r)
+	}
+	// A 1-byte codec header must not skew the samples.
+	withHeader := append([]byte{0xAB}, pcm(16384, 100)...)
+	if r := RMS(withHeader, 1); r < 0.49 || r > 0.51 {
+		t.Fatalf("RMS with header=%f, want ~0.5", r)
 	}
 }
 
@@ -41,7 +46,7 @@ func TestDetectMergesAdjacent(t *testing.T) {
 		unit(2880, 960, pcm(50, 480)),    // silent again
 		unit(3840, 0, nil),               // zero-duration: ignored
 	}
-	got := Detect("studio", units, 0.01)
+	got := Detect("studio", units, 0.01, 0)
 	if len(got) != 2 {
 		t.Fatalf("intervals=%d, want 2: %+v", len(got), got)
 	}
