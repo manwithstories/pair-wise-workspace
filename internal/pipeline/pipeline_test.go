@@ -1,12 +1,15 @@
 package pipeline
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/abema/go-mp4"
 
 	"mediad/internal/adapter"
 	"mediad/internal/fixture"
@@ -164,4 +167,110 @@ func TestTrackConflictRejectsSubmission(t *testing.T) {
 	if err := set.Add("b", k); err == nil {
 		t.Fatal("expected cross-source conflict")
 	}
+}
+
+func TestDASHEndToEnd(t *testing.T) {
+	root := gen(t, fixture.Options{Seed: 41, Profile: fixture.ProfileClean, Cams: 4, Segments: 20})
+	rep, err := Run(Config{Root: root, OutDir: filepath.Join(root, "out"),
+		Manifest: filepath.Join(root, "media", "stream.mpd")})
+	if err != nil {
+		t.Fatalf("DASH run: %v", err)
+	}
+	if rep.OutputSamples != 4*20*4 {
+		t.Fatalf("samples=%d", rep.OutputSamples)
+	}
+	if !rep.HashMatch {
+		t.Fatal("hash_match false on DASH run")
+	}
+}
+
+func TestVFRDurationsPreservedIntoOutput(t *testing.T) {
+	root := gen(t, fixture.Options{Seed: 41, Profile: fixture.ProfileClean, Cams: 2, Segments: 10, VFR: true})
+	rep, err := Run(Config{Root: root, OutDir: filepath.Join(root, "out")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(rep.OutputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs := bytes.NewReader(data)
+	seen := map[uint32]bool{}
+	mp4.ReadBoxStructure(rs, func(h *mp4.ReadHandle) (interface{}, error) {
+		switch h.BoxInfo.Type {
+		case mp4.BoxTypeMoof(), mp4.BoxTypeTraf():
+			_, err := h.Expand()
+			return nil, err
+		case mp4.BoxTypeTrun():
+			box, _, err := h.ReadPayload()
+			if err != nil {
+				return nil, err
+			}
+			for _, e := range box.(*mp4.Trun).Entries {
+				seen[e.SampleDuration] = true
+			}
+		}
+		return nil, nil
+	})
+	if len(seen) < 5 {
+		t.Fatalf("only %d distinct sample durations in output; VFR was flattened", len(seen))
+	}
+}
+
+func TestAdapterUnwraps33BitAcrossBoundary(t *testing.T) {
+	// The fixture's local clock crosses the 33-bit PTS boundary mid-stream;
+	// the adapter must produce strictly increasing decode times throughout.
+	root := gen(t, fixture.Options{Seed: 41, Profile: fixture.ProfileClean, Cams: 1, Segments: 180, WrapPTS: 8589900000})
+	a := &adapter.CMAFV1{}
+	initData, err := os.ReadFile(filepath.Join(root, "media", "cam1", "init.mp4"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	init, err := a.ParseInit(initData, media.SourcePos{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys, err := adapter.MapTracks(init, adapter.RenditionDesc{Camera: "cam1", Role: "main", Codec: "avc1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs := map[uint32]int64{}
+	last := int64(-1 << 62)
+	for si := 0; si < 180; si++ {
+		data, err := os.ReadFile(filepath.Join(root, "media", "cam1", "seg"+itoa(si)+".m4s"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := a.ParseSegment(adapter.SegmentRequest{
+			Data: data, SegmentIndex: si, Init: init, Keys: keys, Refs: refs,
+			Limits: media.DefaultLimits(),
+		})
+		if err != nil {
+			t.Fatalf("segment %d: %v", si, err)
+		}
+		for _, s := range got {
+			if s.DTS < last {
+				t.Fatalf("non-monotonic DTS at segment %d: %d < %d", si, s.DTS, last)
+			}
+			last = s.DTS
+			refs[1] = s.DTS
+		}
+	}
+	// The unwrapped span must be the full 180-segment duration, proving the
+	// 2^33 crossing was reconstructed rather than collapsed to a small value.
+	if last < 600000 {
+		t.Fatalf("unwrapped timeline too short (%d); wrap likely mishandled", last)
+	}
+}
+
+func itoa(i int) string {
+	if i == 0 {
+		return "0"
+	}
+	var b []byte
+	for i > 0 {
+		b = append([]byte{byte('0' + i%10)}, b...)
+		i /= 10
+	}
+	return string(b)
 }

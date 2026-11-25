@@ -280,7 +280,13 @@ func segmentCount(period *mpdPeriod, tmpl *mpdSegmentTemplate, timescale int64) 
 	if tmpl.Duration <= 0 {
 		return 0, nil
 	}
-	n := (periodTicks + tmpl.Duration - 1) / tmpl.Duration
+	// Round to the nearest whole segment, tolerating sub-tick rounding in the
+	// period duration. Ceil would add a phantom segment when the period is an
+	// exact multiple of the segment duration.
+	n := (periodTicks + tmpl.Duration/2) / tmpl.Duration
+	if n < 1 {
+		n = 1
+	}
 	if n > 1<<20 {
 		return 0, media.New(media.CodeLimit, "dash", media.SourcePos{}, "segment count %d too large", n)
 	}
