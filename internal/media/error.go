@@ -28,6 +28,7 @@ const (
 	CodeHashMismatch     Code = "hash_mismatch"
 	CodeManifestSkew     Code = "manifest_skew"
 	CodeCheckpoint       Code = "checkpoint_error"
+	CodeInternal         Code = "internal_error"
 	CodeUnexpectedEOF    Code = "unexpected_eof"
 )
 
