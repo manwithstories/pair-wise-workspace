@@ -33,6 +33,17 @@ type Unwrapper struct {
 // NewUnwrapper returns an empty unwrapper.
 func NewUnwrapper() *Unwrapper { return &Unwrapper{} }
 
+// SeedUnwrapper returns an unwrapper anchored so the first observed raw stamp
+// is extended onto the same absolute timeline as a prior run. baseExtended is
+// the extended tick at which the resumed stream's first raw stamp should sit.
+// A resumed tail uses it instead of restarting its clock at zero, which keeps
+// its cut boundaries identical to an uninterrupted run.
+func SeedUnwrapper(firstRaw uint64, baseExtended media.Time90) *Unwrapper {
+	u := &Unwrapper{initialized: true, lastRaw: firstRaw & uint64(Mod33-1)}
+	u.cycles = (int64(baseExtended) - int64(u.lastRaw)) / Mod33
+	return u
+}
+
 // Gaps returns how many stamps could not be proven continuous.
 func (u *Unwrapper) Gaps() int { return u.gaps }
 

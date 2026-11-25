@@ -32,7 +32,7 @@ func TestGenerateCleanIsDeterministicAndOnRate(t *testing.T) {
 	if pct := float64(off) * 100 / float64(want); pct > 1.0 {
 		t.Fatalf("byte budget off by %.4f%%", pct)
 	}
-	if r1.Segments != 5 || len(r1.Silence) != 2 {
+	if r1.Segments != 5 || len(r1.Silence) != 5 {
 		t.Fatalf("segments=%d silence intervals=%d", r1.Segments, len(r1.Silence))
 	}
 	// Every emitted packet is exactly 188 bytes and sync-aligned.

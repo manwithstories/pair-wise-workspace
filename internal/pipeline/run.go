@@ -17,20 +17,35 @@ import (
 
 // Options configures one bounded pipeline run.
 type Options struct {
-	QueueDepth       int
-	MemLimitBytes    int64
-	SlowConsumerMS   int64 // artificial per-segment consumer delay
-	TargetSegmentMS  int64
-	UnsupportedOnly  map[uint16]bool // PIDs carrying an unsupported codec
+	QueueDepth      int
+	MemLimitBytes   int64
+	SlowConsumerMS  int64 // artificial per-segment consumer delay
+	TargetSegmentMS int64
+	UnsupportedOnly map[uint16]bool // PIDs carrying an unsupported codec
+	// KeepOpenSegment withholds the in-progress (not yet IDR-closed) segment
+	// instead of flushing it. A head run that will be resumed uses this so the
+	// boundary stays open and the tail run completes exactly one segment.
+	KeepOpenSegment bool
+	// TimelineOrigin, when positive, seeds the video PTS unwrapper so a resumed
+	// tail extends its raw stamps onto the same absolute 90 kHz timeline as the
+	// uninterrupted run rather than re-anchoring at tick zero.
+	TimelineOrigin media.Time90
+	// OriginRaw is the raw modulo-33 PTS of the tail's first video access unit.
+	OriginRaw uint64
 }
 
 // Result is everything the CLI needs to render the metrics report.
 type Result struct {
-	Report        *reportData
-	Manifest      *manifest.Manifest
-	PublishedIDs  []string
-	ResumeHash    string
+	Report       *reportData
+	Manifest     *manifest.Manifest
+	PublishedIDs []string
+	ResumeHash   string
+	checkpoint   *Checkpoint
 }
+
+// Checkpoint returns the restart state at the end of this run, including the
+// open-segment cutter position and every id already published.
+func (r *Result) Checkpoint() *Checkpoint { return r.checkpoint }
 
 type reportData struct {
 	CCErrors        int
@@ -47,9 +62,12 @@ type reportData struct {
 
 // Checkpoint is the last-complete-segment restart state. On resume only ids
 // not already in Published may be emitted, guaranteeing no duplicate publish.
+// Cutter carries the open-segment position so a resumed run continues the same
+// cut boundaries rather than restarting at the tail's first IDR.
 type Checkpoint struct {
 	Published map[string]struct{}
 	LastIndex int
+	Cutter    *segment.State
 }
 
 // NewCheckpoint returns an empty checkpoint.
@@ -71,7 +89,16 @@ func Run(ctx context.Context, opts Options, packets [][]byte, silenceRef []audio
 	queue := NewQueue[*media.AccessUnit](opts.QueueDepth)
 
 	demux := newDemuxer()
-	cutter := segment.NewCutter(media.Time90(opts.TargetSegmentMS) * media.TicksPerSecond / 1000)
+	if opts.TimelineOrigin > 0 {
+		demux.seedTimeline(opts.OriginRaw, opts.TimelineOrigin)
+	}
+	target := media.Time90(opts.TargetSegmentMS) * media.TicksPerSecond / 1000
+	var cutter *segment.Cutter
+	if cp.Cutter != nil {
+		cutter = segment.Restore(*cp.Cutter) // continue the prior run's open cut
+	} else {
+		cutter = segment.NewCutter(target)
+	}
 	silence := audio.NewDetector(audio.DefaultConfig())
 	fpIndex := fingerprint.NewIndex()
 	mf := manifest.Manifest{TargetDurationMS: int(opts.TargetSegmentMS)}
@@ -93,11 +120,25 @@ func Run(ctx context.Context, opts Options, packets [][]byte, silenceRef []audio
 		return nil, err
 	}
 
-	// Flush the final complete segment through the same publish path.
-	flushFinal(cutter, fpIndex, &mf, cp, opts, demux)
+	// A resumable head run keeps its final segment open so a tail can finish
+	// it; an ordinary run flushes the complete segment at end of input. The
+	// checkpoint snapshot is taken afterwards, so a flushed run carries no
+	// open segment while a withheld head run does.
+	if opts.KeepOpenSegment {
+		state := cutter.Snapshot()
+		cp.Cutter = &state
+	} else {
+		flushFinal(cutter, fpIndex, &mf, cp, opts, demux)
+		state := cutter.Snapshot() // Open is nil after Flush
+		cp.Cutter = &state
+	}
 
 	silenceGot := silence.Flush()
-	scores := audio.Score(silenceGot, silenceRef, media.TicksPerSecond/50)
+	// Wrap scenarios start the extended timeline near 2^33 while the fixture's
+	// ground truth is expressed from tick zero. Silence is a relative pattern,
+	// so normalize both interval sets onto a zero-origin axis before scoring.
+	scores := audio.Score(normalizeIntervals(silenceGot),
+		normalizeIntervals(silenceRef), media.TicksPerSecond/50)
 	res := &Result{
 		Manifest: &mf,
 		Report: &reportData{
@@ -113,6 +154,7 @@ func Run(ctx context.Context, opts Options, packets [][]byte, silenceRef []audio
 			SilenceCount:    len(silenceGot),
 		},
 		PublishedIDs: mf.PublishedIDs(),
+		checkpoint:   cp,
 	}
 	res.ResumeHash = hashPublished(res.PublishedIDs)
 	return res, nil
@@ -229,10 +271,31 @@ func publishSegment(seg *segment.Segment, fp *fingerprint.Index,
 // hashPublished folds the ordered published id list into the resume hash. Two
 // runs that publish the same segments produce an identical hash.
 func hashPublished(ids []string) string {
+	return HashIDs(ids)
+}
+
+// HashIDs is the exported resume-hash function so the CLI can fold a resumed
+// run's head+tail published ids using the exact same stable construction.
+func HashIDs(ids []string) string {
 	h := sha256.New()
 	for _, id := range ids {
 		h.Write([]byte(id))
 		h.Write([]byte{'\n'})
 	}
 	return hex.EncodeToString(h.Sum(nil))[:16]
+}
+
+// normalizeIntervals shifts every interval so the earliest start is at tick
+// zero, letting detected and reference silence be compared on a relative
+// timeline regardless of the absolute PCR/PTS epoch (e.g. a 33-bit wrap).
+func normalizeIntervals(iv []audio.Interval) []audio.Interval {
+	if len(iv) == 0 {
+		return iv
+	}
+	base := iv[0].Start
+	out := make([]audio.Interval, len(iv))
+	for i, x := range iv {
+		out[i] = audio.Interval{Start: x.Start - base, End: x.End - base}
+	}
+	return out
 }

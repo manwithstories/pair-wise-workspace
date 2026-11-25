@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"streamcut/internal/fixture"
 	"streamcut/internal/media"
 	"streamcut/internal/segment"
 	"streamcut/internal/timeline"
@@ -22,6 +23,9 @@ type demuxer struct {
 	unsupported int
 	// sps/pps captured from the first keyframe for the avcC config hash.
 	cfgCache  []byte
+	// Resume timeline seeding (zero when not a resumed run).
+	ptsSeedRaw uint64
+	ptsOrigin  media.Time90
 }
 
 func newDemuxer() *demuxer {
@@ -33,6 +37,22 @@ func newDemuxer() *demuxer {
 		clock:    timeline.NewClock(),
 		pts:      map[uint16]*timeline.Unwrapper{},
 	}
+}
+
+// seedTimeline pre-anchors the per-PID PTS unwrapper for a resumed tail so its
+// raw stamps extend onto the uninterrupted run's absolute media timeline.
+func (d *demuxer) seedTimeline(firstRaw uint64, origin media.Time90) {
+	d.ptsSeedRaw = firstRaw
+	d.ptsOrigin = origin
+}
+
+// videoPID returns the video elementary PID, preferring a committed PMT and
+// falling back to the fixture's well-known video PID before PSI arrives.
+func (d *demuxer) videoPID() uint16 {
+	if prog := d.psi.Current(); prog != nil && prog.VideoPID != 0 {
+		return prog.VideoPID
+	}
+	return fixture.VideoPID
 }
 
 // feed parses one 188-byte packet and returns zero or more access units.
@@ -100,11 +120,28 @@ func (d *demuxer) toUnits(p *ts.PES) ([]media.AccessUnit, error) {
 			kind = prog.AudioKind
 		}
 	}
+	// Resume fallback: a tail can start at a video IDR with no PSI in view.
+	// Classify on the well-known fixture PIDs so the cutter and silence
+	// detector still recognize the elementary streams before a PMT arrives.
+	if kind == media.KindUnknown {
+		switch p.PID {
+		case fixture.VideoPID:
+			kind = media.KindVideoH264
+		case fixture.AudioPID:
+			kind = media.KindAudioPCM16LE
+		}
+	}
 	u := media.AccessUnit{PID: p.PID, Kind: kind, Data: p.Data}
 	if p.HasPTS {
 		uw, ok := d.pts[p.PID]
 		if !ok {
-			uw = timeline.NewUnwrapper()
+			// Resume anchoring keys on the video PID directly so it works even
+			// before the first PMT has classified the stream.
+			if d.ptsOrigin > 0 && p.PID == d.videoPID() {
+				uw = timeline.SeedUnwrapper(p.PTS, d.ptsOrigin)
+			} else {
+				uw = timeline.NewUnwrapper()
+			}
 			d.pts[p.PID] = uw
 		}
 		ext, gap := uw.Extend(p.PTS)

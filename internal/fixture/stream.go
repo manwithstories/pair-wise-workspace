@@ -56,6 +56,13 @@ type Result struct {
 	VideoGOPs int
 	Segments  int // expected IDR-aligned segment count at 2 s target
 	Silence   []Interval
+	// TruncatedFlag is true when the final packet was deliberately cut short.
+	TruncatedFlag bool
+	// SplitRawPTS is the raw modulo-33 video PTS of the tail's first IDR, and
+	// SplitExtendedPTS its position on the zero-origin extended timeline. Both
+	// are zero unless a ResumeSplit was configured and armed.
+	SplitRawPTS      uint64
+	SplitExtendedPTS media.Time90
 }
 
 // Interval is a time range in extended 90 kHz ticks.
@@ -73,11 +80,14 @@ func Generate(cfg Config) (*Result, error) {
 }
 
 type generator struct {
-	cfg     Config
-	mux     *Muxer
-	packets [][]byte
-	tail    [][]byte
-	bytes   int
+	cfg             Config
+	mux             *Muxer
+	packets         [][]byte
+	tail            [][]byte
+	bytes           int
+	splitArmed      bool
+	splitRawPTS     uint64
+	splitExtendedPTS media.Time90
 }
 
 // wraps reports whether the scenario crosses the 33-bit modulus.
@@ -102,12 +112,78 @@ func (g *generator) rawStamp(ticks int64) uint64 {
 func (g *generator) emit(p [][]byte) {
 	for _, pkt := range p {
 		g.bytes += len(pkt)
-		if g.cfg.ResumeSplit > 0 && len(g.packets) >= g.cfg.ResumeSplit {
-			g.tail = append(g.tail, pkt)
-			continue
+		if g.cfg.ResumeSplit > 0 {
+			// Defer the split until the next IDR that lands exactly on a
+			// 2-second segment boundary, so head and tail never split one
+			// segment: every cut on either side matches the uninterrupted run.
+			// Once armed, every later packet belongs to the tail.
+			if !g.splitArmed {
+				if len(g.packets) >= g.cfg.ResumeSplit && g.isSegmentBoundaryIDR(pkt) {
+					g.splitArmed = true
+					g.recordSplit(pkt)
+				}
+			}
+			if g.splitArmed {
+				g.tail = append(g.tail, pkt)
+				continue
+			}
 		}
 		g.packets = append(g.packets, pkt)
 	}
+}
+
+// recordSplit captures the tail boundary from the IDR packet's PCR: the raw
+// modulo-33 video PTS and its zero-origin extended position in ticks.
+func (g *generator) recordSplit(pkt []byte) {
+	parsed, err := ts.Parse(pkt)
+	if err != nil || !parsed.HasPCR {
+		return
+	}
+	rawBase := parsed.PCR / 300
+	g.splitRawPTS = rawBase
+	// Recover the zero-origin tick from the on-wire stamp using the scenario
+	// base offset; the inverse of rawStamp().
+	ext := int64(rawBase) - g.baseTicks()
+	if ext < 0 {
+		ext += mod33 // crossed the 33-bit modulus
+	}
+	g.splitExtendedPTS = media.Time90(ext)
+}
+
+// isVideoIDR reports whether a packet starts a video IDR access unit: it is on
+// the video PID, carries PUSI and the random-access adaptation indicator.
+func (g *generator) isVideoIDR(pkt []byte) bool {
+	const pidMask = 0x1FFF
+	pid := (uint16(pkt[1]&0x1F) << 8) | uint16(pkt[2])
+	if pid != g.cfg.VideoPID || pkt[1]&0x40 == 0 || pkt[3]&0x20 == 0 {
+		return false
+	}
+	alen := int(pkt[4])
+	if alen < 1 {
+		return false
+	}
+	return pkt[5]&0x40 != 0 // random_access_indicator in adaptation flags
+}
+
+// segmentTicks is the 2-second target segment length in 90 kHz ticks.
+const segmentTicks = int64(180_000)
+
+// isSegmentBoundaryIDR reports a video IDR whose PCR sits on a 2-second
+// segment boundary, so a resume split there never bisects a segment.
+func (g *generator) isSegmentBoundaryIDR(pkt []byte) bool {
+	if !g.isVideoIDR(pkt) {
+		return false
+	}
+	parsed, err := ts.Parse(pkt)
+	if err != nil || !parsed.HasPCR {
+		return false
+	}
+	rawBase := int64(parsed.PCR / 300)
+	ext := rawBase - g.baseTicks()
+	if ext < 0 {
+		ext += mod33
+	}
+	return ext%segmentTicks == 0
 }
 
 func (g *generator) run() (*Result, error) {
@@ -137,10 +213,26 @@ func (g *generator) run() (*Result, error) {
 	_, audio := g.buildOnce(sliceBytes, true)
 	g.stuffTo(targetBytes)
 
+	// trunc/damaged scenarios end mid-packet: replace the final complete
+	// packet with a shortened one so the parser reports ErrTruncated and the
+	// operator can distinguish a recoverable cut from structural corruption.
+	truncated := false
+	if cfg.Case == CaseTrunc || cfg.Case == CaseDamaged {
+		if n := len(g.packets); n > 0 {
+			last := g.packets[n-1]
+			g.packets[n-1] = last[:len(last)-40]
+			g.bytes -= 40
+			truncated = true
+		}
+	}
+
 	res := &Result{
 		Packets: g.packets, Tail: g.tail, Bytes: g.bytes,
 		Truth: audio.Truth(), VideoGOPs: gops,
-		Segments: int(cfg.DurationS) / 2,
+		Segments:        int(cfg.DurationS) / 2,
+		TruncatedFlag:   truncated,
+		SplitRawPTS:     g.splitRawPTS,
+		SplitExtendedPTS: g.splitExtendedPTS,
 	}
 	res.Silence = silenceIntervals(audio.Truth(), DefaultAudio())
 	return res, nil
@@ -156,11 +248,13 @@ func (g *generator) buildOnce(sliceBytes int, stuff bool) (int64, *AudioSynth) {
 	g.packets = nil
 	g.tail = nil
 	g.bytes = 0
+	g.splitArmed = false
+	g.splitRawPTS = 0
+	g.splitExtendedPTS = 0
 
 	durationTicks := cfg.DurationS * int64(media.TicksPerSecond)
 	frameTicks := int64(media.TicksPerSecond) / int64(cfg.FPS)
 	totalFrames := int(cfg.DurationS) * cfg.FPS
-	gops := totalFrames / cfg.GOPFrames
 
 	pat := BuildPATSection(1, 0, PMTPID)
 	pmtV0 := BuildPMTSection(0, cfg.VideoPID, cfg.VideoPID, cfg.AudioPID, cfg.AudioType)
@@ -175,13 +269,13 @@ func (g *generator) buildOnce(sliceBytes int, stuff bool) (int64, *AudioSynth) {
 		ticks := int64(f) * frameTicks
 		isIDR := f%cfg.GOPFrames == 0
 		gop := f / cfg.GOPFrames
-		// Second half of the program replays the first half byte-for-byte,
-		// producing exact fingerprint duplicates.
-		tmplGOP := gop
-		if tmplGOP >= (gops+1)/2 {
-			tmplGOP = gop - (gops+1)/2
-		}
-		seed := byte(17 + tmplGOP*7 + f%cfg.GOPFrames)
+		// Content repeats every two GOPs (the 2 s segment period), so a
+		// segment's media bytes recur later in the program and fingerprint
+		// dedup produces exact hits. The seed depends only on the frame's
+		// position inside the repeating window, never on the wall clock.
+		const segmentFrames = 60 // 2 GOPs at 30 fps
+		windowPos := f % segmentFrames
+		seed := byte(17 + windowPos)
 
 		if isIDR {
 			g.emitPSI(f, gop, pat, pmtV0, pmtV1, pmtBad)
@@ -197,7 +291,7 @@ func (g *generator) buildOnce(sliceBytes int, stuff bool) (int64, *AudioSynth) {
 		if isIDR {
 			nal = append(nal, SPS(), PPS())
 		}
-		nal = append(nal, BuildSlice(isIDR, uint(f%16), seed, sliceBytes))
+		nal = append(nal, BuildSlice(isIDR, uint(windowPos%16), seed, sliceBytes))
 		pts := g.rawStamp(ticks)
 		pes := ts.BuildPES(0xE0, pts, pts, true, concatNAL(nal))
 		g.emit(g.mux.PacketizePES(cfg.VideoPID, pes, &pcr27, isIDR))

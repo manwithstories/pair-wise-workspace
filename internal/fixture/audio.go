@@ -57,15 +57,13 @@ func (s *AudioSynth) Truth() AudioTruth { return s.truth }
 // frames 0..99 audible; 100..149 silence; 150..249 audible;
 // 250..349 silence; then audible. Two long silent regions (>=1 s each)
 // exercise hysteresis and merge logic.
+// IsSilentFrame encodes a periodic silence schedule aligned to the 2-second
+// (100-frame) segment period. Within every segment, frames 40..89 are silent.
+// Periodicity makes repeated segments byte-identical for fingerprint dedup
+// while keeping long enough silent regions (1 s each) to exercise hysteresis.
 func IsSilentFrame(frame int) bool {
-	switch {
-	case frame >= 100 && frame < 150:
-		return true
-	case frame >= 250 && frame < 350:
-		return true
-	default:
-		return false
-	}
+	pos := frame % 100
+	return pos >= 40 && pos < 90
 }
 
 // Next produces the next frame. Tone frames carry a low-amplitude 440 Hz
@@ -79,8 +77,11 @@ func (s *AudioSynth) Next() PCMFrame {
 	}
 	pcm := make([]byte, s.p.FrameSamples*2)
 	if IsSilentFrame(idx) {
+		// Dither depends only on the in-window sample position, so a frame
+		// repeated in a later 2-second segment is byte-identical and
+		// fingerprint dedup can match across segment boundaries.
 		for i := 0; i < s.p.FrameSamples; i++ {
-			dither := int16((i + idx) & 1) // values 0..1 LSB
+			dither := int16(i & 1) // values 0..1 LSB
 			binary.LittleEndian.PutUint16(pcm[i*2:], uint16(dither))
 		}
 		return PCMFrame{Index: idx, PCM: pcm}

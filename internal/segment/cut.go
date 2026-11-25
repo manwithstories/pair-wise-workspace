@@ -44,6 +44,36 @@ type Cutter struct {
 	videoSeen bool
 }
 
+// State is the serializable cutter position carried inside a restart
+// checkpoint. It captures the open segment so a resumed run continues the
+// same cut instead of starting a fresh boundary at the tail's first IDR.
+type State struct {
+	Target    media.Time90
+	Index     int
+	VideoSeen bool
+	Open      *Segment
+}
+
+// Snapshot returns the cutter's resumable state.
+func (c *Cutter) Snapshot() State {
+	var open *Segment
+	if c.cur != nil {
+		cp := *c.cur
+		open = &cp
+	}
+	return State{Target: c.target, Index: c.index, VideoSeen: c.videoSeen, Open: open}
+}
+
+// Restore rehydrates a cutter from a snapshot taken by a prior run.
+func Restore(s State) *Cutter {
+	c := &Cutter{target: s.Target, index: s.Index, videoSeen: s.VideoSeen}
+	if s.Open != nil {
+		open := *s.Open
+		c.cur = &open
+	}
+	return c
+}
+
 // NewCutter sets the target segment length.
 func NewCutter(target media.Time90) *Cutter {
 	return &Cutter{target: target}
@@ -68,8 +98,8 @@ func (c *Cutter) Push(u Unit) *Segment {
 	var finished *Segment
 	if isIDR && au.PTS-c.cur.Start >= c.target {
 		finished = c.closeCurrent(au.PTS)
+		c.index++ // advance before constructing the next segment's index
 		c.cur = c.newSegment(au)
-		c.index++
 		c.applyFlags(u)
 		return c.record(finished)
 	}

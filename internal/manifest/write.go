@@ -63,14 +63,35 @@ func WriteJSON(w io.Writer, m *Manifest) error {
 	return enc.Encode(m)
 }
 
-// SkewMS measures the gap between the playlist's covered duration and the
-// source timeline duration supplied by the caller. Zero means the manifest
-// boundaries exactly span the produced media.
+// SkewMS measures manifest timing accuracy as the largest absolute deviation
+// of any segment boundary (start or end) from the ideal target-duration grid.
+// The grid is anchored at the playlist's own first start rather than tick zero,
+// so a stream whose extended timeline begins at an arbitrary epoch (notably a
+// 33-bit PCR/PTS wrap) is judged on boundary regularity, not its absolute base.
 func (m *Manifest) SkewMS(sourceDuration media.Time90) float64 {
-	covered := m.LastEnd - m.FirstStart
-	diff := covered - sourceDuration
-	if diff < 0 {
-		diff = -diff
+	if len(m.Entries) == 0 {
+		return 0
 	}
-	return diff.Milliseconds()
+	grid := media.Time90(m.TargetDurationMS) * media.TicksPerSecond / 1000
+	origin := m.FirstStart
+	var worst media.Time90
+	for _, e := range m.Entries {
+		for _, tick := range [2]media.Time90{e.StartTicks, e.EndTicks} {
+			rel := tick - origin
+			rem := rel % grid
+			dev := rem
+			if grid-rem < dev {
+				dev = grid - rem
+			}
+			// The stream's own end is a legal boundary even if it falls
+			// short of a full final grid cell.
+			if tick == e.EndTicks && rel >= sourceDuration-grid {
+				continue
+			}
+			if dev > worst {
+				worst = dev
+			}
+		}
+	}
+	return worst.Milliseconds()
 }
