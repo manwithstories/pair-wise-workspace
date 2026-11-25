@@ -27,6 +27,26 @@ type State struct {
 	LastOrder uint64 `json:"last_order"`
 	// SamplesCommitted counts packets already in the output.
 	SamplesCommitted uint64 `json:"samples_committed"`
+	// Validated holds the per-chunk validated sample index. It lets a resume
+	// skip re-validation while still proving packet identity at finalize.
+	Validated map[uint32][]SampleRecord `json:"validated"`
+}
+
+// SampleRecord is the serializable, hash-pinned record of one validated
+// sample. Hex hashes keep the document human-auditable.
+type SampleRecord struct {
+	TrackID   uint32 `json:"track_id"`
+	Seq       uint32 `json:"seq"`
+	ChunkSeq  uint32 `json:"chunk_seq"`
+	DTS       uint64 `json:"dts"`
+	Duration  uint32 `json:"duration"`
+	Offset    int64  `json:"offset"`
+	Size      uint32 `json:"size"`
+	Flags     uint32 `json:"flags"`
+	RTPSeq    uint32 `json:"rtp_seq"`
+	Order     uint64 `json:"order"`
+	DTSNormNS int64  `json:"dts_norm_ns"`
+	SHA256    string `json:"sha256"`
 }
 
 // Fingerprint hashes an input file in streaming fashion.
@@ -112,15 +132,46 @@ func (s *State) Save(path string) error {
 	return nil
 }
 
-// MarkChunk records one fully validated and written chunk boundary.
-func (s *State) MarkChunk(seq uint32, lastOrder, samples uint64) {
+// NewState starts a checkpoint bound to an input fingerprint.
+func NewState(inputPath, inputSHA string, inputSize int64) *State {
+	return &State{
+		Version:     1,
+		InputPath:   inputPath,
+		InputSHA256: inputSHA,
+		InputSize:   inputSize,
+		Validated:   map[uint32][]SampleRecord{},
+	}
+}
+
+// MarkChunk records one fully validated and written chunk boundary. Only
+// whole-chunk boundaries are ever committed, so a resume can never re-enter
+// mid-chunk and produce duplicate packets.
+func (s *State) MarkChunk(seq uint32, records []SampleRecord, lastOrder, samples uint64) {
 	if !s.IsChunkDone(seq) {
 		s.CompletedChunks = append(s.CompletedChunks, seq)
 	}
+	s.Validated[seq] = records
 	if lastOrder > s.LastOrder {
 		s.LastOrder = lastOrder
 	}
 	s.SamplesCommitted = samples
+}
+
+// RecordKey identifies one sample globally inside the validated index.
+type RecordKey struct {
+	ChunkSeq uint32
+	TrackID  uint32
+	Seq      uint32
+}
+
+// LookupRecord returns a committed sample record if present.
+func (s *State) LookupRecord(k RecordKey) (SampleRecord, bool) {
+	for _, rec := range s.Validated[k.ChunkSeq] {
+		if rec.TrackID == k.TrackID && rec.Seq == k.Seq {
+			return rec, true
+		}
+	}
+	return SampleRecord{}, false
 }
 
 func copyN(r io.Reader, w io.Writer) (int64, error) {
