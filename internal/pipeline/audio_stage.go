@@ -1,7 +1,7 @@
 package pipeline
 
 import (
-	"fmt"
+	"encoding/json"
 
 	"fieldcut/internal/audio"
 	"fieldcut/internal/clock"
@@ -10,7 +10,8 @@ import (
 func stageInputHashes(b *Bundle) map[string]string {
 	ingestHash := HashBytes(append(append(append([]byte{}, b.DirectorBytes...), b.StageBytes...), b.Audio48Stereo...))
 	audioHash := HashBytes(append(append(append([]byte{}, b.Audio48Stereo...), b.Audio44Mono...), b.Audio51...))
-	alignHash := HashBytes([]byte(fmt.Sprintf("%d-events", len(b.RawEvents))))
+	eventBytes, _ := json.Marshal(b.RawEvents)
+	alignHash := HashBytes(eventBytes)
 	cutHash := HashBytes([]byte(alignHash + audioHash))
 	return map[string]string{
 		"generate":    b.RequestHash,
