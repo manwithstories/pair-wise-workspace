@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"bcast/internal/fault"
 	"bcast/internal/safe"
 )
 
@@ -52,5 +53,16 @@ func TestCommitTempVerifiesDigest(t *testing.T) {
 	}
 	if err := root.VerifyHash("out/final.bin", "bad"); err == nil {
 		t.Fatal("bad digest must fail verification")
+	}
+}
+
+func TestCommitMissingTempIsWriteFault(t *testing.T) {
+	root, err := safe.OpenRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = root.CommitTemp("out/missing.tmp", "out/final.bin")
+	if err == nil || !fault.IsCode(err, fault.WriteFailed) {
+		t.Fatalf("err=%v want OUTPUT_WRITE_FAILED", err)
 	}
 }

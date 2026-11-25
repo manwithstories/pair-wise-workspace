@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"bcast/internal/fault"
 	"bcast/internal/index"
 	"bcast/internal/model"
 	"bcast/internal/safe"
@@ -136,5 +137,21 @@ func TestMP4SampleAndKeyframeRoundtrip(t *testing.T) {
 	}
 	if loaded.CountSamples() != 24 || loaded.CountKeyframes() != 12 {
 		t.Fatalf("roundtrip samples=%d keyframes=%d", loaded.CountSamples(), loaded.CountKeyframes())
+	}
+}
+
+func TestPTSRegressionIsLocatable(t *testing.T) {
+	tr := &index.TrackIndex{Samples: []index.Sample{
+		{Index: 1, PTS: 0},
+		{Index: 2, PTS: 800},
+		{Index: 3, PTS: 700},
+	}}
+	err := index.ValidatePTSMonotonic(tr, "assets/pts-bad.mp4")
+	if err == nil || !fault.IsCode(err, fault.PTSRegression) {
+		t.Fatalf("err=%v want PTS_REGRESSION", err)
+	}
+	fe, ok := fault.As(err)
+	if !ok || !fe.HasSeg || fe.Segment != 2 {
+		t.Fatalf("location=%+v want segment 2", fe)
 	}
 }

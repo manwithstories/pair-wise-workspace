@@ -108,6 +108,9 @@ func ScanMP4(path, rel string, opts ScanOptions) (*AssetIndex, error) {
 		if err := buildSamples(&track, tr, keySet, size, rel); err != nil {
 			return nil, err
 		}
+		if err := ValidatePTSMonotonic(&track, rel); err != nil {
+			return nil, err
+		}
 		if opts.ReadSampleBytes {
 			if err := verifySampleBytes(f, &track, rel); err != nil {
 				return nil, err
@@ -118,10 +121,24 @@ func ScanMP4(path, rel string, opts ScanOptions) (*AssetIndex, error) {
 	return ai, nil
 }
 
+// ValidatePTSMonotonic locates a presentation timestamp regression in a track.
+func ValidatePTSMonotonic(track *TrackIndex, rel string) error {
+	var last *int64
+	for _, s := range track.Samples {
+		pts := s.PTS
+		if last != nil && pts < *last {
+			return fault.E(fault.PTSRegression, "index", "ValidatePTSMonotonic",
+				errors.New("presentation timestamp moved backwards")).
+				WithPath(rel).WithSegment(int(s.Index) - 1)
+		}
+		last = &pts
+	}
+	return nil
+}
+
 func buildSamples(track *TrackIndex, tr *mp4.Track, keys map[uint32]bool, fileSize int64, rel string) error {
 	sampleIdx := 0
 	var dts uint64
-	var lastPTS *int64
 	for ci, chunk := range tr.Chunks {
 		offset := int64(chunk.DataOffset)
 		for k := uint32(0); k < chunk.SamplesPerChunk; k++ {
@@ -136,11 +153,6 @@ func buildSamples(track *TrackIndex, tr *mp4.Track, keys map[uint32]bool, fileSi
 					errors.New("sample data range is outside file")).WithPath(rel).WithSegment(sampleIdx)
 			}
 			pts := int64(dts) + ms.CompositionTimeOffset
-			if lastPTS != nil && pts < *lastPTS {
-				return fault.E(fault.PTSRegression, "index", "buildSamples",
-					errors.New("presentation timestamp moved backwards")).WithPath(rel).WithSegment(sampleIdx)
-			}
-			lastPTS = &pts
 			s := Sample{
 				Index: n, Size: ms.Size, Offset: offset, DTS: dts, PTS: pts,
 				Duration: ms.TimeDelta, Keyframe: keys == nil || keys[n],
