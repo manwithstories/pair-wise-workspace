@@ -64,16 +64,18 @@ func WriteFragment(path string, tracks []TrackInput) (*Result, error) {
 	mdatStart := ftypLen + moovProbeLen
 	payloadCursor := mdatStart + 8 // after mdat header
 	for ti, tr := range tracks {
-		perTrackOff[ti] = make([]int64, 0, len(tr.Samples))
+		perTrackOff[ti] = make([]int64, 0, 1)
 		perTrackSize[ti] = make([]uint32, 0, len(tr.Samples))
-		for _, s := range tr.Samples {
+		for si, s := range tr.Samples {
 			l := make([]byte, 4)
 			binary.BigEndian.PutUint32(l, uint32(len(s.Data)))
 			mdatPayload.Write(l)
 			mdatPayload.Write(s.Data)
 			hasher.Write(l)
 			hasher.Write(s.Data)
-			perTrackOff[ti] = append(perTrackOff[ti], payloadCursor)
+			if si == 0 {
+				perTrackOff[ti] = append(perTrackOff[ti], payloadCursor) // chunk base
+			}
 			perTrackSize[ti] = append(perTrackSize[ti], uint32(4+len(s.Data)))
 			payloadCursor += int64(4 + len(s.Data))
 			totalSamples++

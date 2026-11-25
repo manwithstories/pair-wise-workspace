@@ -105,6 +105,9 @@ func collectBoxes(r *os.File, parent rawBox, types ...string) ([]rawBox, error) 
 	var found []rawBox
 	var recurse func(rawBox) error
 	recurse = func(b rawBox) error {
+		if !containerBoxes[b.info.Type.String()] {
+			return nil // leaf box: payload is data, never nested boxes
+		}
 		return walkBoxes(r, b.payload, b.end, "", &media.FaultSet{}, func(child rawBox) error {
 			if want[child.info.Type.String()] {
 				found = append(found, child)

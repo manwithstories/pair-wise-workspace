@@ -31,6 +31,14 @@ type rawBox struct {
 	end     int64 // absolute offset one past the box
 }
 
+// containerBoxes are the only box types whose payload holds child boxes.
+// Everything else is a leaf and must never be walked as a container.
+var containerBoxes = map[string]bool{
+	"moov": true, "trak": true, "mdia": true, "minf": true, "stbl": true,
+	"dinf": true, "edts": true, "udta": true, "mvex": true, "moof": true,
+	"traf": true, "mfra": true, "meco": true, "sinf": true, "schi": true,
+}
+
 // walkBoxes iterates boxes inside [start,end). Every reported box is fully
 // contained in the file; a header claiming to run past EOF is a located fault.
 // A truncated tail (short header at the end) is reported as non-fatal so the
@@ -52,6 +60,18 @@ func walkBoxes(r io.ReadSeeker, start, end int64, seg string, faults *media.Faul
 		}
 		boxEnd := pos + int64(info.Size)
 		if info.Size < info.HeaderSize || boxEnd > end {
+			// A mdat running past EOF is a truncated media payload, not a
+			// corrupt container: clamp it to EOF so sample assembly can retain
+			// every fully-contained sample. Any other box overrun is fatal.
+			if info.Type.String() == "mdat" && boxEnd > end {
+				faults.Add(media.NewFault(media.KindTruncated, seg, 0, pos,
+					"mdat declares %d bytes but file ends at %d; tail truncated", info.Size, end-pos))
+				rb := rawBox{info: info, payload: pos + int64(info.HeaderSize), end: end}
+				if err := fn(rb); err != nil {
+					return err
+				}
+				return nil
+			}
 			f := media.NewFault(media.KindBadLength, seg, 0, pos,
 				"box %q declares size %d exceeding container end %d", info.Type.String(), info.Size, end-pos)
 			faults.Add(f)

@@ -1,6 +1,7 @@
 package fixtgen
 
 import (
+	"bytes"
 	"encoding/binary"
 )
 
@@ -19,13 +20,16 @@ func applyFault(out []byte, seg Segment, mdatStart int64) []byte {
 		return out[:len(out)-cut]
 
 	case FaultBadLength:
-		// Corrupt the first video sample's length prefix inside mdat so it
-		// claims an impossibly large size. The parser must locate the fault by
-		// offset and quarantine, rather than panic or allocate.
-		if int(mdatStart)+8+4 < len(out) {
-			// mdat header is 8 bytes; first 4 bytes are the AVCC length.
-			pos := int(mdatStart) + 8
-			binary.BigEndian.PutUint32(out[pos:], 0x7FFFFFFF)
+		// Corrupt the first video track's stsz entry so it claims an
+		// impossibly large sample. The parser sizes samples from stsz (not the
+		// in-band AVCC prefix), must locate the fault by offset and quarantine
+		// the track rather than allocate or panic.
+		if pos := bytes.Index(out, []byte("stsz")); pos >= 0 {
+			payload := pos + 4
+			count := binary.BigEndian.Uint32(out[payload+8:])
+			if count > 0 {
+				binary.BigEndian.PutUint32(out[payload+12:], 0x7FFFFFFF)
+			}
 		}
 		return out
 

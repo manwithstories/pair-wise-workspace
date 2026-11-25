@@ -81,8 +81,9 @@ func (r *H264Reassembler) ProcessPacket(raw []byte, off int64) error {
 		return err
 	}
 
-	// Timestamp ordering: tolerate one legal 32-bit rollover, flag jumps.
-	if r.haveLast {
+	// Timestamp ordering: multiple packets of one access unit (FU-A fragments,
+	// STAP-A) legally share a timestamp. Only a real backwards jump is a wrap.
+	if r.haveLast && pkt.Timestamp != r.lastTS {
 		if _, _, err := media.UnwrapRTP(r.lastTS, pkt.Timestamp); err != nil {
 			r.faults.Add(media.NewFault(media.KindWrap, r.segment, 1, off,
 				"RTP timestamp went backwards %d -> %d", r.lastTS, pkt.Timestamp))
@@ -90,7 +91,7 @@ func (r *H264Reassembler) ProcessPacket(raw []byte, off int64) error {
 		if delta := int64(int32(pkt.Timestamp - r.lastTS)); delta > 0 {
 			r.unwrapped += delta
 		}
-	} else {
+	} else if !r.haveLast {
 		r.haveLast = true
 		r.auTS = pkt.Timestamp
 		r.auOff = off

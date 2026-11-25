@@ -55,47 +55,64 @@ func full(v byte, flags uint32) []byte {
 // WriteBMFFSource renders one segment as a plain (non-fragmented) MP4 with
 // three tracks and the requested fault injected. It returns the file path.
 func WriteBMFFSource(dir string, seg Segment) (string, error) {
-	buf := &bytes.Buffer{}
-	writeFtyp(buf)
-	var trackBoxes []box
-	var mdatOffsets [][]int64
-	var mdatSizes [][]uint32
+	// Stage 1: build every track's sample payload (no offsets yet) so we know
+	// the mdat size, and measure the real moov length with a probe build. The
+	// probe uses the same fault-specific layout (e.g. missing stss), so its
+	// length matches the final moov exactly.
+	type staged struct {
+		spec       TrackSpec
+		codec      string
+		frames     [][]byte
+		sizes      []uint32
+		keySamples []uint32
+	}
+	var stagedTracks []staged
 	mdat := bytes.NewBuffer(nil)
-
-	moovLen := probeMoovLen()
-	mdatStart := 20 + moovLen // ftyp(20) + moov + mdat-header(8)
-	cursor := int64(mdatStart + 8)
-
 	for tr, spec := range Tracks() {
 		codec := spec.Codec
 		if seg.Fault == FaultUnsupported && tr == 0 {
 			codec = codecUnsupported
 		}
-		var offs []int64
-		var sizes []uint32
-		var keySamples []uint32
+		st := staged{spec: spec, codec: codec}
 		for s := 0; s < SamplesPerTrack; s++ {
-			data := makeSample(seg.Index, tr, s, codec)
-			// AVCC length prefix for video; raw frame for others.
-			frame := data
-			if codec == "avc1" || codec == codecUnsupported {
-				frame = data // already length-prefixed by makeSample
-			}
-			offs = append(offs, cursor)
-			sizes = append(sizes, uint32(len(frame)))
-			cursor += int64(len(frame))
+			frame := makeSample(seg.Index, tr, s, codec) // video is already AVCC-framed
+			st.frames = append(st.frames, frame)
+			st.sizes = append(st.sizes, uint32(len(frame)))
 			mdat.Write(frame)
 			if spec.Handler == "vide" && s%KeyEvery == 0 {
-				keySamples = append(keySamples, uint32(s+1))
+				st.keySamples = append(st.keySamples, uint32(s+1))
 			}
 		}
-		mdatOffsets = append(mdatOffsets, offs)
-		mdatSizes = append(mdatSizes, sizes)
-		trackBoxes = append(trackBoxes, buildTrak(spec, codec, offs, sizes, keySamples, seg.Fault))
+		stagedTracks = append(stagedTracks, st)
 	}
 
-	moov := b("moov")
-	moov.add(buildMvhd())
+	// Probe moov length using placeholder offsets of the same numeric width.
+	probeOffs := []int64{0}
+	probeSizes := make([]uint32, SamplesPerTrack)
+	probeMoov := b("moov").add(buildMvhd())
+	for _, st := range stagedTracks {
+		probeMoov.add(buildTrak(st.spec, st.codec, probeOffs, probeSizes, st.keySamples, seg.Fault))
+	}
+	var probeBuf bytes.Buffer
+	probeMoov.write(&probeBuf)
+	ftypLen := 8 + 4+4+4+4+4 // header + major/minor + three brands
+	mdatHeaderStart := ftypLen + probeBuf.Len()
+	cursor := int64(mdatHeaderStart + 8)
+
+	// Stage 2: real offsets, then assemble the final byte stream.
+	var trackBoxes []box
+	for _, st := range stagedTracks {
+		chunkBase := cursor
+		for _, frame := range st.frames {
+			cursor += int64(len(frame))
+		}
+		trackBoxes = append(trackBoxes, buildTrak(st.spec, st.codec,
+			[]int64{chunkBase}, st.sizes, st.keySamples, seg.Fault))
+	}
+
+	buf := &bytes.Buffer{}
+	writeFtyp(buf)
+	moov := b("moov").add(buildMvhd())
 	for _, t := range trackBoxes {
 		moov.add(t)
 	}
@@ -106,11 +123,10 @@ func WriteBMFFSource(dir string, seg Segment) (string, error) {
 	binary.BigEndian.PutUint32(mh, uint32(8+mdat.Len()))
 	copy(mh[4:], "mdat")
 	buf.Write(mh)
-	mdatBytes := mdat.Bytes()
-	buf.Write(mdatBytes)
+	buf.Write(mdat.Bytes())
 
 	out := buf.Bytes()
-	out = applyFault(out, seg, int64(mdatStart))
+	out = applyFault(out, seg, int64(mdatHeaderStart))
 
 	path := filepath.Join(dir, seg.ID+".mp4")
 	if seg.Fault == FaultRTPTruncated || seg.Fault == FaultIncompleteFrag {
@@ -125,18 +141,6 @@ func writeFtyp(buf *bytes.Buffer) {
 	payload = append(payload, []byte("iso2")...)
 	payload = append(payload, []byte("avc1")...)
 	b("ftyp").raw(payload).write(buf)
-}
-
-func probeMoovLen() int {
-	moov := b("moov").add(buildMvhd())
-	for _, spec := range Tracks() {
-		moov.add(buildTrak(spec, spec.Codec,
-			make([]int64, SamplesPerTrack), make([]uint32, SamplesPerTrack),
-			[]uint32{1, 4, 7, 10}, FaultNone))
-	}
-	var probe bytes.Buffer
-	moov.write(&probe)
-	return probe.Len()
 }
 
 func buildMvhd() box {
@@ -194,7 +198,7 @@ func buildTrak(spec TrackSpec, codec string, offs []int64, sizes []uint32, keys 
 }
 
 func buildTkhd(spec TrackSpec) *box {
-	body := make([]byte, 84)
+	body := make([]byte, 92)
 	copy(body[0:4], full(0, 7))
 	binary.BigEndian.PutUint32(body[20:24], 1000)
 	body[31] = 0x10

@@ -186,29 +186,36 @@ func parseTrun(b []byte) (trunData, error) {
 func readTrunSamples(f *os.File, segment string, st *tstate, fr frag,
 	fragNo int, tr trunData, cfg ParseConfig, faults *media.FaultSet, report *SourceReport) bool {
 
-	mdatPayload := fr.mdat.payload
-	base := mdatPayload + int64(tr.dataOffset)
+	// data_offset is relative to the start of the owning moof box (ISO 14496-12).
+	base := int64(fr.moof.info.Offset) + int64(tr.dataOffset)
 	if tr.dataOffset == 0 {
-		base = mdatPayload
+		base = fr.mdat.payload
 	}
 	var kept []Sample
 	cur := base
+	complete := true
 	for i := uint32(0); i < tr.sampleCount; i++ {
 		if int(i) >= len(tr.sizes) {
 			faults.Add(media.NewFault(media.KindIncompleteFrag, segment, st.meta.Track, cur,
-				"fragment %d trun missing size for sample %d; no keyframe claimed", fragNo, i))
-			return false
+				"fragment %d trun missing size for sample %d; retaining %d complete samples, no keyframe claimed",
+				fragNo, i, len(kept)))
+			complete = false
+			break
 		}
 		size := int64(tr.sizes[i])
 		if size > cfg.MaxSampleBytes || cur+size > fr.mdat.end {
 			faults.Add(media.NewFault(media.KindIncompleteFrag, segment, st.meta.Track, cur,
-				"fragment %d incomplete at sample %d/%d; partial fragment not indexed", fragNo, i, tr.sampleCount))
-			return false
+				"fragment %d incomplete at sample %d/%d; retaining %d complete samples, partial fragment not indexed",
+				fragNo, i, tr.sampleCount, len(kept)))
+			complete = false
+			break
 		}
 		data := make([]byte, size)
 		if _, err := f.ReadAt(data, cur); err != nil {
-			faults.Add(media.NewFault(media.KindTruncated, segment, st.meta.Track, cur, "%s", err))
-			return false
+			faults.Add(media.NewFault(media.KindTruncated, segment, st.meta.Track, cur,
+				"retaining %d complete samples: %s", len(kept), err))
+			complete = false
+			break
 		}
 		var dur int64 = 1
 		if i < uint32(len(tr.durations)) {
@@ -228,6 +235,8 @@ func readTrunSamples(f *os.File, segment string, st *tstate, fr frag,
 		st.dts += dur
 		cur += size
 	}
+	// Complete samples survive even when the fragment is cut; the incomplete
+	// tail is dropped and reported, never mis-indexed as a sync point.
 	st.samples = append(st.samples, kept...)
-	return true
+	return complete
 }

@@ -47,10 +47,11 @@ func writeFragment(buf *bytes.Buffer, seq uint32, samples [][]byte, incomplete b
 		add(*b("mfhd").raw(append(full(0, 0), u32b(seq)...))).
 		add(*b("traf").add(tfhd).add(tfdt).add(trun))
 
-	// data offset is relative to mdat payload start; account for moof + header.
+	// data_offset per ISO 14496-12 is relative to the start of the moof box:
+	// skip the whole moof plus the 8-byte mdat header to reach the first byte.
 	var moofBuf bytes.Buffer
 	moof.write(&moofBuf)
-	dataOffset := 8 // skip mdat header to first sample
+	dataOffset := moofBuf.Len() + 8
 
 	mdatPayload := bytes.NewBuffer(nil)
 	for i, s := range samples {

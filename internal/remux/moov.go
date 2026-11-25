@@ -60,7 +60,7 @@ func buildTrak(tr TrackInput, trakIndex int, offs []int64, sizes []uint32) boxBu
 }
 
 func buildTkhd(meta demux.TrackMeta, index int) boxBuilder {
-	body := make([]byte, 84)
+	body := make([]byte, 92)
 	putU32(body[0:4], 0x000007) // flags: track_enabled+in_movie+in_preview
 	putU32(body[12:16], uint32(index))
 	putU32(body[20:24], 1000)
@@ -74,7 +74,6 @@ func buildTkhd(meta demux.TrackMeta, index int) boxBuilder {
 	if meta.Handler == "vide" {
 		putU32At(body[80:84], 0x40000000)
 		putU32At(body[84:88], 320<<16)
-		putU32At(body[88:92], 240<<16)
 	}
 	return *newBox("tkhd").setRaw(body)
 }
@@ -215,10 +214,10 @@ func buildStts(samples []demux.Sample) boxBuilder {
 
 func buildStsc(n int) boxBuilder {
 	body := make([]byte, 20)
-	putU32(body[4:8], 1)
-	putU32(body[8:12], 1) // first chunk
-	putU32(body[12:16], uint32(n))
-	putU32(body[16:20], 1) // sample description index
+	putU32(body[4:8], 1)              // one entry
+	putU32(body[8:12], 1)             // first chunk
+	putU32(body[12:16], uint32(n))    // all n samples in this single chunk
+	putU32(body[16:20], 1)            // sample description index
 	return *newBox("stsc").setHeader(body[:4]).setRaw(body[4:])
 }
 
