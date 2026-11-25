@@ -10,164 +10,185 @@ import (
 	"github.com/pion/rtp"
 )
 
-// RTPPacketRecord is one packet as stored in a fixture trace, including
-// optional redundancy that lets the recovery stage repair losses offline.
+// RTPPacketRecord is one transmitted packet. RedundantFor, when non-zero,
+// marks this packet as re-carrying the payload of an earlier wire sequence so
+// the receiver can repair that packet if it was lost.
 type RTPPacketRecord struct {
-	SSRC        uint32 `json:"ssrc"`
-	Camera      string `json:"camera"`
-	Seq         uint16 `json:"seq"`
-	Timestamp   uint32 `json:"timestamp"`
-	Marker      bool   `json:"marker"`
-	PayloadType uint8  `json:"payload_type"`
-	Payload     []byte `json:"payload"`
-	// RedundantCopy holds the same payload under the *next* sequence number,
-	// letting the receiver recover this packet when it is itself lost.
-	RedundantCopy bool `json:"redundant_copy,omitempty"`
+	SSRC         uint32 `json:"ssrc"`
+	Camera       string `json:"camera"`
+	Seq          uint16 `json:"seq"`
+	Timestamp    uint32 `json:"timestamp"`
+	Marker       bool   `json:"marker"`
+	PayloadType  uint8  `json:"payload_type"`
+	Payload      []byte `json:"payload"`
+	RedundantFor int32  `json:"redundant_for"` // wire seq this copy repairs, -1 if none
 }
 
-// RTPTrace is a recorded, possibly lossy packet stream for one or more SSRCs.
+// RTPTrace is a recorded, possibly lossy packet stream for one SSRC, along
+// with the sender's ground truth needed to score recovery.
 type RTPTrace struct {
-	SSRC     uint32            `json:"ssrc"`
-	Camera   string            `json:"camera"`
-	Packets  []RTPPacketRecord `json:"packets"`
-	LostSeqs []uint16          `json:"lost_seqs,omitempty"`
-	// SentSeqs lists every sequence number the sender emitted, in order, so
-	// the recovery stage can tell a genuine gap from a late-arriving packet.
-	SentSeqs []uint16 `json:"sent_seqs"`
+	SSRC        uint32            `json:"ssrc"`
+	Camera      string            `json:"camera"`
+	Received    []RTPPacketRecord `json:"received"`    // packets that arrived
+	SentSeqs    []uint16          `json:"sent_seqs"`   // every sequence the sender emitted
+	LostSeqs    []uint16          `json:"lost_seqs"`   // dropped in transit
+	Recoverable []uint16          `json:"recoverable"` // dropped but recoverable via redundancy
+}
+
+// RedundantFor returns a map from a redundant packet's wire sequence to the
+// sequence it repairs, suitable for recovery.Redundancy.
+func (t *RTPTrace) RedundantFor() map[uint16]uint16 {
+	out := make(map[uint16]uint16)
+	for _, r := range t.Received {
+		if r.RedundantFor >= 0 {
+			out[r.Seq] = uint16(r.RedundantFor)
+		}
+	}
+	return out
 }
 
 // writeRTPFixture emits one RTP trace per camera. In the recover profile a
-// deterministic subset of packets is dropped and some packets carry a
-// redundant copy of their predecessor so recovery can be measured.
+// deterministic subset of packets is dropped and every third packet carries a
+// redundant copy of its predecessor, so single losses are recoverable.
 func writeRTPFixture(opts Options, cams []Camera, info *Info, mediaDir string) error {
-	if opts.Profile != ProfileRecover {
-		// Also emit a clean, lossless trace so the recovery test has a
-		// zero-loss baseline.
-	}
 	rtpDir := filepath.Join(mediaDir, "rtp")
 	if err := os.MkdirAll(rtpDir, 0o755); err != nil {
 		return err
 	}
-	totalLost, totalRecovered, totalFrames := 0, 0, 0
+	totalLost, totalRecoverable, totalSent := 0, 0, 0
 	for ci, cam := range cams {
 		rng := rand.New(rand.NewSource(opts.Seed*7919 + int64(ci)))
 		trace := buildRTPTrace(opts, cam, rng)
-		if opts.Profile == ProfileRecover {
-			totalLost += trace.lost
-			totalRecovered += trace.recovered
-		}
-		totalFrames += trace.frames
-		data, err := json.Marshal(trace.trace)
+		totalLost += len(trace.LostSeqs)
+		totalRecoverable += len(trace.Recoverable)
+		totalSent += len(trace.SentSeqs)
+		data, err := json.Marshal(trace)
 		if err != nil {
 			return err
 		}
-		name := fmt.Sprintf("%s.json", cam.Name)
-		if err := os.WriteFile(filepath.Join(rtpDir, name), data, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(rtpDir, cam.Name+".json"), data, 0o644); err != nil {
 			return err
 		}
 	}
 	info.Expected.LostPackets = totalLost
-	info.Expected.RecoveredPackets = totalRecovered
-	info.Expected.RTPFrames = totalFrames
+	info.Expected.RecoveredPackets = totalRecoverable
+	info.Expected.RTPFrames = totalSent
 	return nil
 }
 
-type traceStats struct {
-	trace     *RTPTrace
-	lost      int
-	recovered int
-	frames    int
-}
-
-// buildRTPTrace synthesizes an RTP stream. Packet i carries frame i; every
-// third packet also embeds a redundant copy of packet i-1 so single losses
-// along the redundancy chain remain recoverable.
-func buildRTPTrace(opts Options, cam Camera, rng *rand.Rand) *traceStats {
+// buildRTPTrace synthesizes the sender stream and the received subset.
+func buildRTPTrace(opts Options, cam Camera, rng *rand.Rand) *RTPTrace {
 	const ssrcBase = 0x5EED0000
 	trace := &RTPTrace{
 		SSRC:   ssrcBase + uint32(len(cam.Name)+cam.Width),
 		Camera: cam.Name,
 	}
 	framesPerCam := opts.Segments * opts.FramesPerFrag
-	stats := &traceStats{trace: trace, frames: framesPerCam}
 
-	// Start near a sequence wrap on alternating cameras to exercise 16-bit
-	// unwrap in the recovery stage.
+	// Cameras with an even index start near a 16-bit sequence wrap so the
+	// recovery unwrap logic is exercised.
 	seqBase := uint16(100)
 	if len(cam.Name)%2 == 0 {
 		seqBase = 0xFFF0
 	}
 
-	type pending struct {
-		rec RTPPacketRecord
+	// Frame payloads are keyed by frame index so a redundant copy can repeat
+	// the exact bytes of its predecessor.
+	type sentPacket struct {
+		wire    uint16
+		ts      uint32
+		marker  bool
+		payload []byte
+		redFor  int32
 	}
-	var prev *pending
+	sent := make([]sentPacket, 0, framesPerCam)
 	for f := 0; f < framesPerCam; f++ {
 		payload := samplePayload(cam, f/opts.FramesPerFrag, f%opts.FramesPerFrag)
-		rec := RTPPacketRecord{
-			SSRC:        trace.SSRC,
-			Camera:      cam.Name,
-			Seq:         seqBase + uint16(f),
-			Timestamp:   uint32((90000 + int64(f)*3000) % (1 << 32)),
-			Marker:      (f+1)%opts.FramesPerFrag == 0,
-			PayloadType: 96,
-			Payload:     payload,
+		rec := sentPacket{
+			wire:    seqBase + uint16(f),
+			ts:      uint32((90000 + int64(f)*3000) % (1 << 32)),
+			marker:  (f+1)%opts.FramesPerFrag == 0,
+			payload: payload,
+			redFor:  -1,
 		}
-		trace.SentSeqs = append(trace.SentSeqs, rec.Seq)
-		// Every third frame after the first carries a redundant copy of the
-		// previous packet, giving the receiver a second chance at recovery.
-		if prev != nil && f%3 == 0 {
-			rec.Payload = prev.rec.Payload
-			rec.RedundantCopy = true
-			rec.Timestamp = prev.rec.Timestamp
+		// Every third frame after the first redundantly carries the previous
+		// frame's payload in addition to its own.
+		if f > 0 && f%3 == 0 {
+			rec.payload = sent[f-1].payload
+			rec.ts = sent[f-1].ts
+			rec.marker = sent[f-1].marker
+			rec.redFor = int32(sent[f-1].wire)
 		}
-		drop := opts.Profile == ProfileRecover && opts.Loss > 0 && rng.Float64() < opts.Loss
-		if drop {
-			stats.lost++
-			trace.LostSeqs = append(trace.LostSeqs, rec.Seq)
-		} else {
-			trace.Packets = append(trace.Packets, rec)
-		}
-		prev = &pending{rec: rec}
+		sent = append(sent, rec)
+		trace.SentSeqs = append(trace.SentSeqs, rec.wire)
 	}
-	// Count how many lost packets have a surviving redundant copy later in
-	// the stream; that is the upper bound on recoverable packets.
-	lostSet := make(map[uint16]bool, len(trace.LostSeqs))
-	for _, s := range trace.LostSeqs {
-		lostSet[s] = true
+
+	// Decide which packets are dropped. A packet is recoverable if some later
+	// redundant copy that survives in transit re-carries it.
+	drop := make(map[uint16]bool)
+	for f := 0; f < framesPerCam; f++ {
+		if opts.Profile == ProfileRecover && opts.Loss > 0 && rng.Float64() < opts.Loss {
+			drop[sent[f].wire] = true
+			trace.LostSeqs = append(trace.LostSeqs, sent[f].wire)
+		}
 	}
-	for i, rec := range trace.Packets {
-		if !rec.RedundantCopy {
+
+	// Walk backwards: a redundant copy repairs its predecessor only if the
+	// copy itself survived and the predecessor was dropped.
+	repaired := make(map[uint16]bool)
+	for f := len(sent) - 1; f >= 0; f-- {
+		if sent[f].redFor < 0 {
 			continue
 		}
-		// The redundant copy on packet i carries the payload of packet i-1.
-		prevSeq := rec.Seq - 1
-		if lostSet[prevSeq] {
-			stats.recovered++
-			lostSet[prevSeq] = false
-			trace.Packets[i].RedundantCopy = true
-		}
-	}
-	// Serialize RTP packets in wire form too, to prove pion/rtp can parse them.
-	for i := range trace.Packets {
-		pkt, err := toRTPPacket(trace.Packets[i])
-		if err != nil {
+		if drop[sent[f].wire] {
 			continue
 		}
-		if _, err := pkt.Marshal(); err != nil {
-			continue
+		orig := uint16(sent[f].redFor)
+		if drop[orig] && !repaired[orig] {
+			repaired[orig] = true
+			trace.Recoverable = append(trace.Recoverable, orig)
 		}
 	}
-	return stats
+
+	for f := 0; f < framesPerCam; f++ {
+		if drop[sent[f].wire] {
+			continue
+		}
+		trace.Received = append(trace.Received, RTPPacketRecord{
+			SSRC:         trace.SSRC,
+			Camera:       cam.Name,
+			Seq:          sent[f].wire,
+			Timestamp:    sent[f].ts,
+			Marker:       sent[f].marker,
+			PayloadType:  96,
+			Payload:      sent[f].payload,
+			RedundantFor: sent[f].redFor,
+		})
+	}
+	// Deterministic shuffle of wire order to exercise reordering.
+	if len(trace.Received) > 1 {
+		sh := rand.New(rand.NewSource(opts.Seed + int64(len(cam.Name))))
+		for i := len(trace.Received) - 1; i > 0; i-- {
+			j := sh.Intn(i + 1)
+			trace.Received[i], trace.Received[j] = trace.Received[j], trace.Received[i]
+		}
+	}
+	// Inject one duplicate per camera to exercise duplicate detection.
+	if len(trace.Received) > 2 {
+		dup := trace.Received[len(trace.Received)/2]
+		trace.Received = append(trace.Received, dup)
+	}
+	return trace
 }
 
-func toRTPPacket(rec RTPPacketRecord) (*rtp.Packet, error) {
+// ToRTP converts a fixture record into a pion/rtp packet so the recovery path
+// is validated against a real RTP parser rather than a bespoke decoder.
+func ToRTP(rec RTPPacketRecord) (*rtp.Packet, error) {
 	if len(rec.Payload) > 1400 {
 		return nil, fmt.Errorf("fixture: payload too large for one RTP packet")
 	}
 	p := &rtp.Packet{Header: rtp.Header{
 		Version:        2,
-		Padding:        false,
 		Marker:         rec.Marker,
 		PayloadType:    rec.PayloadType,
 		SequenceNumber: rec.Seq,
@@ -178,6 +199,5 @@ func toRTPPacket(rec RTPPacketRecord) (*rtp.Packet, error) {
 	return p, nil
 }
 
-// RTPSamplePayload exposes the deterministic payload used by fixtures so the
-// recovery test can verify byte-exact restoration.
+// RTPSamplePayload exposes the deterministic payload used by fixtures.
 func RTPSamplePayload(cam Camera, seg, frame int) []byte { return samplePayload(cam, seg, frame) }
