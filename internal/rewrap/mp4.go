@@ -49,7 +49,7 @@ func CopyCompatible(ctx context.Context, root *safe.Root, srcRel, outRel string,
 	when := rationalSeconds(startFrame, fps)
 	cmd := exec.CommandContext(ctx, "ffmpeg", "-v", "error", "-ss", when, "-i", src,
 		"-frames:v", strconv.Itoa(frameCount), "-c", "copy",
-		"-map_metadata", "-1", "-fflags", "+bitexact", "-y", tmp)
+		"-map_metadata", "-1", "-fflags", "+bitexact", "-f", "mp4", "-y", tmp)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -92,7 +92,7 @@ func EncodeRawRGB(ctx context.Context, root *safe.Root, outRel string, width, he
 		"-c:v", "libx264", "-pix_fmt", "yuv420p", "-profile:v", "baseline",
 		"-g", "2", "-keyint_min", "2", "-sc_threshold", "0", "-bf", "0",
 		"-map_metadata", "-1", "-fflags", "+bitexact", "-flags:v", "+bitexact",
-		"-y", tmp)
+		"-f", "mp4", "-y", tmp)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fault.E(fault.RewrapFailed, "rewrap", "EncodeRawRGB.stdin", err)
