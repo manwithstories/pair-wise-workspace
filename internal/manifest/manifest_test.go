@@ -153,3 +153,37 @@ func TestParseDASHRejectsRemoteMedia(t *testing.T) {
 		t.Fatal("remote DASH media must be rejected")
 	}
 }
+
+func TestMetadataUniqueInference(t *testing.T) {
+	got := ReconcileMetadata(TrackDesc{ID: "a", Channels: 2, SampleRate: 48000})
+	if got.ChannelLayout != "stereo" || got.HasMetadataConflict() {
+		t.Fatalf("2 channels must infer stereo uniquely: %+v", got)
+	}
+	mono := ReconcileMetadata(TrackDesc{Channels: 1})
+	if mono.ChannelLayout != "mono" {
+		t.Fatalf("1 channel must infer mono, got %q", mono.ChannelLayout)
+	}
+}
+
+func TestMetadataAmbiguousAndConflicting(t *testing.T) {
+	// Six channels do not identify a unique layout: mark conflict and
+	// do not fabricate one.
+	amb := ReconcileMetadata(TrackDesc{ID: "x", Channels: 6})
+	if amb.ChannelLayout != "" || !amb.HasMetadataConflict() {
+		t.Fatalf("6ch must stay layout-less with conflict, got %+v", amb)
+	}
+	// Explicit contradiction between channel count and layout.
+	bad := ReconcileMetadata(TrackDesc{Channels: 6, ChannelLayout: "stereo"})
+	if !bad.HasMetadataConflict() {
+		t.Fatal("6ch + stereo must conflict")
+	}
+	// Disagreement between metadata sources must be recorded while the
+	// earlier container value is preserved.
+	src := ReconcileMetadata(
+		TrackDesc{ID: "a", SampleRate: 48000, ColorInfo: "bt709"},
+		MetadataHint{Source: "sidecar", SampleRate: 44100},
+	)
+	if !src.HasMetadataConflict() || src.SampleRate != 48000 {
+		t.Fatalf("source conflict not preserved: %+v", src)
+	}
+}
