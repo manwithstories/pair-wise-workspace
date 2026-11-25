@@ -133,6 +133,19 @@ func (d *Depacketizer) releaseQueued(out *[][]byte) {
 		d.Stats.Released++
 		d.nextSeq++
 	}
+	d.pruneSeen()
+}
+
+// pruneSeen bounds duplicate state to the recent reorder window.
+func (d *Depacketizer) pruneSeen() {
+	for seq := range d.seen {
+		if !seqBefore(seq, d.nextSeq) {
+			continue // queued/future sequence
+		}
+		if delta := d.nextSeq - seq; delta > uint16(d.window) {
+			delete(d.seen, seq)
+		}
+	}
 }
 
 // Flush releases queued payloads in sequence order at end of stream. Missing
