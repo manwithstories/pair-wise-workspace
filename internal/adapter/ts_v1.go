@@ -115,7 +115,6 @@ func tsPayload(pkt []byte) (pid uint16, payload []byte, ok bool) {
 	if len(pkt) < tsPacketSize || pkt[0] != tsSyncByte {
 		return 0, nil, false
 	}
-	pusi := pkt[1]&0x40 != 0
 	pid = binary.BigEndian.Uint16(pkt[1:]) & 0x1FFF
 	afc := (pkt[3] >> 4) & 0x3
 	offset := 4
@@ -129,12 +128,11 @@ func tsPayload(pkt []byte) (pid uint16, payload []byte, ok bool) {
 	if afc&0x1 == 0 || offset >= tsPacketSize {
 		return 0, nil, false
 	}
-	_ = pusi
 	return pid, pkt[offset:], true
 }
 
 func parsePAT(payload []byte) (pmtPID uint16, ok bool) {
-	sec, ok := tableSection(payload, pidPAT)
+	sec, ok := tableSection(payload)
 	if !ok || len(sec) < 8 {
 		return 0, false
 	}
@@ -155,7 +153,7 @@ func parsePAT(payload []byte) (pmtPID uint16, ok bool) {
 }
 
 func parsePMT(payload []byte) []tsStream {
-	sec, ok := tableSection(payload, pidPAT) // table_id check below
+	sec, ok := tableSection(payload) // table_id check below
 	if !ok || len(sec) < 12 {
 		return nil
 	}
@@ -189,8 +187,7 @@ func parsePMT(payload []byte) []tsStream {
 
 // tableSection reassembles a PSI section spanning one or more packets. Only
 // the single-packet case is required for well-formed fixtures.
-func tableSection(payload []byte, wantPID uint16) ([]byte, bool) {
-	_ = wantPID
+func tableSection(payload []byte) ([]byte, bool) {
 	if len(payload) < 1 {
 		return nil, false
 	}
@@ -301,7 +298,6 @@ func (*TSV1) ParseSegment(req SegmentRequest) ([]media.Sample, error) {
 		if stream == nil {
 			return nil
 		}
-		drift := pts - dts
 		samples = append(samples, media.Sample{
 			Key:      key,
 			DTS:      dts,
@@ -317,7 +313,6 @@ func (*TSV1) ParseSegment(req SegmentRequest) ([]media.Sample, error) {
 				Pos:     req.Pos,
 			},
 		})
-		_ = drift
 		return nil
 	}
 
@@ -361,7 +356,6 @@ func (*TSV1) ParseSegment(req SegmentRequest) ([]media.Sample, error) {
 	for i := range samples {
 		samples[i].Source.Sample = i
 	}
-	_ = order
 	return samples, nil
 }
 
