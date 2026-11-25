@@ -166,6 +166,14 @@ func executeRecover(opts recoverOptions) (recoverMetrics, manifest.Journal, erro
 	j.PayloadHashMismatch = m.payloadMismatch
 	j.ActualKBPS = bw.ActualKBPS
 	j.DeviationPct = bw.DeviationPct
+	if win != nil {
+		j.GapLedger = make([]manifest.GapRange, 0, len(win.Gaps))
+		for _, g := range win.Gaps {
+			j.GapLedger = append(j.GapLedger, manifest.GapRange{
+				Start: g.Start, End: g.End, Count: g.Count, Reason: g.Reason,
+			})
+		}
+	}
 	if opts.Journal != "" {
 		if err := manifest.SaveJournal(opts.Journal, j); err != nil {
 			return m, j, err

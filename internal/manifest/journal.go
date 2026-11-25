@@ -9,26 +9,35 @@ import (
 
 // Journal is the deterministic checkpoint used by --resume.
 type Journal struct {
-	Version             int     `json:"version"`
-	InputPath           string  `json:"input_path"`
-	InputSHA256         string  `json:"input_sha256"`
-	OutputPath          string  `json:"output_path"`
-	ManifestPath        string  `json:"manifest_path"`
-	Window              int     `json:"window"`
-	TargetKBPS          int     `json:"target_kbps"`
-	Complete            bool    `json:"complete"`
-	Partial             bool    `json:"partial"`
-	ExitCode            int     `json:"exit_code"`
-	OutputSHA256        string  `json:"output_sha256"`
-	ManifestSHA256      string  `json:"manifest_sha256"`
-	DupDrop             int     `json:"dup_drop"`
-	Reordered           int     `json:"reordered"`
-	Gaps                int     `json:"gaps"`
-	GapRanges           int     `json:"gap_ranges"`
-	Fabricated          int     `json:"fabricated"`
-	PayloadHashMismatch int     `json:"payload_hash_mismatch"`
-	ActualKBPS          float64 `json:"actual_kbps"`
-	DeviationPct        float64 `json:"deviation_pct"`
+	Version             int        `json:"version"`
+	InputPath           string     `json:"input_path"`
+	InputSHA256         string     `json:"input_sha256"`
+	OutputPath          string     `json:"output_path"`
+	ManifestPath        string     `json:"manifest_path"`
+	Window              int        `json:"window"`
+	TargetKBPS          int        `json:"target_kbps"`
+	Complete            bool       `json:"complete"`
+	Partial             bool       `json:"partial"`
+	ExitCode            int        `json:"exit_code"`
+	OutputSHA256        string     `json:"output_sha256"`
+	ManifestSHA256      string     `json:"manifest_sha256"`
+	DupDrop             int        `json:"dup_drop"`
+	Reordered           int        `json:"reordered"`
+	Gaps                int        `json:"gaps"`
+	GapRanges           int        `json:"gap_ranges"`
+	Fabricated          int        `json:"fabricated"`
+	PayloadHashMismatch int        `json:"payload_hash_mismatch"`
+	ActualKBPS          float64    `json:"actual_kbps"`
+	DeviationPct        float64    `json:"deviation_pct"`
+	GapLedger           []GapRange `json:"gap_ledger,omitempty"`
+}
+
+// GapRange is an exact absent extended-sequence interval in the journal.
+type GapRange struct {
+	Start  int64  `json:"start"`
+	End    int64  `json:"end"`
+	Count  int    `json:"count"`
+	Reason string `json:"reason"`
 }
 
 // SaveJournal atomically writes formatted JSON journal.

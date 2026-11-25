@@ -2,6 +2,7 @@ package container
 
 import (
 	"bytes"
+	"encoding/binary"
 	"testing"
 
 	"archivectl/internal/timeline"
@@ -111,5 +112,23 @@ func TestIllegalTrackReference(t *testing.T) {
 	_, err = ParseBytes("bad-ref.mp4", b)
 	if !timeline.IsCode(err, timeline.CodeIllegalReference) {
 		t.Fatalf("expected illegal reference, got %v", err)
+	}
+}
+
+func TestNegativeDurationReportsTrackAndOffset(t *testing.T) {
+	track := Track{ID: 42, Kind: KindVideo, Timescale: 90000, Samples: []Sample{{
+		Index: 0, Data: []byte("x"), Size: 1, DTS: 0, PTS: 0, Duration: 1,
+	}}}
+	box := EncodeTrackIndex(track)
+	// One record starts at payload offset 40; duration is its third int64 and
+	// the box has an 8-byte header, so the field begins at byte 64.
+	binary.BigEndian.PutUint64(box[64:72], ^uint64(0))
+	_, err := ParseTrackIndex(box[8:], 0)
+	var te *timeline.Error
+	if !asTimeline(err, &te) || te.Code != timeline.CodeNegativeDuration {
+		t.Fatalf("expected negative_duration, got %v", err)
+	}
+	if te.TrackID != 42 || te.Offset != 64 {
+		t.Fatalf("location track=%d offset=%d, want 42/64", te.TrackID, te.Offset)
 	}
 }
