@@ -58,14 +58,16 @@ type CaseManifest struct {
 	ActualBitrateBPS  int64 `json:"bitrate_actual_bps"`
 	BitrateDeltaPPM   int64 `json:"bitrate_delta_ppm"`
 
-	CCGaps          int    `json:"cc_gaps"`
-	PSISwitches     int    `json:"psi_switches"`
-	PCRWraps        int    `json:"pcr_wraps"`
-	LateReplays     int    `json:"late_replays"`
-	UnfixableGaps   int    `json:"unfixable_gaps"`
-	TimelineHash    string `json:"timeline_hash"`
-	ReplayHash      string `json:"replay_hash"`
-	ReplayHashEqual bool   `json:"replay_sha256_equal"`
+	CCGaps           int    `json:"cc_gaps"`
+	PSISwitches      int    `json:"psi_switches"`
+	PCRWraps         int    `json:"pcr_wraps"`
+	LateReplays      int    `json:"late_replays"`
+	RTPDuplicates    int    `json:"rtp_duplicates,omitempty"`
+	RTPOutsideWindow int    `json:"rtp_outside_window,omitempty"`
+	UnfixableGaps    int    `json:"unfixable_gaps"`
+	TimelineHash     string `json:"timeline_hash"`
+	ReplayHash       string `json:"replay_hash"`
+	ReplayHashEqual  bool   `json:"replay_sha256_equal"`
 }
 
 // SuiteManifest is the top-level deterministic batch manifest.
