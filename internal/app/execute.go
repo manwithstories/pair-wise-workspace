@@ -129,6 +129,12 @@ func execute(ctx context.Context, c Config) (*Result, *fault.Error) {
 	replayer.Interval = params.ReplayInterval
 
 	if !c.Resume && c.InterruptAfter > 0 {
+		// 清理上一次完成运行留下的终态产物，使中断目录只包含 4300 游标的检查点和报告。
+		_ = os.Remove(p.hashes)
+		_ = os.Remove(p.manifest)
+		_ = os.RemoveAll(filepath.Join(c.Out, "frames"))
+		_ = os.RemoveAll(filepath.Join(c.Out, "manifests"))
+
 		if ferr := replayer.ProcessAll(c.InterruptAfter); ferr != nil {
 			return res, asFault(ferr)
 		}
