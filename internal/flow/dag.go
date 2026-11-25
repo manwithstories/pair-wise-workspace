@@ -57,11 +57,7 @@ func (d *DAG) Add(n *Node) error {
 	if _, exists := d.nodes[n.ID]; exists {
 		return media.NewError(media.CodeInvalidArgument, "flow.dag", "id", "duplicate node: "+n.ID)
 	}
-	for _, dep := range n.Deps {
-		if _, ok := d.nodes[dep]; !ok {
-			return media.NewError(media.CodeInvalidArgument, "flow.dag", "deps", n.ID+" references missing dep "+dep)
-		}
-	}
+	// Dependencies may be added in any order; TopologicalOrder validates them.
 	if n.State == "" {
 		n.State = StatePending
 	}
@@ -88,6 +84,11 @@ func (d *DAG) TopologicalOrder() ([]string, error) {
 	indeg := make(map[string]int, len(d.nodes))
 	dependents := make(map[string][]string, len(d.nodes))
 	for id, n := range d.nodes {
+		for _, dep := range n.Deps {
+			if _, ok := d.nodes[dep]; !ok {
+				return nil, media.NewError(media.CodeInvalidArgument, "flow.dag", "deps", id+" references missing dep "+dep)
+			}
+		}
 		indeg[id] = len(n.Deps)
 		for _, dep := range n.Deps {
 			dependents[dep] = append(dependents[dep], id)
