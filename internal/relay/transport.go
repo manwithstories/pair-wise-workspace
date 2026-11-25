@@ -3,12 +3,14 @@ package relay
 import (
 	"fmt"
 
+	"relay.local/relay/internal/audit"
 	"relay.local/relay/internal/fault"
 	"relay.local/relay/internal/fixture"
 	"relay.local/relay/internal/index"
 	"relay.local/relay/internal/metadata"
 	"relay.local/relay/internal/model"
 	"relay.local/relay/internal/scene"
+	"relay.local/relay/internal/timeline"
 	"relay.local/relay/internal/transport"
 )
 
@@ -212,5 +214,94 @@ func checkDiagnostics(sc *scene.Scenario, rep *Report) error {
 			"colour isolation produced no recoverable diagnostic")
 	}
 	rep.Notes = append(rep.Notes, "color_isolation=1")
+	return nil
+}
+
+// verifyAlignment proves the cross-node path: for each recovered RTP stream,
+// drift fitted from sync anchors must stay within the 500 ppm bound, and the
+// drift-corrected node time must track the local MP4 frame spacing within a few
+// ticks. Streams are fitted independently because each node has its own epoch.
+func verifyAlignment(sc *scene.Scenario, recs []streamResult, rep *Report) error {
+	mp4Track, ok := scene.VideoTrack(sc.MP4)
+	if !ok {
+		return fault.New(-1, 0, fault.KindCorrupt, false, "no MP4 video track")
+	}
+	// Map frame content to its global index; recovery drops some packets, so
+	// payload identity is the only stable link back to the source frame.
+	indexOf := make(map[string]int, len(sc.Frames))
+	for i, f := range sc.Frames {
+		indexOf[audit.HashBytes(f)] = i
+	}
+	for _, sr := range recs {
+		anchors := streamAnchors(sr, indexOf, mp4Track)
+		if len(anchors) < 2 {
+			continue
+		}
+		fit := timeline.FitDrift(anchors)
+		if fit.Unaligned {
+			return fault.New(-1, 0, fault.KindDrift, false,
+				"%s drift could not be aligned: %s", sr.name, fit.Reason)
+		}
+		if err := checkSpacing(sr, fit, indexOf, mp4Track); err != nil {
+			return err
+		}
+		rep.Notes = append(rep.Notes, fmt.Sprintf("drift_ppm_%s=%d", sr.name, fit.PPM))
+	}
+	return nil
+}
+
+// streamAnchors pairs each recovered packet of one stream with its local frame
+// time, using payload identity to recover the source frame index.
+func streamAnchors(sr streamResult, indexOf map[string]int, mp4Track *model.Track) []timeline.Anchor {
+	var anchors []timeline.Anchor
+	for i := range sr.got.Packets {
+		if i >= len(sr.got.Ticks) {
+			break
+		}
+		global, ok := indexOf[audit.HashBytes(sr.got.Packets[i].Payload)]
+		if !ok || global >= len(mp4Track.Samples) {
+			continue
+		}
+		local, err := mp4Track.DTS90k(mp4Track.Samples[global])
+		if err != nil {
+			continue
+		}
+		anchors = append(anchors, timeline.Anchor{
+			Index: len(anchors), NodeTick: sr.got.Ticks[i], Local90k: local,
+		})
+	}
+	return anchors
+}
+
+// checkSpacing compares, per stream, the node-clock spacing of consecutive
+// recovered packets against the local spacing of the same frames. Drift
+// correction must reduce the residual to a few ticks.
+func checkSpacing(sr streamResult, fit timeline.DriftFit,
+	indexOf map[string]int, mp4Track *model.Track) error {
+	var prevLocal, prevNode int64 = -1, -1
+	for i := range sr.got.Packets {
+		if i >= len(sr.got.Ticks) {
+			break
+		}
+		global, ok := indexOf[audit.HashBytes(sr.got.Packets[i].Payload)]
+		if !ok || global >= len(mp4Track.Samples) {
+			continue
+		}
+		local, err := mp4Track.DTS90k(mp4Track.Samples[global])
+		if err != nil {
+			return fault.Wrap(-1, 0, fault.KindCorrupt, false, err)
+		}
+		node := sr.got.Ticks[i]
+		if prevLocal >= 0 {
+			localSpan := local - prevLocal
+			nodeSpan := fit.NodeToLocal(node) - fit.NodeToLocal(prevNode)
+			if diff := localSpan - nodeSpan; diff < -3 || diff > 3 {
+				return fault.New(-1, 0, fault.KindDrift, false,
+					"%s spacing mismatch: local %d vs corrected node %d (diff %d)",
+					sr.name, localSpan, nodeSpan, diff)
+			}
+		}
+		prevLocal, prevNode = local, node
+	}
 	return nil
 }

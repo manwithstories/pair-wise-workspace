@@ -89,6 +89,12 @@ func selfcheckExtra(ctx context.Context, sc *scene.Scenario, opts Options, rep *
 	}
 	rep.Cancelled = 1
 
+	// Cross-node alignment: recovered RTP times, corrected by the fitted
+	// drift, must match local frame spacing.
+	if err := verifyAlignment(sc, recs, rep); err != nil {
+		return err
+	}
+
 	// Transport verification: every stream must have been recovered exactly.
 	okStreams := 0
 	for _, r := range recs {
