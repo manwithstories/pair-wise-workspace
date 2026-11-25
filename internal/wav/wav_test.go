@@ -137,43 +137,61 @@ func TestCRCFlipIsolatesTile(t *testing.T) {
 func TestTruncatedTailIsResidual(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "trunc.wav")
-	// 2 full tiles + 7 residual frames, then drop the last 3 payload bytes.
+	// 2 full tiles + 7 residual frames of stereo 16-bit PCM.
 	frames := TileFrames*2 + 7
 	data := pcmTiles(frames, 2, 16, 0x10)
 	buildWAV(t, p, 48000, 2, 16, data, nil)
-	// Truncate file by 3 bytes (inside one stereo 16-bit frame).
+	// Truncate the file by 3 bytes (inside the trailing stereo frame).
 	st, _ := os.Stat(p)
 	if err := os.Truncate(p, st.Size()-3); err != nil {
 		t.Fatal(err)
 	}
+	// The reader must NOT fail the whole track; it records a tail fault and
+	// exposes the intact prefix as usable frames.
 	rd, err := NewReader(p)
-	if err == nil {
-		rd.Close()
-	}
-	// Reader may surface a truncated chunk fault; ensure it is KindTruncated
-	// and not a whole-track invalid error.
 	if err != nil {
-		var fe *model.FaultError
-		if !asFault(err, &fe) || fe.Fault.Kind != model.KindTruncated {
-			t.Fatalf("expected truncated fault, got %v", err)
-		}
+		t.Fatalf("short tail should be isolated, not fatal: %v", err)
+	}
+	defer rd.Close()
+	if rd.TailFault() == nil || rd.TailFault().Kind != model.KindTruncated {
+		t.Fatalf("expected a located truncated tail fault, got %+v", rd.TailFault())
+	}
+	// Full frames before the truncation remain addressable.
+	if rd.Header().FrameCount < TileFrames*2 {
+		t.Fatalf("intact prefix frames=%d want >= %d", rd.Header().FrameCount, TileFrames*2)
+	}
+	rep, err := rd.Inspect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The two complete tiles must still be structurally sound.
+	if n := len(rep.Tiles); n < 2 {
+		t.Fatalf("expected intact tiles, got %d", n)
 	}
 }
 
-func asFault(err error, target **model.FaultError) bool {
-	for err != nil {
-		if fe, ok := err.(*model.FaultError); ok {
-			*target = fe
-			return true
-		}
-		type unwrapper interface{ Unwrap() error }
-		u, ok := err.(unwrapper)
-		if !ok {
-			return false
-		}
-		err = u.Unwrap()
+func TestTruncatedDataOnlyNoCrCC(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "truncdata.wav")
+	// No crCC chunk; truncate inside the data payload itself.
+	frames := TileFrames * 3
+	data := pcmTiles(frames, 2, 16, 0x20)
+	buildWAV(t, p, 48000, 2, 16, data, nil)
+	st, _ := os.Stat(p)
+	if err := os.Truncate(p, st.Size()-5); err != nil {
+		t.Fatal(err)
 	}
-	return false
+	rd, err := NewReader(p)
+	if err != nil {
+		t.Fatalf("data short tail should be isolated: %v", err)
+	}
+	defer rd.Close()
+	if rd.TailFault() == nil {
+		t.Fatal("expected truncated tail fault")
+	}
+	if _, err := rd.Inspect(); err != nil {
+		t.Fatalf("inspect should tolerate the residual: %v", err)
+	}
 }
 
 func TestRejectsUnsupportedDepth(t *testing.T) {

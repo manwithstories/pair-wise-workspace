@@ -52,6 +52,9 @@ type Reader struct {
 	chunks   []Chunk
 	// ds64 real sizes, populated only for RF64.
 	ds64DataSize uint32
+	// tailFault records a recoverable short-tail truncation instead of
+	// failing the whole track; the intact prefix remains fully usable.
+	tailFault *model.Fault
 }
 
 // NewReader opens path and parses the container header (not the PCM payload).
@@ -179,11 +182,40 @@ func (rd *Reader) scanChunks(riffSize uint32) error {
 			}
 		}
 		// Validate declared length against remaining file before allocating.
+		// A short tail is isolated: clamp the chunk to the real file extent,
+		// record a located truncation fault, and keep processing the prefix.
 		padded := size + size%2
-		if size < 0 || c.Offset+size > rd.fileSize {
-			return model.NewFault(model.KindTruncated, "",
-				model.FrameRange{}, c.Offset,
-				fmt.Sprintf("chunk %q declares %d bytes beyond file end", c.ID, size))
+		if size < 0 {
+			return model.NewFault(model.KindInvalid, "",
+				model.FrameRange{}, c.Offset, "negative chunk length")
+		}
+		if c.Offset+size > rd.fileSize {
+			available := rd.fileSize - c.Offset
+			if available < 0 {
+				available = 0
+			}
+			// Only the frame-addressable data payload can be partially
+			// recovered. A truncated metadata/crc chunk cannot be trusted and
+			// is a hard (but still located) truncation error.
+			if c.ID != "data" {
+				return model.NewFault(model.KindTruncated, "",
+					model.FrameRange{}, c.Offset+available,
+					fmt.Sprintf("chunk %q declares %d bytes but %d remain",
+						c.ID, size, available))
+			}
+			// The frame range is finalized in finalizeData once frame size is
+			// known; record the byte extent here for now.
+			f := model.Fault{
+				Kind:       model.KindTruncated,
+				Range:      model.FrameRange{},
+				ByteOffset: c.Offset + available,
+				Message: fmt.Sprintf("data chunk declares %d bytes but %d remain",
+					size, available),
+			}
+			rd.tailFault = &f
+			size = available
+			c.Size = available
+			padded = size // truncated tail has no padding byte
 		}
 		switch c.ID {
 		case "fmt ":
@@ -209,6 +241,10 @@ func (rd *Reader) scanChunks(riffSize uint32) error {
 	}
 	return rd.finalizeData(riffSize)
 }
+
+// TailFault returns the recoverable short-tail truncation, if any. The intact
+// prefix is still fully analyzable; callers surface this as located damage.
+func (rd *Reader) TailFault() *model.Fault { return rd.tailFault }
 
 func (rd *Reader) parseFmt(c Chunk, size int64) error {
 	if size < 16 {
@@ -260,16 +296,38 @@ func (rd *Reader) finalizeData(riffSize uint32) error {
 		return model.NewFault(model.KindInvalid, "", model.FrameRange{},
 			h.DataChunk.Offset, "non-positive frame size")
 	}
-	if dataSize%h.FrameBytes != 0 {
-		// Frame misalignment: isolate the trailing residual rather than fail
-		// the whole track. Full frames remain usable.
-		h.FrameCount = dataSize / h.FrameBytes
-		return model.NewFault(model.KindAlignment, "",
-			model.FrameRange{First: model.Frame(h.FrameCount), Last: model.Frame(h.FrameCount + 1)},
-			h.DataChunk.Offset+h.FrameCount*h.FrameBytes,
-			fmt.Sprintf("data size %d not frame aligned (%d bytes/frame)", dataSize, h.FrameBytes))
-	}
 	h.FrameCount = dataSize / h.FrameBytes
+	if dataSize%h.FrameBytes != 0 {
+		// Frame misalignment: isolate the trailing partial frame rather than
+		// fail the whole track. Full frames remain usable; clamp the data chunk
+		// to the frame boundary and record a located residual fault.
+		aligned := h.FrameCount * h.FrameBytes
+		f := model.Fault{
+			Kind: model.KindAlignment,
+			Range: model.FrameRange{
+				First: model.Frame(h.FrameCount),
+				Last:  model.Frame(h.FrameCount + 1),
+			},
+			ByteOffset: h.DataChunk.Offset + aligned,
+			Message: fmt.Sprintf("data size %d not frame aligned (%d bytes/frame)",
+				dataSize, h.FrameBytes),
+		}
+		if rd.tailFault == nil {
+			rd.tailFault = &f
+		} else {
+			// Reuse the truncation fault but give it a frame-addressable range.
+			rd.tailFault.Range = f.Range
+			rd.tailFault.Kind = model.KindTruncated
+		}
+		h.DataChunk.Size = aligned
+	} else if rd.tailFault != nil {
+		// Even when frame-aligned, a truncated tail must carry a frame range so
+		// the pipeline can map it onto chunks and report it as located damage.
+		rd.tailFault.Range = model.FrameRange{
+			First: model.Frame(h.FrameCount),
+			Last:  model.Frame(h.FrameCount + 1),
+		}
+	}
 	return nil
 }
 

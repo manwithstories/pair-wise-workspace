@@ -12,6 +12,7 @@ import (
 	"mediaaudit/internal/clock"
 	"mediaaudit/internal/fixture"
 	"mediaaudit/internal/index"
+	"mediaaudit/internal/model"
 	"mediaaudit/internal/mp4"
 	"mediaaudit/internal/pipeline"
 	"mediaaudit/internal/rtp"
@@ -53,6 +54,25 @@ func loadAnalysis(pkgDir string, chunkFrames, tileFrames int64) (*analysis, erro
 			return nil, err
 		}
 	}
+	// Detect a frame-count shortfall against the manifest even when the WAV is
+	// itself frame-aligned (physical EOF). The missing tail is isolated to the
+	// final residual block rather than condemning the whole track.
+	actualFrames := wr.Header().FrameCount
+	if tf := wr.TailFault(); tf != nil {
+		ins.Faults.Add(*tf)
+	}
+	if actualFrames < man.Frames {
+		ins.Faults.Add(model.Fault{
+			Kind: model.KindTruncated,
+			Range: model.FrameRange{
+				First: model.Frame(actualFrames),
+				Last:  model.Frame(man.Frames),
+			},
+			ByteOffset: wr.Header().DataChunk.Offset +
+				actualFrames*wr.Header().FrameBytes,
+			Message: "audio shorter than manifest: tail frames missing",
+		})
+	}
 
 	drift, err := analyzeRTP(filepath.Join(pkgDir, fixture.RTPFile))
 	if err != nil {
@@ -87,16 +107,25 @@ func analyzeRTP(path string) (rtp.DriftResult, error) {
 	return s.EstimateDrift()
 }
 
-// chunkDamage returns the number of located faults intersecting a chunk.
+// chunkDamage returns the number of located faults intersecting a chunk. A
+// short-tail truncation beyond the last full frame is attributed to the final
+// chunk so the damage is not silently dropped.
 func (a *analysis) chunkDamage(seq int64, r frameRangeType) (int, error) {
 	first := int64(r.First)
 	last := int64(r.Last)
 	count := 0
+	totalChunks := (a.manifest.Frames + a.chunkFrames - 1) / a.chunkFrames
+	isLastChunk := seq == totalChunks-1
 	for _, fault := range a.inspect.Faults.All() {
-		if int64(fault.Range.Last) <= first || int64(fault.Range.First) >= last {
-			continue
+		intersects := int64(fault.Range.Last) > first && int64(fault.Range.First) < last
+		if !intersects && isLastChunk &&
+			(fault.Kind == model.KindTruncated || fault.Kind == model.KindAlignment) {
+			// Tail fault beyond the clamped frame count: attach to last chunk.
+			intersects = int64(fault.Range.First) >= first
 		}
-		count++
+		if intersects {
+			count++
+		}
 	}
 	return count, nil
 }

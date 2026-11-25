@@ -78,6 +78,11 @@ func (rd *Reader) Inspect() (*InspectReport, error) {
 		return nil, err
 	}
 	rep := &InspectReport{Faults: model.NewFaultSet()}
+	if rd.tailFault != nil {
+		// Surface the recoverable short-tail fault as located damage while the
+		// intact prefix still gets its full tile inspection below.
+		rep.Faults.Add(*rd.tailFault)
+	}
 	if err := rd.SeekData(); err != nil {
 		return nil, err
 	}
