@@ -59,7 +59,7 @@ func Run(req Request) (*Result, error) {
 		if err := writeInputs(req.OutDir, bundle); err != nil {
 			return nil, err
 		}
-		if err := j.Commit("generate", stageHashes["generate"], nil); err != nil {
+		if err := commitIfNew(j, "generate", stageHashes["generate"], nil); err != nil {
 			return nil, err
 		}
 	}
@@ -76,14 +76,14 @@ func Run(req Request) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := j.Commit("ingest", stageHashes["ingest"], nil); err != nil {
+	if err := commitIfNew(j, "ingest", stageHashes["ingest"], nil); err != nil {
 		return nil, err
 	}
 
 	aligned, alignErrs := events.Align(bundle.RawEvents)
 	crossErrs := events.CrossTrackSkew(aligned, 5*clock.NsPerMs)
 	allErrs := append(append([]*clock.Error{}, alignErrs...), crossErrs...)
-	if err := j.Commit("align", stageHashes["align"], nil); err != nil {
+	if err := commitIfNew(j, "align", stageHashes["align"], nil); err != nil {
 		return nil, err
 	}
 
@@ -98,7 +98,7 @@ func Run(req Request) (*Result, error) {
 		return nil, err
 	}
 	_ = gp
-	if err := j.Commit("graph", stageHashes["graph"], map[string]string{"topo_order": HashBytes([]byte(fmtJoin(order)))}); err != nil {
+	if err := commitIfNew(j, "graph", stageHashes["graph"], map[string]string{"topo_order": HashBytes([]byte(fmtJoin(order)))}); err != nil {
 		return nil, err
 	}
 
@@ -106,7 +106,7 @@ func Run(req Request) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := j.Commit("audio", stageHashes["audio"], audioReports); err != nil {
+	if err := commitIfNew(j, "audio", stageHashes["audio"], audioReports); err != nil {
 		return nil, err
 	}
 
@@ -125,13 +125,13 @@ func Run(req Request) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := j.Commit("cut", stageHashes["cut"], nil); err != nil {
+	if err := commitIfNew(j, "cut", stageHashes["cut"], nil); err != nil {
 		return nil, err
 	}
 
 	windows := fingerprintWindows(director, stageTrack, cutPlan.Segments)
 	pairs, _ := fingerprint.Dedupe(windows)
-	if err := j.Commit("fingerprint", stageHashes["fingerprint"], nil); err != nil {
+	if err := commitIfNew(j, "fingerprint", stageHashes["fingerprint"], nil); err != nil {
 		return nil, err
 	}
 
@@ -165,7 +165,7 @@ func Run(req Request) (*Result, error) {
 	if err := WriteMetrics(req.OutDir, m); err != nil {
 		return nil, err
 	}
-	if err := j.Commit("manifest", stageHashes["manifest"], map[string]string{"manifest.json": outputSHA}); err != nil {
+	if err := commitIfNew(j, "manifest", stageHashes["manifest"], map[string]string{"manifest.json": outputSHA}); err != nil {
 		return nil, err
 	}
 	m.Metrics.ReusedNodes = len(reusedAtStart)
@@ -173,6 +173,13 @@ func Run(req Request) (*Result, error) {
 }
 
 var ErrSimulatedInterrupt = errors.New("simulated recoverable interruption")
+
+func commitIfNew(j *recover.Journal, name, hash string, outputs map[string]string) error {
+	if j.IsCommitted(name, hash) {
+		return nil
+	}
+	return j.Commit(name, hash, outputs)
+}
 
 func colorToGraph(c ingest.ColorInfo, trackID int) graph.ColorDescription {
 	return graph.ColorDescription{
