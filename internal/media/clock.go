@@ -61,6 +61,10 @@ func (r TimeRange) Duration() (Rational, *Fault) {
 	return r.End.Sub(r.Start)
 }
 
+// IsSet reports whether the range was constructed through Rat/NewTimeRange.
+// The zero TimeRange has denominators equal to zero.
+func (r TimeRange) IsSet() bool { return r.Start.Den != 0 || r.End.Den != 0 }
+
 // RescaleTicks converts ticks from fromRate to toRate using exact arithmetic.
 // When exact is true the conversion must be integral; otherwise floor is used.
 // The result fitting in int64 is enforced, rejecting overflow.
