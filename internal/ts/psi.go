@@ -310,7 +310,9 @@ func (a *SectionAssembler) finish(pid uint16, raw []byte, part *partialSection) 
 	}
 	key := sectionKey{pid: pid, tid: s.TableID, ext: s.Ext}
 	if prev, ok := a.versions[key]; ok && prev != s.Version {
-		e := fault.Error{Kind: fault.KindPSI, Offset: part.start, PID: pid,
+		// A version switch is legal. Report it at informational severity so the
+		// operator sees the table update without mistaking it for damage.
+		e := fault.Error{Kind: fault.KindPSIVersion, Offset: part.start, PID: pid,
 			Detail: fmt.Sprintf("version switch tid=0x%02x ext=0x%04x %d->%d",
 				s.TableID, s.Ext, prev, s.Version)}
 		a.versions[key] = s.Version

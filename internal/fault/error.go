@@ -37,6 +37,9 @@ const (
 	// KindMetadata flags a track whose parameters differ from another track in a
 	// way that forbids silent merging (channel layout, sample rate, colour).
 	KindMetadata Kind = "metadata"
+	// KindPSIVersion records a legal PSI version switch. It is reported so the
+	// operator can see table updates, but it does not mark damaged content.
+	KindPSIVersion Kind = "psi-version"
 )
 
 // Recoverable reports whether a gap caused by this kind can be healed by
@@ -67,7 +70,7 @@ const (
 // SeverityOf maps a kind onto its report severity.
 func SeverityOf(k Kind) Severity {
 	switch k {
-	case KindMetadata, KindRTP:
+	case KindMetadata, KindRTP, KindPSIVersion:
 		return SevInfo
 	case KindContinuity, KindTruncated, KindSync, KindAdaptation:
 		return SevRepairable

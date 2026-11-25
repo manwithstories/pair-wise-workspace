@@ -151,7 +151,7 @@ func TestPSIVersionSwitch(t *testing.T) {
 		t.Fatalf("first version: %v", errs)
 	}
 	secs, errs := asm.Assemble(psPacket(t, 0x00, 1, v1, 188, 1))
-	if len(errs) != 1 || errs[0].Kind != fault.KindPSI {
+	if len(errs) != 1 || errs[0].Kind != fault.KindPSIVersion {
 		t.Fatalf("expected version-switch diagnostic: %v", errs)
 	}
 	if !strings.Contains(errs[0].Detail, "0->1") {
