@@ -207,7 +207,7 @@ func (r *Reader) FindNextElement(targetID uint32, maxScan int64) (Element, error
 			return Element{}, model.NewError(model.PhaseEBML, candidate, true, "resync seek failed", err)
 		}
 		el, err := r.ReadElementHeader()
-		if err == nil && el.ID == targetID && el.HeaderSize >= 4 {
+		if err == nil && el.ID == targetID && el.HeaderSize >= 2 {
 			return el, nil
 		}
 		if err != nil {
