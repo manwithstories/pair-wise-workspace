@@ -19,8 +19,23 @@ func TestRepeatedRunsIdentical(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(m1, m2) {
-		t.Fatalf("metrics differ across runs:\n%+v\n%+v", m1, m2)
+	// deterministic outputs must be identical across runs
+	deterministic := func(m *Metrics) []any {
+		return []any{
+			m.RoundtripEqual, m.KeyframeHit, m.SegmentSHA256Match,
+			m.DamagedRejected, m.BurstRecovered, m.DeadlineSkip,
+			m.AVDriftP95MS, m.MaxInflight, m.RepeatHashEqual,
+			m.CancelWorkers, m.Failures,
+		}
+	}
+	if !reflect.DeepEqual(deterministic(m1), deterministic(m2)) {
+		t.Fatalf("deterministic metrics differ:\n%+v\n%+v", m1, m2)
+	}
+	// queue peak depends on goroutine interleaving; the contract is the bound
+	for _, m := range []*Metrics{m1, m2} {
+		if m.QueuePeak > cfg.Queue {
+			t.Fatalf("queue peak %d exceeds bound %d", m.QueuePeak, cfg.Queue)
+		}
 	}
 	if !m1.RepeatHashEqual {
 		t.Fatal("repeat hash equality lost")
