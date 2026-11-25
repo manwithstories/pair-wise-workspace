@@ -112,7 +112,7 @@ func ParseFragment(path string, seq int, timeScale uint32, mem *model.MemTracker
 }
 
 func markOversized(rep *model.FragmentReport, size int64, mem *model.MemTracker) error {
-	rep.FirstBadOff = 0
+	// 超长是容量边界故障而非字节级盒结构错误，不设置 FirstBadOff，保留 -1。
 	rep.Faults = append(rep.Faults, model.Fault{
 		Kind:   model.FaultOversized,
 		Segment: rep.Seq,

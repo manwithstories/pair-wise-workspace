@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 
 	gomp4 "github.com/abema/go-mp4"
 )
@@ -93,6 +94,39 @@ func (l *limitedReader) readBoxBytes(b boxInfo) ([]byte, error) {
 		return nil, err
 	}
 	return buf, nil
+}
+
+// LocateMdatHeader 返回 mdat 盒头在文件中的绝对偏移。
+// 即便 mdat 负载被截断，盒头本身仍可读，因此依据各盒声明大小顺序扫描即可定位；
+// 找不到 mdat 时返回 -1。
+func LocateMdatHeader(path string) (int64, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return -1, err
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return -1, err
+	}
+	fileLen := st.Size()
+	lr := &limitedReader{r: f, base: 0, end: fileLen}
+	off := int64(0)
+	for off < fileLen {
+		b, err := lr.nextBox(off)
+		if err != nil {
+			// 截断点恰在某盒：若已识别为 mdat，盒头偏移依然有效，返回给调用方定位。
+			if b.typ == "mdat" {
+				return b.off, nil
+			}
+			return -1, err
+		}
+		if b.typ == "mdat" {
+			return b.off, nil
+		}
+		off = b.off + int64(b.size)
+	}
+	return -1, nil
 }
 
 // parseMoof 用 go-mp4 解析 moof 负载，抽取 tfdt/tfhd/trun。

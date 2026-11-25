@@ -27,9 +27,9 @@ func Generate(outDir string, spec Spec, edge bool) error {
 		if edge && seq == missingSeg {
 			continue // 物理文件缺失，但清单仍引用
 		}
-		size := 256
+		size := 64
 		if edge && seq == oversizedSeg {
-			size = 1200 // 明显大于常规分片，配合 analyze 的受限内存预算触发超长故障
+			size = 1200 // 明显大于常规分片（约 350 字节），触发 runner 的超长分片受限预算
 		}
 		frag := buildFragment(spec, seq, r, size)
 		if edge && seq == truncatedSeg {
