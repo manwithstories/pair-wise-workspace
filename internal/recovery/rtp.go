@@ -47,6 +47,10 @@ type Result struct {
 	RecoveredCount int         `json:"recovered_count"`
 	DupCount       int         `json:"duplicate_count"`
 	OutOfOrder     int         `json:"out_of_order"`
+	// LostInTransit is how many sent packets never arrived (recovered + still
+	// missing); Unrecoverable is the subset no repair copy could restore.
+	LostInTransit int `json:"lost_in_transit"`
+	Unrecoverable int `json:"unrecoverable"`
 }
 
 // RepairCopy is a redundant copy of one packet carried by another packet on
@@ -59,10 +63,11 @@ type RepairCopy struct {
 	Marker    bool
 }
 
-// Redundancy maps a received carrier's wire sequence number to the repair copy
-// it carries. Real streams derive this from RTX/FEC metadata; fixtures encode
-// it explicitly so recovery can be scored.
-type Redundancy map[uint16]RepairCopy
+// Redundancy maps a received carrier's wire sequence number to the repair
+// copies it carries. A carrier may protect several earlier packets, as an FEC
+// block or a multi-packet RTX bundle would. Real streams derive this from
+// RTX/FEC metadata; fixtures encode it explicitly so recovery can be scored.
+type Redundancy map[uint16][]RepairCopy
 
 // Options bounds recovery work and supplies the sender's intended sequence
 // window.
@@ -165,28 +170,30 @@ func Recover(ssrc uint32, camera string, in []*rtp.Packet, red Redundancy, opts 
 	// Index repair copies by the unwrapped sequence they restore. A repair is
 	// usable only if the carrier that holds it actually arrived.
 	repair := make(map[int64]Packet)
-	for wire, rc := range red {
+	for wire, copies := range red {
 		if _, ok := bySeq[seqForWire(wire)]; !ok {
 			continue // carrier lost
 		}
-		target := seqForWire(rc.Orig)
-		if _, already := bySeq[target]; already {
-			continue
-		}
-		if _, dup := repair[target]; dup {
-			continue
-		}
-		payload := append([]byte(nil), rc.Payload...)
-		repair[target] = Packet{
-			Seq:       target,
-			Wire:      rc.Orig,
-			Timestamp: media.Unwrap32Timestamp(0, rc.Timestamp),
-			Marker:    rc.Marker,
-			PT:        96,
-			SSRC:      ssrc,
-			Payload:   payload,
-			Hash:      sha256.Sum256(payload),
-			Recovered: true,
+		for _, rc := range copies {
+			target := seqForWire(rc.Orig)
+			if _, already := bySeq[target]; already {
+				continue
+			}
+			if _, dup := repair[target]; dup {
+				continue
+			}
+			payload := append([]byte(nil), rc.Payload...)
+			repair[target] = Packet{
+				Seq:       target,
+				Wire:      rc.Orig,
+				Timestamp: media.Unwrap32Timestamp(0, rc.Timestamp),
+				Marker:    rc.Marker,
+				PT:        96,
+				SSRC:      ssrc,
+				Payload:   payload,
+				Hash:      sha256.Sum256(payload),
+				Recovered: true,
+			}
 		}
 	}
 
@@ -209,6 +216,8 @@ func Recover(ssrc uint32, camera string, in []*rtp.Packet, red Redundancy, opts 
 		res.LostCount++
 	}
 	sort.Slice(res.Packets, func(i, j int) bool { return res.Packets[i].Seq < res.Packets[j].Seq })
+	res.LostInTransit = res.RecoveredCount + res.LostCount
+	res.Unrecoverable = res.LostCount
 	return res, nil
 }
 

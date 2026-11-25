@@ -3,11 +3,14 @@ package fixture
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand"
 	"os"
 	"path/filepath"
 
 	"github.com/pion/rtp"
+
+	"mediad/internal/media"
 )
 
 // RepairCopyRecord is a redundant copy of one packet carried by another, as
@@ -22,14 +25,14 @@ type RepairCopyRecord struct {
 // RTPPacketRecord is one received packet. Repair, when present, redundantly
 // re-carries an earlier packet so the receiver can restore it if it was lost.
 type RTPPacketRecord struct {
-	SSRC        uint32            `json:"ssrc"`
-	Camera      string            `json:"camera"`
-	Seq         uint16            `json:"seq"`
-	Timestamp   uint32            `json:"timestamp"`
-	Marker      bool              `json:"marker"`
-	PayloadType uint8             `json:"payload_type"`
-	Payload     []byte            `json:"payload"`
-	Repair      *RepairCopyRecord `json:"repair,omitempty"`
+	SSRC        uint32             `json:"ssrc"`
+	Camera      string             `json:"camera"`
+	Seq         uint16             `json:"seq"`
+	Timestamp   uint32             `json:"timestamp"`
+	Marker      bool               `json:"marker"`
+	PayloadType uint8              `json:"payload_type"`
+	Payload     []byte             `json:"payload"`
+	Repairs     []RepairCopyRecord `json:"repairs,omitempty"`
 }
 
 // RTPTrace is a recorded, possibly lossy packet stream for one SSRC, along
@@ -43,13 +46,13 @@ type RTPTrace struct {
 	Recoverable []uint16          `json:"recoverable"` // dropped but recoverable via redundancy
 }
 
-// RedundantFor returns the repair copies keyed by carrier wire sequence, in
-// the shape recovery.Recover expects.
-func (t *RTPTrace) RedundantFor() map[uint16]RepairCopyRecord {
-	out := make(map[uint16]RepairCopyRecord)
+// Redundancy returns the repair copies keyed by carrier wire sequence, in the
+// shape recovery.Recover expects.
+func (t *RTPTrace) Redundancy() map[uint16][]RepairCopyRecord {
+	out := make(map[uint16][]RepairCopyRecord)
 	for _, r := range t.Received {
-		if r.Repair != nil {
-			out[r.Seq] = *r.Repair
+		if len(r.Repairs) > 0 {
+			out[r.Seq] = r.Repairs
 		}
 	}
 	return out
@@ -85,6 +88,11 @@ func writeRTPFixture(opts Options, cams []Camera, info *Info, mediaDir string) e
 }
 
 // buildRTPTrace synthesizes the sender stream and the received subset.
+// redundancyDepth is how many earlier packets each carrier re-protects. Two
+// overlapping copies make single losses and isolated double losses
+// recoverable while keeping the trace realistic.
+const redundancyDepth = 2
+
 func buildRTPTrace(opts Options, cam Camera, rng *rand.Rand) *RTPTrace {
 	const ssrcBase = 0x5EED0000
 	trace := &RTPTrace{
@@ -128,18 +136,21 @@ func buildRTPTrace(opts Options, cam Camera, rng *rand.Rand) *RTPTrace {
 		}
 	}
 
-	// Every packet except the first redundantly re-carries the previous
-	// packet's frame, emulating RTX/FEC. A dropped packet is recoverable iff
-	// its successor (the carrier) survived.
+	// Each packet redundantly re-carries the previous two packets' frames,
+	// emulating overlapping FEC blocks / RTX bundles. A dropped packet is
+	// recoverable iff at least one later carrier of it survived, so an
+	// isolated loss and a single-back loss are both repaired.
 	repaired := make(map[uint16]bool)
 	for f := 1; f < framesPerCam; f++ {
 		if drop[sent[f].wire] {
-			continue // carrier lost
+			continue // this carrier itself lost
 		}
-		orig := sent[f-1].wire
-		if drop[orig] && !repaired[orig] {
-			repaired[orig] = true
-			trace.Recoverable = append(trace.Recoverable, orig)
+		for back := 1; back <= redundancyDepth && f-back >= 0; back++ {
+			orig := sent[f-back].wire
+			if drop[orig] && !repaired[orig] {
+				repaired[orig] = true
+				trace.Recoverable = append(trace.Recoverable, orig)
+			}
 		}
 	}
 
@@ -156,13 +167,11 @@ func buildRTPTrace(opts Options, cam Camera, rng *rand.Rand) *RTPTrace {
 			PayloadType: 96,
 			Payload:     sent[f].payload,
 		}
-		if f > 0 {
-			rec.Repair = &RepairCopyRecord{
-				Orig:      sent[f-1].wire,
-				Payload:   sent[f-1].payload,
-				Timestamp: sent[f-1].ts,
-				Marker:    sent[f-1].marker,
-			}
+		for back := 1; back <= redundancyDepth && f-back >= 0; back++ {
+			prev := sent[f-back]
+			rec.Repairs = append(rec.Repairs, RepairCopyRecord{
+				Orig: prev.wire, Payload: prev.payload, Timestamp: prev.ts, Marker: prev.marker,
+			})
 		}
 		trace.Received = append(trace.Received, rec)
 	}
@@ -182,12 +191,10 @@ func buildRTPTrace(opts Options, cam Camera, rng *rand.Rand) *RTPTrace {
 	return trace
 }
 
-// ToRTP converts a fixture record into a pion/rtp packet so the recovery path
-// is validated against a real RTP parser rather than a bespoke decoder.
-func ToRTP(rec RTPPacketRecord) (*rtp.Packet, error) {
-	if len(rec.Payload) > 1400 {
-		return nil, fmt.Errorf("fixture: payload too large for one RTP packet")
-	}
+// ToPacket converts a fixture record into a pion/rtp packet. It panics only
+// for records whose payload cannot fit a single RTP datagram, which fixtures
+// never generate.
+func (t *RTPTrace) ToPacket(rec RTPPacketRecord) *rtp.Packet {
 	p := &rtp.Packet{Header: rtp.Header{
 		Version:        2,
 		Marker:         rec.Marker,
@@ -197,7 +204,28 @@ func ToRTP(rec RTPPacketRecord) (*rtp.Packet, error) {
 		SSRC:           rec.SSRC,
 	}}
 	p.Payload = rec.Payload
-	return p, nil
+	return p
+}
+
+// ReadRTPTrace loads a trace JSON file, enforcing the packet and byte limits.
+func ReadRTPTrace(path string, lim media.Limits) (*RTPTrace, error) {
+	if lim == (media.Limits{}) {
+		lim = media.DefaultLimits()
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	dec := json.NewDecoder(io.LimitReader(f, lim.MaxManifestBytes))
+	var tr RTPTrace
+	if err := dec.Decode(&tr); err != nil {
+		return nil, err
+	}
+	if len(tr.Received) > lim.MaxPackets {
+		return nil, fmt.Errorf("fixture: trace has %d packets, limit %d", len(tr.Received), lim.MaxPackets)
+	}
+	return &tr, nil
 }
 
 // RTPSamplePayload exposes the deterministic payload used by fixtures.

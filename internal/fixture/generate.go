@@ -248,16 +248,12 @@ type camState struct {
 	frames   int
 }
 
-// localTicks maps a reference tick to this camera's local clock, optionally
-// adding a 33-bit wrap origin.
+// localTicks maps a reference tick to this camera's local clock. A wrapBase
+// shift makes the local clock cross the 33-bit boundary mid-stream, so its
+// on-wire PTS/DTS values wrap exactly as a real MPEG clock would.
 func (st *camState) localTicks(ref int64) int64 {
 	drift := int64(float64(ref) * st.driftPPM / 1e6)
 	return st.wrapBase + ref + drift
-}
-
-// encodeTS represents a local tick as a 33-bit counter value.
-func (st *camState) encodeTS(local int64) uint64 {
-	return uint64(((local % media.Wrap33) + media.Wrap33) % media.Wrap33)
 }
 
 // buildSegment returns the segment bytes and the ordered sample payloads.
@@ -275,7 +271,10 @@ func (st *camState) buildSegment(index int) ([]byte, [][]byte, error) {
 		payloads[f] = samplePayload(st.cam, index, f)
 	}
 	localStart := st.localTicks(refStart)
-	seg := buildFragmentedSegment(st.cam, index, int64(st.encodeTS(localStart)), durs, payloads)
+	// tfdt carries the low 33 bits; the adapter unwraps against its running
+	// reference so a mid-stream 2^33 crossing is reconstructed exactly.
+	encoded := ((localStart % media.Wrap33) + media.Wrap33) % media.Wrap33
+	seg := buildFragmentedSegment(st.cam, index, encoded, durs, payloads)
 	return seg, payloads, nil
 }
 
