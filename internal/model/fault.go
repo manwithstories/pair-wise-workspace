@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 )
@@ -104,6 +105,16 @@ func (k Kind) String() string {
 	default:
 		return "unknown"
 	}
+}
+
+// MarshalJSON emits the stable string label rather than the numeric enum.
+func (k Kind) MarshalJSON() ([]byte, error) {
+	return json.Marshal(k.String())
+}
+
+// MarshalJSON renders a frame range as a compact [first, last] array.
+func (fr FrameRange) MarshalJSON() ([]byte, error) {
+	return json.Marshal([2]int64{int64(fr.First), int64(fr.Last)})
 }
 
 // FaultSet is an ordered, de-duplicated collection of located faults. Order of
