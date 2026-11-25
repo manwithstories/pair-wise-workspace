@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"time"
 
 	rtpadapter "mediaproc/internal/rtp"
 
@@ -66,9 +67,26 @@ func RunDemo(opts Options) (*Report, error) {
 		return nil, err
 	}
 	runner := pipeline.NewRunner(opts.Queue, opts.MaxMemory, opts.SlowConsumer)
+	runner.StartGate = make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-runner.StartGate:
+				return
+			case <-ticker.C:
+				if runner.Metrics().PeakQueue >= opts.Queue {
+					runner.Resume()
+					return
+				}
+			}
+		}
+	}()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	defer runner.Resume()
 	runErr := make(chan error, 1)
 	go func() { runErr <- runner.Run(ctx, pub.Publish) }()
 
@@ -174,6 +192,7 @@ loop:
 			return report, err
 		}
 	}
+	runner.Resume()
 	runner.Close()
 	if err := <-runErr; err != nil {
 		return report, err

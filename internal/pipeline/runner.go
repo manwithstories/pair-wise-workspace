@@ -33,6 +33,9 @@ type Runner struct {
 	MaxMemory     int64
 	SlowConsumer  time.Duration
 	Cleanup       func(Item)
+	// StartGate, when non-nil, blocks consumption until Resume is called.
+	// This lets tests/demos deterministically fill the bounded queue.
+	StartGate chan struct{}
 
 	queue chan Item
 
@@ -41,6 +44,7 @@ type Runner struct {
 	metrics      Metrics
 	closed       bool
 	cancelOffset int64
+	resumeOnce   sync.Once
 }
 
 // NewRunner constructs a bounded runner.
@@ -57,6 +61,15 @@ func NewRunner(queueCapacity int, maxMemory int64, slow time.Duration) *Runner {
 		SlowConsumer:  slow,
 		queue:         make(chan Item, queueCapacity),
 	}
+}
+
+// Resume closes StartGate exactly once, allowing the consumer loop to start.
+func (r *Runner) Resume() {
+	r.resumeOnce.Do(func() {
+		if r.StartGate != nil {
+			close(r.StartGate)
+		}
+	})
 }
 
 // Metrics returns a snapshot of queue metrics.
@@ -125,6 +138,13 @@ func (r *Runner) Submit(ctx context.Context, item Item) error {
 // Run consumes queued items until ctx is canceled or Close is called. A slow
 // consumer delay is applied through context-aware sleep.
 func (r *Runner) Run(ctx context.Context, consume func(context.Context, Item) error) error {
+	if r.StartGate != nil {
+		select {
+		case <-r.StartGate:
+		case <-ctx.Done():
+			return r.cancelCleanup(ctx)
+		}
+	}
 	for {
 		select {
 		case <-ctx.Done():
