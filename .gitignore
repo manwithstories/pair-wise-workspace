@@ -71,3 +71,11 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- fieldcut 构建产物与本地演示输出（不提交）----
+/fieldcut
+*.m4s
+*.tmp
+.fieldcut-demo/
+.dbg-demo/
+.dbg-build/
