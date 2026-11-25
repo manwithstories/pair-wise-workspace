@@ -1,10 +1,11 @@
-package mp4scan
+package mp4scan_test
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
 
+	mp4scan "mediaqa/internal/mp4"
 	"mediaqa/internal/fixture"
 	"mediaqa/internal/media"
 )
@@ -36,7 +37,7 @@ func TestScanValid(t *testing.T) {
 		t.Fatal(err)
 	}
 	var errs media.List
-	res, err := Scan(writeTemp(t, data), &errs)
+	res, err := mp4scan.Scan(writeTemp(t, data), &errs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +76,7 @@ func TestScanTruncatedMdat(t *testing.T) {
 	data, _ := fixture.Gen(7, spec())
 	cut := len(data) - 50 // inside the last sample(s)
 	var errs media.List
-	res, err := Scan(writeTemp(t, fixture.Truncate(data, cut)), &errs)
+	res, err := mp4scan.Scan(writeTemp(t, fixture.Truncate(data, cut)), &errs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +100,7 @@ func TestScanTruncatedMdat(t *testing.T) {
 func TestScanMissingMoov(t *testing.T) {
 	data, _ := fixture.Gen(7, spec())
 	var errs media.List
-	res, err := Scan(writeTemp(t, fixture.StripMoov(data)), &errs)
+	res, err := mp4scan.Scan(writeTemp(t, fixture.StripMoov(data)), &errs)
 	if err != nil {
 		t.Fatal(err)
 	}
