@@ -109,6 +109,7 @@ func InitRelPath(spec fixture.RenditionSpec) string {
 func recordsToTrack(id string, rendition int, records []ingest.Record, tables *ingest.PSIRegistry, registry *codec.Registry) (segment.Track, error) {
 	track := segment.Track{ID: id}
 	ptsUnwrap := map[uint16]*timeline.Unwrapper{}
+	dtsUnwrap := map[uint16]*timeline.Unwrapper{}
 	pcrUnwrap := map[uint16]*timeline.Unwrapper{}
 	for _, rec := range records {
 		cid, err := codecForRecord(tables, rec)
@@ -132,7 +133,10 @@ func recordsToTrack(id string, rendition int, records []ingest.Record, tables *i
 			pts = v
 		}
 		if rec.DTS.Valid {
-			d, err := ptsUnwrap[rec.PID].Unwrap33(rec.DTS.Value)
+			if dtsUnwrap[rec.PID] == nil {
+				dtsUnwrap[rec.PID] = &timeline.Unwrapper{}
+			}
+			d, err := dtsUnwrap[rec.PID].Unwrap33(rec.DTS.Value)
 			if err != nil {
 				return track, err
 			}
