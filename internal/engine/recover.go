@@ -60,15 +60,16 @@ func (p *RTPProbe) Push(pkt *rtp.Packet, loc base.Locator) ([]*rtp.Packet, []*ba
 			"late/duplicate sequence %d", pkt.SequenceNumber))
 		return nil, faults
 	case dist > p.maxJitter:
-		// Unrecoverably outside the reorder window: declare the gap.
+		// Unrecoverably outside the reorder window: declare the gap and
+		// advance the expectation so subsequent packets keep flowing.
 		p.Losses += int(dist)
 		faults = append(faults, base.NewFault(base.FaultRTPLoss, loc, true,
 			"sequence jump %d -> %d beyond jitter window", p.nextSeq, pkt.SequenceNumber))
 		p.nextSeq = pkt.SequenceNumber
-	case dist > 0:
-		p.reorderBuf[pkt.SequenceNumber] = pkt
 	}
+	p.reorderBuf[pkt.SequenceNumber] = pkt
 
+	// Emit the longest contiguous run starting at the expected sequence.
 	var out []*rtp.Packet
 	for {
 		pkt2, ok := p.reorderBuf[p.nextSeq]
@@ -79,12 +80,10 @@ func (p *RTPProbe) Push(pkt *rtp.Packet, loc base.Locator) ([]*rtp.Packet, []*ba
 		out = append(out, pkt2)
 		p.nextSeq++
 	}
-	if dist > 0 && dist <= p.maxJitter && len(out) > 0 {
+	// A reorder happened when filling the hole flushes more than the single
+	// packet just pushed (the extras came out of the reorder buffer).
+	if len(out) > 1 {
 		p.Reordered++
-	}
-	if dist == 0 {
-		out = append(out, pkt)
-		p.nextSeq++
 	}
 	return out, faults
 }
