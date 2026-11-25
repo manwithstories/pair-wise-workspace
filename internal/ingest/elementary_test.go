@@ -65,6 +65,21 @@ func TestRejectUnknownCodecAndMissingClock(t *testing.T) {
 	assertKind(t, err, media.KindMissingClock)
 }
 
+func TestParseH265IDRType(t *testing.T) {
+	clock := media.DefaultClock()
+	// NAL header type 20 (IDR_W_RADL): (20 << 1) = 0x28.
+	data := []byte{0, 0, 0, 1, 0x28, 0x01, 0x02, 0, 0, 0, 1, 0x02, 0x30}
+	units, err := ingest.ParseElementary(ingest.ParseRequest{
+		Codec: ingest.CodecH265, Data: data, Clock: &clock, FrameDuration: 3000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(units) != 2 || !units[0].Keyframe || units[1].Keyframe {
+		t.Fatalf("units=%+v", units)
+	}
+}
+
 func TestPCMRejectsTruncatedFrame(t *testing.T) {
 	clock := media.DefaultClock()
 	_, err := ingest.ReadS16LE([]byte{1, 2, 3}, ingest.PCMFormat{SampleRate: 48000, Channels: 1}, &clock, 0)
