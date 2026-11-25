@@ -188,8 +188,17 @@ func packetKey(p media.Packet) string {
 // streamRemux runs a producer/consumer pair over a byte-budgeted queue. The
 // consumer sleeps SlowDelay per packet to force backpressure.
 func streamRemux(opts jobOptions, plan *mapping.Plan, tracks []media.Track, packets []media.Packet) ([]byte, remux.Summary, int64, int64, error) {
-	var out bytes.Buffer
-	sink, err := remux.NewSink(&out, plan, tracks, remux.Options{
+	return streamRemuxTo(opts, plan, tracks, packets, nil)
+}
+
+// streamRemuxTo is streamRemux with an optional state-bearing writer. Job
+// checkpoints read the writer's committed length, so the demo persists the
+// real partial output rather than a copy.
+func streamRemuxTo(opts jobOptions, plan *mapping.Plan, tracks []media.Track, packets []media.Packet, out *stateWriter) ([]byte, remux.Summary, int64, int64, error) {
+	if out == nil {
+		out = &stateWriter{}
+	}
+	sink, err := remux.NewSink(out, plan, tracks, remux.Options{
 		Target: opts.Target, ClusterSpan: opts.ClusterSpan, ClusterCRC: true,
 	})
 	if err != nil {
@@ -247,19 +256,37 @@ func streamRemux(opts jobOptions, plan *mapping.Plan, tracks []media.Track, pack
 	return out.Bytes(), summary, peak, blocked, nil
 }
 
+// stateWriter buffers output and tracks the last checkpointed byte length so a
+// caller can truncate back to it after an interruption.
+type stateWriter struct {
+	buf       bytes.Buffer
+	committed int64
+}
+
+func (w *stateWriter) Write(p []byte) (int, error) { return w.buf.Write(p) }
+func (w *stateWriter) Bytes() []byte               { return w.buf.Bytes() }
+func (w *stateWriter) Commit(n int64)              { w.committed = n }
+func (w *stateWriter) Committed() int64            { return w.committed }
+
+func (w *stateWriter) TruncateToCommitted() {
+	if w.committed >= 0 && w.committed <= int64(w.buf.Len()) {
+		w.buf.Truncate(int(w.committed))
+	}
+}
+
 // resumeRun simulates an interrupted write: it streams the first half, takes a
 // checkpoint, truncates the output, then resumes and compares the digest. It
 // also injects a disk failure partway through a second run to prove the error
 // is classed as recoverable (exit code 4).
-func resumeRun(opts jobOptions, data []byte) (bool, error) {
+func resumeRun(opts jobOptions, data []byte) (bool, bool, error) {
 	in, err := demux.Demux(bytes.NewReader(data), demux.DefaultLimits())
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	tracks, rules := adaptForTarget(opts.Target, in.Tracks)
 	plan, err := mapping.NewResolver(opts.Target, rules).Resolve(tracks)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	packets := mappedPackets(plan, in.Packets)
 	sortPackets(packets)
@@ -267,89 +294,99 @@ func resumeRun(opts jobOptions, data []byte) (bool, error) {
 
 	// Reference run.
 	var full bytes.Buffer
-	refSink, err := remux.NewSink(&full, plan, in.Tracks, ropts)
+	refSink, err := remux.NewSink(&full, plan, tracks, ropts)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	for _, p := range packets {
 		if err := refSink.WritePacket(p); err != nil {
-			return false, err
+			return false, false, err
 		}
 	}
 	refSum, err := refSink.Close()
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 
 	dir := filepath.Join(opts.WorkDir, "resume")
 	store, err := checkpoint.NewStore(dir)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	job := fmt.Sprintf("demo-%d", opts.Seed)
 	outPath := filepath.Join(dir, "resumed.bin")
 
-	var part bytes.Buffer
-	s1, err := remux.NewSink(&part, plan, in.Tracks, ropts)
-	if err != nil {
-		return false, err
-	}
+	// First run: stop halfway, checkpoint the real writer state, persist the
+	// partial file.
+	part := &stateWriter{}
 	cut := len(packets) / 2
+	sink, err := remux.NewSink(part, plan, tracks, ropts)
+	if err != nil {
+		return false, false, err
+	}
 	for _, p := range packets[:cut] {
-		if err := s1.WritePacket(p); err != nil {
-			return false, err
+		if err := sink.WritePacket(p); err != nil {
+			return false, false, err
 		}
 	}
-	progress, err := s1.Flush()
+	progress, err := sink.Flush()
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
+	part.Commit(progress.Bytes)
+	part.TruncateToCommitted()
 	if err := store.Save(job, outPath, string(opts.Target), progress); err != nil {
-		return false, err
+		return false, false, err
 	}
 	if err := os.WriteFile(outPath, part.Bytes(), 0o644); err != nil {
-		return false, err
+		return false, false, err
 	}
 
+	// Second run: reload, truncate the file to the committed length, resume.
 	st, err := store.Load(job)
-	if err != nil || st == nil {
-		return false, fmt.Errorf("checkpoint reload failed: %v", err)
+	if err != nil {
+		return false, false, err
+	}
+	if st == nil {
+		return false, false, fmt.Errorf("checkpoint reload returned nil")
 	}
 	if err := st.TruncateOutput(outPath); err != nil {
-		return false, err
+		return false, false, err
 	}
 	existing, err := os.ReadFile(outPath)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	resumeOpts := ropts
 	resumeOpts.Resume = st.Resume()
-	var out bytes.Buffer
-	out.Write(existing)
-	s2, err := remux.NewSink(&out, plan, in.Tracks, resumeOpts)
+	resumed := &stateWriter{}
+	resumed.buf.Write(existing)
+	s2, err := remux.NewSink(resumed, plan, tracks, resumeOpts)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	for _, p := range packets[st.Packets:] {
 		if err := s2.WritePacket(p); err != nil {
-			return false, err
+			return false, false, err
 		}
 	}
 	resSum, err := s2.Close()
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	_ = store.Delete(job)
+	equal := resSum.Digest == refSum.Digest && bytes.Equal(resumed.Bytes(), full.Bytes())
 
-	// Inject a write failure to confirm the interruption class.
-	interrupted, err := simulateDiskFailure(plan, in.Tracks, packets, ropts)
+	// A dropped archive volume must classify as recoverable (exit 4).
+	interrupted, err := simulateDiskFailure(plan, tracks, packets, ropts)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
-	if media.ExitCode(interrupted) != 4 {
-		return false, fmt.Errorf("write failure classified as %d, want 4", media.ExitCode(interrupted))
+	recoverable := media.ExitCode(interrupted) == 4
+	if !recoverable {
+		return equal, false, fmt.Errorf("write failure classified as %d, want 4", media.ExitCode(interrupted))
 	}
-	return resSum.Digest == refSum.Digest && bytes.Equal(out.Bytes(), full.Bytes()), nil
+	return equal, recoverable, nil
 }
 
 // failingWriter accepts limit bytes then reports a disk error, modelling a
@@ -437,12 +474,13 @@ func adaptForTarget(target mapping.Target, tracks []media.Track) ([]media.Track,
 	}
 }
 
-// lateShift measures how retraction changes the manifest timeline. The
-// "strict" engine has no retraction horizon, so late frames are rejected and
-// their windows never reopen; the retracting engine keeps them. For the late
-// fixture the strict manifest start lands later, which is exactly the drift the
-// watermark engine is there to remove.
-func lateShift(late []byte, target mapping.Target) (retracted, strict media.Timestamp, recomputed int, err error) {
+// lateShift compares the manifest a retracting watermark produces with the one
+// a strict (no-retraction) watermark produces. Strict drops the late frames, so
+// its windows carry fewer events and a different digest; the retracting engine
+// accepts them and rewrites those windows. shift reports the first window whose
+// event count changed and by how much, which is the concrete effect of
+// retraction on the delivered timeline.
+func lateShift(late []byte, target mapping.Target) (differing, shift int, recomputed int, err error) {
 	in, err := demux.Demux(bytes.NewReader(late), demux.DefaultLimits())
 	if err != nil {
 		return 0, 0, 0, err
@@ -453,10 +491,10 @@ func lateShift(late []byte, target mapping.Target) (retracted, strict media.Time
 		return 0, 0, 0, err
 	}
 	packets := mappedPackets(plan, in.Packets)
-	run := func(cfg timeline.Config) (media.Timestamp, int, error) {
+	run := func(cfg timeline.Config) ([]timeline.WindowSummary, int, error) {
 		engine, err := timeline.New(cfg)
 		if err != nil {
-			return 0, 0, err
+			return nil, 0, err
 		}
 		for _, p := range packets {
 			_, _, _ = engine.Push(timeline.Event{
@@ -464,28 +502,47 @@ func lateShift(late []byte, target mapping.Target) (retracted, strict media.Time
 				Duration: p.Duration, Payload: p.Data, Arrival: p.Sequence,
 			})
 		}
-		start, _ := engine.Timeline()
 		recomputed := 0
 		for _, w := range engine.Summaries() {
 			if w.Recomputed {
 				recomputed++
 			}
 		}
-		return start, recomputed, nil
+		return engine.Summaries(), recomputed, nil
 	}
-	retracted, recomputed, err = run(timeline.DefaultConfig())
+	retracting, recomputed, err := run(timeline.DefaultConfig())
 	if err != nil {
 		return 0, 0, 0, err
 	}
 	strictCfg := timeline.DefaultConfig()
 	strictCfg.Retraction = strictCfg.MaxLateness
-	strict, _, err = run(strictCfg)
+	strict, _, err := run(strictCfg)
 	if err != nil {
 		return 0, 0, 0, err
 	}
-	return retracted, strict, recomputed, nil
+	if len(retracting) != len(strict) {
+		differing = absInt(len(retracting) - len(strict))
+	}
+	for i := 0; i < len(retracting) && i < len(strict); i++ {
+		if retracting[i].Events == strict[i].Events && retracting[i].Digest == strict[i].Digest {
+			continue
+		}
+		differing++
+		if shift == 0 {
+			shift = retracting[i].Events - strict[i].Events
+		}
+	}
+	return differing, shift, recomputed, nil
 }
 
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+// bitrate derives bits per second from payload bytes over the timeline span.
 // beyondHorizonCase proves a packet arriving later than the retraction horizon
 // is quarantined and blocks commit with exit code 3.
 func beyondHorizonCase(opts jobOptions, data []byte) demoCase {
@@ -498,7 +555,6 @@ func beyondHorizonCase(opts jobOptions, data []byte) demoCase {
 	if err != nil {
 		return failureCase("beyond-horizon", err)
 	}
-	_ = tracks
 	engine, err := timeline.New(timeline.DefaultConfig())
 	if err != nil {
 		return failureCase("beyond-horizon", err)
@@ -511,7 +567,7 @@ func beyondHorizonCase(opts jobOptions, data []byte) demoCase {
 			return failureCase("beyond-horizon", err)
 		}
 	}
-	// A packet 10 seconds in the past is far outside the 2 s horizon.
+	// An event far behind the watermark is outside the 2 s horizon.
 	_, _, err = engine.Push(timeline.Event{
 		Key: "beyond-horizon", Track: 1, Time: 0, Duration: media.Millisecond,
 	})
@@ -523,7 +579,6 @@ func beyondHorizonCase(opts jobOptions, data []byte) demoCase {
 	return c
 }
 
-// bitrate derives bits per second from payload bytes over the timeline span.
 func bitrate(bytes int64, span media.Timestamp) int64 {
 	if span <= 0 {
 		return 0

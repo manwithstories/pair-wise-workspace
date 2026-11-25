@@ -14,56 +14,37 @@ const (
 	sampleInterrupted
 )
 
-// sampleBundle wraps one generated stream with the facts the demo reports.
-type sampleBundle struct {
-	data      []byte
-	lateCount int
-	corruptAt int64
-}
-
 // buildSample regenerates the fixture set for the requested kind. Fixtures are
 // deterministic in the demo seed, so every run produces the same bytes.
-func buildSample(opts jobOptions, kind sampleKind) sampleBundle {
+func buildSample(opts jobOptions, kind sampleKind) []byte {
 	clean, late, truncated, interrupted := testkit.Generate(opts.Seed)
-	var file testkit.SampleFile
 	switch kind {
-	case sampleClean:
-		file = clean
 	case sampleLate:
-		file = late
+		return late.Bytes
 	case sampleTruncated:
-		file = truncated
+		return truncated.Bytes
 	case sampleInterrupted:
-		file = interrupted
-	}
-	return sampleBundle{
-		data:      file.Bytes,
-		lateCount: len(late.Late),
-		corruptAt: int64(len(truncated.Bytes)),
+		return interrupted.Bytes
+	default:
+		return clean.Bytes
 	}
 }
 
-// demoFixtures holds every generated stream for one demo run.
+// demoFixtures holds every generated stream for one demo run. The interrupted
+// variant is encoded with unknown-length clusters so the parser must resolve
+// boundaries without explicit sizes.
 type demoFixtures struct {
 	clean       []byte
 	late        []byte
 	truncated   []byte
 	interrupted []byte
-	lateSamples int
-	corruptAt   int64
 }
 
 func buildFixtures(opts jobOptions) demoFixtures {
-	clean := buildSample(opts, sampleClean)
-	late := buildSample(opts, sampleLate)
-	truncated := buildSample(opts, sampleTruncated)
-	interrupted := buildSample(opts, sampleInterrupted)
 	return demoFixtures{
-		clean:       clean.data,
-		late:        late.data,
-		truncated:   truncated.data,
-		interrupted: interrupted.data,
-		lateSamples: late.lateCount,
-		corruptAt:   truncated.corruptAt,
+		clean:       buildSample(opts, sampleClean),
+		late:        buildSample(opts, sampleLate),
+		truncated:   buildSample(opts, sampleTruncated),
+		interrupted: buildSample(opts, sampleInterrupted),
 	}
 }

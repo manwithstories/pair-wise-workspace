@@ -161,11 +161,18 @@ func SamplesFor(spec Spec) []SyncSample {
 		}
 	}
 	sortSamples(out)
-	// Perturb a few frames to arrive late. LateBy moves the timestamp earlier
-	// than the surrounding write order without changing the frame content.
-	if spec.LateFrames > 0 && len(out) > spec.LateFrames {
+	// Perturb frames to arrive late. LateBy delays the frame's position in the
+	// write stream by that much while its timestamp stays put, so the reader
+	// sees the frame after later-timestamped neighbours. The first perturbed
+	// frame sits in the first window, which lets the demo show retraction
+	// pulling the manifest start backwards.
+	if spec.LateFrames > 0 && len(out) > spec.LateFrames*2 {
+		step := (len(out) - 8) / spec.LateFrames
+		if step < 1 {
+			step = 1
+		}
 		for k := 0; k < spec.LateFrames; k++ {
-			idx := len(out) / 4 * (k + 1) / (spec.LateFrames + 1) * 3
+			idx := 2 + k*step
 			if idx <= 0 || idx >= len(out) {
 				continue
 			}

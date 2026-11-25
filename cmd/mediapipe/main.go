@@ -161,10 +161,10 @@ func runAllCases(opts jobOptions) ([]demoCase, int) {
 		}
 	}
 	add(successCase(opts, fixtures.clean), 0)
-	add(lateCase(opts, fixtures.late, fixtures.clean), 0)
+	add(lateCase(opts, fixtures.late), 0)
 	add(truncatedCase(opts, fixtures.truncated), 2)
 	add(beyondHorizonCase(opts, fixtures.clean), 3)
-	add(resumeCase(opts, fixtures.interrupted, fixtures.clean), 0)
+	add(resumeCase(opts, fixtures.clean), 0)
 	add(unsupportedCase(opts, fixtures.clean), 3)
 	return cases, worst
 }
@@ -180,37 +180,26 @@ func successCase(opts jobOptions, data []byte) demoCase {
 
 // lateCase feeds the late-arrival fixture through the watermark engine and
 // proves the recompute moved the reported start earlier.
-func lateCase(opts jobOptions, data, clean []byte) demoCase {
+func lateCase(opts jobOptions, data []byte) demoCase {
 	cfg := timeline.DefaultConfig()
 	res, err := runPipeline(opts, data, cfg)
 	if err != nil {
 		return failureCase("late", err)
 	}
 	c := summarizeCase("late", opts, res)
-	recomputed := false
-	for _, w := range res.Marked {
-		if w.Recomputed {
-			recomputed = true
-		}
-	}
-	_, _ = clean, recomputed
-	retracted, strict, recomputedWindows, shiftErr := lateShift(data, opts.Target)
+	differing, shift, recomputedWindows, shiftErr := lateShift(data, opts.Target)
 	if shiftErr != nil {
 		c.ExitCode = media.ExitCode(shiftErr)
 		c.Note = shiftErr.Error()
 		return c
 	}
-	if recomputedWindows == 0 {
+	if recomputedWindows == 0 || differing == 0 {
 		c.ExitCode = 1
-		c.Note = "late fixture did not trigger recompute"
+		c.Note = "late fixture did not change the manifest windows"
 		return c
 	}
-	if strict > retracted {
-		c.Note = fmt.Sprintf("retraction pulled start back %d ns; %d window(s) recomputed",
-			strict-retracted, recomputedWindows)
-	} else {
-		c.Note = fmt.Sprintf("%d window(s) recomputed", recomputedWindows)
-	}
+	c.Note = fmt.Sprintf("%d window(s) recomputed; %d manifest window(s) differ from strict (first gains %d event(s))",
+		recomputedWindows, differing, shift)
 	return c
 }
 
@@ -234,13 +223,13 @@ func truncatedCase(opts jobOptions, data []byte) demoCase {
 }
 
 // resumeCase proves an interrupted write resumes to the same digest.
-func resumeCase(opts jobOptions, interrupted, reference []byte) demoCase {
-	equal, err := resumeRun(opts, reference)
+func resumeCase(opts jobOptions, reference []byte) demoCase {
+	equal, recoverable, err := resumeRun(opts, reference)
 	c := demoCase{Name: "resume", ResumeOK: equal}
 	if err != nil {
 		c.ExitCode = media.ExitCode(err)
 		if c.ExitCode == 0 {
-			c.ExitCode = 4
+			c.ExitCode = 1
 		}
 		c.Note = err.Error()
 		return c
@@ -250,6 +239,12 @@ func resumeCase(opts jobOptions, interrupted, reference []byte) demoCase {
 		c.Note = "resumed digest differs"
 		return c
 	}
+	if !recoverable {
+		c.ExitCode = 1
+		c.Note = "interruption not recoverable"
+		return c
+	}
+	c.Note = "resumed digest equals full run; write failure is class 4"
 	return c
 }
 
