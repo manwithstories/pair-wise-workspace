@@ -18,6 +18,7 @@ import (
 
 const (
 	StageIngest   = "ingest"
+	StageIndex    = "keyindex"
 	StageAudio    = "audio"
 	StageMux      = "mux"
 	StageManifest = "manifest"
@@ -32,6 +33,7 @@ type VideoInput struct {
 	Data          []byte
 	Clock         media.ClockDeclaration
 	FrameDuration int64
+	Index         *ingest.KeyframeIndex
 }
 
 // AudioInput is interleaved s16le PCM and its source format.
@@ -112,12 +114,26 @@ func Run(ctx context.Context, opts Options, video VideoInput, pcm AudioInput) (*
 				deviation, metrics.BitrateTolerancePercent))
 	}
 
-	alignment, err := manifest.AlignDurations(videoTicks, audioTicks, videoTicks)
+	keyCount := countKeyframes(vcl)
+	indexEntries := keyCount
+	indexTicks := videoTicks
+	var indexJSON []byte
+	if video.Index != nil {
+		indexTicks, err = crossCheckKeyIndex(vcl, video.Index)
+		if err != nil {
+			return nil, err
+		}
+		indexEntries = len(video.Index.Entries)
+		indexJSON, err = json.MarshalIndent(video.Index, "", "  ")
+		if err != nil {
+			return nil, media.E(media.StageIndex, media.KindInvalidArgument, -1, err)
+		}
+	}
+	alignment, err := manifest.AlignDurations(videoTicks, audioTicks, indexTicks)
 	if err != nil {
 		return nil, err
 	}
-	keyCount := countKeyframes(vcl)
-	if err := alignment.CheckCounts(len(vcl), loud.Buffer.Frames(), keyCount, keyCount); err != nil {
+	if err := alignment.CheckCounts(len(vcl), loud.Buffer.Frames(), indexEntries, keyCount); err != nil {
 		return nil, err
 	}
 
@@ -131,7 +147,7 @@ func Run(ctx context.Context, opts Options, video VideoInput, pcm AudioInput) (*
 	}
 	res := &Result{Units: units, NormalizedPCM: normalizedPCM, Audio: loud, MuxResult: built, WAL: wal}
 	if opts.Resume {
-		res.RecoveredStages = recovery.Stages(StageIngest, StageAudio, StageMux, StageManifest, StageReport)
+		res.RecoveredStages = recovery.Stages(StageIngest, StageIndex, StageAudio, StageMux, StageManifest, StageReport)
 	}
 
 	ingestMeta := map[string]any{
@@ -141,6 +157,11 @@ func Run(ctx context.Context, opts Options, video VideoInput, pcm AudioInput) (*
 	ingestJSON, _ := json.MarshalIndent(ingestMeta, "", "  ")
 	if _, err := commitBytes(recovery, wal, StageIngest, "ingest.json", ingestJSON, videoTicks); err != nil {
 		return res, err
+	}
+	if video.Index != nil {
+		if _, err := commitBytes(recovery, wal, StageIndex, "keyindex.json", indexJSON, indexTicks); err != nil {
+			return res, err
+		}
 	}
 	if _, err := commitBytes(recovery, wal, StageAudio, "audio.s16le", normalizedPCM, audioTicks); err != nil {
 		return res, err
@@ -197,7 +218,17 @@ func commitBytes(rec *txn.Recovery, wal *txn.WAL, stage, rel string, data []byte
 	if err := p.Write(data); err != nil {
 		return txn.Record{}, err
 	}
-	if err := p.Verify(nil); err != nil {
+	if err := p.Verify(func(rec txn.Record) error {
+		if rec.SHA256 != hash || rec.Size != int64(len(data)) {
+			return media.E(media.StageWAL, media.KindHashMismatch, rec.Offset,
+				fmt.Errorf("stage %s hash/size verification failed", stage))
+		}
+		if duration > 0 && rec.DurationTicks != duration {
+			return media.E(media.StageWAL, media.KindValidation, rec.Offset,
+				fmt.Errorf("stage %s duration=%d want %d", stage, rec.DurationTicks, duration))
+		}
+		return nil
+	}); err != nil {
 		return txn.Record{}, err
 	}
 	return p.Commit()

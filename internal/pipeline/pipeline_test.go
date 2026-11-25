@@ -17,8 +17,8 @@ func testOptions(dir string) pipeline.Options {
 
 func testInput(b *fixture.Bundle) (pipeline.VideoInput, pipeline.AudioInput) {
 	return pipeline.VideoInput{
-			Codec: b.Codec, Data: b.Video, Clock: *b.Clock, FrameDuration: b.FrameDur,
-		}, pipeline.AudioInput{Data: b.PCM, Format: b.PCMFormat}
+		Codec: b.Codec, Data: b.Video, Clock: *b.Clock, FrameDuration: b.FrameDur,
+	}, pipeline.AudioInput{Data: b.PCM, Format: b.PCMFormat}
 }
 
 func TestRunNormalMetrics(t *testing.T) {

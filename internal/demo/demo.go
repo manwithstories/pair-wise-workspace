@@ -49,7 +49,8 @@ func Run(cfg Config) error {
 		MemoryLimitBytes: 32 << 20,
 	}
 	res, err := pipeline.Run(context.Background(), opts, pipeline.VideoInput{
-		Codec: bundle.Codec, Data: bundle.Video, Clock: *bundle.Clock, FrameDuration: bundle.FrameDur,
+		Codec: bundle.Codec, Data: bundle.Video, Clock: *bundle.Clock,
+		FrameDuration: bundle.FrameDur, Index: bundle.Index,
 	}, pipeline.AudioInput{Data: bundle.PCM, Format: bundle.PCMFormat})
 	if err != nil {
 		return err
@@ -116,7 +117,8 @@ func runCrashRecovery(cfg Config) error {
 		OutDir: crashDir, TargetBPS: fixture.ContainerTargetBPS,
 		VideoTargetBPS: fixture.VideoTargetBPS, QueueItems: 8, QueueBytes: 32768,
 	}
-	in := pipeline.VideoInput{Codec: b.Codec, Data: b.Video, Clock: *b.Clock, FrameDuration: b.FrameDur}
+	in := pipeline.VideoInput{Codec: b.Codec, Data: b.Video, Clock: *b.Clock,
+		FrameDuration: b.FrameDur, Index: b.Index}
 	pcm := pipeline.AudioInput{Data: b.PCM, Format: b.PCMFormat}
 
 	first, crashErr := pipeline.Run(context.Background(), withCrash(opts, false, true), in, pcm)
