@@ -60,14 +60,12 @@ type processResult struct {
 	Output     []byte
 	Summary    remux.Summary
 	Verify     remux.VerifyResult
-	CRCChecked int
 	CRCBad     int
 	BufferPeak int64
 	Blocked    int64
 	Engine     *timeline.Engine
 	Marked     []timeline.WindowSummary
 	Replay     [32]byte
-	NaiveStart media.Timestamp
 	InputBPS   int64
 	OutputBPS  int64
 }
@@ -100,7 +98,6 @@ func runPipeline(opts jobOptions, data []byte, cfg timeline.Config) (*processRes
 	if err != nil {
 		return nil, err
 	}
-	naive, _ := timeline.New(cfg)
 	for _, p := range packets {
 		ev := timeline.Event{
 			Key: packetKey(p), Track: p.Track, Time: p.DTS,
@@ -110,8 +107,6 @@ func runPipeline(opts jobOptions, data []byte, cfg timeline.Config) (*processRes
 		if _, _, perr := engine.Push(ev); perr != nil {
 			return &processResult{Input: in, Plan: plan, Engine: engine, Packets: packets}, perr
 		}
-		// A naive engine drops late arrivals instead of rewriting windows.
-		_, _, _ = naive.Push(ev)
 	}
 	// Re-order the remux feed by (DTS, track): after watermark recompute the
 	// writer sees a settled timeline rather than arrival order.
@@ -131,13 +126,10 @@ func runPipeline(opts jobOptions, data []byte, cfg timeline.Config) (*processRes
 	if err != nil {
 		return &processResult{Input: in, Plan: plan, Engine: engine, Packets: packets}, err
 	}
-	checked, bad, crcErr := 0, 0, error(nil)
+	bad, crcErr := 0, error(nil)
 	if opts.Target != mapping.TargetFMP4 {
-		checked, bad, crcErr = remux.VerifyCRCs(out, false)
+		_, bad, crcErr = remux.VerifyCRCs(out, false)
 	}
-	naiveWindows := naive.Summaries()
-	_ = naiveWindows
-	naiveStart, _ := naive.Timeline()
 	// Measured output bitrate: payload actually written, over the timeline
 	// the writer reported. This is what a delivery lead sees on the wire.
 	written := int64(0)
@@ -146,9 +138,9 @@ func runPipeline(opts jobOptions, data []byte, cfg timeline.Config) (*processRes
 	}
 	res := &processResult{
 		Input: in, Plan: plan, Packets: packets, Output: out, Summary: summary,
-		Verify: verify, CRCChecked: checked, CRCBad: bad, BufferPeak: peak,
+		Verify: verify, CRCBad: bad, BufferPeak: peak,
 		Blocked: blocked, Engine: engine, Marked: engine.Summaries(), Replay: engine.ReplayDigest(),
-		NaiveStart: naiveStart, InputBPS: bitrate(payloadBytes(packets), summary.TimeEnd-summary.TimeStart),
+		InputBPS:  bitrate(payloadBytes(packets), summary.TimeEnd-summary.TimeStart),
 		OutputBPS: bitrate(written, summary.TimeEnd-summary.TimeStart),
 	}
 	if crcErr != nil {

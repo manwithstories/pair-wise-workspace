@@ -12,7 +12,6 @@ import (
 
 	"mediapipe/internal/media"
 	"mediapipe/internal/remux"
-	"mediapipe/internal/timeline"
 )
 
 // Version is bumped when the on-disk schema changes.
@@ -160,15 +159,5 @@ func checksum(st State) string {
 	fmt.Fprintf(h, "%d|%s|%s|%s|%d|%d|%d|%d|%d|%v", st.Version, st.JobID, st.Output,
 		st.Target, st.Bytes, st.Packets, st.Clusters, st.TimeStart, st.TimeEnd, st.HaveTime)
 	h.Write(st.HashState)
-	return fmt.Sprintf("%x", h.Sum(nil))
-}
-
-// EncodeWindowDigest is a helper for tests that want a deterministic digest of
-// timeline windows without importing timeline.
-func EncodeWindowDigest(w []timeline.WindowSummary) string {
-	h := sha256.New()
-	for _, s := range w {
-		h.Write(s.Digest[:])
-	}
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
