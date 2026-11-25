@@ -52,7 +52,13 @@ func newMKVSink(w io.Writer, plan *mapping.Plan, tracks []media.Track, opts Opti
 		outTracks:  orderedTracks(plan),
 		curCluster: -1,
 	}
-	s.hdr = ebml.NewWriter(s.hw, s.hw.h)
+	s.hdr = ebml.NewWriter(s.hw, nil)
+	if opts.Resume != nil {
+		if err := s.restore(opts.Resume); err != nil {
+			return nil, err
+		}
+		return s, nil
+	}
 	if err := s.writeHeader(); err != nil {
 		return nil, err
 	}
@@ -280,6 +286,46 @@ func writeSimpleBlock(w *ebml.Writer, clusterStart int64, p media.Packet) error 
 	}
 	payload.Write(p.Data)
 	return w.Element(ebml.IDSimpleBlock, payload.Bytes())
+}
+
+// restore resumes from a checkpoint: it adopts the running byte count and
+// SHA-256 state and skips re-emitting the container header.
+func (s *mkvSink) restore(state *ResumeState) error {
+	if err := s.hw.restore(state); err != nil {
+		return err
+	}
+	s.packets = state.Packets
+	s.clusters = state.Clusters
+	s.timeStart = state.TimeStart
+	s.timeEnd = state.TimeEnd
+	s.haveTime = state.HaveTime
+	s.curCluster = -1
+	return nil
+}
+
+// Flush returns a checkpoint at the last completed cluster boundary. Packets
+// belonging to the still-open cluster are not written; a resumed run re-reads
+// them from the source so fragment grouping matches an uninterrupted run.
+func (s *mkvSink) Flush() (Progress, error) {
+	if s.closed {
+		return Progress{}, media.NewError("remux.mkv", media.ClassFatal, errSinkClosed{})
+	}
+	if s.hw.err != nil {
+		return Progress{}, media.NewError("remux.mkv", media.ClassInterrupted, s.hw.err)
+	}
+	state, err := s.hw.state()
+	if err != nil {
+		return Progress{}, media.NewError("remux.mkv", media.ClassInterrupted, err)
+	}
+	return Progress{
+		Bytes:     s.hw.n,
+		Packets:   s.packets - len(s.pending),
+		Clusters:  s.clusters,
+		HashState: state,
+		TimeStart: s.timeStart,
+		TimeEnd:   s.timeEnd,
+		HaveTime:  s.haveTime,
+	}, nil
 }
 
 // Close flushes the final cluster and returns the digest of the whole file.

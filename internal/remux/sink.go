@@ -18,9 +18,34 @@ type Sink interface {
 	// WritePacket appends one packet. Packets must be supplied in ascending
 	// DTS per output track; the sink buffers only what clustering requires.
 	WritePacket(p media.Packet) error
+	// Flush completes every buffered cluster/fragment and returns a resumable
+	// progress snapshot. Nothing is buffered afterwards.
+	Flush() (Progress, error)
 	// Close finalises the container and returns the byte count and SHA-256
 	// digest of everything written.
 	Close() (Summary, error)
+}
+
+// Progress is a checkpoint written at a container boundary. Restoring it
+// resumes exactly where the previous run stopped, so the final digest matches
+// an uninterrupted run.
+type Progress struct {
+	Bytes    int64
+	Packets  int
+	Clusters int
+	// HashState is the marshalled SHA-256 state of all bytes written so far.
+	HashState []byte
+	TimeStart media.Timestamp
+	TimeEnd   media.Timestamp
+	HaveTime  bool
+}
+
+// ResumeState is passed through Options to append to a truncated output.
+type ResumeState struct {
+	Progress
+	// TruncateTo is the byte length the output file must be cut back to so it
+	// matches Bytes exactly. The sink does not perform the truncation.
+	TruncateTo int64
 }
 
 // Summary reports what a Sink produced.
@@ -47,6 +72,9 @@ type Options struct {
 	UnknownCluster bool
 	// ClusterCRC writes EBML CRC-32 elements per cluster.
 	ClusterCRC bool
+	// Resume, when set, skips the container header and continues the digest
+	// from the checkpoint.
+	Resume *ResumeState
 }
 
 func (o Options) clusterSpan() media.Timestamp {
@@ -111,6 +139,29 @@ func (hw *hasherWriter) Summary() Summary {
 	copy(d[:], hw.h.Sum(nil))
 	return Summary{Bytes: hw.n, Digest: d}
 }
+
+func (hw *hasherWriter) state() ([]byte, error) {
+	state, err := hw.h.(interface{ MarshalBinary() ([]byte, error) }).MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+	return state, nil
+}
+
+func (hw *hasherWriter) restore(r *ResumeState) error {
+	if len(r.HashState) == 0 {
+		return media.NewError("remux.resume", media.ClassInterrupted, errNoHashState{})
+	}
+	if err := hw.h.(interface{ UnmarshalBinary([]byte) error }).UnmarshalBinary(r.HashState); err != nil {
+		return media.NewError("remux.resume", media.ClassInterrupted, errNoHashState{})
+	}
+	hw.n = r.Bytes
+	return nil
+}
+
+type errNoHashState struct{}
+
+func (errNoHashState) Error() string { return "checkpoint has no usable SHA-256 state" }
 
 // orderedTracks returns output tracks sorted by OutTrack.
 func orderedTracks(plan *mapping.Plan) []mapping.Route {

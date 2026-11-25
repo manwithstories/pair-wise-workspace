@@ -69,10 +69,59 @@ func newMP4Sink(w io.Writer, plan *mapping.Plan, tracks []media.Track, opts Opti
 		s.tracks = append(s.tracks, t)
 		s.byOut[r.OutTrack] = t
 	}
+	if opts.Resume != nil {
+		if err := s.restore(opts.Resume); err != nil {
+			return nil, err
+		}
+		return s, nil
+	}
 	if err := s.writeInit(); err != nil {
 		return nil, err
 	}
 	return s, nil
+}
+
+func (s *mp4Sink) restore(state *ResumeState) error {
+	if err := s.hw.restore(state); err != nil {
+		return err
+	}
+	s.packets = state.Packets
+	s.fragments = state.Clusters
+	s.timeStart = state.TimeStart
+	s.timeEnd = state.TimeEnd
+	s.haveTime = state.HaveTime
+	s.fragSeq = uint32(state.Clusters)
+	s.fragOpen = false
+	return nil
+}
+
+// Flush returns a checkpoint at the last completed fragment boundary. Samples
+// belonging to the still-open fragment are not written; a resumed run re-reads
+// them from the source.
+func (s *mp4Sink) Flush() (Progress, error) {
+	if s.closed {
+		return Progress{}, media.NewError("remux.mp4", media.ClassFatal, errSinkClosed{})
+	}
+	if s.hw.err != nil {
+		return Progress{}, media.NewError("remux.mp4", media.ClassInterrupted, s.hw.err)
+	}
+	state, err := s.hw.state()
+	if err != nil {
+		return Progress{}, media.NewError("remux.mp4", media.ClassInterrupted, err)
+	}
+	buffered := 0
+	for _, t := range s.tracks {
+		buffered += len(t.samples)
+	}
+	return Progress{
+		Bytes:     s.hw.n,
+		Packets:   s.packets - buffered,
+		Clusters:  s.fragments,
+		HashState: state,
+		TimeStart: s.timeStart,
+		TimeEnd:   s.timeEnd,
+		HaveTime:  s.haveTime,
+	}, nil
 }
 
 // box writes a container or leaf header plus payload.
