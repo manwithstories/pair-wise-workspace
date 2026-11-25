@@ -24,6 +24,7 @@ type Config struct {
 	DriftPPM  int
 	Wrap      bool
 	Truncate  bool
+	NoKey     bool
 }
 
 // Stream is one codec's elementary blob and AU index.
@@ -144,6 +145,11 @@ func generateStream(c codec.Codec, cfg Config) (*Stream, error) {
 		// Claim more bytes than the blob contains while leaving later absolute
 		// offsets untouched; ValidateStream isolates exactly this AU.
 		s.Indexes[TruncateAU].Length += 256 << 10
+	}
+	if cfg.NoKey {
+		for i := range s.Indexes {
+			s.Indexes[i].Keyframe = false
+		}
 	}
 	return s, nil
 }
