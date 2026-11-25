@@ -225,7 +225,10 @@ func (q *Queue) Pop(ctx context.Context) (Packet, error) {
 		}
 	}
 	select {
-	case p := <-q.ch:
+	case p, ok := <-q.ch:
+		if !ok {
+			return Packet{}, io.EOF
+		}
 		return p, nil
 	case <-ctx.Done():
 		return Packet{}, ctx.Err()
