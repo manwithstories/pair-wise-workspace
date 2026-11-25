@@ -133,15 +133,15 @@ func UnwrapUint(bits uint, last uint64, value uint64, haveLast bool) uint64 {
 	if !haveLast {
 		return value
 	}
-	base := last &^ mask
-	candidate := base + value
-	// Choose the candidate nearest last, allowing one late packet.
-	if candidate+mod/2 <= last {
-		candidate += mod
-	} else if candidate > last+mod/2 {
-		candidate -= mod
+	half := int64(mod / 2)
+	delta := int64(value) - int64(last&mask)
+	if delta > half {
+		delta -= int64(mod)
 	}
-	return candidate
+	if delta < -half {
+		delta += int64(mod)
+	}
+	return uint64(int64(last) + delta)
 }
 
 // ResetKind explains how Timeline resolved a backward raw timestamp.
