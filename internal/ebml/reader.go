@@ -60,8 +60,10 @@ func NewReader(r io.ReadSeeker) (*Reader, error) {
 // Offset returns the current absolute byte offset.
 func (r *Reader) Offset() int64 { return r.offset }
 
-// Seek moves both the underlying seeker and the tracked offset.
-func (r *Reader) Seek(offset int64) error {
+// SeekStart moves both the underlying seeker and tracked offset to an absolute
+// start position. It is intentionally not named Seek to avoid the io.Seeker
+// method signature.
+func (r *Reader) SeekStart(offset int64) error {
 	pos, err := r.r.Seek(offset, io.SeekStart)
 	if err != nil {
 		return err
@@ -174,7 +176,7 @@ func (r *Reader) ReadPayload(el Element, maxSize int64) ([]byte, error) {
 		return nil, model.NewError(model.PhaseEBML, el.Offset, true,
 			"element payload exceeds bounded read limit", nil)
 	}
-	if err := r.Seek(el.PayloadOffset()); err != nil {
+	if err := r.SeekStart(el.PayloadOffset()); err != nil {
 		return nil, model.NewError(model.PhaseEBML, el.Offset, false, "seek to payload failed", err)
 	}
 	buf := make([]byte, el.Size)
@@ -189,7 +191,7 @@ func (r *Reader) SeekToEnd(el Element) error {
 	if el.Unknown {
 		return model.NewError(model.PhaseEBML, el.Offset, false, "cannot seek end of unknown element", nil)
 	}
-	return r.Seek(el.End())
+	return r.SeekStart(el.End())
 }
 
 // FindNextElement performs a bounded resynchronization search for targetID.
@@ -203,7 +205,7 @@ func (r *Reader) FindNextElement(targetID uint32, maxScan int64) (Element, error
 	var lastErr error
 	for scanned := int64(0); scanned < maxScan; scanned++ {
 		candidate := searchStart + scanned
-		if err := r.Seek(candidate); err != nil {
+		if err := r.SeekStart(candidate); err != nil {
 			return Element{}, model.NewError(model.PhaseEBML, candidate, true, "resync seek failed", err)
 		}
 		el, err := r.ReadElementHeader()

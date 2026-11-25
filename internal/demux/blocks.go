@@ -80,7 +80,7 @@ func (p *Parser) nextBlockInCluster() (*Block, error) {
 
 		if el.ID == ebml.IDCluster || isUpperElement(el.ID) {
 			if p.cluster.end < 0 {
-				if err := p.r.Seek(el.Offset); err != nil {
+				if err := p.r.SeekStart(el.Offset); err != nil {
 					return nil, err
 				}
 				return nil, errEndCluster

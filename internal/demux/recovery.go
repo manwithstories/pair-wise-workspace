@@ -19,7 +19,7 @@ func (p *Parser) Recover(cause error) (int64, error) {
 	// Start one byte after the reported fault so the damaged header cannot be
 	// selected again.
 	if fe.Offset >= 0 {
-		if err := p.r.Seek(fe.Offset + 1); err != nil {
+		if err := p.r.SeekStart(fe.Offset + 1); err != nil {
 			return 0, err
 		}
 	}
@@ -30,7 +30,7 @@ func (p *Parser) Recover(cause error) (int64, error) {
 			return 0, err
 		}
 		if verr := p.validateCluster(candidate); verr == nil {
-			if err := p.r.Seek(candidate.PayloadOffset()); err != nil {
+			if err := p.r.SeekStart(candidate.PayloadOffset()); err != nil {
 				return 0, err
 			}
 			p.startCluster(candidate)
@@ -38,7 +38,7 @@ func (p *Parser) Recover(cause error) (int64, error) {
 			fe.RecoveryOffset = candidate.Offset
 			return candidate.Offset, nil
 		}
-		_ = p.r.Seek(candidate.Offset + 1)
+		_ = p.r.SeekStart(candidate.Offset + 1)
 	}
 	return 0, model.NewError(model.PhaseDemux, fe.Offset, false,
 		"too many invalid Cluster candidates during recovery", cause)
@@ -47,7 +47,7 @@ func (p *Parser) Recover(cause error) (int64, error) {
 // validateCluster performs a semantic boundary check: a Timecode and at least
 // one structurally parseable block must be present.
 func (p *Parser) validateCluster(cl ebml.Element) error {
-	if err := p.r.Seek(cl.PayloadOffset()); err != nil {
+	if err := p.r.SeekStart(cl.PayloadOffset()); err != nil {
 		return err
 	}
 	foundTimecode := false
