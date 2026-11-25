@@ -59,6 +59,9 @@ func NewClock() *Clock {
 // across the boundary. Encoder restarts are handled by re-basing the raw
 // clock onto the current output position.
 func (c *Clock) Advance(raw uint64) (out uint64, gap bool) {
+	// RTP-style media timestamps live in a 33-bit modular field regardless
+	// of the source's native width.
+	raw %= c.wrapPeriod
 	if !c.initialized {
 		c.initialized = true
 		c.lastRaw = raw
@@ -66,33 +69,42 @@ func (c *Clock) Advance(raw uint64) (out uint64, gap bool) {
 		return 0, false
 	}
 
-	delta := int64(raw) - int64(c.lastRaw)
+	// Unsigned modular distance on the raw field. forward is the clockwise
+	// distance; a value over half the modulus means the counter rolled under.
+	forward := raw - c.lastRaw
+	backward := c.lastRaw - raw
+	half := c.wrapPeriod / 2
 
 	switch {
-	case delta == 0:
+	case forward == 0:
 		// Duplicate timestamp: keep strict monotonicity by one tick.
 		c.lastOut++
-	case delta > 0:
-		if uint64(delta) > c.MaxForwardStep {
+	case forward < half:
+		// Ordinary forward step within the field.
+		if forward > c.MaxForwardStep {
 			c.gaps++
 			gap = true
-		}
-		c.lastOut += uint64(delta)
-	case delta < 0:
-		back := uint64(-delta)
-		if back > c.MaxBackStep {
-			if back < c.wrapPeriod/2 {
-				// Genuine backwards jump without wrap: encoder restart.
-				c.restarts++
-				c.lastOut++
-			} else {
-				// Modular wrap: raw value rolled under.
-				c.wraps++
-				c.lastOut += c.wrapPeriod - back
-			}
-		} else {
-			// Small backwards jitter: preserve monotonic order.
 			c.lastOut++
+		} else {
+			c.lastOut += forward
+		}
+	case backward <= c.MaxBackStep:
+		// Small backwards jitter: preserve monotonic order by one tick.
+		c.lastOut++
+	case backward < half:
+		// Large genuine backwards jump without a wrap: encoder restart.
+		c.restarts++
+		c.lastOut++
+	default:
+		// Rollunder: the real elapsed span is the clockwise remainder.
+		c.wraps++
+		span := c.wrapPeriod - backward
+		if span > c.MaxForwardStep {
+			c.gaps++
+			gap = true
+			c.lastOut++
+		} else {
+			c.lastOut += span
 		}
 	}
 
