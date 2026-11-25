@@ -115,12 +115,13 @@ type Handler func(context.Context, Item) error
 // Pipeline is a fixed-worker bounded pipeline. Submit applies byte
 // backpressure before enqueue; Close drains and reclaims every worker.
 type Pipeline struct {
-	gate    *Gate
-	jobs    chan job
-	wg      sync.WaitGroup
-	cancel  context.CancelFunc
-	ctx     context.Context
-	handler Handler
+	gate      *Gate
+	jobs      chan job
+	wg        sync.WaitGroup
+	closeOnce sync.Once
+	cancel    context.CancelFunc
+	ctx       context.Context
+	handler   Handler
 
 	errOnce sync.Once
 	errMu   sync.RWMutex
@@ -208,7 +209,7 @@ func (p *Pipeline) Submit(ctx context.Context, item Item) error {
 
 // Close flushes queued items, waits for all workers and returns first failure.
 func (p *Pipeline) Close() error {
-	close(p.jobs)
+	p.closeOnce.Do(func() { close(p.jobs) })
 	p.wg.Wait()
 	p.cancel()
 	s := p.gate.Snapshot()
