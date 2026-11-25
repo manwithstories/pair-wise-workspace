@@ -3,7 +3,6 @@ package engine
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -12,56 +11,31 @@ import (
 	"github.com/fieldcut/fieldcut/internal/ingest"
 )
 
-// Checkpoint is the durable resume state, committed atomically beside the
-// segments it describes.
-type Checkpoint struct {
-	Seed          uint64            `json:"seed"`
-	NextSegment   map[string]int    `json:"next_segment"`
-	SegmentHashes map[string]string `json:"segment_hashes"` // key: rendition/index
-	Faults        []FaultRecord     `json:"faults"`
-}
-
-// FaultRecord is the JSON form of a base.Fault for checkpoints and reports.
-type FaultRecord struct {
-	Kind       string `json:"kind"`
-	Camera     string `json:"camera"`
-	Rendition  string `json:"rendition"`
-	PTS        uint64 `json:"pts"`
-	ByteOffset int64  `json:"byte_offset"`
-	Recoverable bool  `json:"recoverable"`
-	Detail     string `json:"detail"`
-}
-
-// Record converts a base.Fault for persistence.
-func Record(f *base.Fault) FaultRecord {
-	return FaultRecord{
-		Kind: string(f.Kind), Camera: f.Camera, Rendition: f.Rendition,
-		PTS: f.PTS, ByteOffset: f.ByteOffset, Recoverable: f.Recoverable, Detail: f.Detail,
-	}
-}
-
 // Builder runs the fan-out -> RTP probe -> MP4 segment pipeline with
 // checkpointed, atomic recovery and deterministic hashing.
 type Builder struct {
-	Dir        string
-	Seed       uint64
-	streams    []*Stream
-	plan       *Plan
-	cp         *Checkpoint
-	faults     []*base.Fault
-	segments   []*Segment
-	RTP        map[string]*RTPProbe
+	Dir          string
+	Seed         uint64
+	programTicks uint64
+	streams      []*Stream
+	plan         *Plan
+	cp           *Checkpoint
+	faults       []*base.Fault
+	segments     []*Segment
+	RTP          map[string]*RTPProbe
 }
 
 // NewBuilder prepares an output directory and loads any existing checkpoint.
-func NewBuilder(dir string, seed uint64, streams []*Stream) (*Builder, error) {
+// programTicks is the total program length on the 90 kHz clock; it fixes the
+// segment duration so each rendition yields TargetSegmentsPerRendition.
+func NewBuilder(dir string, seed uint64, programTicks uint64, streams []*Stream) (*Builder, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
 	b := &Builder{
-		Dir: dir, Seed: seed, streams: streams,
-		cp:      &Checkpoint{Seed: seed, NextSegment: map[string]int{}, SegmentHashes: map[string]string{}},
-		RTP:     map[string]*RTPProbe{},
+		Dir: dir, Seed: seed, programTicks: programTicks, streams: streams,
+		cp:  &Checkpoint{Seed: seed, NextSegment: map[string]int{}, SegmentHashes: map[string]string{}},
+		RTP: map[string]*RTPProbe{},
 	}
 	for _, s := range streams {
 		b.cp.NextSegment[s.Rendition] = 0
@@ -70,8 +44,21 @@ func NewBuilder(dir string, seed uint64, streams []*Stream) (*Builder, error) {
 	if err := b.loadCheckpoint(); err != nil {
 		return nil, err
 	}
-	b.plan = FanOut(streams)
+	b.plan = FanOutWithDuration(streams, b.segmentDuration())
 	return b, nil
+}
+
+// segmentDuration divides the program into the target per-rendition count,
+// rounding up so the final fragment absorbs the remainder.
+func (b *Builder) segmentDuration() uint64 {
+	if b.programTicks == 0 {
+		return SegmentDuration90k
+	}
+	d := b.programTicks / TargetSegmentsPerRendition
+	if d == 0 {
+		d = b.programTicks
+	}
+	return d
 }
 
 // Plan exposes the shared boundary plan for tests and reporting.
@@ -103,10 +90,13 @@ func (b *Builder) Build() error {
 				continue // already committed in a previous run
 			}
 			units := s.Units[rng[0]:rng[1]]
+			// A fragment whose first unit is not a keyframe can only exist
+			// after a fault-driven resync; label it as recovery.
+			recovery := len(units) > 0 && !units[0].Keyframe
 			seg := &Segment{
 				Camera: s.Camera, Rendition: name, Codec: s.Codec, Index: bi,
 				StartPTS: bound.PTS90k, EndPTS: b.endPTS(name, bi),
-				Gap: bound.Gap, Color: s.Color, Units: units,
+				Gap: bound.Gap, Recovery: recovery, Color: s.Color, Units: units,
 			}
 			if err := b.probeAndCommit(seg); err != nil {
 				return err
@@ -240,46 +230,4 @@ func payloadType(c ingest.Codec) uint8 {
 func rtpSSRC(rendition string) uint32 {
 	h := sha256.Sum256([]byte(rendition))
 	return uint32(h[0])<<24 | uint32(h[1])<<16 | uint32(h[2])<<8 | uint32(h[3])
-}
-
-func (b *Builder) checkpointPath() string {
-	return filepath.Join(b.Dir, "checkpoint.json")
-}
-
-func (b *Builder) loadCheckpoint() error {
-	raw, err := os.ReadFile(b.checkpointPath())
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	var cp Checkpoint
-	if err := json.Unmarshal(raw, &cp); err != nil {
-		return err
-	}
-	if cp.Seed != b.Seed {
-		return errors.New("checkpoint seed mismatch; refusing to resume")
-	}
-	b.cp = &cp
-	if b.cp.NextSegment == nil {
-		b.cp.NextSegment = map[string]int{}
-	}
-	if b.cp.SegmentHashes == nil {
-		b.cp.SegmentHashes = map[string]string{}
-	}
-	return nil
-}
-
-// persistCheckpoint writes the checkpoint atomically: temp file + rename.
-func (b *Builder) persistCheckpoint() error {
-	raw, err := json.MarshalIndent(b.cp, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp := b.checkpointPath() + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, b.checkpointPath())
 }
