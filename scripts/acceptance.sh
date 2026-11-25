@@ -30,7 +30,8 @@ for token in \
   grep -F "$token" "$OUT/run-summary.txt" >/dev/null
 done
 
-ppm="$(sed -n 's/^bitrate_target_bps=[0-9]* bitrate_actual_bps=[0-9]* bitrate_delta_ppm=\(-\?[0-9]*\)$/\1/p' "$OUT/run-summary.txt")"
+ppm="$(sed -E -n 's/.*bitrate_delta_ppm=(-?[0-9]+).*/\1/p' "$OUT/run-summary.txt" | tail -1)"
+test -n "$ppm"
 if [ "${ppm#-}" -gt 5000 ]; then
   echo "bitrate delta_ppm $ppm exceeds 5000" >&2
   exit 1
