@@ -20,6 +20,7 @@ func WriteReport(w io.Writer, r *Result) {
 	fmt.Fprintf(w, "bad_crc_rejected=%d\n", r.BadCRC)
 	fmt.Fprintf(w, "truncated_committed=%d\n", r.TruncatedCommitted)
 	fmt.Fprintf(w, "wal_replayed=%d\n", r.WALReplayed)
+	fmt.Fprintf(w, "duplicate_content_sources=%d\n", r.DuplicateSources)
 	fmt.Fprintf(w, "queue_high_water=%d\n", r.QueueHighWater)
 	fmt.Fprintf(w, "work_dir=%s\n", r.WorkDir)
 }

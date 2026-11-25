@@ -26,6 +26,9 @@ func TestRunCrashResumeVerification(t *testing.T) {
 	if res.BadCRC != 1 || res.TruncatedCommitted != 0 || res.WALReplayed != 1 {
 		t.Fatalf("counts badCRC=%d truncated=%d wal=%d", res.BadCRC, res.TruncatedCommitted, res.WALReplayed)
 	}
+	if res.DuplicateSources != 1 {
+		t.Fatalf("duplicate sources=%d, want 1", res.DuplicateSources)
+	}
 	if len(res.Clips) != 4 || len(res.NormalHashes) != 4 || len(res.ResumeHashes) != 4 {
 		t.Fatalf("clips=%d normal=%d resume=%d", len(res.Clips), len(res.NormalHashes), len(res.ResumeHashes))
 	}

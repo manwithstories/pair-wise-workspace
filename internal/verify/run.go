@@ -175,10 +175,12 @@ func runWorkflow(ctx context.Context, cfg Config) (*Result, error) {
 		_ = resumeMgr.Close()
 		return res, err
 	}
-	if err := recordProvenance(resumeMgr, resumeReport.Cut.Segments); err != nil {
+	duplicateSources, err := recordProvenance(resumeMgr, resumeReport.Cut.Segments)
+	if err != nil {
 		_ = resumeMgr.Close()
 		return res, err
 	}
+	res.DuplicateSources = duplicateSources
 	hit, err := commitIndexWithHit(resumeMgr, cfg.Seed, resumeReport.Cut.Segments, committedResume)
 	if err != nil {
 		_ = resumeMgr.Close()
@@ -251,19 +253,23 @@ func commitIndexWithHit(m *txn.Manager, seed int64, segs []*cut.Segment, committ
 	return index.KeyframeHitRate(readSC, committed), nil
 }
 
-func recordProvenance(m *txn.Manager, segs []*cut.Segment) error {
+func recordProvenance(m *txn.Manager, segs []*cut.Segment) (int, error) {
 	d := fingerprint.NewDedupIndex()
+	duplicates := 0
 	for _, s := range segs {
-		_, _ = d.Observe(s.ContentFP, fingerprint.Source{ClipID: s.ID, Source: "generated-multicam"}, blobName(s))
+		first, _ := d.Observe(s.ContentFP, fingerprint.Source{ClipID: s.ID, Source: "generated-multicam"}, blobName(s))
+		if !first {
+			duplicates++
+		}
 	}
 	b, err := json.MarshalIndent(d.Records(), "", "  ")
 	if err != nil {
-		return invariant("marshal provenance: %v", err)
+		return 0, invariant("marshal provenance: %v", err)
 	}
 	if _, err := m.Commit("provenance", "fingerprints/provenance.json", b); err != nil {
-		return invariant("commit provenance: %v", err)
+		return 0, invariant("commit provenance: %v", err)
 	}
-	return nil
+	return duplicates, nil
 }
 
 func clipResults(segs []*cut.Segment) []ClipResult {
