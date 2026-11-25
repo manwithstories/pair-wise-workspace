@@ -21,55 +21,51 @@ const SizeUnknown int64 = -1
 
 // Common Matroska / WebM element IDs used by the demuxer.
 const (
-	IDEBML               ID = 0x1A45DFA3
-	IDEBMLVersion        ID = 0x4286
-	IDEBMLReadVersion    ID = 0x42F7
-	IDEBMLMaxIDLength    ID = 0x42F2
-	IDEBMLMaxSizeLength  ID = 0x42F3
-	IDDocType            ID = 0x4282
-	IDDocTypeVersion     ID = 0x4287
-	IDSegment            ID = 0x18538067
-	IDSeekHead           ID = 0x114D9B74
-	IDInfo               ID = 0x1549A966
-	IDTimestampScale     ID = 0x2AD7B1
-	IDDuration           ID = 0x4489
-	IDMuxingApp          ID = 0x4D80
-	IDWritingApp         ID = 0x5741
-	IDTracks             ID = 0x1654AE6B
-	IDTrackEntry         ID = 0xAE
-	IDTrackNumber        ID = 0xD7
-	IDTrackUID           ID = 0x73C5
-	IDTrackType          ID = 0x83
-	IDFlagLacing         ID = 0x9C
-	IDDefaultDuration    ID = 0x23E383
-	IDLanguage           ID = 0x22B59C
-	IDCodecID            ID = 0x86
-	IDCodecPrivate       ID = 0x63A2
-	IDCodecDelay         ID = 0x56AA
-	IDSeekPreRoll        ID = 0x56BB
-	IDVideo              ID = 0xE0
-	IDPixelWidth         ID = 0xB0
-	IDPixelHeight        ID = 0xBA
-	IDAudio              ID = 0xE1
-	IDChannels           ID = 0x9F
-	IDSamplingFrequency  ID = 0xB5
-	IDCluster            ID = 0x1F43B675
-	IDTimestamp          ID = 0xE7
-	IDSimpleBlock        ID = 0xA3
-	IDBlockGroup         ID = 0xA0
-	IDBlock              ID = 0xA1
-	IDBlockDuration      ID = 0x9B
-	IDReferenceBlock     ID = 0xFB
-	IDCues               ID = 0x1C53BB6B
-	IDTags               ID = 0x1254C367
-	IDCRC32              ID = 0xBF
-	IDVoid               ID = 0xEC
-	IDClusterTimestamp   ID = IDTimestamp
-	IDPrevSize           ID = 0xAB
-	IDPosition           ID = 0xA7
-	IDSilentTracks       ID = 0x5854
-	IDInfoSegmentUID     ID = 0x73A4
-	IDDurationScaledCode ID = 0x4489
+	IDEBML              ID = 0x1A45DFA3
+	IDEBMLVersion       ID = 0x4286
+	IDEBMLReadVersion   ID = 0x42F7
+	IDEBMLMaxIDLength   ID = 0x42F2
+	IDEBMLMaxSizeLength ID = 0x42F3
+	IDDocType           ID = 0x4282
+	IDDocTypeVersion    ID = 0x4287
+	IDSegment           ID = 0x18538067
+	IDSeekHead          ID = 0x114D9B74
+	IDInfo              ID = 0x1549A966
+	IDTimestampScale    ID = 0x2AD7B1
+	IDDuration          ID = 0x4489
+	IDMuxingApp         ID = 0x4D80
+	IDWritingApp        ID = 0x5741
+	IDTracks            ID = 0x1654AE6B
+	IDTrackEntry        ID = 0xAE
+	IDTrackNumber       ID = 0xD7
+	IDTrackUID          ID = 0x73C5
+	IDTrackType         ID = 0x83
+	IDFlagLacing        ID = 0x9C
+	IDDefaultDuration   ID = 0x23E383
+	IDLanguage          ID = 0x22B59C
+	IDCodecID           ID = 0x86
+	IDCodecPrivate      ID = 0x63A2
+	IDCodecDelay        ID = 0x56AA
+	IDSeekPreRoll       ID = 0x56BB
+	IDVideo             ID = 0xE0
+	IDPixelWidth        ID = 0xB0
+	IDPixelHeight       ID = 0xBA
+	IDAudio             ID = 0xE1
+	IDChannels          ID = 0x9F
+	IDSamplingFrequency ID = 0xB5
+	IDCluster           ID = 0x1F43B675
+	IDTimestamp         ID = 0xE7
+	IDSimpleBlock       ID = 0xA3
+	IDBlockGroup        ID = 0xA0
+	IDBlock             ID = 0xA1
+	IDBlockDuration     ID = 0x9B
+	IDReferenceBlock    ID = 0xFB
+	IDCues              ID = 0x1C53BB6B
+	IDTags              ID = 0x1254C367
+	IDCRC32             ID = 0xBF
+	IDVoid              ID = 0xEC
+	IDPrevSize          ID = 0xAB
+	IDPosition          ID = 0xA7
 )
 
 // Limits bounds the resources a hostile or damaged file can consume.
@@ -300,28 +296,6 @@ func (r *Reader) ReadElement() (Element, error) {
 		Payload: size,
 		Unknown: unknown,
 	}, nil
-}
-
-// VintLength returns the encoded length in bytes of a VINT whose first byte is
-// given as part of value. For IDs value includes the marker bit; for sizes the
-// caller can pass value|marker.
-func VintLength(value uint64) int {
-	var first byte
-	for shift := 56; shift >= 0; shift -= 8 {
-		b := byte(value >> uint(shift))
-		if b != 0 {
-			first = b
-			break
-		}
-	}
-	if first == 0 {
-		return 9
-	}
-	n := 1
-	for mask := byte(0x80); mask != 0 && first&mask == 0; mask >>= 1 {
-		n++
-	}
-	return n
 }
 
 // ReadUint reads a big-endian unsigned integer of width 1..8 bytes.

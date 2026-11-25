@@ -210,21 +210,6 @@ func (p *parser) emitBlock(offset int64, data []byte, keyframe, grouped bool) er
 	return nil
 }
 
-// laceCountLacing returns the lacing mode label for diagnostics.
-func laceName(mode byte) string {
-	switch mode {
-	case 0:
-		return "none"
-	case 1:
-		return "xiph"
-	case 2:
-		return "fixed"
-	case 3:
-		return "ebml"
-	}
-	return "invalid"
-}
-
 // lace splits a block body into frames according to the Matroska lacing mode.
 func lace(body []byte, mode byte) ([][]byte, error) {
 	if len(body) == 0 {
