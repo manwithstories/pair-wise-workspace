@@ -429,7 +429,7 @@ func runRTP(cfg Config, rep *Report) error {
 		rep.LossRecoveryPct = 100
 	}
 	rep.Segments = len(trackInputs)
-	return finalize(cfg, rep, trackInputs, false)
+	return finalize(cfg, rep, trackInputs, true)
 }
 
 func resPackets(res *recovery.Result) []*rtp.Packet {
