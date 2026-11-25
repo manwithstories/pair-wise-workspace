@@ -105,6 +105,22 @@ func (r Rat) Add(o Rat) Rat {
 	return mustRat(r.Num*(den/r.Den) + o.Num*(den/o.Den), den)
 }
 
+// MulInt 返回 r*n；非法时间参与运算仍为非法。
+func (r Rat) MulInt(n int64) Rat {
+	if !r.IsValid() {
+		return InvalidRat
+	}
+	return mustRat(r.Num*n, r.Den)
+}
+
+// Sub 精确相减，任一操作数非法则结果非法。
+func (r Rat) Sub(o Rat) Rat {
+	if !r.IsValid() || !o.IsValid() {
+		return InvalidRat
+	}
+	return r.Add(Rat{Num: -o.Num, Den: o.Den})
+}
+
 // Cmp 返回 -1/0/1；非法时间比较会 panic，调用方应先检查 IsValid。
 func (r Rat) Cmp(o Rat) int {
 	ln := r.Num * o.Den
