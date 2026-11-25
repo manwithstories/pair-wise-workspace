@@ -26,10 +26,15 @@ type Segment struct {
 	StartPTS  uint64
 	EndPTS    uint64
 	Gap       bool
-	Color     ColorTag
-	Units     []*ingest.AccessUnit
-	Hash      []byte // sha256 of the serialized container, filled on write
-	Path      string
+	// Recovery marks a fragment that starts after a fault-driven
+	// resynchronization (e.g. an isolated truncated keyframe). Such a
+	// fragment cannot start on a keyframe and is exempt from the strict
+	// boundary check, but it is still fully re-parsed and hashed.
+	Recovery bool
+	Color    ColorTag
+	Units    []*ingest.AccessUnit
+	Hash     []byte // sha256 of the serialized container, filled on write
+	Path     string
 }
 
 // colorPriority fixes which color source wins on conflict: an explicit
