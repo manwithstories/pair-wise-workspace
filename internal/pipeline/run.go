@@ -76,6 +76,21 @@ func Run(req Request) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	rtpSamples, rtpWarnings, err := ingest.ParseRTPPackets(20, 90000, bundle.RTPPackets)
+	if err != nil {
+		return nil, err
+	}
+	wrappedRTP := false
+	for _, s := range rtpSamples {
+		if s.ExtendedTimestamp > uint64(^uint32(0)) {
+			wrappedRTP = true
+			break
+		}
+	}
+	rtpReport := &manifest.RTPReport{
+		TrackID: 20, ClockRate: 90000, SampleCount: len(rtpSamples),
+		WarningCount: len(rtpWarnings), Wrapped32BitTS: wrappedRTP,
+	}
 	if err := commitIfNew(j, "ingest", stageHashes["ingest"], nil); err != nil {
 		return nil, err
 	}
@@ -157,7 +172,7 @@ func Run(req Request) (*Result, error) {
 			ReusedNodes: len(reusedAtStart), OutputSHA256: outputSHA,
 		},
 		Segments: pkg.Segments, Events: aligned, Assignments: assignments,
-		Duplicates: pairs, ColorDecision: &colorDecision, Errors: allErrs,
+		Duplicates: pairs, RTP: rtpReport, ColorDecision: &colorDecision, Errors: allErrs,
 	}
 	if _, err := manifest.Write(req.OutDir, m); err != nil {
 		return nil, err

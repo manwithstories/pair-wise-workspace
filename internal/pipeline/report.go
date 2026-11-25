@@ -44,6 +44,13 @@ func MetricLines(m *manifest.Manifest) []string {
 			fmt.Sprintf("track_id=%d", x.TrackID),
 			fmt.Sprintf("interval_ns=%d", x.IntervalNs),
 		)
+		if m.FirstError != nil && m.FirstError.EndNs > m.FirstError.StartNs {
+			lines = append(lines,
+				fmt.Sprintf("interval_start_ns=%d", m.FirstError.StartNs),
+				fmt.Sprintf("interval_end_ns=%d", m.FirstError.EndNs),
+				fmt.Sprintf("interval_range_ns=[%d,%d)", m.FirstError.StartNs, m.FirstError.EndNs),
+			)
+		}
 	}
 	return lines
 }

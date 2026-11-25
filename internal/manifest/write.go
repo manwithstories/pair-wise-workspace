@@ -50,6 +50,15 @@ type Metrics struct {
 	IntervalNs        clock.Ns `json:"interval_ns,omitempty"`
 }
 
+// RTPReport summarizes unwrapped RTP ingestion for the package manifest.
+type RTPReport struct {
+	TrackID        int  `json:"track_id"`
+	ClockRate      int  `json:"clock_rate_hz"`
+	SampleCount    int  `json:"sample_count"`
+	WarningCount   int  `json:"warning_count"`
+	Wrapped32BitTS bool `json:"wrapped_32bit_timestamp"`
+}
+
 // Manifest is the complete reviewable package description.
 type Manifest struct {
 	Version         int                  `json:"version"`
@@ -61,6 +70,7 @@ type Manifest struct {
 	Events          []events.Event       `json:"events,omitempty"`
 	Assignments     []events.Assignment  `json:"assignments,omitempty"`
 	Duplicates      []fingerprint.Pair   `json:"duplicates,omitempty"`
+	RTP             *RTPReport           `json:"rtp,omitempty"`
 	ColorDecision   *graph.ColorDecision `json:"color_decision,omitempty"`
 	Errors          []*clock.Error       `json:"errors,omitempty"`
 	FirstError      *clock.Error         `json:"first_error,omitempty"`
