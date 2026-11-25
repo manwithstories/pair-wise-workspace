@@ -80,11 +80,11 @@ func BuildFragmentedMP4(t *MP4Track) ([]byte, error) {
 
 	baseTicks := uint64(0)
 	for start := 0; start < len(t.Samples); {
-		end := start + 8
+		end := start + 30
 		if end > len(t.Samples) {
 			end = len(t.Samples)
 		}
-		fragment, err := buildFragment(t, t.Samples[start:end], uint64(start/8+1), baseTicks)
+		fragment, err := buildFragment(t, t.Samples[start:end], uint64(start/30+1), baseTicks)
 		if err != nil {
 			return nil, err
 		}

@@ -152,7 +152,7 @@ func HashOutputs(outDir string) (string, error) {
 		}
 		rel = filepath.ToSlash(rel)
 		if rel == "manifest.json" || rel == "metrics.txt" || rel == "journal.json" ||
-			rel == "damage.json" || filepath.Ext(rel) == ".tmp" {
+			rel == "damage.json" || rel == "request.json" || filepath.Ext(rel) == ".tmp" {
 			return nil
 		}
 		names = append(names, rel)

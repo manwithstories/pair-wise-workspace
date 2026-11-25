@@ -65,7 +65,7 @@ func ReadFragmentedMP4(data []byte, expectedTrackID int) (*MP4Track, error) {
 			for i, en := range entries {
 				end := dataPos + int64(en.size)
 				if en.size == 0 || end > int64(len(data)) {
-					return nil, truncatedError(track.TrackID, dataPos,
+					return track, truncatedError(track.TrackID, dataPos,
 						fmt.Sprintf("mdat sample %d size %d is truncated", i, en.size))
 				}
 				pts, err := clock.TicksToNs(int64(ticks), 1, int64(track.TimeScale))
