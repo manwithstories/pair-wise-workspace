@@ -165,6 +165,8 @@ func eventFixture(damaged bool) []events.RawEvent {
 	}
 	if damaged {
 		evs = append(evs,
+			events.RawEvent{ID: "negative-duration", TrackID: 34, Kind: events.KindID3, TimeBaseDen: ns, StartTicks: -200_000_000, EndTicks: -900_000_000, Label: "negative raw duration"},
+			events.RawEvent{ID: "overflow-rational", TrackID: 35, Kind: events.KindSEI, TimeBaseNum: 1, TimeBaseDen: 1, StartTicks: math.MaxInt64, EndTicks: math.MaxInt64, Payload: []byte("overflow")},
 			events.RawEvent{ID: "bad-sub", GroupID: "bad-cross", TrackID: 30, Kind: events.KindSubtitle, TimeBaseDen: ns, StartTicks: int64(1500 * clock.NsPerMs), EndTicks: int64(1700 * clock.NsPerMs), Label: "drifted caption"},
 			events.RawEvent{ID: "bad-emsg", GroupID: "bad-cross", TrackID: 32, Kind: events.KindEMSG, TimeBaseDen: ns, StartTicks: int64(1580 * clock.NsPerMs), EndTicks: int64(1581 * clock.NsPerMs), Label: "drifted emsg"},
 		)
