@@ -48,7 +48,7 @@ func runResume(args []string) error {
 	if err != nil {
 		return err
 	}
-	params := engine.DefaultParams()
+	params := engine.ParamsForTimeline(tl)
 	key, err := index.NewKey(scan.InputHashes(), tl, params)
 	if err != nil {
 		return err

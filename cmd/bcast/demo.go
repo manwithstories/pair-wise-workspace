@@ -52,7 +52,7 @@ func runDemo(args []string) error {
 	if err != nil {
 		return err
 	}
-	params := engine.DefaultParams()
+	params := engine.ParamsForTimeline(set.Timeline)
 	key, err := index.NewKey(scan.InputHashes(), set.Timeline, params)
 	if err != nil {
 		return err

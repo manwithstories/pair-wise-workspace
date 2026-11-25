@@ -1,5 +1,7 @@
 package engine
 
+import "bcast/internal/model"
+
 // Params are processing parameters covered by the index/cache key.
 type Params struct {
 	Width          int              `json:"width"`
@@ -22,4 +24,14 @@ func DefaultParams() Params {
 		ReviewAround:   1,
 		AudioGain:      map[string]int64{"n": 3, "d": 4},
 	}
+}
+
+// ParamsForTimeline binds exact audio gain into the processing-key parameters.
+func ParamsForTimeline(tl *model.Timeline) Params {
+	p := DefaultParams()
+	if tl != nil {
+		g := AudioGain(tl)
+		p.AudioGain = map[string]int64{"n": g.N, "d": g.D}
+	}
+	return p
 }

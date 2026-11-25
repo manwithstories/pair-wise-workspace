@@ -22,6 +22,7 @@ func (e *execConfig) executeSegment(ctx context.Context, seg model.Segment) (*pr
 	frameDur := e.timeline.FrameDuration
 
 	var frames []provenance.FrameHash
+	var review []provenance.FrameHash
 	outputs := map[string]string{}
 
 	switch seg.Mode {
@@ -31,6 +32,14 @@ func (e *execConfig) executeSegment(ctx context.Context, seg model.Segment) (*pr
 			return nil, err
 		}
 		start, count, err := rangeFrames(src, frameDur)
+		if err != nil {
+			return nil, err
+		}
+		aroundStart := start - 1
+		if aroundStart < 0 {
+			aroundStart = 0
+		}
+		review, err = render.ExportRange(ctx, e.root, src.Asset, frameDir+"/around", "around", src.Asset, int(aroundStart), 3)
 		if err != nil {
 			return nil, err
 		}
@@ -55,9 +64,11 @@ func (e *execConfig) executeSegment(ctx context.Context, seg model.Segment) (*pr
 			if err != nil {
 				return nil, err
 			}
-			if _, err := render.ExportRange(ctx, e.root, src.Asset, frameDir, "source", src.Asset, int(start), int(count)); err != nil {
+			rf, err := render.ExportRange(ctx, e.root, src.Asset, frameDir, "source", src.Asset, int(start), int(count))
+			if err != nil {
 				return nil, err
 			}
+			review = append(review, rf...)
 		}
 
 		a, err := decodeSource(ctx, e, seg.Sources[0], frameDur)
@@ -107,15 +118,16 @@ func (e *execConfig) executeSegment(ctx context.Context, seg model.Segment) (*pr
 	}
 
 	m := &provenance.SegmentManifest{
-		Segment:     seg.Index,
-		Name:        seg.Name,
-		Mode:        seg.Mode,
-		InputSHA256: e.key.Inputs,
-		TimelineSHA: e.key.TimelineSHA,
-		ParamsSHA:   e.key.ParamsSHA,
-		Sources:     seg.Sources,
-		Frames:      frames,
-		OutputFiles: outputs,
+		Segment:      seg.Index,
+		Name:         seg.Name,
+		Mode:         seg.Mode,
+		InputSHA256:  e.key.Inputs,
+		TimelineSHA:  e.key.TimelineSHA,
+		ParamsSHA:    e.key.ParamsSHA,
+		Sources:      seg.Sources,
+		Frames:       frames,
+		ReviewFrames: review,
+		OutputFiles:  outputs,
 	}
 	sha, err := m.ComputeHash()
 	if err != nil {

@@ -32,6 +32,7 @@ type SegmentManifest struct {
 	ParamsSHA     string                 `json:"params_sha256"`
 	Sources       []model.SourceInterval `json:"sources"`
 	Frames        []FrameHash            `json:"frames"`
+	ReviewFrames  []FrameHash            `json:"review_frames,omitempty"`
 	OutputFiles   map[string]string      `json:"output_files"`
 	FrameHashRoot string                 `json:"frame_hash_root"`
 	SHA256        string                 `json:"segment_sha256"`
