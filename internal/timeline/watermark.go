@@ -263,6 +263,7 @@ func (s *State) Apply(p ingest.Packet) Result {
 		s.MaxExtSeq[p.TrackID] = p.ExtSeq
 		s.HasExtSeq[p.TrackID] = true
 	}
+	s.reconcileFilledHole(p)
 	if int64(End(p)) > s.Watermarks[p.TrackID] {
 		s.Watermarks[p.TrackID] = int64(End(p))
 	}
@@ -272,6 +273,50 @@ func (s *State) Apply(p ingest.Packet) Result {
 func (s *State) holeStart(track string) int64 {
 	// 若找不到最大序号包，使用当前水位作为保守边界；绝不按到达顺序猜时长。
 	return s.Watermarks[track]
+}
+
+// reconcileFilledHole 在乱序包最终到达时闭合或缩小先前的临时序号缺口，
+// 使最终 Holes 只保留真正未被填充的丢包区间。
+func (s *State) reconcileFilledHole(p ingest.Packet) {
+	seq := uint64(p.ExtSeq)
+	for i := range s.Holes {
+		h := s.Holes[i]
+		if h.Track != p.TrackID || seq < h.FirstMissing || seq > h.LastMissing {
+			continue
+		}
+
+		s.Findings = append(s.Findings, fault.Finding{
+			Code: "out_of_order_gap_filled", Severity: "reordered", Recovered: true,
+			Message:  "先前观察到的序号缺口已由乱序到达的包填充",
+			Location: sourceToLocation(p.Source, p.TrackID),
+		})
+
+		switch {
+		case seq == h.FirstMissing && seq == h.LastMissing:
+			s.Holes = append(s.Holes[:i], s.Holes[i+1:]...)
+		case seq == h.FirstMissing:
+			s.Holes[i].FirstMissing++
+			s.Holes[i].StartTicks = int64(End(p))
+			s.Holes[i].StartSource = p.Source.Offset
+		case seq == h.LastMissing:
+			s.Holes[i].LastMissing--
+			s.Holes[i].EndTicks = int64(p.Start)
+			s.Holes[i].EndSource = p.Source.Offset
+		default:
+			left := h
+			left.LastMissing = seq - 1
+			left.EndTicks = int64(p.Start)
+			left.EndSource = p.Source.Offset
+			right := h
+			right.FirstMissing = seq + 1
+			right.StartTicks = int64(End(p))
+			right.StartSource = p.Source.Offset
+			tail := append([]fault.Hole(nil), s.Holes[i+1:]...)
+			s.Holes = append(s.Holes[:i], left, right)
+			s.Holes = append(s.Holes, tail...)
+		}
+		return
+	}
 }
 
 // CanonicalPackets 返回排除冲突身份并按事件时间排序的包。

@@ -74,6 +74,19 @@ func TestOutOfOrderPacketsMergeByEventTime(t *testing.T) {
 	}
 }
 
+func TestTemporaryGapClosesWhenOutOfOrderPacketArrives(t *testing.T) {
+	s := timeline.NewState()
+	s.Apply(testPacket(1, "t", 1, 0, 1000, "h1"))
+	s.Apply(testPacket(2, "t", 3, 2000, 1000, "h3"))
+	if len(s.Holes) != 1 {
+		t.Fatalf("expected temporary gap, holes=%d", len(s.Holes))
+	}
+	s.Apply(testPacket(3, "t", 2, 1000, 1000, "h2"))
+	if len(s.Holes) != 0 {
+		t.Fatalf("reordered packet should close temporary hole: %+v", s.Holes)
+	}
+}
+
 func TestLateEventReplayMatchesCheckpointRecovery(t *testing.T) {
 	events := []ingest.Packet{
 		testPacket(1, "t", 1, 0, 1000, "h1"),
