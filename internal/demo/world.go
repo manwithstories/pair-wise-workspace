@@ -155,6 +155,9 @@ func writeTracksMeta(root, group string, damaged bool) error {
 	if err != nil {
 		return err
 	}
+	if err := os.MkdirAll(filepath.Dir(layout.TracksMetaPath(root, group)), 0o755); err != nil {
+		return err
+	}
 	return os.WriteFile(layout.TracksMetaPath(root, group), b, 0o644)
 }
 
