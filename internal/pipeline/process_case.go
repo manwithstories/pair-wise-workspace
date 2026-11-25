@@ -83,6 +83,13 @@ func processCase(outRoot string, c *fixture.Case) (*audit.CaseManifest, *media.E
 	rp, events, h1, h2 := replayTimeline(c, samples)
 	cm.LateReplays = rp.ReplayCount
 	cm.UnfixableGaps = rp.UnfixableGaps
+	for i := 0; i < rp.ReplayCount; i++ {
+		cm.Errors = append(cm.Errors, (&media.Error{
+			Code: media.CodeLateReplay, Component: "timeline.replay",
+			CaseID: c.ID, TraceID: c.TraceID, Recoverable: true,
+			Message: "late event recomputed inside bounded retention window",
+		}).MarkRecoverable())
+	}
 	cm.TimelineHash, cm.ReplayHash, cm.ReplayHashEqual = h1, h2, h1 == h2
 	if rp.UnfixableGaps > 0 {
 		cm.Class = fixture.ClassRejected
