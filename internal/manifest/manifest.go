@@ -16,51 +16,51 @@ import (
 
 // Damage is one recovered event rendered into the report.
 type Damage struct {
-	Stage      string `json:"stage"`
-	TrackID    int32  `json:"track_id"`
-	Offset     int64  `json:"offset"`
-	SampleSeq  uint32 `json:"sample_seq"`
-	Reason     string `json:"reason"`
-	Recovered  bool   `json:"recovered"`
+	Stage     string `json:"stage"`
+	TrackID   int32  `json:"track_id"`
+	Offset    int64  `json:"offset"`
+	SampleSeq uint32 `json:"sample_seq"`
+	Reason    string `json:"reason"`
+	Recovered bool   `json:"recovered"`
 }
 
 // Manifest is the full quality document.
 type Manifest struct {
-	Version            int      `json:"version"`
-	InputPath          string   `json:"input_path"`
-	InputSHA256        string   `json:"input_sha256"`
-	OutputPath         string   `json:"output_path"`
-	OutputSHA256       string   `json:"output_sha256"`
-	TargetBPS          int64    `json:"target_bps"`
-	ActualBPS          int64    `json:"actual_bps"`
-	DeviationPct       float64  `json:"deviation_pct"`
-	SampleSHA256Match  float64  `json:"sample_sha256_match"`
-	DroppedSamples     int      `json:"dropped_samples"`
-	MaxErrorNS         int64    `json:"manifest_max_error_ns"`
-	DurationSec        float64  `json:"duration_sec"`
-	PacketsIn          int      `json:"packets_in"`
-	PacketsOut         int      `json:"packets_out"`
-	Damages            []Damage `json:"damages"`
-	Recovered          bool     `json:"recovered"`
-	Tracks             []int    `json:"tracks"`
-	PacketHashes       map[string][]string `json:"packet_hashes"`
+	Version           int                 `json:"version"`
+	InputPath         string              `json:"input_path"`
+	InputSHA256       string              `json:"input_sha256"`
+	OutputPath        string              `json:"output_path"`
+	OutputSHA256      string              `json:"output_sha256"`
+	TargetBPS         int64               `json:"target_bps"`
+	ActualBPS         int64               `json:"actual_bps"`
+	DeviationPct      float64             `json:"deviation_pct"`
+	SampleSHA256Match float64             `json:"sample_sha256_match"`
+	DroppedSamples    int                 `json:"dropped_samples"`
+	MaxErrorNS        int64               `json:"manifest_max_error_ns"`
+	DurationSec       float64             `json:"duration_sec"`
+	PacketsIn         int                 `json:"packets_in"`
+	PacketsOut        int                 `json:"packets_out"`
+	Damages           []Damage            `json:"damages"`
+	Recovered         bool                `json:"recovered"`
+	Tracks            []int               `json:"tracks"`
+	PacketHashes      map[string][]string `json:"packet_hashes"`
 }
 
 // Quality inputs collected while the pipeline runs.
 type Quality struct {
-	TargetBPS   int64
+	TargetBPS    int64
 	PayloadBytes int64
-	DurationNS  int64
-	PacketsIn   int
-	PacketsOut  int
-	HashMatches int
-	HashTotal   int
-	Dropped     int
-	MaxErrorNS  int64
-	Damages     []Damage
-	Recovered   bool
-	Tracks      []int
-	Hashes      map[uint32][][32]byte
+	DurationNS   int64
+	PacketsIn    int
+	PacketsOut   int
+	HashMatches  int
+	HashTotal    int
+	Dropped      int
+	MaxErrorNS   int64
+	Damages      []Damage
+	Recovered    bool
+	Tracks       []int
+	Hashes       map[uint32][][32]byte
 }
 
 // Build computes all derived metrics. Bit rate uses payload byte count over
