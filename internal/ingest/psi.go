@@ -104,10 +104,10 @@ func (r *PSIRegistry) HandlePacket(pid uint16, pusi bool, payload []byte, offset
 	}
 	section := append([]byte(nil), a.buf[:total]...)
 	a.buf = a.buf[total:]
-	return r.applySection(pid, section, offset)
+	return r.applySection(a, pid, section, offset)
 }
 
-func (r *PSIRegistry) applySection(pid uint16, sec []byte, offset int64) error {
+func (r *PSIRegistry) applySection(a *psiAssembly, pid uint16, sec []byte, offset int64) error {
 	if len(sec) < 9 {
 		return mediaerr.New(mediaerr.KindInvalidPacket, offset, pid, true, "PSI section too short")
 	}
@@ -117,6 +117,12 @@ func (r *PSIRegistry) applySection(pid uint16, sec []byte, offset int64) error {
 			"bad PSI CRC: got %08x want %08x; retaining previous table", gotCRC, wantCRC)
 	}
 	version := (sec[5] >> 1) & 0x1f
+	if a.haveVer && a.version != version {
+		return mediaerr.New(mediaerr.KindInvalidPacket, offset, pid, true,
+			"PSI version mismatch within assembled table: %d != %d", version, a.version)
+	}
+	a.haveVer = true
+	a.version = version
 	currentNext := sec[5]&0x01 == 1
 	if !currentNext {
 		return nil // next table is signaled but not active yet.
@@ -124,11 +130,6 @@ func (r *PSIRegistry) applySection(pid uint16, sec []byte, offset int64) error {
 	secNum, lastNum := sec[6], sec[7]
 	if secNum > lastNum {
 		return mediaerr.New(mediaerr.KindInvalidPacket, offset, pid, true, "PSI section_number %d > last %d", secNum, lastNum)
-	}
-	if old, ok := r.versions[pid]; ok && old != version && !versionConsistent(pid, version) {
-		// versionConsistent is a hook for multi-section assemblies; this single
-		// section's version is inherently consistent.
-		_ = old
 	}
 
 	switch sec[0] {
@@ -156,11 +157,6 @@ func (r *PSIRegistry) applySection(pid uint16, sec []byte, offset int64) error {
 	}
 	return nil
 }
-
-// versionConsistent records that all parts of a multi-section table advertise
-// the same version. The bounded demo tables are single-section, but callers
-// can use the same check before a future atomic switch.
-func versionConsistent(pid uint16, version uint8) bool { return version <= 31 }
 
 func parsePAT(sec []byte, version uint8) (*PAT, error) {
 	pat := &PAT{
