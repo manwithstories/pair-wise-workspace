@@ -44,6 +44,22 @@ func (w *Writer) WriteSection(pid uint16, section []byte) {
 	w.writeRaw(pid, true, 0x10, payload, nil)
 }
 
+// WriteNulls appends valid 0x1FFF null stuffing packets. The fixed count is
+// used by the demo so packet index 128 is an exact common IDR safe cut.
+func (w *Writer) WriteNulls(count int) {
+	for i := 0; i < count; i++ {
+		pkt := make([]byte, ingest.PacketSize)
+		pkt[0] = ingest.SyncByte
+		pkt[1] = 0x1f
+		pkt[2] = 0xff
+		pkt[3] = 0x10
+		for j := 4; j < ingest.PacketSize; j++ {
+			pkt[j] = 0xff
+		}
+		w.Buf = append(w.Buf, pkt...)
+	}
+}
+
 // WritePES writes one PTS-only PES access unit.
 func (w *Writer) WritePES(pid uint16, streamID byte, pts uint64, payload []byte, pcr *ingest.PCR) error {
 	ptsBytes := encodePTS(pts)
@@ -107,7 +123,7 @@ func encodePTS(pts uint64) []byte {
 	return []byte{
 		0x21 | byte(((pts>>30)&0x07)<<1),
 		byte((pts >> 22) & 0xff),
-		byte(((pts >> 15) & 0xfe) | 0x01),
+		byte(((pts >> 14) & 0xfe) | 0x01),
 		byte((pts >> 7) & 0xff),
 		byte((pts<<1)&0xfe | 0x01),
 	}

@@ -48,6 +48,7 @@ func CleanRendition(seed int64, spec RenditionSpec) ([]byte, error) {
 	w := NewWriter()
 	w.WriteSection(PATPID, PAT(0, PMTPID))
 	w.WriteSection(PMTPID, PMT(0))
+	w.WriteNulls(6)
 	for _, item := range items {
 		var pcr *ingest.PCR
 		if item.pcr {

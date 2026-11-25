@@ -160,6 +160,11 @@ func (s *Scanner) Scan(data []byte) ([]Record, error) {
 		pusi := pkt[1]&0x40 != 0
 		afc := (pkt[3] >> 4) & 0x03
 		cc := pkt[3] & 0x0f
+		if pid == 0x1fff {
+			// Null stuffing packets carry no PES/PSI and have no sequence state.
+			pos += PacketSize
+			continue
+		}
 		payloadStart := 4
 
 		if afc == 2 || afc == 3 {
