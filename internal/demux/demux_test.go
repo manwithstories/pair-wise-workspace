@@ -132,14 +132,17 @@ func TestTruncationRetainsCompleteSamples(t *testing.T) {
 
 // TestBadLengthQuarantinesTrack proves a corrupt length field is located by
 // offset, isolates the owning track, and leaves sibling tracks recoverable.
+// Per-track isolation does not fail the whole segment (only an unsupported
+// codec or zero surviving tracks do), so parsing returns no error but the
+// located fatal fault and the missing track tell the full story.
 func TestBadLengthQuarantinesTrack(t *testing.T) {
 	root, entries := loadFixtures(t)
 	seg := find(entries, fixtgen.FaultBadLength)
 	src := filepath.Join(root, "sources", seg.Source)
 
 	tracks, report, err := demux.ParseSource(src, seg.ID, demux.DefaultParseConfig())
-	if err == nil {
-		t.Fatal("expected a fatal error for the corrupt length field")
+	if err != nil {
+		t.Fatalf("per-track isolation must not fail the whole segment: %v", err)
 	}
 	var bad *media.Fault
 	for _, f := range report.Faults {

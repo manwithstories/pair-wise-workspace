@@ -76,7 +76,10 @@ func ParseBMFF(path, segment string, cfg ParseConfig) ([]TrackSamples, *SourceRe
 		trackNo := ti + 1
 		ts, fatal := parseTrack(f, segment, trackNo, trak, fileSize, mdatEnd, cfg, &faults, report)
 		if fatal != nil {
-			// Fatal track fault: isolate this track but keep processing the rest.
+			// Track-level fatal fault: isolate this track but keep processing
+			// the others. The segment as a whole remains recoverable as long as
+			// at least one track survives, so these are downgraded to non-fatal
+			// for the returned error contract; they stay in the report.
 			continue
 		}
 		if ts != nil {
@@ -90,7 +93,17 @@ func ParseBMFF(path, segment string, cfg ParseConfig) ([]TrackSamples, *SourceRe
 		report.Tracks = append(report.Tracks, ts.Meta)
 		report.Samples += len(ts.Samples)
 	}
-	if faults.HasFatal() {
+	// An unsupported codec makes the whole source package unsuitable for
+	// lossless remux: quarantine the segment. Other per-track fatal faults
+	// (e.g. a corrupt length field) only isolate the owning track, so the
+	// segment still recovers through its surviving tracks.
+	for _, f := range report.Faults {
+		if f.Kind == media.KindUnsupported {
+			return out, report, errors.New(faults.Error())
+		}
+	}
+	// A segment with no usable tracks at all is also a hard failure.
+	if len(out) == 0 && faults.HasFatal() {
 		return out, report, errors.New(faults.Error())
 	}
 	return out, report, nil
