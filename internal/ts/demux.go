@@ -272,11 +272,3 @@ func (d *Demuxer) setFirstDesync(v int64) {
 		d.FirstDesync = v
 	}
 }
-
-// Temporary PES implementation is added in the next small batch.
-func (d *Demuxer) feedPES(pid uint16, pusi bool, payload []byte, offset int64) *media.Error {
-	return nil
-}
-
-// Temporary flush stub.
-func (d *Demuxer) FlushPES() *media.Error { return nil }
