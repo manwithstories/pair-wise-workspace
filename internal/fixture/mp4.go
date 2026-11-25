@@ -195,7 +195,11 @@ func buildTrak(tr MP4TrackSpec, offs []int64, base int64) ([]byte, int64, error)
 			box("dinf", drefBox()), stbl)
 	}
 	mdia := box("mdia", mdhd, hdlr, minf)
-	return box("trak", tkhd, mdia), ms, nil
+	parts := [][]byte{tkhd, mdia}
+	if tr.ColrBox != nil {
+		parts = append(parts, colrBox(*tr.ColrBox))
+	}
+	return box("trak", parts...), ms, nil
 }
 
 func drefBox() []byte {
