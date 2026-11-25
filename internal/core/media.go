@@ -120,6 +120,8 @@ func EssenceHash(seg *Segment) string {
 // VerifyEssence compares two ordered sample sets using the canonical hash and
 // returns a structured invariant error on the first mismatch.
 func VerifyEssence(stage Stage, source string, want, got []Sample) error {
+	want = (&Segment{Samples: want}).SortedSamples()
+	got = (&Segment{Samples: got}).SortedSamples()
 	hw := sha256.New()
 	hg := sha256.New()
 	var n [4]byte

@@ -238,10 +238,11 @@ func encodeMP4SampleFlags(f uint32) uint32 {
 
 func decodeMP4SampleFlags(f uint32) uint32 {
 	canonical := f & 0x0000ffff
-	if f&0x00010000 == 0 {
-		canonical |= core.FlagSync
-	} else {
-		canonical |= core.FlagNonSync
+	if canonical != 0 {
+		return canonical
 	}
-	return canonical
+	if f&0x00010000 == 0 {
+		return core.FlagSync
+	}
+	return core.FlagNonSync
 }
