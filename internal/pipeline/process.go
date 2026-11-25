@@ -37,6 +37,10 @@ func (rn *runner) processAU(i int) error {
 	} else {
 		end := idx.Offset + int64(idx.Length)
 		au := rn.stream.Blob[idx.Offset:end]
+		if err := rn.mem.acquire(int64(len(au))); err != nil {
+			return err
+		}
+		defer rn.mem.release(int64(len(au)))
 		rn.actualBytes += int64(idx.Length)
 
 		injectRTPDup := rn.opts.InjectDuplicate && i == 5

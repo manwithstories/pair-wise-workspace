@@ -94,6 +94,7 @@ func Run(opts Options) (*Result, error) {
 		manifestPath: manifestPath, initName: initName, manifestName: manifestName,
 		cutter: cut.New(cut.Config{TargetSegmentNS: 900_000_000}), store: dedup.NewStore(),
 		contents: make(map[string]dedup.Content), flow: newRTPFlow(),
+		mem:            newByteBudget(MemoryLimitBytes),
 		firstErrorByte: -1,
 	}
 

@@ -23,6 +23,7 @@ type runner struct {
 	store            *dedup.Store
 	contents         map[string]dedup.Content
 	flow             *rtpFlow
+	mem              *byteBudget
 	manifestSegments []ManifestSegment
 	alignMax         int64
 	actualBytes      int64
