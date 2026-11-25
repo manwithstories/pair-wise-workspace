@@ -128,6 +128,12 @@ func runVerify(args []string) int {
 		fmt.Printf("===== group: %s =====\n", group)
 		b, _ := json.MarshalIndent(m, "", "  ")
 		fmt.Println(string(b))
+		// Plain key=value line so every required field is greppable
+		// without parsing the JSON block.
+		fmt.Printf("SUMMARY group=%s av_sync_max_ms=%.3f loss_recovery=%.4f segment_p95_ms=%.3f "+
+			"index_sha256=%s repeat_match=%t digest_invalidated=%t unrecovered_gaps=%d pass=%t\n",
+			group, m.AVSyncMaxMS, m.LossRecovery, m.SegmentP95MS, m.IndexSHA256,
+			m.RepeatMatch, m.DigestInvalidated, m.UnrecoveredGaps, m.Pass)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[%s] verify failed: %v\n", group, err)
 			if code := fault.ExitCode(err); code == 3 {
