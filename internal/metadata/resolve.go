@@ -58,6 +58,11 @@ type Options struct {
 // Resolve decides every description field for a track. The track is mutated
 // with the resolved description and source table; an unknown colour marker
 // isolates the track and records a diagnostic fault.
+//
+// Rotation resolves independently first, then the crop is derived from an
+// explicit crop claim if one exists, otherwise from the clean aperture, with
+// the aperture expressed in pre-rotation pixels being converted to the final
+// orientation. Application order is therefore always rotate then crop.
 func Resolve(trak *model.Track, opts Options) Result {
 	res := Result{
 		Sources: map[string]model.Source{},
@@ -68,39 +73,16 @@ func Resolve(trak *model.Track, opts Options) Result {
 		trak.Claims.Policy[k] = v
 	}
 	desc := model.Description{}
-	cropFromClaim := false
 	for _, field := range fieldOrder {
-		chosen, losers, invalid, err := choose(trak, field)
-		for _, bad := range invalid {
-			res.Faults.Add(fault.New(trak.Number, 0, fault.KindMetadata, true,
-				"track %s: malformed %s claim %q from %s ignored",
-				trak.Label(), field, bad.Value, bad.Source))
-		}
-		if err != nil {
-			res.Faults.Add(err)
+		if field == FieldCrop || field == FieldAperture {
 			continue
 		}
-		if chosen.Value == "" {
-			continue
-		}
-		if len(losers) > 0 {
-			res.Conflicts = append(res.Conflicts, Conflict{
-				Field: field, Chosen: chosen, Losers: losers, TrackID: trak.Label(),
-			})
-		}
-		if field == FieldAperture && cropFromClaim {
-			// An explicit crop claim outranks a derived aperture crop.
-			continue
-		}
-		res.Sources[field] = chosen.Source
-		if ferr := apply(&desc, field, chosen.Value, trak.Label()); ferr != nil {
+		if ferr := resolveField(trak, &desc, &res, field); ferr != nil {
 			res.Faults.Add(ferr)
-			delete(res.Sources, field)
-			continue
 		}
-		if field == FieldCrop {
-			cropFromClaim = true
-		}
+	}
+	if err := resolveCrop(trak, &desc, &res); err != nil {
+		res.Faults.Add(err)
 	}
 	if err := validateCrop(&desc, trak.Label()); err != nil {
 		res.Faults.Add(err)
@@ -126,6 +108,88 @@ func Resolve(trak *model.Track, opts Options) Result {
 			"track %s has no usable dimensions", trak.Label()))
 	}
 	return res
+}
+
+// resolveField resolves one non-crop field and applies it.
+func resolveField(trak *model.Track, desc *model.Description, res *Result, field string) *fault.Error {
+	chosen, losers, invalid, err := choose(trak, field)
+	for _, bad := range invalid {
+		res.Faults.Add(fault.New(trak.Number, 0, fault.KindMetadata, true,
+			"track %s: malformed %s claim %q from %s ignored",
+			trak.Label(), field, bad.Value, bad.Source))
+	}
+	if err != nil {
+		return err
+	}
+	if chosen.Value == "" {
+		return nil
+	}
+	if len(losers) > 0 {
+		res.Conflicts = append(res.Conflicts, Conflict{
+			Field: field, Chosen: chosen, Losers: losers, TrackID: trak.Label(),
+		})
+	}
+	res.Sources[field] = chosen.Source
+	if ferr := apply(desc, field, chosen.Value, trak.Label()); ferr != nil {
+		res.Faults.Add(ferr)
+		delete(res.Sources, field)
+	}
+	return nil
+}
+
+// resolveCrop picks between an explicit crop claim and a clean aperture
+// derived from the coded dimensions, converting the aperture through the
+// resolved rotation.
+func resolveCrop(trak *model.Track, desc *model.Description, res *Result) *fault.Error {
+	if chosen, losers, invalid, err := choose(trak, FieldCrop); err == nil && chosen.Value != "" {
+		for _, bad := range invalid {
+			res.Faults.Add(fault.New(trak.Number, 0, fault.KindMetadata, true,
+				"track %s: malformed crop claim %q from %s ignored", trak.Label(), bad.Value, bad.Source))
+		}
+		if len(losers) > 0 {
+			res.Conflicts = append(res.Conflicts, Conflict{
+				Field: FieldCrop, Chosen: chosen, Losers: losers, TrackID: trak.Label(),
+			})
+		}
+		res.Sources[FieldCrop] = chosen.Source
+		if ferr := apply(desc, FieldCrop, chosen.Value, trak.Label()); ferr != nil {
+			res.Faults.Add(ferr)
+			delete(res.Sources, FieldCrop)
+		}
+		return nil
+	}
+	chosen, losers, _, err := choose(trak, FieldAperture)
+	if err != nil || chosen.Value == "" {
+		return nil
+	}
+	if len(losers) > 0 {
+		res.Conflicts = append(res.Conflicts, Conflict{
+			Field: FieldAperture, Chosen: chosen, Losers: losers, TrackID: trak.Label(),
+		})
+	}
+	p, perr := parseField(FieldAperture, chosen.Value)
+	if perr != nil {
+		return fault.New(trak.Number, 0, fault.KindMetadata, true,
+			"track %s: %v", trak.Label(), perr)
+	}
+	aw, ah := int(p.size>>16), int(p.size&0xffff)
+	cw, ch := desc.Width, desc.Height
+	if cw <= 0 || ch <= 0 {
+		return nil
+	}
+	// The aperture describes the unrotated coded frame. Rotating a frame by
+	// 90 or 270 degrees swaps its width and height, so the aperture must be
+	// swapped too for the inset to land on the correct axis.
+	if desc.Rotation == 90 || desc.Rotation == 270 {
+		aw, ah = ah, aw
+	}
+	rect := apertureCrop(cw, ch, aw, ah)
+	if rect.Empty() {
+		return nil
+	}
+	desc.Crop = rect
+	res.Sources[FieldCrop] = chosen.Source
+	return nil
 }
 
 // choose returns the highest-precedence valid claim, the claims it overrides
