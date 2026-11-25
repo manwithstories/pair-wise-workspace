@@ -54,9 +54,13 @@ type Checkpoint struct {
 type Store struct {
 	path    string
 	tmpPath string
+	// OutDir resolves the relative segment output names stored in checkpoints.
+	OutDir string
 }
 
-// NewStore points at <dir>/checkpoint.json.
+// NewStore points at <dir>/checkpoint.json and resolves segment outputs under
+// <dir>/out. Checkpoints store only output base names, so relocating the
+// working directory between runs never invalidates the resume state.
 func NewStore(dir string) (*Store, error) {
 	if dir == "" {
 		return nil, clock.E(clock.KindArgument, "resume.store",
@@ -68,6 +72,7 @@ func NewStore(dir string) (*Store, error) {
 	return &Store{
 		path:    filepath.Join(dir, "checkpoint.json"),
 		tmpPath: filepath.Join(dir, "checkpoint.json.tmp"),
+		OutDir:  filepath.Join(dir, "out"),
 	}, nil
 }
 
@@ -168,13 +173,22 @@ func (s *Store) Rollback(cp *Checkpoint) int {
 		if seg.Index != kept {
 			break
 		}
-		if !fileMatches(seg.Output, seg.Sha256) {
+		if !fileMatches(s.resolveOutput(seg.Output), seg.Sha256) {
 			break
 		}
 		kept++
 	}
 	cp.Segments = cp.Segments[:kept]
 	return kept
+}
+
+// resolveOutput maps a stored output name to its path. Checkpoints keep base
+// names; an already-absolute path is returned unchanged for backward safety.
+func (s *Store) resolveOutput(output string) string {
+	if filepath.IsAbs(output) {
+		return output
+	}
+	return filepath.Join(s.OutDir, output)
 }
 
 // fileMatches recomputes the SHA-256 of an output and compares it.

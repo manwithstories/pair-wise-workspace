@@ -90,7 +90,7 @@ func failArg(msg string) int {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, strings.TrimSpace(`
+	fmt.Fprint(os.Stderr, strings.TrimSpace(`
 medpipe - local MP4/MOV segment pipeline
 
 usage:
