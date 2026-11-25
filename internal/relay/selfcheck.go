@@ -10,9 +10,14 @@ import (
 	"relay.local/relay/internal/scene"
 )
 
-func selfcheckExtra(ctx context.Context, sc *scene.Scenario, opts Options, rep *Report,
-	first []string, recs []streamResult) error {
-	// Determinism: render again into a scratch directory and compare hashes.
+// verifyDeterminism re-renders the composition into a scratch directory and
+// compares per-segment digests with the primary run. Any difference means the
+// pipeline is not reproducible and the run must exit 4.
+func verifyDeterminism(ctx context.Context, sc *scene.Scenario, opts Options, rep *Report, first []string) error {
+	segA := audit.SplitSegments(first, sc.Params.Segments)
+	if len(segA) == 0 {
+		return fault.New(-1, 0, fault.KindCorrupt, false, "no rendered frames to verify")
+	}
 	tmp, err := os.MkdirTemp("", "relay-verify-*")
 	if err != nil {
 		return fault.Wrap(-1, 0, fault.KindCorrupt, false, err)
@@ -22,7 +27,6 @@ func selfcheckExtra(ctx context.Context, sc *scene.Scenario, opts Options, rep *
 	if err != nil {
 		return err
 	}
-	segA := audit.SplitSegments(first, sc.Params.Segments)
 	segB := audit.SplitSegments(second, sc.Params.Segments)
 	matches, total := 0, 0
 	for i := range segA {
@@ -32,13 +36,21 @@ func selfcheckExtra(ctx context.Context, sc *scene.Scenario, opts Options, rep *
 		}
 	}
 	rep.SHA256Match = fmt.Sprintf("%d/%d", matches, total)
-	if matches != total {
+	if matches != total || len(segB) != len(segA) {
 		rep.Exit = ExitHashDrift
 		rep.Notes = append(rep.Notes, "segment digests differ between runs")
-		return nil
 	}
+	return nil
+}
 
-	// Cancellation and resume into a scratch directory.
+// selfcheckExtra verifies the cancellation and resume path: a cancelled run
+// must leave a resumable checkpoint whose completion reproduces the
+// uninterrupted segment digests, and transport recovery must match the
+// generator's ground truth.
+func selfcheckExtra(ctx context.Context, sc *scene.Scenario, opts Options, rep *Report,
+	first []string, recs []streamResult) error {
+	segA := audit.SplitSegments(first, sc.Params.Segments)
+
 	cancelDir, err := os.MkdirTemp("", "relay-cancel-*")
 	if err != nil {
 		return fault.Wrap(-1, 0, fault.KindCorrupt, false, err)
@@ -53,9 +65,12 @@ func selfcheckExtra(ctx context.Context, sc *scene.Scenario, opts Options, rep *
 		return fault.New(-1, 0, fault.KindCorrupt, false,
 			"cancellation path did not report a cancelled fault: %v", cerr)
 	}
-	// Resume: the deterministic pipeline reproduces every frame, so the
-	// resumed directory must equal the uninterrupted one.
-	resumed, rerr := renderAll(ctx, sc, opts, cancelDir, 0, nil)
+	// Resume from the checkpoint the cancelled run wrote. The deterministic
+	// pipeline must reproduce every frame, so the resumed directory has to
+	// equal the uninterrupted one segment for segment.
+	resumeOpts := opts
+	resumeOpts.Resume = true
+	resumed, rerr := renderAll(ctx, sc, resumeOpts, cancelDir, 0, nil)
 	if rerr != nil {
 		return rerr
 	}
@@ -88,6 +103,3 @@ func selfcheckExtra(ctx context.Context, sc *scene.Scenario, opts Options, rep *
 	}
 	return nil
 }
-
-// guardOutput refuses to scribble over a non-empty directory that does not
-// look like a previous relay run.

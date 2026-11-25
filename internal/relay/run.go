@@ -173,18 +173,24 @@ func run(ctx context.Context, command string, opts Options) (*Report, error) {
 	// PNG shard digests are computed over the rendered frame content so they
 	// are meaningful evidence, not a reformatting of the manifest.
 	rep.Shards = shardsFor(rendered, sc.Params.Segments)
-	rep.SHA256Match = fmt.Sprintf("%d/%d", len(lines), len(lines))
 
-	if command == "selfcheck" {
-		// The verification passes render into fresh scratch directories, so
-		// they must never inherit the resume flag meant for the primary run.
-		verifyOpts := opts
-		verifyOpts.Resume = false
+	// Both commands verify determinism by re-rendering into a scratch
+	// directory and comparing per-segment digests; a mismatch exits 4.
+	// The verification passes render into fresh directories, so they must
+	// never inherit the resume flag meant for the primary run.
+	verifyOpts := opts
+	verifyOpts.Resume = false
+	if err := verifyDeterminism(ctx, sc, verifyOpts, rep, rendered); err != nil {
+		return rep, err
+	}
+	if rep.Exit == ExitOK && command == "selfcheck" {
 		if err := selfcheckExtra(ctx, sc, verifyOpts, rep, rendered, recs); err != nil {
 			return rep, err
 		}
 	}
-	rep.Exit = ExitOK
+	if rep.Exit == 0 {
+		rep.Exit = ExitOK
+	}
 	return rep, nil
 }
 
