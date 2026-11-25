@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"context"
 	"testing"
 
 	"avlab/internal/media"
@@ -9,7 +10,7 @@ import (
 func runEngine(t *testing.T) *EngineResult {
 	t.Helper()
 	tr := NewTrace(17, 4096)
-	eng := NewEngine(EngineConfig{
+	eng := NewEngine(context.Background(), EngineConfig{
 		Packets: 4096, Capacity: 512,
 		WaitTick: 20, PayloadLen: 24,
 	}, tr)
@@ -138,6 +139,18 @@ func TestDeadlineSkipToKeyframe(t *testing.T) {
 	st := jb.Stats()
 	if st.DeadlineSkips != 1 || st.KeyframeJumps != 1 {
 		t.Fatalf("stats = %+v", st)
+	}
+}
+
+func TestEngineCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	tr := NewTrace(17, 1_000_000_000)
+	eng := NewEngine(ctx, EngineConfig{
+		Packets: 1_000_000_000, Capacity: 64, WaitTick: 20,
+	}, tr)
+	cancel()
+	if _, err := eng.Run(); !media.IsCode(err, media.CodeCanceled) {
+		t.Fatalf("cancel err = %v, want CodeCanceled", err)
 	}
 }
 

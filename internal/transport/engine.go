@@ -1,6 +1,8 @@
 package transport
 
 import (
+	"context"
+
 	"github.com/pion/rtp"
 
 	"avlab/internal/media"
@@ -24,10 +26,11 @@ type EngineResult struct {
 // Engine wires trace, reorder buffer and jitter buffer together and drives
 // them with a simulated monotonic clock (one tick per generated packet).
 type Engine struct {
-	cfg   EngineConfig
-	trace *Trace
-	rb    *ReorderBuffer
-	jb    *JitterBuffer
+	ctx     context.Context
+	cfg     EngineConfig
+	trace   *Trace
+	rb      *ReorderBuffer
+	jb      *JitterBuffer
 
 	stepIdx  int
 	dropLeft uint32
@@ -39,9 +42,13 @@ type Engine struct {
 }
 
 // NewEngine constructs an engine bound to a deterministic trace.
-func NewEngine(cfg EngineConfig, tr *Trace) *Engine {
+func NewEngine(ctx context.Context, cfg EngineConfig, tr *Trace) *Engine {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	return &Engine{
-		cfg: cfg, trace: tr,
+		ctx:     ctx,
+		cfg:     cfg, trace: tr,
 		rb:      NewReorderBuffer(),
 		jb:      NewJitterBuffer(cfg.Capacity, cfg.WaitTick),
 		held:    map[uint16]uint64{},
@@ -52,6 +59,10 @@ func NewEngine(cfg EngineConfig, tr *Trace) *Engine {
 // Run executes the full schedule and returns the scorecard.
 func (e *Engine) Run() (*EngineResult, error) {
 	for tick := uint64(0); tick < e.cfg.Packets; tick++ {
+		if err := e.ctx.Err(); err != nil {
+			return nil, media.WrapFault(media.CodeCanceled, true,
+				"transport engine interrupted", err)
+		}
 		e.activateSteps(tick)
 		e.releaseHeld(tick)
 		seq := uint16(tick)

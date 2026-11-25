@@ -67,7 +67,7 @@ func Run(ctx context.Context, cfg Config) (*Metrics, error) {
 	m.DamagedRejected = checkDamaged(bundle)
 
 	trace := transport.NewTrace(cfg.Seed, cfg.Packets)
-	eng := transport.NewEngine(transport.EngineConfig{
+	eng := transport.NewEngine(ctx, transport.EngineConfig{
 		Packets: cfg.Packets, Capacity: 512,
 		WaitTick: 20, PayloadLen: 24,
 	}, trace)
@@ -99,6 +99,10 @@ func validateConfig(cfg Config) error {
 	if cfg.Packets == 0 || cfg.Repeat <= 0 {
 		return media.NewFault(media.CodeInvalidArgument, false,
 			"packets and repeat must be positive")
+	}
+	if cfg.Thresholds.DriftP95MS <= 0 {
+		return media.NewFault(media.CodeInvalidArgument, false,
+			"drift limit must be positive")
 	}
 	return nil
 }
