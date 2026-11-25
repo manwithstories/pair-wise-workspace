@@ -39,7 +39,7 @@ func seiPayload(r *rand.Rand) []byte {
 
 func normalAsset(seed int64) *container.Asset {
 	r := rand.New(rand.NewSource(seed))
-	const frames = 12
+	const frames = 120
 	video := make([]container.Sample, frames)
 	for i := range video {
 		var data []byte
@@ -61,18 +61,18 @@ func normalAsset(seed int64) *container.Asset {
 
 	subs := []container.Sample{
 		textSample(0, 0, "修复口述史影像：第一盘磁带"),
-		textSample(1, 6000, "采访者：请描述当年的阅览室"),
-		textSample(2, 18000, "受访者：这些章节标记仍然对齐"),
+		textSample(1, 1000, "采访者：请描述当年的阅览室"),
+		textSample(2, 3000, "受访者：这些章节标记仍然对齐"),
 	}
 	chapters := []container.Sample{
 		textSample(0, 0, "第一章 磁带 A 面"),
-		textSample(1, 12000, "第二章 迁移记录"),
+		textSample(1, 2000, "第二章 迁移记录"),
 	}
 	id3a := append([]byte("ID3\x04\x00\x00"), deterministicBytes(r, 40, 0x49)...)
 	id3b := append([]byte("ID3\x03\x00\x00"), deterministicBytes(r, 40, 0x49)...)
 	meta := []container.Sample{
 		{Index: 0, Data: id3a, Size: len(id3a), DTS: 0, PTS: 500, Duration: 1000},
-		{Index: 1, Data: id3b, Size: len(id3b), DTS: 12000, PTS: 12500, Duration: 1000},
+		{Index: 1, Data: id3b, Size: len(id3b), DTS: 2400, PTS: 2500, Duration: 1000},
 	}
 	emsgBox := container.BuildEMSG("urn:archivectl:oral-history", "tape-reel", 1000, 100, 2000, 41,
 		[]byte("reel-change-approaching"))
@@ -95,7 +95,7 @@ func normalAsset(seed int64) *container.Asset {
 func textSample(index int, pts int64, text string) container.Sample {
 	b := []byte(text)
 	return container.Sample{
-		Index: index, Data: b, Size: len(b), DTS: pts, PTS: pts, Duration: 6000,
+		Index: index, Data: b, Size: len(b), DTS: pts, PTS: pts, Duration: 1000,
 	}
 }
 
