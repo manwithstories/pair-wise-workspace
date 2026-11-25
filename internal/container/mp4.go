@@ -139,7 +139,7 @@ func (p *mp4Parser) walk(start, end int64, depth int, st *trakState) {
 			}
 		case "colr":
 			if st != nil {
-				p.parseColr(b, payload, payloadEnd, st.track)
+				p.parseColr(b, payload, payloadEnd, st.track, model.SourceContainer)
 			}
 		case "stsd":
 			if st != nil {
@@ -207,7 +207,10 @@ func (p *mp4Parser) readBox(pos, end int64) (box, *fault.Error) {
 	return box{typ: typ, offset: pos, size: size, header: header}, nil
 }
 
-func (p *mp4Parser) unmarshal(typ mp4.BoxType, payload []byte, dst mp4.IBox) error {
-	_, _, err := mp4.UnmarshalAny(bytes.NewReader(payload), typ, uint64(len(payload)), mp4.Context{})
+// unmarshal decodes a typed box payload into dst. Unmarshal (rather than
+// UnmarshalAny) is required because the latter allocates its own box and
+// discards the caller's destination.
+func (p *mp4Parser) unmarshal(payload []byte, dst mp4.IBox) error {
+	_, err := mp4.Unmarshal(bytes.NewReader(payload), uint64(len(payload)), dst, mp4.Context{})
 	return err
 }

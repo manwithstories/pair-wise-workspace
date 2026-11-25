@@ -72,7 +72,7 @@ func (p *mp4Parser) parseSampleEntry(b box, start, end int64, st *trakState) {
 		case "clap":
 			p.parseClap(cb, child+cb.header, end, st.track)
 		case "colr":
-			p.parseColr(cb, child+cb.header, end, st.track)
+			p.parseColr(cb, child+cb.header, end, st.track, model.SourceBitstream)
 		}
 		child += cb.size
 	}
@@ -122,7 +122,7 @@ func (p *mp4Parser) parseClap(b box, start, end int64, trak *model.Track) {
 
 func (p *mp4Parser) parseStts(b box, start, end int64, st *trakState) {
 	var stts mp4.Stts
-	if err := p.unmarshal(mp4.BoxTypeStts(), p.data[start:end], &stts); err != nil {
+	if err := p.unmarshal(p.data[start:end], &stts); err != nil {
 		p.faults.Add(fault.Wrap(st.track.Number, b.offset, fault.KindCorrupt, false, err))
 		return
 	}
@@ -150,7 +150,7 @@ func (p *mp4Parser) parseStts(b box, start, end int64, st *trakState) {
 
 func (p *mp4Parser) parseStsz(b box, start, end int64, st *trakState) {
 	var stsz mp4.Stsz
-	if err := p.unmarshal(mp4.BoxTypeStsz(), p.data[start:end], &stsz); err != nil {
+	if err := p.unmarshal(p.data[start:end], &stsz); err != nil {
 		p.faults.Add(fault.Wrap(st.track.Number, b.offset, fault.KindCorrupt, false, err))
 		return
 	}
@@ -183,7 +183,7 @@ func (p *mp4Parser) parseStsz(b box, start, end int64, st *trakState) {
 
 func (p *mp4Parser) parseStco(b box, start, end int64, st *trakState) {
 	var stco mp4.Stco
-	if err := p.unmarshal(mp4.BoxTypeStco(), p.data[start:end], &stco); err != nil {
+	if err := p.unmarshal(p.data[start:end], &stco); err != nil {
 		p.faults.Add(fault.Wrap(st.track.Number, b.offset, fault.KindCorrupt, false, err))
 		return
 	}
@@ -193,7 +193,7 @@ func (p *mp4Parser) parseStco(b box, start, end int64, st *trakState) {
 
 func (p *mp4Parser) parseStsc(b box, start, end int64, st *trakState) {
 	var stsc mp4.Stsc
-	if err := p.unmarshal(mp4.BoxTypeStsc(), p.data[start:end], &stsc); err != nil {
+	if err := p.unmarshal(p.data[start:end], &stsc); err != nil {
 		p.faults.Add(fault.Wrap(st.track.Number, b.offset, fault.KindCorrupt, false, err))
 		return
 	}
@@ -202,7 +202,7 @@ func (p *mp4Parser) parseStsc(b box, start, end int64, st *trakState) {
 
 func (p *mp4Parser) parseStss(b box, start, end int64, st *trakState) {
 	var stss mp4.Stss
-	if err := p.unmarshal(mp4.BoxTypeStss(), p.data[start:end], &stss); err != nil {
+	if err := p.unmarshal(p.data[start:end], &stss); err != nil {
 		p.faults.Add(fault.Wrap(st.track.Number, b.offset, fault.KindCorrupt, true, err))
 		st.syncSet = map[int]bool{}
 		return

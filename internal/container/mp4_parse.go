@@ -12,7 +12,7 @@ import (
 
 func (p *mp4Parser) parseFtyp(b box, start, end int64) {
 	var ftyp mp4.Ftyp
-	if err := p.unmarshal(mp4.BoxTypeFtyp(), p.data[start:end], &ftyp); err != nil {
+	if err := p.unmarshal(p.data[start:end], &ftyp); err != nil {
 		p.faults.Add(fault.Wrap(-1, b.offset, fault.KindCorrupt, false, err))
 		return
 	}
@@ -21,7 +21,7 @@ func (p *mp4Parser) parseFtyp(b box, start, end int64) {
 
 func (p *mp4Parser) parseHdlr(b box, start, end int64) model.TrackKind {
 	var hdlr mp4.Hdlr
-	if err := p.unmarshal(mp4.BoxTypeHdlr(), p.data[start:end], &hdlr); err != nil {
+	if err := p.unmarshal(p.data[start:end], &hdlr); err != nil {
 		p.faults.Add(fault.Wrap(-1, b.offset, fault.KindCorrupt, true, err))
 		return model.Data
 	}
@@ -37,7 +37,7 @@ func (p *mp4Parser) parseHdlr(b box, start, end int64) model.TrackKind {
 
 func (p *mp4Parser) parseTkhd(b box, start, end int64, trak *model.Track) {
 	var tkhd mp4.Tkhd
-	if err := p.unmarshal(mp4.BoxTypeTkhd(), p.data[start:end], &tkhd); err != nil {
+	if err := p.unmarshal(p.data[start:end], &tkhd); err != nil {
 		p.faults.Add(fault.Wrap(trak.Number, b.offset, fault.KindCorrupt, false, err))
 		return
 	}
@@ -76,7 +76,7 @@ func matrixRotation(m [9]int32) (int, bool) {
 
 func (p *mp4Parser) parseMdhd(b box, start, end int64, trak *model.Track) {
 	var mdhd mp4.Mdhd
-	if err := p.unmarshal(mp4.BoxTypeMdhd(), p.data[start:end], &mdhd); err != nil {
+	if err := p.unmarshal(p.data[start:end], &mdhd); err != nil {
 		p.faults.Add(fault.Wrap(trak.Number, b.offset, fault.KindCorrupt, false, err))
 		return
 	}
@@ -97,27 +97,27 @@ func (p *mp4Parser) parseMdhd(b box, start, end int64, trak *model.Track) {
 	}
 }
 
-func (p *mp4Parser) parseColr(b box, start, end int64, trak *model.Track) {
+func (p *mp4Parser) parseColr(b box, start, end int64, trak *model.Track, src model.Source) {
 	var colr mp4.Colr
-	if err := p.unmarshal(mp4.BoxTypeColr(), p.data[start:end], &colr); err != nil {
+	if err := p.unmarshal(p.data[start:end], &colr); err != nil {
 		p.faults.Add(fault.Wrap(trak.Number, b.offset, fault.KindCorrupt, true, err))
 		return
 	}
 	ctype := string(colr.ColourType[:])
 	switch ctype {
 	case "nclx", "nclc":
-		setClaim(trak, model.SourceContainer, "primaries", fmt.Sprint(colr.ColourPrimaries))
-		setClaim(trak, model.SourceContainer, "transfer", fmt.Sprint(colr.TransferCharacteristics))
-		setClaim(trak, model.SourceContainer, "matrix", fmt.Sprint(colr.MatrixCoefficients))
+		setClaim(trak, src, "primaries", fmt.Sprint(colr.ColourPrimaries))
+		setClaim(trak, src, "transfer", fmt.Sprint(colr.TransferCharacteristics))
+		setClaim(trak, src, "matrix", fmt.Sprint(colr.MatrixCoefficients))
 		if ctype == "nclx" {
 			v := "limited"
 			if colr.FullRangeFlag {
 				v = "full"
 			}
-			setClaim(trak, model.SourceContainer, "range", v)
+			setClaim(trak, src, "range", v)
 		}
 	default:
-		setClaim(trak, model.SourceContainer, "color", "unknown:"+ctype)
+		setClaim(trak, src, "color", "unknown:"+ctype)
 	}
 }
 
