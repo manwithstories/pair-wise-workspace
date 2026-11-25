@@ -1,6 +1,6 @@
 // Package scene assembles the acceptance scenario: a seeded MP4 clip with
-// variable frame durations, an MXF clip with conflicting metadata, and a
-// cross-node RTP stream with drift, wraps and packet faults.
+// variable frame durations, an MXF clip with conflicting metadata, and two
+// cross-node RTP streams with drift, wraps and packet faults.
 //
 // Everything here is deterministic in the seed, so two runs with identical
 // arguments produce byte-identical artifacts.
@@ -40,6 +40,9 @@ func (p Params) normalized() Params {
 	if p.Segments <= 0 {
 		p.Segments = fixture.DefaultSegments
 	}
+	if p.Segments > p.Frames {
+		p.Segments = p.Frames
+	}
 	return p
 }
 
@@ -51,12 +54,25 @@ type Clip struct {
 	Parsed bool
 }
 
+// RTPStream is one node's transport stream plus the identity of the frames it
+// carries.
+type RTPStream struct {
+	Name string
+	// FirstFrame is the global frame index of the stream's first packet when
+	// no packets are lost.
+	FirstFrame int
+	Stream     fixture.RTPStream
+}
+
 // Scenario is the full input set for one run.
 type Scenario struct {
 	Params Params
 	MP4    Clip
 	MXF    Clip
-	RTP    fixture.RTPStream
+	// Corrupt holds deliberately damaged containers used by the selfcheck to
+	// prove that faults are reported with offsets rather than swallowed.
+	Corrupt Corruption
+	RTP     []RTPStream
 	// Frames are the JPEG payloads of frames [0,Frames).
 	Frames [][]byte
 }
@@ -68,8 +84,14 @@ const (
 	MXFFirst = fixture.MXFFirstFrame
 	// MXFCount is how many frames the MXF clip carries.
 	MXFCount = 72
-	// RTPFirst is the first global frame index carried by the RTP stream.
+	// RTPTrackID is the container track ID the cross-node streams belong to.
+	RTPTrackID = 7
+	// RTPFirst is the first global frame index carried by the first stream.
 	RTPFirst = 12
+	// RTPSecondFirst is the first global frame index of the second stream.
+	RTPSecondFirst = 60
+	// RTPSecondCount is how many frames the second stream carries.
+	RTPSecondCount = 48
 )
 
 // Build generates and parses every input.
@@ -90,9 +112,18 @@ func Build(p Params) (*Scenario, error) {
 	if s.MXF, err = buildMXF(p, mxfFrames); err != nil {
 		return nil, err
 	}
-	if s.RTP, err = buildRTP(p, frames, 0x51c0de+uint32(p.Seed&0xff)*0x100); err != nil {
+	first, err := buildRTP("rtp-a", p, frames, RTPFirst, p.Frames-RTPFirst,
+		0x51c0de+uint32(p.Seed&0xff)*0x100)
+	if err != nil {
 		return nil, err
 	}
+	second, err := buildRTP("rtp-b", p, frames, RTPSecondFirst, RTPSecondCount,
+		0xa11ce5+uint32(p.Seed&0xff)*0x100)
+	if err != nil {
+		return nil, err
+	}
+	s.RTP = []RTPStream{first, second}
+	s.Corrupt = BuildCorruption(s.MP4.Data)
 	return s, nil
 }
 
@@ -109,12 +140,6 @@ func buildMP4(p Params, frames [][]byte) (Clip, error) {
 		ColrBox:         &fixture.ColrSpec{Primaries: 1, Transfer: 1, Matrix: 1, FullRange: false},
 		ColrSampleEntry: &fixture.ColrSpec{Primaries: 9, Transfer: 16, Matrix: 9, FullRange: true},
 		Samples:         mp4Samples(frames),
-	})
-	// A second, tiny audio-like data track proves multi-track handling and
-	// that non-decodable codecs are reported rather than decoded.
-	spec.Tracks = append(spec.Tracks, fixture.MP4TrackSpec{
-		ID: 2, Kind: model.Audio, FourCC: "mp4a", Timescale: 48000,
-		Samples: []fixture.SampleSpec{{Payload: []byte{0x11, 0x22, 0x33, 0x44}, Duration: 1024, Sync: true}},
 	})
 	data, err := fixture.BuildMP4(spec)
 	if err != nil {
@@ -150,7 +175,7 @@ func buildMXF(p Params, frames [][]byte) (Clip, error) {
 		keys[i] = i%fixture.MXFKeyInterval == 0
 	}
 	spec := fixture.MXFSpec{Tracks: []fixture.MXFTrackSpec{{
-		ID: 7, Kind: model.Video, Codec: model.CodecMJPEG,
+		ID: RTPTrackID, Kind: model.Video, Codec: model.CodecMJPEG,
 		EditNum: fixture.MXFEditRate, EditDen: 1,
 		Duration: uint64(len(frames)),
 		Frames:   frames, Durations: durs, Keys: keys,
@@ -176,33 +201,38 @@ func buildMXF(p Params, frames [][]byte) (Clip, error) {
 	return Clip{Name: "clip.mxf", Data: data, File: f, Parsed: true}, nil
 }
 
-// buildRTP generates the cross-node stream. The sender clock runs fast by
+// buildRTP generates one cross-node stream. The sender clock runs fast by
 // DriftPPM and its timestamps wrap twice across the clip, which is what the
 // wrap and drift stages must recover.
-func buildRTP(p Params, frames [][]byte, ssrc uint32) (fixture.RTPStream, error) {
-	first, count := RTPFirst, p.Frames-RTPFirst
-	if count <= 0 {
-		return fixture.RTPStream{}, fmt.Errorf("scene: %d frames cannot carry an RTP stream", p.Frames)
+func buildRTP(name string, p Params, frames [][]byte, first, count int, ssrc uint32) (RTPStream, error) {
+	if count <= 0 || first+count > len(frames) {
+		return RTPStream{}, fmt.Errorf("scene: %s cannot carry frames [%d,%d)", name, first, first+count)
 	}
 	const driftPPM = fixture.DriftPPM
 	var rf []fixture.RTPFrame
-	// Start just below the 32-bit rollover so the stream crosses it twice:
-	// once at the start and once after the full wrap.
-	base := uint64(0xffffffff) - uint64(1<<32)/4
+	// Place the stream across the 32-bit rollover so it crosses exactly once:
+	// half of the span sits below 2^32 and half above. Two streams therefore
+	// contribute two observed wraps in total.
+	span := fixture.FrameTime90k(first+count) - fixture.FrameTime90k(first)
+	base := (uint64(1) << 32) - uint64(span/2+1)
 	for i := 0; i < count; i++ {
 		global := first + i
-		local := uint64(fixture.FrameTime90k(global))
+		local := uint64(fixture.FrameTime90k(global) - fixture.FrameTime90k(first))
 		node := local + local*uint64(driftPPM)/1_000_000
 		ts := uint32((base + node) & 0xffffffff)
-		rf = append(rf, fixture.RTPFrame{TrackID: 7, Timestamp: ts, Payload: frames[global]})
+		rf = append(rf, fixture.RTPFrame{TrackID: RTPTrackID, Timestamp: ts, Payload: frames[global]})
 	}
 	faults := fixture.RTPFaults{
 		Duplicates:    3,
-		Reorders:      4,
-		Drops:         2,
-		RepeatPackets: 2,
+		Reorders:      3,
+		Drops:         1,
+		RepeatPackets: 1,
 	}
-	return fixture.Packetize(rf, ssrc, faults, uint64(p.Seed)), nil
+	return RTPStream{
+		Name:       name,
+		FirstFrame: first,
+		Stream:     fixture.Packetize(rf, ssrc, faults, uint64(p.Seed)+uint64(ssrc)),
+	}, nil
 }
 
 // Resolve applies metadata resolution to every parsed track in the scenario.

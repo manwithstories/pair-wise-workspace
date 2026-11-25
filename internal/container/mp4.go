@@ -71,7 +71,8 @@ type box struct {
 // known, regardless of their on-disk order.
 type trakState struct {
 	track        *model.Track
-	kind         model.TrackKind
+	kind         model.TrackKind // resolved handler type
+	kindSet      bool            // hdlr was seen, so kind is authoritative
 	chunkOffsets []uint32
 	stsc         []mp4.StscEntry
 	syncSet      map[int]bool
@@ -113,6 +114,7 @@ func (p *mp4Parser) walk(start, end int64, depth int, st *trakState) {
 				track: &model.Track{Container: model.MP4, Kind: model.Data,
 					Claims: model.Claims{Policy: map[string]string{}, Bitstream: map[string]string{}, Container: map[string]string{}}},
 				syncSet: map[int]bool{},
+				kindSet: false,
 			}
 			p.file.Tracks = append(p.file.Tracks, child.track)
 			p.walk(payload, payloadEnd, depth+1, child)
@@ -128,6 +130,7 @@ func (p *mp4Parser) walk(start, end int64, depth int, st *trakState) {
 		case "hdlr":
 			if st != nil {
 				st.kind = p.parseHdlr(b, payload, payloadEnd)
+				st.kindSet = true
 			}
 		case "tkhd":
 			if st != nil {

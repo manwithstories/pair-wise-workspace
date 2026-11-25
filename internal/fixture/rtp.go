@@ -73,9 +73,22 @@ func Packetize(frames []RTPFrame, ssrc uint32, faults RTPFaults, seed uint64) RT
 		}
 	}
 	if faults.Reorders > 0 {
+		// A swap is only a useful reorder if the two packets are not adjacent
+		// in arrival order; a plain adjacent swap with a window of two would
+		// be indistinguishable from arrival jitter. Delay one packet by a
+		// few positions so the receiver genuinely sees it out of order.
 		for i := 0; i < faults.Reorders; i++ {
-			at := rng.IntN(len(out.Packets) - 1)
-			out.Packets[at], out.Packets[at+1] = out.Packets[at+1], out.Packets[at]
+			dist := 3 + rng.IntN(3)
+			at := rng.IntN(len(out.Packets) - dist - 1)
+			pkt := out.Packets[at]
+			out.Packets = append(out.Packets[:at], out.Packets[at+1:]...)
+			to := at + dist
+			if to > len(out.Packets) {
+				to = len(out.Packets)
+			}
+			out.Packets = append(out.Packets, rtp.Packet{})
+			copy(out.Packets[to+1:], out.Packets[to:])
+			out.Packets[to] = pkt
 			out.Reordered++
 		}
 	}

@@ -16,8 +16,9 @@ type Stats struct {
 	Unique     int // distinct sequence numbers accepted
 	Duplicates int // repeat sequence numbers discarded
 	Reordered  int // packets that arrived after a higher sequence number
-	Lost       int // sequence numbers never received inside the window
-	Dropped    int // packets beyond a full reorder window, deterministically dropped
+	Recovered  int // out-of-order packets placed correctly inside the window
+	Lost       int // sequence numbers that never arrived
+	Dropped    int // out-of-order packets discarded because the window was full
 	Wraps      int // 32-bit timestamp wraps expanded
 }
 
@@ -75,19 +76,20 @@ func (o Options) normalized() Options {
 
 // Recover reorders and deduplicates packets deterministically.
 //
-// Recovery is a pure function of the input: packets are deduplicated by
-// sequence number (earliest arrival wins), sequence numbers are unwrapped
-// across the 16-bit rollover starting from the first arrival, and the result is
-// sorted by absolute sequence. The bounded window is then applied to that
-// ordered stream: whenever the distance from the last emitted sequence number
-// exceeds Window, the packets inside the hole are declared dropped and a gap is
-// recorded. Modelling the buffer this way keeps the outcome independent of
-// timing while still bounding memory.
+// Duplicates are collapsed by sequence number (earliest arrival wins). Sequence
+// numbers are unwrapped across the 16-bit rollover using the earliest arrival
+// as the anchor, so a stream that begins near the rollover needs no configured
+// epoch. Packets are then examined in arrival order: an out-of-order packet
+// whose reorder distance stays within Window is recovered by the buffer, while
+// one that arrived further behind than the window is deterministically dropped
+// and its hole recorded as a gap. Finally the surviving packets are emitted in
+// sequence order and their timestamps expanded through the shared timebase.
 func Recover(in []Packet, opts Options) Result {
 	opts = opts.normalized()
 	res := Result{Faults: &fault.List{}}
 	stats := Stats{Received: len(in)}
 
+	// --- deduplicate ------------------------------------------------------
 	seen := make(map[uint16]Packet, len(in))
 	unique := make([]Packet, 0, len(in))
 	for i, p := range in {
@@ -121,8 +123,7 @@ func Recover(in []Packet, opts Options) Result {
 		return res
 	}
 
-	// Anchor the unwrap on the earliest-arriving packet so a stream that
-	// starts close to the rollover is handled without an arbitrary epoch.
+	// --- unwrap sequence numbers -----------------------------------------
 	anchor := unique[0]
 	for _, p := range unique[1:] {
 		if p.Arrival < anchor.Arrival {
@@ -134,52 +135,63 @@ func Recover(in []Packet, opts Options) Result {
 		if d > 0x7fff {
 			d -= 0x10000
 		}
-		return d // relative to anchor; negative only for genuinely late packets
+		return d
 	}
-	// Reordering: compare each packet's arrival against the furthest sequence
-	// seen in arrival order.
+
+	// --- classify arrivals ------------------------------------------------
+	// Walk in arrival order. A packet is out of order when a higher sequence
+	// number has already arrived. Its reorder distance decides whether the
+	// window can hold it.
 	byArrival := append([]Packet(nil), unique...)
 	sort.SliceStable(byArrival, func(i, j int) bool { return byArrival[i].Arrival < byArrival[j].Arrival })
 	var furthest int64 = -1 << 62
+	drop := make(map[uint16]bool, len(unique))
 	for _, p := range byArrival {
 		a := abs(p.Seq)
 		if a < furthest {
 			stats.Reordered++
+			if distance := furthest - a; int(distance) > opts.Window {
+				stats.Dropped++
+				drop[p.Seq] = true
+				res.Gaps = append(res.Gaps, Gap{
+					AfterSeq: uint16(int64(anchor.Seq) + a - 1), Count: 1,
+					Reason: "reorder window full",
+				})
+			} else {
+				stats.Recovered++
+			}
 		} else {
 			furthest = a
 		}
 	}
 
+	// --- emit in sequence order ------------------------------------------
 	sort.SliceStable(unique, func(i, j int) bool {
 		if ai, aj := abs(unique[i].Seq), abs(unique[j].Seq); ai != aj {
 			return ai < aj
 		}
 		return unique[i].Arrival < unique[j].Arrival
 	})
-
-	// Apply the window over adjacent absolute positions.
 	out := make([]Packet, 0, len(unique))
 	var prevAbs int64
-	for i, p := range unique {
+	var lastEmitted uint16
+	first := true
+	for _, p := range unique {
+		if drop[p.Seq] {
+			continue
+		}
 		cur := abs(p.Seq)
-		if i > 0 {
-			gap := cur - prevAbs - 1
-			if gap > 0 {
-				if gap > int64(opts.Window) {
-					stats.Dropped += int(gap)
-					res.Gaps = append(res.Gaps, Gap{
-						AfterSeq: unique[i-1].Seq, Count: int(gap), Reason: "reorder window full",
-					})
-				} else {
-					stats.Lost += int(gap)
-					res.Gaps = append(res.Gaps, Gap{
-						AfterSeq: unique[i-1].Seq, Count: int(gap), Reason: "sequence gap",
-					})
-				}
-			}
+		if !first && cur > prevAbs+1 {
+			missing := int(cur - prevAbs - 1)
+			stats.Lost += missing
+			res.Gaps = append(res.Gaps, Gap{
+				AfterSeq: lastEmitted, Count: missing, Reason: "sequence gap",
+			})
 		}
 		out = append(out, p)
 		prevAbs = cur
+		lastEmitted = p.Seq
+		first = false
 	}
 	res.Packets = out
 

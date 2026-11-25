@@ -247,13 +247,7 @@ func writeTrak(w *boxWriter, f *File, t *model.Track, mw *moovWriter) {
 func writeStsd(w *boxWriter, t *model.Track) {
 	stsd := w.fullBox("stsd", 0, 0)
 	w.u32(1)
-	fourCC := string(t.Codec)
-	if fourCC == "" {
-		fourCC = "mjpg"
-	}
-	if len(fourCC) != 4 {
-		fourCC = "mjpg"
-	}
+	fourCC := codecFourCC(t.Codec, t.Kind)
 	if t.Kind == model.Audio {
 		entry := w.box(fourCC)
 		w.pad(6)
@@ -401,6 +395,24 @@ func clampU32(v int64) int64 {
 		return max
 	}
 	return v
+}
+
+// codecFourCC maps a model codec back to its four-character sample entry code.
+func codecFourCC(c model.Codec, kind model.TrackKind) string {
+	switch c {
+	case model.CodecMJPEG:
+		return "mjpg"
+	case model.CodecH264:
+		return "avc1"
+	case model.CodecAAC:
+		return "mp4a"
+	case model.CodecPCM:
+		return "lpcm"
+	}
+	if kind == model.Audio {
+		return "mp4a"
+	}
+	return "mjpg"
 }
 
 // containerColr rebuilds the track-level colr box from the container-layer

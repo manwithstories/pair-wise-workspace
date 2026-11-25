@@ -103,7 +103,7 @@ func Resolve(trak *model.Track, opts Options) Result {
 		res.Faults.Add(fault.New(trak.Number, 0, fault.KindMetadata, false,
 			"track %s resolved rotation %d is not a quarter turn", trak.Label(), desc.Rotation))
 	}
-	if desc.Width <= 0 || desc.Height <= 0 {
+	if trak.Kind == model.Video && (desc.Width <= 0 || desc.Height <= 0) {
 		res.Faults.Add(fault.New(trak.Number, 0, fault.KindMetadata, true,
 			"track %s has no usable dimensions", trak.Label()))
 	}

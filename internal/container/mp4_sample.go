@@ -40,6 +40,12 @@ func (p *mp4Parser) parseStsd(b box, start, end int64, st *trakState) {
 }
 
 func (p *mp4Parser) parseSampleEntry(b box, start, end int64, st *trakState) {
+	// Only a video handler makes a visual sample entry; an audio handler's
+	// entry is an AudioSampleEntry whose layout differs. st.kindSet guards
+	// against a stsd that appears before its hdlr in a malformed file.
+	if !st.kindSet {
+		return
+	}
 	st.track.Codec = codecFor(b.typ)
 	if st.kind != model.Video {
 		return
