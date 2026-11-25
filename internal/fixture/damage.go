@@ -85,7 +85,10 @@ func withPSIUpdate(src []byte, tracks []media.Track, samples []media.Sample) []b
 	}
 	corrupt[3] = (corrupt[3] & 0xf0) | 0x01
 	valid[3] = (valid[3] & 0xf0) | 0x02
-	return append(append(append(src, corrupt...), valid...))
+	out := append([]byte(nil), src...)
+	out = append(out, corrupt...)
+	out = append(out, valid...)
+	return out
 }
 
 func packetizeRTPTS(ts []byte, seed int64) ([][]byte, *media.Error) {
