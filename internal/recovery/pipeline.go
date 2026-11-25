@@ -33,6 +33,7 @@ type exec struct {
 	segs   []*loadedSegment
 	tl     *clock.Timeline
 	maps   []codec.MappedPacket
+	pcm    []byte
 	master []byte
 }
 
