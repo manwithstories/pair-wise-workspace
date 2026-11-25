@@ -36,6 +36,8 @@ func run(args []string) int {
 	switch args[0] {
 	case "verify":
 		return runVerify(args[1:])
+	case "traces":
+		return runTraces(args[1:])
 	case "-h", "--help", "help":
 		printUsage()
 		return exitOK
@@ -107,7 +109,8 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, `avlab - low-latency media laboratory
 
 usage:
-  avlab verify [flags]
+  avlab verify [flags]   run the full acceptance pipeline
+  avlab traces [flags]   print normal/damaged/recovery trace artifacts
 
 flags:
   --seed uint       deterministic PRNG seed (default 17)
