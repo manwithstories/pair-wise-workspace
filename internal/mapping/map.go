@@ -136,6 +136,7 @@ func (m *Mapping) ValidateAgainstPMT(streams []struct {
 		}{s.Codec, s.Kind}
 	}
 	tracks := make([]media.Track, 0, len(m.Routes))
+	mapped := map[uint16]bool{}
 	for _, r := range m.Routes {
 		actual, ok := byPID[r.SourcePID]
 		if !ok {
@@ -151,10 +152,25 @@ func (m *Mapping) ValidateAgainstPMT(streams []struct {
 					r.SourcePID, actual.Kind, actual.Codec, r.Kind, r.Codec),
 			}
 		}
+		mapped[r.SourcePID] = true
 		tracks = append(tracks, media.Track{
 			ID: r.TrackID, PID: r.SourcePID, Kind: r.Kind, Codec: r.Codec,
 			Timescale: 90000,
 		})
+	}
+	for pid, actual := range byPID {
+		if !media.SupportedCodec(actual.Codec) {
+			return nil, &media.Error{
+				Code: media.CodeUnsupported, Component: "mapping",
+				Message: fmt.Sprintf("PID %d uses unsupported codec %q", pid, actual.Codec),
+			}
+		}
+		if !mapped[pid] {
+			return nil, &media.Error{
+				Code: media.CodeMappingInvalid, Component: "mapping",
+				Message: fmt.Sprintf("elementary PID %d has no explicit route; refusing silent default", pid),
+			}
+		}
 	}
 	return tracks, nil
 }
