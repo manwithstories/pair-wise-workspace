@@ -127,9 +127,20 @@ func TestDoubleLossPropagatesToManifest(t *testing.T) {
 	if !res.Faults.Has(media.CodeRepairOverflow) {
 		t.Fatalf("faults = %v, want repair_overflow", res.Faults)
 	}
-	// The manifest must distinguish recovered from unrecovered.
+	// The manifest must distinguish recovered from unrecovered, both in its
+	// counters and in its fault list.
 	if res.Manifest.Quality.RecoveredPackets != res.Manifest.RecoveredPackets {
 		t.Fatal("recovered packet counts disagree")
+	}
+	codes := map[string]int{}
+	for _, f := range res.Manifest.Faults {
+		codes[f.Code]++
+	}
+	if codes[string(media.CodePacketGap)] == 0 {
+		t.Fatalf("manifest faults lack packet_gap: %+v", codes)
+	}
+	if codes[string(media.CodePacketRecovered)] == 0 {
+		t.Fatalf("manifest faults lack packet_recovered: %+v", codes)
 	}
 }
 

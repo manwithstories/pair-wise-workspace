@@ -22,6 +22,10 @@ func (r *Runner) align(ctx context.Context, doc *ebml.Document, graph *ebml.Grap
 	if _, err := graph.Anchor(); err != nil {
 		return nil, err
 	}
+	// One shared fault model for the whole run: transport repair/gap faults
+	// recorded by the runner and sync faults recorded by the timeline must
+	// reach the same manifest, so damaged media is never silently dropped.
+	doc.Faults = r.fault
 	streams, err := r.buildStreams(doc, graph, order)
 	if err != nil {
 		return nil, err
