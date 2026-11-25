@@ -167,9 +167,11 @@ func Verify(root, group string, repeat int) (*Metrics, error) {
 	if m.AVSyncMaxMS > MaxAVSyncMS {
 		fail("av_sync_max_ms=%.4f > %.1f", m.AVSyncMaxMS, MaxAVSyncMS)
 	}
-	if m.LossRecovery+1e-9 < MinLossRecov {
-		fail("loss_recovery=%.4f < %.2f", m.LossRecovery, MinLossRecov)
+	rawLoss := m.LossRecovery
+	if rawLoss+1e-9 < MinLossRecov {
+		fail("loss_recovery=%.4f < %.2f", rawLoss, MinLossRecov)
 	}
+	m.LossRecovery = round4(rawLoss)
 	if m.SegmentP95MS > MaxSegmentP95 {
 		fail("segment_p95_ms=%.3f > %d", m.SegmentP95MS, MaxSegmentP95)
 	}
@@ -226,3 +228,5 @@ func rationalMS(base int64, timescale uint32) float64 {
 }
 
 func round3(v float64) float64 { return float64(int64(v*1000+0.5)) / 1000 }
+
+func round4(v float64) float64 { return float64(int64(v*10000+0.5)) / 10000 }
