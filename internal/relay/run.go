@@ -5,6 +5,8 @@ package relay
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -186,7 +188,11 @@ func run(ctx context.Context, command string, opts Options) (*Report, error) {
 	rep.SHA256Match = fmt.Sprintf("%d/%d", len(lines), len(lines))
 
 	if command == "selfcheck" {
-		if err := selfcheckExtra(ctx, sc, opts, rep, rendered, recs); err != nil {
+		// The verification passes render into fresh scratch directories, so
+		// they must never inherit the resume flag meant for the primary run.
+		verifyOpts := opts
+		verifyOpts.Resume = false
+		if err := selfcheckExtra(ctx, sc, verifyOpts, rep, rendered, recs); err != nil {
 			return rep, err
 		}
 	}
@@ -539,16 +545,30 @@ func renderAll(ctx context.Context, sc *scene.Scenario, opts Options, dir string
 	if err != nil {
 		return nil, err
 	}
-	if opts.Resume {
-		// A resumed run simply re-renders deterministically; the checkpoint is
-		// informational and its presence is validated.
-		if _, err := os.Stat(filepath.Join(dir, "checkpoint.json")); err != nil {
-			if !os.IsNotExist(err) {
-				return nil, fault.Wrap(-1, 0, fault.KindCorrupt, false, err)
-			}
-		}
-	}
+	// Resume: skip frames a previous cancelled run already published. The
+	// checkpoint records how many frames were written and each existing file
+	// is hashed so the final manifest matches an uninterrupted run exactly.
 	var hashes []string
+	resumeFrom := 0
+	if opts.Resume {
+		done, err := readCheckpoint(filepath.Join(dir, "checkpoint.json"))
+		if err != nil {
+			return nil, err
+		}
+		if done > len(entries) {
+			return nil, fault.New(-1, 0, fault.KindCorrupt, false,
+				"checkpoint claims %d frames but the timeline has %d", done, len(entries))
+		}
+		for i := 0; i < done; i++ {
+			h, err := hashExistingFrame(dir, entries[i].SampleIdx)
+			if err != nil {
+				return nil, err
+			}
+			hashes = append(hashes, h)
+		}
+		resumeFrom = done
+		entries = entries[resumeFrom:]
+	}
 	cctx := ctx
 	if cancelAfter > 0 {
 		var cancel context.CancelFunc
@@ -571,7 +591,10 @@ func renderAll(ctx context.Context, sc *scene.Scenario, opts Options, dir string
 			if err != nil {
 				return nil, fault.Wrap(mp4Track.Number, sample.Offset, fault.KindOutOfRange, true, err)
 			}
-			r := render.WriteFrame(dir, e.SampleIdx, payload, sample.Codec, desc, render.Options{})
+			// Workers decode and crop in memory only; the write happens in the
+			// serialized emission stage so cancellation before a write means no
+			// file is created at all.
+			r := render.RenderFrame(e.SampleIdx, payload, sample.Codec, desc, render.Options{})
 			if r.Err != nil {
 				return nil, r.Err
 			}
@@ -581,16 +604,23 @@ func renderAll(ctx context.Context, sc *scene.Scenario, opts Options, dir string
 			if cancelAfter > 0 && processed >= cancelAfter {
 				return fault.New(-1, 0, fault.KindCancelled, true, "simulated cancellation")
 			}
-			processed++
-			if r, ok := m.Value.(render.Result); ok {
-				hashes = append(hashes, r.OutHash)
+			r, ok := m.Value.(render.Result)
+			if !ok {
+				return fault.New(-1, 0, fault.KindCorrupt, false, "unexpected job value %T", m.Value)
 			}
+			written, err := render.WriteRendered(dir, r)
+			if err != nil {
+				return err
+			}
+			processed++
+			hashes = append(hashes, written.OutHash)
 			return nil
 		},
 	})
 	if isCancel(runErr) || res.Canceled {
-		writeCheckpoint(dir, processed, len(entries))
-		return nil, fault.New(-1, 0, fault.KindCancelled, true, "cancelled after %d frames", processed)
+		writeCheckpoint(dir, resumeFrom+processed, resumeFrom+len(entries))
+		return nil, fault.New(-1, 0, fault.KindCancelled, true,
+			"cancelled after %d frames", resumeFrom+processed)
 	}
 	if runErr != nil {
 		return nil, runErr
@@ -599,6 +629,8 @@ func renderAll(ctx context.Context, sc *scene.Scenario, opts Options, dir string
 		return nil, fault.New(-1, 0, fault.KindCorrupt, false,
 			"rendered %d of %d frames", processed, len(entries))
 	}
+	// A completed run has nothing left to resume.
+	_ = os.Remove(filepath.Join(dir, "checkpoint.json"))
 	// The pipeline emits in canonical order, so hashes are already ordered by
 	// composition key; sort defensively by frame index if the merge changed.
 	return hashes, nil
@@ -673,4 +705,40 @@ func printReport(w io.Writer, rep *Report) {
 		fmt.Fprintf(w, "png_shard=%d.%s\n", s.Index, s.Hash)
 	}
 	fmt.Fprintf(w, "exit=%d\n", rep.Exit)
+}
+
+// readCheckpoint parses the tiny JSON checkpoint written by writeCheckpoint.
+func readCheckpoint(path string) (int, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, fault.New(-1, 0, fault.KindCorrupt, true,
+				"--resume requested but no checkpoint exists at %s", path)
+		}
+		return 0, fault.Wrap(-1, 0, fault.KindCorrupt, false, err)
+	}
+	var cp struct {
+		Done  int `json:"done"`
+		Total int `json:"total"`
+	}
+	if err := json.Unmarshal(data, &cp); err != nil {
+		return 0, fault.Wrap(-1, 0, fault.KindCorrupt, false, err)
+	}
+	if cp.Done < 0 || cp.Done > cp.Total {
+		return 0, fault.New(-1, 0, fault.KindCorrupt, false,
+			"checkpoint progress %d/%d is inconsistent", cp.Done, cp.Total)
+	}
+	return cp.Done, nil
+}
+
+// hashExistingFrame recomputes a published frame's digest so a resumed run's
+// manifest is identical to the uninterrupted one.
+func hashExistingFrame(dir string, frameNo int) (string, error) {
+	path := filepath.Join(dir, fmt.Sprintf("frame_%04d.png", frameNo))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fault.Wrap(-1, 0, fault.KindCorrupt, false, err)
+	}
+	sum := sha256.Sum256(data)
+	return fmt.Sprintf("%x", sum), nil
 }
