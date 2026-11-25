@@ -10,7 +10,9 @@ import (
 func (d *Demuxer) feedPES(pid uint16, pusi bool, payload []byte, offset int64) *media.Error {
 	if pusi {
 		if old := d.pes[pid]; old != nil && len(old.buf) > 0 && old.want == 0 {
-			d.emitPES(pid, old)
+			if err := d.emitPES(pid, old); err != nil {
+				return err
+			}
 		}
 		b, perr := d.parsePESHeader(pid, payload, offset)
 		if perr != nil {
@@ -44,7 +46,9 @@ func (d *Demuxer) feedPES(pid uint16, pusi bool, payload []byte, offset int64) *
 		return err
 	}
 	if b.want > 0 && len(b.buf) >= b.want {
-		d.emitPES(pid, b)
+		if err := d.emitPES(pid, b); err != nil {
+			return err
+		}
 		delete(d.pes, pid)
 	}
 	return nil
@@ -109,9 +113,17 @@ func (d *Demuxer) extendTimestamp(m map[uint16]*media.WrapExtender, pid uint16, 
 	return w.Extend(raw)
 }
 
-func (d *Demuxer) emitPES(pid uint16, b *pesBuilder) {
+func (d *Demuxer) emitPES(pid uint16, b *pesBuilder) *media.Error {
 	if b == nil || len(b.buf) == 0 {
-		return
+		return nil
+	}
+	if d.Limits.MaxSamples > 0 && len(d.samples) >= d.Limits.MaxSamples {
+		err := (&media.Error{
+			Code: media.CodeResourceLimit, Component: "ts.demux",
+			Message: fmt.Sprintf("sample count exceeds limit %d", d.Limits.MaxSamples),
+		}).MarkFatal()
+		d.add(err)
+		return err
 	}
 	size := len(b.buf)
 	if b.want > 0 && size > b.want {
@@ -132,6 +144,7 @@ func (d *Demuxer) emitPES(pid uint16, b *pesBuilder) {
 		s.PTS = s.DTS
 	}
 	d.samples = append(d.samples, s)
+	return nil
 }
 
 // FlushPES emits unbounded PES data and rejects incomplete finite PES.
@@ -148,7 +161,9 @@ func (d *Demuxer) FlushPES() *media.Error {
 			d.add(err)
 			return err
 		}
-		d.emitPES(pid, b)
+		if err := d.emitPES(pid, b); err != nil {
+			return err
+		}
 		delete(d.pes, pid)
 	}
 	return nil
