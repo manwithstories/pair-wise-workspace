@@ -8,9 +8,12 @@ import (
 )
 
 func fill(dst []byte, seed int64, tag byte) {
+	x := uint64(seed)*1_000_003 + uint64(tag)<<32
 	for i := range dst {
-		// High bit set prevents accidental Annex B start-code emulation.
-		dst[i] = byte(0x80) | byte((seed+int64(i)*37+int64(tag)*13)&0x7f)
+		// SplitMix-style diffusion makes neighboring AU fixtures distinct;
+		// setting the high bit prevents accidental Annex B start codes.
+		x = x*6364136223846793005 + 1442695040888963407 + uint64(i)*1_000_003
+		dst[i] = byte(x>>33) | 0x80
 	}
 }
 
