@@ -71,3 +71,11 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# 验收运行产物与本地临时目录
+/out/
+/tmp/
+/media-*/
+*.test
+*.out
+coverage.txt
