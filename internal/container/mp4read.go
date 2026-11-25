@@ -110,6 +110,7 @@ func ParseBytes(name string, data []byte) (*Asset, error) {
 		if err != nil {
 			return nil, timeline.AtOffset(err, name, offsetOf(err))
 		}
+		ev.RawBox = append([]byte(nil), data[h.Offset:h.Offset+int(h.Size)]...)
 		a.Events = append(a.Events, ev)
 	}
 

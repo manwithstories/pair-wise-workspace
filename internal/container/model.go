@@ -66,6 +66,7 @@ type Event struct {
 	TimeNS      int64  `json:"time_ns"`
 	Label       string `json:"label,omitempty"`
 	Payload     []byte `json:"-"`
+	RawBox      []byte `json:"-"`
 	Hash        string `json:"sha256"`
 	ByteOffset  int64  `json:"byte_offset"`
 }
