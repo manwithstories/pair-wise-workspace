@@ -73,6 +73,9 @@ func ScanMP4(path, rel string, opts ScanOptions) (*AssetIndex, error) {
 	if err != nil {
 		return nil, fault.E(fault.MP4Corrupt, "index", "ScanMP4.probe", err).WithPath(rel)
 	}
+	if len(info.Tracks) == 0 {
+		return nil, fault.E(fault.MP4Corrupt, "index", "ScanMP4.tracks", errors.New("mp4 contains no tracks")).WithPath(rel)
+	}
 	keySets, err := extractSyncSamples(f)
 	if err != nil {
 		return nil, fault.E(fault.MP4Corrupt, "index", "ScanMP4.stss", err).WithPath(rel)
