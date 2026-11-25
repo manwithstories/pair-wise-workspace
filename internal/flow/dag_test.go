@@ -3,6 +3,7 @@ package flow
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/pairwise/mediad/internal/media"
 	"github.com/pairwise/mediad/internal/store"
@@ -128,5 +129,45 @@ func TestBlockedRootIsStableFirstBlockedAndResumeRunsOnlyUnfinished(t *testing.T
 	}
 	if childRuns != 1 || d2.Get("repair:track-02:segment-01").State != StateDone {
 		t.Fatalf("childRuns=%d state=%s", childRuns, d2.Get("repair:track-02:segment-01").State)
+	}
+}
+
+func TestExecutorNeverRunsMoreThanFourConcurrentNodes(t *testing.T) {
+	st, err := store.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := NewExecutor(st, "state.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := New()
+	entered := make(chan struct{}, 8)
+	release := make(chan struct{})
+	for i := 0; i < 8; i++ {
+		id := "parallel-" + string(rune('a'+i))
+		_ = d.Add(&Node{ID: id, Produce: func() ([]byte, error) {
+			entered <- struct{}{}
+			<-release
+			return []byte("ok"), nil
+		}})
+	}
+	done := make(chan error, 1)
+	go func() { done <- e.Run(d) }()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for len(entered) < 4 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if len(entered) != 4 {
+		t.Fatalf("active=%d want 4", len(entered))
+	}
+	time.Sleep(20 * time.Millisecond)
+	if len(entered) != 4 {
+		t.Fatalf("concurrency exceeded cap: active=%d", len(entered))
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }

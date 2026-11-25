@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"sort"
+	"sync"
 
 	"github.com/pairwise/mediad/internal/media"
 	"github.com/pairwise/mediad/internal/metric"
@@ -16,6 +18,7 @@ type Executor struct {
 	StateRel    string
 	MaxParallel int
 	state       persistedState
+	mu          sync.Mutex
 	Executions  int
 	Writes      int
 	Cached      int
@@ -74,62 +77,113 @@ func (e *Executor) persist(d *DAG) error {
 	return e.Store.WriteAtomic(e.StateRel, data)
 }
 
-// Run executes unfinished nodes in topological order. Completed matching nodes
-// are skipped. Independent nodes continue after one blocked/failed node.
+// Run executes unfinished nodes by dependency depth. Nodes in one depth may run
+// concurrently, bounded by MaxParallel (hard cap 4). Completed matching nodes
+// are skipped. Independent branches continue after one blocked/failed branch.
 func (e *Executor) Run(d *DAG) error {
 	order, err := d.TopologicalOrder()
 	if err != nil {
 		return err
 	}
+	levels := dependencyLevels(d, order)
 	sem := store.NewSemaphore(e.MaxParallel)
 	var firstErr error
-	for _, id := range order {
-		n := d.nodes[id]
-		e.mergePersisted(n)
-		if n.State == StateDone && n.SHA256 != "" && (n.OutputRel == "" || e.Store.Exists(n.OutputRel)) {
-			e.Cached++
-			continue
-		}
-		if blocker := e.dependencyBlocked(d, n); blocker != "" {
-			n.State = StateBlocked
-			n.BlockedBy = blocker
-			n.Detail = "blocked by dependency " + blocker
-			if firstErr == nil {
-				firstErr = media.NewError(media.CodeBlockedDependency, "flow.dag", blocker, n.ID+" blocked")
+
+	for level := 0; level < len(levels); level++ {
+		var runnable []*Node
+		for _, id := range levels[level] {
+			n := d.nodes[id]
+			e.mergePersisted(n)
+			if n.State == StateDone && n.SHA256 != "" && (n.OutputRel == "" || e.Store.Exists(n.OutputRel)) {
+				e.Cached++
+				continue
 			}
-			_ = e.persist(d)
-			continue
-		}
-		if n.Produce == nil {
-			n.State = StateFailed
-			n.Detail = "missing produce function"
-			if firstErr == nil {
-				firstErr = media.NewError(media.CodeInternal, "flow.dag", n.ID, n.Detail)
-			}
-			continue
-		}
-		err := sem.Run(func() error { return e.runNode(n) })
-		if err != nil {
-			var me *media.Error
-			if errors.As(err, &me) && me.Code == media.CodeBlockedDependency {
+			if blocker := e.dependencyBlocked(d, n); blocker != "" {
 				n.State = StateBlocked
-				n.BlockedBy = n.ID
-			} else {
+				n.BlockedBy = blocker
+				n.Detail = "blocked by dependency " + blocker
+				if firstErr == nil {
+					firstErr = media.NewError(media.CodeBlockedDependency, "flow.dag", blocker, n.ID+" blocked")
+				}
+				continue
+			}
+			if n.Produce == nil {
 				n.State = StateFailed
+				n.Detail = "missing produce function"
+				if firstErr == nil {
+					firstErr = media.NewError(media.CodeInternal, "flow.dag", n.ID, n.Detail)
+				}
+				continue
 			}
-			n.Detail = err.Error()
-			if firstErr == nil {
-				firstErr = err
+			runnable = append(runnable, n)
+		}
+
+		errs := make(map[string]error, len(runnable))
+		var errMu sync.Mutex
+		var wg sync.WaitGroup
+		for _, n := range runnable {
+			n := n
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				err := sem.Run(func() error { return e.runNode(n) })
+				errMu.Lock()
+				errs[n.ID] = err
+				errMu.Unlock()
+			}()
+		}
+		wg.Wait()
+
+		for _, n := range runnable {
+			err := errs[n.ID]
+			if err != nil {
+				var me *media.Error
+				if errors.As(err, &me) && me.Code == media.CodeBlockedDependency {
+					n.State = StateBlocked
+					n.BlockedBy = n.ID
+				} else {
+					n.State = StateFailed
+				}
+				n.Detail = err.Error()
+				if firstErr == nil {
+					firstErr = err
+				}
+			} else {
+				n.State = StateDone
+				n.Detail = ""
 			}
-		} else {
-			n.State = StateDone
-			n.Detail = ""
 		}
 		if perr := e.persist(d); perr != nil && firstErr == nil {
 			firstErr = perr
 		}
 	}
 	return firstErr
+}
+
+func dependencyLevels(d *DAG, order []string) [][]string {
+	levelOf := make(map[string]int, len(order))
+	maxLevel := 0
+	for _, id := range order {
+		level := 0
+		for _, dep := range d.nodes[id].Deps {
+			if candidate := levelOf[dep] + 1; candidate > level {
+				level = candidate
+			}
+		}
+		levelOf[id] = level
+		if level > maxLevel {
+			maxLevel = level
+		}
+	}
+	levels := make([][]string, maxLevel+1)
+	for _, id := range order {
+		lv := levelOf[id]
+		levels[lv] = append(levels[lv], id)
+	}
+	for lv := range levels {
+		sort.Strings(levels[lv])
+	}
+	return levels
 }
 
 func (e *Executor) dependencyBlocked(d *DAG, n *Node) string {
@@ -146,7 +200,9 @@ func (e *Executor) dependencyBlocked(d *DAG, n *Node) string {
 }
 
 func (e *Executor) runNode(n *Node) error {
+	e.mu.Lock()
 	e.Executions++
+	e.mu.Unlock()
 	var data []byte
 	var err error
 	for attempt := 0; attempt <= n.Retries; attempt++ {
@@ -167,7 +223,9 @@ func (e *Executor) runNode(n *Node) error {
 		if err := e.Store.WriteAtomic(n.OutputRel, data); err != nil {
 			return err
 		}
+		e.mu.Lock()
 		e.Writes++
+		e.mu.Unlock()
 		hash, err := metric.FileSHA256(filepath.Join(e.Store.Root, n.OutputRel))
 		if err != nil {
 			return media.Wrap(err, media.CodeLocalIO, "flow.dag", n.OutputRel, "hash after atomic write failed")
