@@ -9,13 +9,13 @@ import (
 // RTPMapper extends 16-bit sequence numbers and 32-bit RTP timestamps without
 // allowing wire wraparound to move media time backward.
 type RTPMapper struct {
-	ClockRate      int64
-	baseSequence   uint64
-	lastSequence   uint64
-	haveSequence   bool
-	baseTimestamp  uint64
-	lastTimestamp  uint64
-	haveTimestamp  bool
+	ClockRate     int64
+	baseSequence  uint64
+	lastSequence  uint64
+	haveSequence  bool
+	baseTimestamp uint64
+	lastTimestamp uint64
+	haveTimestamp bool
 }
 
 // MappedPacket is an unwrapped RTP sample with rational media time.

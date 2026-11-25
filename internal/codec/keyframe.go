@@ -8,19 +8,19 @@ import (
 
 // NAL is a located H.264 network abstraction layer unit.
 type NAL struct {
-	Index  int    `json:"index"`
-	Offset int64  `json:"offset"`
-	Length int    `json:"length"`
-	Type   uint8  `json:"type"`
-	IDR    bool   `json:"idr"`
+	Index  int   `json:"index"`
+	Offset int64 `json:"offset"`
+	Length int   `json:"length"`
+	Type   uint8 `json:"type"`
+	IDR    bool  `json:"idr"`
 }
 
 // KeyframeHit compares an expected keyframe ordinal against scanned NAL indices.
 type KeyframeHit struct {
-	ExpectedOrdinal int   `json:"expected_ordinal"`
-	ExpectedIndex   int   `json:"expected_index"`
-	ActualIndex     int   `json:"actual_index"`
-	Matched         bool  `json:"matched"`
+	ExpectedOrdinal int  `json:"expected_ordinal"`
+	ExpectedIndex   int  `json:"expected_index"`
+	ActualIndex     int  `json:"actual_index"`
+	Matched         bool `json:"matched"`
 }
 
 // ScanAnnexB scans start-code delimited H.264 NAL units.
