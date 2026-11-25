@@ -111,7 +111,7 @@ func TestInterleavedTracksKeepIndependentOrder(t *testing.T) {
 }
 
 func TestFaultsRecoverAtNextValidatedCluster(t *testing.T) {
-	for _, fault := range []string{"truncated-block", "invalid-vint"} {
+	for _, fault := range []string{"truncated-block", "invalid-vint", "bad-lacing"} {
 		t.Run(fault, func(t *testing.T) {
 			fx := sample.Generate(sample.Config{Seed: 41, Fault: fault})
 			p, _ := demux.NewParser(bytes.NewReader(fx.Data), demux.DefaultConfig())

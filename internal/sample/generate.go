@@ -93,6 +93,13 @@ func writeVideoBlock(buf *bytes.Buffer, cfg Config, cluster int, f *Fixture) {
 	keyframePayload := []byte{0x00, 0x00, 0x00, 0x01, 0x67, byte(cluster), 0x0d, 0x0a}
 	block := blockPayload(1, 0, 0x80, keyframePayload)
 
+	if cluster == 20 && cfg.Fault == "bad-lacing" {
+		f.FaultOffset = int64(buf.Len())
+		// Keyframe + Xiph lacing, frame count six, but truncated size coding.
+		bad := []byte{0x81, 0x00, 0x00, 0x82, 0x05, 0xff, 0xff, 0xff}
+		buf.Write(ebml.BuildElement(ebml.IDSimpleBlock, bad))
+		return
+	}
 	if cluster == 20 && cfg.Fault == "truncated-block" {
 		f.FaultOffset = int64(buf.Len())
 		buf.Write(ebml.ElementHeader(ebml.IDSimpleBlock, 2))

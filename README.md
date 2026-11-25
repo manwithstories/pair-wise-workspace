@@ -46,7 +46,7 @@ go run ./cmd/mediaproc demo \
 | 截断块 | `--fault truncated-block --recover` | 原始 SimpleBlock 偏移、下一已验证 Cluster 边界、5/5 哈希 |
 | 非法 VINT | `--fault invalid-vint --recover` | 非法描述符偏移、重同步边界、恢复后段数 |
 | 缺失 Cluster 结束标记 | `--fault missing-cluster-end` | 未知长度 Cluster 在 EOF 正确结束 |
-| 错误 lacing | `internal/demux/lacing_test.go` | Xiph/Fixed 截断和不均分错误 |
+| 错误 lacing | `--fault bad-lacing --recover` 与 `internal/demux/lacing_test.go` | Xiph/Fixed 截断、偏移和恢复边界 |
 | 满队列取消 | `--fault queue-cancel` 与 `internal/pipeline/runner_test.go` | 被阻塞元素偏移、未发布项清理、内存上限 |
 
 重复运行会生成相同的 `input.webm`、JSON record、MP4 侧车和 `manifest.sha256`；

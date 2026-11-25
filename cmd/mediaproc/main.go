@@ -22,7 +22,7 @@ func main() {
 	maxMemory := fs.Int64("max-memory", 8<<20, "maximum accounted queue memory in bytes")
 	queue := fs.Int("queue", 4, "bounded queue capacity")
 	slowConsumer := fs.Duration("slow-consumer", 0, "simulated publish delay per segment")
-	fault := fs.String("fault", "", "fault injection: truncated-block|invalid-vint|missing-cluster-end|queue-cancel")
+	fault := fs.String("fault", "", "fault injection: truncated-block|invalid-vint|bad-lacing|missing-cluster-end|queue-cancel")
 	recoverFault := fs.Bool("recover", false, "recover at the next validated Cluster boundary")
 	cancelAfter := fs.Duration("cancel-after", 0, "cancel a full queue after this delay")
 	if err := fs.Parse(os.Args[2:]); err != nil {
