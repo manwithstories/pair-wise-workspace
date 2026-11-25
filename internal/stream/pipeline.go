@@ -88,10 +88,12 @@ func (p *Pipeline) Run(ctx context.Context, src <-chan Item, stages ...Stage) er
 	defer cancel()
 	in := src
 	errs := make([]error, len(stages))
+	hops := make([]chan Item, 0, len(stages))
 	var wg sync.WaitGroup
 	for i, st := range stages {
 		raw := make(chan Item, p.Queue)
 		out := make(chan Item, p.Queue)
+		hops = append(hops, out)
 		idx, stage, stageIn := i, st, in
 		wg.Add(2)
 		go func() { // stage worker
@@ -127,6 +129,13 @@ func (p *Pipeline) Run(ctx context.Context, src <-chan Item, stages ...Stage) er
 		p.release(it.Size)
 	}
 	wg.Wait()
+	// After abort, items acquired into intermediate hop buffers were
+	// never consumed downstream; drain them so no budget token leaks.
+	for _, hop := range hops[:max(len(hops)-1, 0)] {
+		for it := range hop {
+			p.release(it.Size)
+		}
+	}
 	if ctx.Err() != nil {
 		return ErrAborted
 	}
