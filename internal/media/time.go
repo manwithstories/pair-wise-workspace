@@ -15,6 +15,9 @@ const ClockRate uint32 = 90_000
 // MaxTick is the largest representable media timestamp.
 const MaxTick MediaTime = math.MaxInt64
 
+// MinTick is the smallest representable media timestamp.
+func MinTick() MediaTime { return math.MinInt64 }
+
 // MediaTime is a point on the 90 kHz media timeline measured in ticks.
 type MediaTime int64
 
