@@ -69,8 +69,9 @@ func NewCutter(opts Options) *Cutter {
 	return &Cutter{opts: opts}
 }
 
-// Add consumes one block. If the block is a keyframe beginning a new interval,
-// the preceding segment is returned. The returned segment already has a hash.
+// Add consumes one block. A keyframe closes the preceding segment when it is
+// the nearest boundary to the configured target duration; overdue keyframes
+// also close a segment so a missing/skipped keyframe cannot stall cutting.
 func (c *Cutter) Add(b *demux.Block) *Segment {
 	if b == nil {
 		return nil
@@ -78,10 +79,18 @@ func (c *Cutter) Add(b *demux.Block) *Segment {
 	if b.Keyframe {
 		kf := KeyframeRef{Index: c.keyframeCount, Offset: b.Offset, TimeNS: b.TimeNS}
 		c.keyframeCount++
-		closed := c.startNew(kf, b)
-		if closed != nil {
+		if c.current == nil {
+			c.startNew(kf, b)
+			return nil
+		}
+		if c.shouldCutAt(b.TimeNS) {
+			closed := c.current
+			c.startNew(kf, b)
 			return c.finish(closed, b.TimeNS)
 		}
+		// An extra keyframe that is not the selected nearest boundary remains
+		// in the current segment.
+		c.current.Blocks = append(c.current.Blocks, b)
 		return nil
 	}
 
@@ -94,6 +103,38 @@ func (c *Cutter) Add(b *demux.Block) *Segment {
 	}
 	c.current.Blocks = append(c.current.Blocks, b)
 	return nil
+}
+
+func (c *Cutter) shouldCutAt(t model.Nanoseconds) bool {
+	target := c.current.StartNS + c.opts.Duration
+	if t >= target {
+		return true
+	}
+	return target-t <= c.opts.Duration/2
+}
+
+// NearestKeyframe returns the keyframe closest to target. Ties select the
+// earlier keyframe, giving deterministic cuts.
+func NearestKeyframe(target model.Nanoseconds, keyframes []KeyframeRef) (KeyframeRef, bool) {
+	if len(keyframes) == 0 {
+		return KeyframeRef{}, false
+	}
+	best := keyframes[0]
+	bestDist := absNS(target - best.TimeNS)
+	for _, kf := range keyframes[1:] {
+		d := absNS(target - kf.TimeNS)
+		if d < bestDist {
+			best, bestDist = kf, d
+		}
+	}
+	return best, true
+}
+
+func absNS(v model.Nanoseconds) model.Nanoseconds {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 func (c *Cutter) startNew(kf KeyframeRef, first *demux.Block) *Segment {

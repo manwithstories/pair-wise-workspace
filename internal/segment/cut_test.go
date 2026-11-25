@@ -58,6 +58,21 @@ func TestCutsAtKeyframesAndRanges(t *testing.T) {
 	}
 }
 
+func TestNearestKeyframe(t *testing.T) {
+	kfs := []segment.KeyframeRef{
+		{Index: 0, TimeNS: 0},
+		{Index: 1, TimeNS: 180 * model.Millisecond},
+		{Index: 2, TimeNS: 400 * model.Millisecond},
+	}
+	got, ok := segment.NearestKeyframe(200*model.Millisecond, kfs)
+	if !ok || got.Index != 1 {
+		t.Fatalf("nearest=%+v ok=%v", got, ok)
+	}
+	if _, ok := segment.NearestKeyframe(0, nil); ok {
+		t.Fatal("expected false for empty keyframes")
+	}
+}
+
 func TestHashIsDeterministicAndSensitive(t *testing.T) {
 	makeSeg := func(payload byte) *segment.Segment {
 		c := segment.NewCutter(segment.DefaultOptions())
