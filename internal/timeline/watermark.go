@@ -93,6 +93,30 @@ func NewState() State {
 	}
 }
 
+func (s *State) ensureMaps() {
+	if s.Seen == nil {
+		s.Seen = map[string]string{}
+	}
+	if s.SeenRef == nil {
+		s.SeenRef = map[string]ingest.SourceRef{}
+	}
+	if s.PacketIndex == nil {
+		s.PacketIndex = map[string]int{}
+	}
+	if s.Quarantined == nil {
+		s.Quarantined = map[string]bool{}
+	}
+	if s.Watermarks == nil {
+		s.Watermarks = map[string]int64{}
+	}
+	if s.MaxExtSeq == nil {
+		s.MaxExtSeq = map[string]int64{}
+	}
+	if s.HasExtSeq == nil {
+		s.HasExtSeq = map[string]bool{}
+	}
+}
+
 // Clone 深拷贝可序列化状态，用于检查点和回放快照。
 func (s State) Clone() State {
 	out := s
@@ -167,6 +191,7 @@ func End(p ingest.Packet) clock.Ticks { return p.Start + p.Duration }
 // Apply 按身份去重、内容冲突隔离、扩展序号空洞和事件时间水位更新状态。
 // 迟到回放由 Replayer 负责；此函数只做确定性归约。
 func (s *State) Apply(p ingest.Packet) Result {
+	s.ensureMaps()
 	s.Cursor = p.No
 	id := p.Identity()
 	res := Result{Identity: id}

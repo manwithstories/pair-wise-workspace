@@ -112,7 +112,12 @@ func buildTrak(timescale, sampleCount, sampleSize uint32, sttsEntries []byte, ch
 	stscPayload := append(u32Bytes(1), u32Bytes(sampleCount)...)
 	stscPayload = append(stscPayload, u32Bytes(1)...)
 	stsc := fullBox("stsc", 0, append(u32Bytes(1), stscPayload...))
-	stszPayload := append(u32Bytes(sampleSize), u32Bytes(sampleCount)...)
+	// go-mp4 的 Probe 通过 stsz.EntrySize 填充 Sample.Size；因此即使样本等长，
+	// 也显式写完整 entry 表（sample_size 字段置 0）。
+	stszPayload := append(u32Bytes(0), u32Bytes(sampleCount)...)
+	for i := uint32(0); i < sampleCount; i++ {
+		stszPayload = append(stszPayload, u32Bytes(sampleSize)...)
+	}
 	stsz := fullBox("stsz", 0, stszPayload)
 	stco := fullBox("stco", 0, append(u32Bytes(1), u32Bytes(chunkOffset)...))
 
