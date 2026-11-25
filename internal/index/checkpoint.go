@@ -61,6 +61,18 @@ type File struct {
 // SHA256 returns the hex checksum of the payload as stored.
 func (f *File) SHA256() string { return hex.EncodeToString(f.sha[:]) }
 
+// FileSHA256 returns the SHA-256 of the complete on-disk index (header plus
+// payload), matching `shasum -a 256` on the file. It is the value reported to
+// operators; SHA256 remains the internal per-payload integrity hash.
+func (f *File) FileSHA256() (string, error) {
+	b, err := os.ReadFile(f.Path)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:]), nil
+}
+
 // hashPayload serializes and hashes a payload deterministically.
 func hashPayload(p Payload) ([]byte, [32]byte, error) {
 	raw, err := json.Marshal(p)

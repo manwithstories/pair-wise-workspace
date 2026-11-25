@@ -67,10 +67,40 @@ func Recompute(idx *index.File, totalFrames, chunkFrames int64, fn ChunkFunc) er
 	return nil
 }
 
+// checksumView is the deterministic subset of Report hashed for the checksum.
+// Wall-clock measurements (resume_ms) are deliberately excluded so repeated
+// runs over identical inputs yield a byte-stable checksum.
+type checksumView struct {
+	PackagePath   string        `json:"package_path"`
+	SampleRate    int64         `json:"sample_rate"`
+	Channels      int           `json:"channels"`
+	SampleFrames  [2]int64      `json:"sample_frames"`
+	ByteOffset    int64         `json:"byte_offset"`
+	DamageCount   int           `json:"damage_count"`
+	KeyframeGapMs []float64     `json:"keyframe_gap_ms"`
+	ClockDriftPPM float64       `json:"clock_drift_ppm"`
+	Chunks        int           `json:"chunks_committed"`
+	IndexSHA256   string        `json:"index_sha256"`
+	Faults        []model.Fault `json:"faults"`
+}
+
 // FinalizeReport fills derived fields and computes the self-referential report
-// checksum. The checksum is taken over all fields except report_sha256.
+// checksum over the deterministic subset (excluding timing-only fields).
 func FinalizeReport(r *Report) error {
-	b, err := json.Marshal(r)
+	view := checksumView{
+		PackagePath:   r.PackagePath,
+		SampleRate:    r.SampleRate,
+		Channels:      r.Channels,
+		SampleFrames:  r.SampleFrames,
+		ByteOffset:    r.ByteOffset,
+		DamageCount:   r.DamageCount,
+		KeyframeGapMs: r.KeyframeGapMs,
+		ClockDriftPPM: r.ClockDriftPPM,
+		Chunks:        r.Chunks,
+		IndexSHA256:   r.IndexSHA256,
+		Faults:        r.Faults,
+	}
+	b, err := json.Marshal(view)
 	if err != nil {
 		return err
 	}
