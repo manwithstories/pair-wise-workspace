@@ -129,6 +129,7 @@ func missingInRange(missing []uint64, start, end uint64) []uint64 {
 func Align(tracks []TrackInput, steps []BandwidthStep) (*Report, error) {
 	report := &Report{BandwidthSteps: len(steps)}
 	tl := media.NewTimeline()
+	trackEnd := make(map[string]int64)
 	var conflictErr error
 
 	for _, track := range tracks {
@@ -203,7 +204,17 @@ func Align(tracks []TrackInput, steps []BandwidthStep) (*Report, error) {
 			if durationTicks <= 0 {
 				durationTicks = 180000
 			}
+			// A raw tfdt fallback or reset must not overlap the preceding
+			// repaired interval. Anchor it to the track's repaired end while
+			// retaining the timeline event as evidence.
+			if prevEnd, ok := trackEnd[track.ID]; ok && start < prevEnd {
+				start = prevEnd
+				if ev != nil {
+					ev.Common = start
+				}
+			}
 			end := start + durationTicks
+			trackEnd[track.ID] = end
 			tfdtOut := uint64(media.ConvertTicks(start, media.CommonTimebase, media.Rational{Num: 1, Den: int64(track.Timescale)}))
 
 			complete := len(missing) == 0 && len(seg.Payload) > 0

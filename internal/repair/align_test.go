@@ -9,6 +9,8 @@ import (
 	"github.com/pairwise/mediad/internal/repair"
 )
 
+const segmentsPerTrackForTest = 4
+
 func TestCleanFixtureAlignsAllTwelveAndCountsEvidence(t *testing.T) {
 	b := fixture.Generate(73, fixture.ScenarioClean)
 	r, err := repair.Align(b.Tracks, b.Steps)
@@ -30,6 +32,17 @@ func TestCleanFixtureAlignsAllTwelveAndCountsEvidence(t *testing.T) {
 	for _, s := range r.Segments {
 		if !s.Complete || !s.Keyframe || len(s.Data) == 0 {
 			t.Fatalf("segment %d incomplete: %+v", s.GlobalIndex, s)
+		}
+	}
+	for track := 0; track < 3; track++ {
+		for j := 0; j < segmentsPerTrackForTest; j++ {
+			cur := r.Segments[track*segmentsPerTrackForTest+j]
+			if j+1 < segmentsPerTrackForTest {
+				next := r.Segments[track*segmentsPerTrackForTest+j+1]
+				if cur.EndTicks != next.StartTicks {
+					t.Fatalf("track %d gap/overlap between %d and %d: %d != %d", track, j, j+1, cur.EndTicks, next.StartTicks)
+				}
+			}
 		}
 	}
 	if len(r.TimelineEvents) == 0 {
