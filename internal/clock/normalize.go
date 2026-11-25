@@ -112,15 +112,16 @@ func (c *Corrector) Apply(s demux.Sample) (NormalizedSample, error) {
 			fmt.Sprintf("track %d timestamp %d before declared start %d", c.trackID, raw, c.start)).
 			WithTrack(int32(c.trackID)).WithSample(s.Seq)
 	}
-	rel := unwrapped - c.start
 	// Exact drift factor: a fast clock (positive ppm) over-counts units, so
 	// true time = recorded * (1e6-ppm)/1e6.
 	factor := model.NewRational(int64(1_000_000-c.driftPPM), 1_000_000)
-	base := model.NewRational(int64(rel), int64(c.timescale)).Mul(factor)
+	// Absolute corrected time, then shifted onto the shared timeline whose
+	// zero is the earliest corrected track start (c.origin).
+	absolute := model.NewRational(int64(unwrapped), int64(c.timescale)).Mul(factor)
 	dur := model.NewRational(int64(s.Duration), int64(c.timescale)).Mul(factor)
 	return NormalizedSample{
 		Sample:    s,
-		DTSNorm:   base.Sub(c.origin),
+		DTSNorm:   absolute.Sub(c.origin),
 		DurNorm:   dur,
 		WrapCount: c.wraps,
 	}, nil
@@ -141,13 +142,13 @@ func NewNormalizer(tracks []demux.TrackMeta, mapped []uint32) (*Normalizer, erro
 	}
 	// First pass with a zero origin to obtain corrected start times.
 	tmp := map[uint32]*Corrector{}
-	var origin model.Rational
+	origin := model.NewRational(0, 1)
 	first := true
 	for _, meta := range tracks {
 		if !want[meta.ID] {
 			continue
 		}
-		cr, err := NewCorrector(meta, model.Rational{})
+		cr, err := NewCorrector(meta, model.NewRational(0, 1))
 		if err != nil {
 			return nil, err
 		}

@@ -15,9 +15,14 @@ type Rational struct {
 	Den int64
 }
 
-// NewRational builds a normalized rational and panics on a zero denominator.
+// NewRational builds a normalized rational. A zero numerator with a zero
+// denominator is the package zero value and normalizes to 0/1; a non-zero
+// numerator with a zero denominator is a genuine error and panics.
 func NewRational(num, den int64) Rational {
 	if den == 0 {
+		if num == 0 {
+			return Rational{Num: 0, Den: 1}
+		}
 		panic("rational with zero denominator")
 	}
 	if den < 0 {
@@ -37,28 +42,42 @@ func abs64(v int64) int64 {
 	return v
 }
 
+// norm guarantees a positive denominator so the package zero value
+// Rational{} behaves as 0/1 in every operation.
+func (r Rational) norm() Rational {
+	if r.Den == 0 {
+		return Rational{Num: 0, Den: 1}
+	}
+	return r
+}
+
 // Add returns r+s exactly.
 func (r Rational) Add(s Rational) Rational {
+	r, s = r.norm(), s.norm()
 	return NewRational(r.Num*s.Den+s.Num*r.Den, r.Den*s.Den)
 }
 
 // Sub returns r-s exactly.
 func (r Rational) Sub(s Rational) Rational {
+	r, s = r.norm(), s.norm()
 	return NewRational(r.Num*s.Den-s.Num*r.Den, r.Den*s.Den)
 }
 
 // Mul returns r*s exactly.
 func (r Rational) Mul(s Rational) Rational {
+	r, s = r.norm(), s.norm()
 	return NewRational(r.Num*s.Num, r.Den*s.Den)
 }
 
 // Div returns r/s exactly and panics on division by zero.
 func (r Rational) Div(s Rational) Rational {
+	r, s = r.norm(), s.norm()
 	return NewRational(r.Num*s.Den, r.Den*s.Num)
 }
 
 // Float64 converts to a floating point value for reporting only.
 func (r Rational) Float64() float64 {
+	r = r.norm()
 	if r.Den == 0 {
 		return 0
 	}
@@ -67,11 +86,13 @@ func (r Rational) Float64() float64 {
 
 // Nanoseconds returns the value truncated to whole nanoseconds.
 func (r Rational) Nanoseconds() int64 {
+	r = r.norm()
 	return r.Num * 1_000_000_000 / r.Den
 }
 
 // Cmp returns -1, 0 or 1 like bytes.Compare.
 func (r Rational) Cmp(s Rational) int {
+	r, s = r.norm(), s.norm()
 	l := big.NewInt(r.Num)
 	l.Mul(l, big.NewInt(s.Den))
 	rr := big.NewInt(s.Num)
