@@ -274,3 +274,72 @@ func itoa(i int) string {
 	}
 	return string(b)
 }
+
+// writeManifest builds a tiny manifest tree and returns its root.
+func writeManifest(t *testing.T, files map[string]string) string {
+	t.Helper()
+	root := t.TempDir()
+	for name, body := range files {
+		p := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+func TestManifestErrorsCarrySourcePosition(t *testing.T) {
+	cases := []struct {
+		name  string
+		files map[string]string
+		code  media.Code
+	}{
+		{
+			name: "path traversal",
+			files: map[string]string{
+				"media/master.m3u8": "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1,CODECS=\"avc1\"\n../../etc/passwd\n",
+			},
+			code: media.CodePathTraversal,
+		},
+		{
+			name: "missing extinf",
+			files: map[string]string{
+				"media/master.m3u8": "#EXTM3U\n#EXT-X-TARGETDURATION:2\norphan.m4s\n",
+			},
+			code: media.CodeMissingEntry,
+		},
+		{
+			name: "invalid duration",
+			files: map[string]string{
+				"media/master.m3u8": "#EXTM3U\n#EXTINF:-5,\na.m4s\n",
+			},
+			code: media.CodeInvalidDuration,
+		},
+		{
+			name: "out of range uri",
+			files: map[string]string{
+				"media/master.m3u8": "#EXTM3U\n#EXTINF:2.0,\nhttps://example.com/a.m4s\n",
+			},
+			code: media.CodeURIOutOfRange,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := writeManifest(t, tc.files)
+			_, err := Run(Config{Root: root, OutDir: filepath.Join(root, "out")})
+			if err == nil {
+				t.Fatalf("expected %s", tc.code)
+			}
+			if got := media.CodeOf(err); got != tc.code {
+				t.Fatalf("code=%s want %s (%v)", got, tc.code, err)
+			}
+			e, ok := media.AsError(err)
+			if !ok || e.Pos.Line == 0 {
+				t.Fatalf("error missing source line: %+v", e)
+			}
+		})
+	}
+}
