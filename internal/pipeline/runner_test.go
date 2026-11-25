@@ -105,15 +105,15 @@ func TestFullQueueCancelReportsOffsetAndCleans(t *testing.T) {
 		cleanMu.Lock()
 		n := len(cleaned)
 		cleanMu.Unlock()
-		if n == 1 {
+		if n == 2 {
 			break
 		}
 		time.Sleep(time.Millisecond)
 	}
 	cleanMu.Lock()
 	defer cleanMu.Unlock()
-	if len(cleaned) != 1 || cleaned[0] != 20 {
-		t.Fatalf("cleaned=%v want unpublished offset 20", cleaned)
+	if len(cleaned) != 2 || cleaned[0] != 10 || cleaned[1] != 20 {
+		t.Fatalf("cleaned=%v want in-flight offset 10 and queued offset 20", cleaned)
 	}
 }
 

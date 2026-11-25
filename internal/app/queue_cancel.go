@@ -20,7 +20,7 @@ func RunQueueCancelDemo(opts Options) (*Report, error) {
 		mem = 8 << 20
 	}
 	r := pipeline.NewRunner(q, mem, 0)
-	cleaned := make(chan int64, q)
+	cleaned := make(chan int64, q+1)
 	r.Cleanup = func(item pipeline.Item) { cleaned <- item.Offset }
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -75,7 +75,7 @@ func RunQueueCancelDemo(opts Options) (*Report, error) {
 	close(releaseConsumer)
 
 	cancelled := 0
-	for cancelled < q {
+	for cancelled < q+1 {
 		select {
 		case <-cleaned:
 			cancelled++

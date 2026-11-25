@@ -154,14 +154,15 @@ func (r *Runner) Run(ctx context.Context, consume func(context.Context, Item) er
 				return nil
 			}
 			if r.SlowConsumer > 0 && !sleepWithContext(ctx, r.SlowConsumer) {
-				r.release(item.Size)
+				r.cleanupUnpublished(item)
 				return r.cancelCleanup(ctx)
 			}
 			if err := consume(ctx, item); err != nil {
-				r.release(item.Size)
 				if ctx.Err() != nil {
+					r.cleanupUnpublished(item)
 					return r.cancelCleanup(ctx)
 				}
+				r.release(item.Size)
 				return err
 			}
 			r.release(item.Size)
@@ -191,22 +192,38 @@ func (r *Runner) release(size int64) {
 	r.mu.Unlock()
 }
 
-func (r *Runner) cancelCleanup(ctx context.Context) error {
+func (r *Runner) cleanupUnpublished(item Item) {
+	r.release(item.Size)
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.metrics.Cancelled++
+	r.mu.Unlock()
+	if r.Cleanup != nil {
+		r.Cleanup(item)
+	}
+}
+
+func (r *Runner) cancelCleanup(ctx context.Context) error {
+	var pending []Item
 	for {
 		select {
 		case item := <-r.queue:
-			r.used -= item.Size
-			r.metrics.Cancelled++
-			if r.Cleanup != nil {
-				r.Cleanup(item)
-			}
+			pending = append(pending, item)
 		default:
+			for _, item := range pending {
+				r.release(item.Size)
+				r.mu.Lock()
+				r.metrics.Cancelled++
+				r.mu.Unlock()
+				if r.Cleanup != nil {
+					r.Cleanup(item)
+				}
+			}
+			r.mu.Lock()
+			offset := r.cancelOffset
 			if r.used < 0 {
 				r.used = 0
 			}
-			offset := r.cancelOffset
+			r.mu.Unlock()
 			return model.NewError(model.PhasePipeline, offset, true,
 				"pipeline canceled; unpublished segments cleaned", ctx.Err())
 		}
