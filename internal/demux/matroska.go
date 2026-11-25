@@ -160,9 +160,23 @@ func (p *parser) run() error {
 			if err := p.r.Skip(el.Payload); err != nil {
 				return err
 			}
+		case ebml.IDCluster:
+			// Segments with unknown size may be followed by trailing
+			// top-level clusters when a writer closes lazily; accept them.
+			if el.Unknown {
+				p.res.UnknownSizes++
+			}
+			if err := p.readCluster(el); err != nil {
+				return err
+			}
 		default:
-			return media.At("demux.matroska", el.Offset, media.ClassFatal,
-				"unexpected top-level element %#x", uint32(el.ID))
+			if el.Unknown {
+				return media.At("demux.matroska", el.Offset, media.ClassFatal,
+					"unknown-size top-level element %#x", uint32(el.ID))
+			}
+			if err := p.r.Skip(el.Payload); err != nil {
+				return err
+			}
 		}
 	}
 }
