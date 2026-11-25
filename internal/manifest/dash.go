@@ -3,7 +3,9 @@ package manifest
 import (
 	"bytes"
 	"encoding/xml"
+	"fmt"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -23,12 +25,12 @@ type dashPeriod struct {
 }
 
 type dashAdaptationSet struct {
-	ContentType  string               `xml:"contentType,attr"`
-	MimeType     string               `xml:"mimeType,attr"`
-	Codecs       string               `xml:"codecs,attr"`
-	Width        int                  `xml:"width,attr"`
-	Height       int                  `xml:"height,attr"`
-	Template     *dashTemplate        `xml:"SegmentTemplate"`
+	ContentType     string               `xml:"contentType,attr"`
+	MimeType        string               `xml:"mimeType,attr"`
+	Codecs          string               `xml:"codecs,attr"`
+	Width           int                  `xml:"width,attr"`
+	Height          int                  `xml:"height,attr"`
+	Template        *dashTemplate        `xml:"SegmentTemplate"`
 	Representations []dashRepresentation `xml:"Representation"`
 }
 
@@ -43,11 +45,11 @@ type dashRepresentation struct {
 }
 
 type dashTemplate struct {
-	Timescale         int64              `xml:"timescale,attr"`
-	StartNumber       int64              `xml:"startNumber,attr"`
-	Initialization    string             `xml:"initialization,attr"`
-	Media             string             `xml:"media,attr"`
-	SegmentTimeline   *dashTimelineXML   `xml:"SegmentTimeline"`
+	Timescale       int64            `xml:"timescale,attr"`
+	StartNumber     int64            `xml:"startNumber,attr"`
+	Initialization  string           `xml:"initialization,attr"`
+	Media           string           `xml:"media,attr"`
+	SegmentTimeline *dashTimelineXML `xml:"SegmentTimeline"`
 }
 
 type dashTimelineXML struct {
@@ -81,8 +83,8 @@ func ParseDASH(path string, data []byte) (*Manifest, error) {
 				mime := firstNonEmpty(repXML.MimeType, as.MimeType)
 				rep := Representation{
 					ID: firstNonEmpty(repXML.ID, codecs), Codecs: codecs, MimeType: mime,
-					Width: firstNonZero(repXML.Width, as.Width),
-					Height: firstNonZero(repXML.Height, as.Height),
+					Width:     firstNonZero(repXML.Width, as.Width),
+					Height:    firstNonZero(repXML.Height, as.Height),
 					Bandwidth: repXML.Bandwidth,
 				}
 				segs, err := expandDASHTemplate(path, tmpl, rep.ID, periodIndex)
@@ -173,7 +175,7 @@ func expandDASHTemplate(path string, t *dashTemplate, repID string, period int) 
 				return nil, err
 			}
 			uri := strings.ReplaceAll(t.Media, "$RepresentationID$", repID)
-			uri = strings.ReplaceAll(uri, "$Number$", strconv.FormatInt(number, 10))
+			uri = expandNumberTemplate(uri, number)
 			segments = append(segments, Segment{
 				Index: int(number - startNumber), Period: period, URI: uri, InitURI: initURI,
 				Start: start, Duration: dur,
@@ -196,6 +198,22 @@ func (s dashS) TValue() int64 {
 		return *s.T
 	}
 	return -1
+}
+
+var numberToken = regexp.MustCompile(`\$Number(?:%(\d+)d)?\$`)
+
+func expandNumberTemplate(uri string, number int64) string {
+	return numberToken.ReplaceAllStringFunc(uri, func(token string) string {
+		parts := numberToken.FindStringSubmatch(token)
+		if len(parts) < 2 || parts[1] == "" {
+			return strconv.FormatInt(number, 10)
+		}
+		width, err := strconv.Atoi(parts[1])
+		if err != nil {
+			return strconv.FormatInt(number, 10)
+		}
+		return fmt.Sprintf("%0*d", width, number)
+	})
 }
 
 func firstNonEmpty(values ...string) string {

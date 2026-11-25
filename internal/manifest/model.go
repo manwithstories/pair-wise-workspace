@@ -20,22 +20,22 @@ type Segment struct {
 
 // Representation is one DASH adaptation representation.
 type Representation struct {
-	ID       string    `json:"id"`
-	Codecs   string    `json:"codecs"`
-	MimeType string    `json:"mime_type"`
-	Width    int       `json:"width,omitempty"`
-	Height   int       `json:"height,omitempty"`
-	Bandwidth int      `json:"bandwidth"`
-	Segments []Segment `json:"segments"`
+	ID        string    `json:"id"`
+	Codecs    string    `json:"codecs"`
+	MimeType  string    `json:"mime_type"`
+	Width     int       `json:"width,omitempty"`
+	Height    int       `json:"height,omitempty"`
+	Bandwidth int       `json:"bandwidth"`
+	Segments  []Segment `json:"segments"`
 }
 
 // Manifest is the parser-neutral view of either adaptive playlist format.
 type Manifest struct {
-	Kind            string             `json:"kind"`
-	Path            string             `json:"path"`
-	Version         int                `json:"version"`
-	Representations []Representation   `json:"representations,omitempty"`
-	Segments        []Segment          `json:"segments"`
+	Kind            string           `json:"kind"`
+	Path            string           `json:"path"`
+	Version         int              `json:"version"`
+	Representations []Representation `json:"representations,omitempty"`
+	Segments        []Segment        `json:"segments"`
 }
 
 // CodecDescriptor identifies the container and codecs at a parsing boundary.
