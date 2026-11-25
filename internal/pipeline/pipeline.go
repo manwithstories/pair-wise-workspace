@@ -55,7 +55,10 @@ type Result struct {
 // Run executes or resumes one quality-verification job.
 func Run(ctx context.Context, opts Options, video VideoInput, pcm AudioInput) (*Result, error) {
 	if opts.TargetBPS <= 0 {
-		opts.TargetBPS = 1_000_000
+		opts.TargetBPS = 2_550_000
+	}
+	if opts.VideoTargetBPS <= 0 {
+		opts.VideoTargetBPS = 1_000_000
 	}
 	if opts.MemoryLimitBytes > 0 {
 		// debug.SetMemoryLimit is applied by main; option documents job budget.
@@ -98,7 +101,7 @@ func Run(ctx context.Context, opts Options, video VideoInput, pcm AudioInput) (*
 	if err != nil {
 		return nil, err
 	}
-	segmentReports, err := metrics.CheckSegments(opts.TargetBPS, built.Segments)
+	segmentReports, err := metrics.CheckSegments(opts.VideoTargetBPS, built.Segments)
 	if err != nil {
 		return nil, err
 	}
@@ -147,6 +150,7 @@ func Run(ctx context.Context, opts Options, video VideoInput, pcm AudioInput) (*
 		return res, err
 	}
 	if opts.CrashAfterMux {
+		_ = wal.Close()
 		return res, media.E(media.StageMux, media.KindInterrupted, 0,
 			fmt.Errorf("injected crash after committed fMP4 stage sha256=%s", muxRec.SHA256[:12])).
 			WithRetryable()

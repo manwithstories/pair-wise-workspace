@@ -36,6 +36,7 @@ type Queue struct {
 	maxBytes  int
 	items     []Item
 	byteCount int
+	highWater int
 	processed int64
 	closed    bool
 }
@@ -74,6 +75,9 @@ func (q *Queue) Put(ctx context.Context, item Item) error {
 		if len(q.items) < q.maxItems && q.byteCount+len(item.Payload) <= q.maxBytes {
 			q.items = append(q.items, item)
 			q.byteCount += len(item.Payload)
+			if q.byteCount > q.highWater {
+				q.highWater = q.byteCount
+			}
 			q.cond.Broadcast()
 			return nil
 		}
@@ -145,6 +149,13 @@ func (q *Queue) ByteLen() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	return q.byteCount
+}
+
+// HighWaterBytes returns the maximum observed queued payload bytes.
+func (q *Queue) HighWaterBytes() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.highWater
 }
 
 // MaxBytes returns the configured byte ceiling.

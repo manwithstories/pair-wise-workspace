@@ -6,6 +6,7 @@ type Options struct {
 	Resume           bool
 	CrashAfterMux    bool
 	TargetBPS        int64
+	VideoTargetBPS   int64
 	QueueItems       int
 	QueueBytes       int
 	MemoryLimitBytes int64
