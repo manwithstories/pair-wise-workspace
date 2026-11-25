@@ -44,11 +44,14 @@ func Rescale(ticks int64, src, dst Rational) (int64, error) {
 	if !src.Valid() || !dst.Valid() {
 		return 0, ErrInvalidTimeBase
 	}
-	// numerator = ticks * src.Num * dst.Den, denominator = src.Den * dst.Num
+	// A Rational Num/Den means "Num ticks per Den seconds". A duration of
+	// `ticks` in src therefore equals ticks*src.Den/src.Num seconds, and in dst
+	// units is multiplied by dst.Num/dst.Den:
+	//   out = ticks * src.Den * dst.Num / (src.Num * dst.Den)
 	num := new(big.Int).SetInt64(ticks)
-	num.Mul(num, big.NewInt(src.Num))
-	num.Mul(num, big.NewInt(dst.Den))
-	den := new(big.Int).Mul(big.NewInt(src.Den), big.NewInt(dst.Num))
+	num.Mul(num, big.NewInt(src.Den))
+	num.Mul(num, big.NewInt(dst.Num))
+	den := new(big.Int).Mul(big.NewInt(src.Num), big.NewInt(dst.Den))
 
 	q, rem := new(big.Int), new(big.Int)
 	q.QuoRem(num, den, rem) // truncation toward zero
