@@ -97,9 +97,9 @@ func (p *Pipeline) Run(ctx context.Context, src <-chan Item, stages ...Stage) er
 	var wg sync.WaitGroup
 	in := src
 	for i, st := range stages {
-		raw := make(chan Item, p.Queue)   // stage output, unmanaged
-		out := make(chan Item, p.Queue)   // managed: items here hold tokens
-		rel := make(chan Item, p.Queue)   // stage input, tokens released
+		raw := make(chan Item, p.Queue) // stage output, unmanaged
+		out := make(chan Item, p.Queue) // managed: items here hold tokens
+		rel := make(chan Item, p.Queue) // stage input, tokens released
 		managed = append(managed, out)
 		idx, stage, stageIn := i, st, in
 		wg.Add(3)

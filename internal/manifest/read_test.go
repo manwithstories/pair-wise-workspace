@@ -49,9 +49,9 @@ func TestParseValidNonZeroStartAndDuration(t *testing.T) {
 func TestParseRejectsAndLocatesEachInvalidEntry(t *testing.T) {
 	const track = `{"id":"t","kind":"video","timescale":90000,"duration":90000}`
 	cases := []struct {
-		name string
-		json string
-		code fault.Code
+		name  string
+		json  string
+		code  fault.Code
 		field string
 	}{
 		{"timescale", `{"assets":[{"id":"a","tracks":[{"id":"t","kind":"video","timescale":0,"duration":1}]}]}`, fault.CodeOverflow, "tracks[0].timescale"},

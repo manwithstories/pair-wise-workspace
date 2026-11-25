@@ -50,7 +50,7 @@ func TestMergeDistinguishesCodeAndTrack(t *testing.T) {
 	in := []fault.Span{
 		sp("v", fault.CodeTruncatedBox, 0, 10),
 		sp("v", fault.CodeTimestampJump, 0, 10), // same range, diff code
-		sp("a", fault.CodeTruncatedBox, 0, 10), // diff track
+		sp("a", fault.CodeTruncatedBox, 0, 10),  // diff track
 	}
 	got := Merge(in)
 	if len(got) != 3 {

@@ -85,9 +85,9 @@ func gapSpan(track string, g fqrtp.Gap) fault.Span {
 // those gaps into fault spans. It returns combined RTP stats, per-window
 // A/V sync errors (ms) and the P95 per-window processing time (ms).
 func runWindows(ctx context.Context, cfg config, name string, model *fault.Model) (fqrtp.Stats, []float64, float64, error) {
-	vg := fixture.NewRTPGen(cfg.seed, 3600, cfg.loss, 1) // video: 25 fps @ 90 kHz
+	vg := fixture.NewRTPGen(cfg.seed, 3600, cfg.loss, 1)  // video: 25 fps @ 90 kHz
 	ag := fixture.NewRTPGen(cfg.seed+1, 960, cfg.loss, 1) // audio: 20 ms packets @ 48 kHz
-	ag.Offset = 240                                      // 5 ms constant A/V origin offset
+	ag.Offset = 240                                       // 5 ms constant A/V origin offset
 	winV := int(cfg.window.Seconds() * 25)
 	winA := int(cfg.window.Seconds() * 50)
 	nWin := cfg.hours * 3600 * 25 / winV
