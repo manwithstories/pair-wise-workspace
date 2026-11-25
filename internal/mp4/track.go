@@ -87,7 +87,7 @@ func Parse(r io.ReadSeeker, lim Limits) (*Container, error) {
 		c.Duration = clock.MustNew(info.Duration, info.Timescale)
 	}
 	for _, tr := range info.Tracks {
-		t, err := buildTrack(r, tr)
+		t, err := buildTrack(r, tr, lim)
 		if err != nil {
 			return nil, err
 		}
@@ -96,7 +96,7 @@ func Parse(r io.ReadSeeker, lim Limits) (*Container, error) {
 	return c, nil
 }
 
-func buildTrack(r io.ReadSeeker, tr *goMp4.Track) (*Track, error) {
+func buildTrack(r io.ReadSeeker, tr *goMp4.Track, lim Limits) (*Track, error) {
 	t := &Track{ID: tr.TrackID, Timescale: tr.Timescale}
 	switch tr.Codec {
 	case goMp4.CodecAVC1:
@@ -117,7 +117,7 @@ func buildTrack(r io.ReadSeeker, tr *goMp4.Track) (*Track, error) {
 			clock.WithDetail("zero timescale"))
 	}
 	t.Duration = clock.MustNew(tr.Duration, tr.Timescale)
-	if err := buildTimeline(t, tr); err != nil {
+	if err := buildTimeline(t, tr, lim); err != nil {
 		return nil, err
 	}
 	if t.Kind == KindAudio {
@@ -135,13 +135,20 @@ func buildTrack(r io.ReadSeeker, tr *goMp4.Track) (*Track, error) {
 
 // buildTimeline expands chunk/sample tables into absolute sample points and
 // rejects any non-monotonic decode timestamp with track, tick and byte.
-func buildTimeline(t *Track, tr *goMp4.Track) error {
+func buildTimeline(t *Track, tr *goMp4.Track, lim Limits) error {
 	var dts uint64
 	si := 0
 	for _, ch := range tr.Chunks {
 		off := int64(ch.DataOffset)
 		for i := uint32(0); i < ch.SamplesPerChunk && si < len(tr.Samples); i++ {
 			s := tr.Samples[si]
+			if lim.MaxSampleBytes > 0 && s.Size > lim.MaxSampleBytes {
+				tick, _ := clock.New(dts, tr.Timescale)
+				return clock.E(clock.KindArgument, "mp4.track", clock.WithTrack(t.ID),
+					clock.WithTick(tick), clock.WithOffset(off),
+					clock.WithDetail("sample %d bytes exceeds per-sample limit %d",
+						s.Size, lim.MaxSampleBytes))
+			}
 			if si > 0 && s.TimeDelta == 0 {
 				tick, _ := clock.New(dts, tr.Timescale)
 				return clock.E(clock.KindCorrupt, "mp4.track", clock.WithTrack(t.ID),

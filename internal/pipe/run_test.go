@@ -234,3 +234,26 @@ func TestRunnerInvalidConfig(t *testing.T) {
 		t.Fatal("zero-worker stage accepted")
 	}
 }
+
+func TestRunnerEnforcesMaxConcurrency(t *testing.T) {
+	old := MaxConcurrency
+	MaxConcurrency = 4
+	defer func() { MaxConcurrency = old }()
+	noop := func(ctx context.Context, in *Item) ([]*Item, error) { return nil, nil }
+	// 3 + 2 = 5 workers exceeds the temporary ceiling of 4.
+	over := []Stage{
+		{Name: "a", Workers: 3, Run: noop},
+		{Name: "b", Workers: 2, Run: noop},
+	}
+	if _, err := NewRunner(1024, 10, over); !clock.IsKind(err, clock.KindArgument) {
+		t.Fatalf("over-limit concurrency not rejected: %v", err)
+	}
+	// 2 + 2 = 4 is exactly at the ceiling and must be accepted.
+	within := []Stage{
+		{Name: "a", Workers: 2, Run: noop},
+		{Name: "b", Workers: 2, Run: noop},
+	}
+	if _, err := NewRunner(1024, 10, within); err != nil {
+		t.Fatalf("at-ceiling concurrency rejected: %v", err)
+	}
+}

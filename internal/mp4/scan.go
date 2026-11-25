@@ -16,13 +16,17 @@ type Limits struct {
 	MaxFileBytes int64
 	MaxBoxBytes  int64
 	MaxDepth     int
+	// MaxSampleBytes caps a single track sample so a pathological frame or
+	// packet cannot blow the bounded-memory guarantee.
+	MaxSampleBytes uint32
 }
 
 // DefaultLimits are conservative caps for mobile-recorded clips.
 var DefaultLimits = Limits{
-	MaxFileBytes: 8 << 30, // 8 GiB
-	MaxBoxBytes:  4 << 30, // 4 GiB per box
-	MaxDepth:     16,
+	MaxFileBytes:   8 << 30, // 8 GiB
+	MaxBoxBytes:    4 << 30, // 4 GiB per box
+	MaxDepth:       16,
+	MaxSampleBytes: 64 << 20, // 64 MiB per sample
 }
 
 // BoxRecord is one parsed box header with its exact file position.

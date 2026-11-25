@@ -163,6 +163,23 @@ func TestParseTruncatedBox(t *testing.T) {
 	}
 }
 
+func TestParseLimitsRejectOversizeSample(t *testing.T) {
+	dir := t.TempDir()
+	path := makeMP4(t, dir, "big.mp4", 2, 48000, nil)
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	// Force a tiny per-sample ceiling so any real frame/packet exceeds it.
+	lim := DefaultLimits
+	lim.MaxSampleBytes = 1
+	_, err = Parse(f, lim)
+	if !clock.IsKind(err, clock.KindArgument) {
+		t.Fatalf("want argument error for oversize sample, got %v", err)
+	}
+}
+
 func TestParseIllegalLength(t *testing.T) {
 	dir := t.TempDir()
 	path := makeMP4(t, dir, "x.mp4", 1, 48000, nil)

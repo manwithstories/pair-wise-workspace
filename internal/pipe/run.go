@@ -42,8 +42,17 @@ type Runner struct {
 	sinkBytes int64
 }
 
+// DefaultMaxConcurrency caps the total worker count across all stages so a
+// stage configuration cannot spawn unbounded goroutines on a mobile device.
+const DefaultMaxConcurrency = 16
+
+// MaxConcurrency is the enforced total-worker ceiling. Tests may lower it;
+// production code should leave it at DefaultMaxConcurrency.
+var MaxConcurrency = DefaultMaxConcurrency
+
 // NewRunner builds a runner with one global in-flight byte budget shared
-// across all stage input queues.
+// across all stage input queues. The summed worker count must not exceed
+// MaxConcurrency, otherwise the configuration is rejected.
 func NewRunner(budget int64, maxItems int, stages []Stage) (*Runner, error) {
 	if len(stages) == 0 {
 		return nil, clock.E(clock.KindArgument, "pipe.runner",
@@ -53,11 +62,18 @@ func NewRunner(budget int64, maxItems int, stages []Stage) (*Runner, error) {
 		return nil, clock.E(clock.KindArgument, "pipe.runner",
 			clock.WithDetail("maxItems must be positive"))
 	}
+	totalWorkers := 0
 	for _, s := range stages {
 		if s.Workers <= 0 {
 			return nil, clock.E(clock.KindArgument, "pipe.runner",
 				clock.WithDetail("stage %s needs >=1 worker", s.Name))
 		}
+		totalWorkers += s.Workers
+	}
+	if totalWorkers > MaxConcurrency {
+		return nil, clock.E(clock.KindArgument, "pipe.runner",
+			clock.WithDetail("total workers %d exceed max concurrency %d",
+				totalWorkers, MaxConcurrency))
 	}
 	perQueue := budget / int64(len(stages))
 	if perQueue <= 0 {
