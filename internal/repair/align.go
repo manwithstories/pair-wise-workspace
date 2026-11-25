@@ -53,6 +53,7 @@ type AlignedSegment struct {
 	Complete       bool                 `json:"complete"`
 	Keyframe       bool                 `json:"keyframe"`
 	Window         int                  `json:"window"`
+	WindowExpired  bool                 `json:"window_expired"`
 	Missing        []uint64             `json:"missing,omitempty"`
 	Gaps           []ingest.Gap         `json:"gaps,omitempty"`
 	Data           []byte               `json:"-"`
@@ -72,18 +73,36 @@ type Report struct {
 	Incomplete     int                   `json:"incomplete_segments"`
 }
 
+const (
+	MinReorderWindow = 16
+	MaxReorderWindow = 128
+)
+
 // WindowForBandwidth maps a bandwidth tier to a bounded reorder window.
 func WindowForBandwidth(bps int) int {
+	var w int
 	switch {
 	case bps >= 4_000_000:
-		return 128
+		w = 128
 	case bps >= 2_000_000:
-		return 64
+		w = 64
 	case bps >= 1_000_000:
-		return 32
+		w = 32
 	default:
-		return 16
+		w = 16
 	}
+	return ClampWindow(w)
+}
+
+// ClampWindow keeps adaptive reorder windows inside the hard bounded range.
+func ClampWindow(w int) int {
+	if w < MinReorderWindow {
+		return MinReorderWindow
+	}
+	if w > MaxReorderWindow {
+		return MaxReorderWindow
+	}
+	return w
 }
 
 // WindowFull reports whether enough later sequence space has passed to consider
@@ -159,9 +178,19 @@ func Align(tracks []TrackInput, steps []BandwidthStep) (*Report, error) {
 			final := stream.Flush()
 			missing := missingInRange(final.Missing, seg.SeqStart, seg.SeqEnd)
 			var gaps []ingest.Gap
+			highest := seg.SeqStart
+			for _, pkt := range final.Packets {
+				if pkt.UnwrappedSeq >= seg.SeqStart && pkt.UnwrappedSeq <= seg.SeqEnd && pkt.UnwrappedSeq > highest {
+					highest = pkt.UnwrappedSeq
+				}
+			}
+			windowExpired := false
 			for _, g := range final.Gaps {
 				if g.To >= seg.SeqStart && g.From <= seg.SeqEnd {
 					gaps = append(gaps, g)
+					if WindowFull(g, highest, window) {
+						windowExpired = true
+					}
 				}
 			}
 
@@ -193,6 +222,7 @@ func Align(tracks []TrackInput, steps []BandwidthStep) (*Report, error) {
 				Complete:       complete,
 				Keyframe:       keyframe,
 				Window:         window,
+				WindowExpired:  windowExpired,
 				Missing:        missing,
 				Gaps:           gaps,
 				TimelineEvent:  ev,

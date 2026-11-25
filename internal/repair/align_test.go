@@ -66,6 +66,30 @@ func TestUnrecoveredGapMarksIncompleteAndNoKeyframe(t *testing.T) {
 	}
 }
 
+func TestFullBoundedWindowExpiresGap(t *testing.T) {
+	var arrival []ingest.Packet
+	for seq := uint64(200); seq <= 220; seq++ {
+		if seq == 205 {
+			continue
+		}
+		arrival = append(arrival, ingest.Packet{Sequence: uint16(seq), Payload: []byte("p")})
+	}
+	track := repair.TrackInput{ID: "window", Number: 7, Timescale: 90000}
+	track.Segments = []repair.SegmentInput{{
+		GlobalIndex: 0, TrackID: "window", Timescale: 90000,
+		DurationUnits: 180000, Keyframe: true, SeqStart: 200, SeqEnd: 220,
+		BandwidthBps: 500_000, Arrival: arrival, Payload: []byte("x"),
+	}}
+	r, err := repair.Align([]repair.TrackInput{track}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := r.Segments[0]
+	if s.Complete || s.Keyframe || !s.WindowExpired || s.Window != 16 {
+		t.Fatalf("segment=%+v", s)
+	}
+}
+
 func TestConflictSampleReturnsStructuredError(t *testing.T) {
 	s := ingest.NewStream(8)
 	_ = s.Accept(fixture.Generate(1, fixture.ScenarioDamaged).ConflictA)
