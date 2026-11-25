@@ -35,4 +35,8 @@ expect_code 75 "$BIN" demo --case interrupted --seed 17 --out "$OUT/recover"
 "$BIN" resume --out "$OUT/recover"
 "$BIN" verify --out "$OUT/recover"
 
+# Go 1.25.6's tidy treats the identical toolchain directive as redundant and
+# removes it; restore the explicit pin required by the project specification.
+go mod edit -toolchain=go1.25.6
+
 echo "acceptance artifacts: $OUT"
