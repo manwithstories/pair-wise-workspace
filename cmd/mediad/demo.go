@@ -199,9 +199,9 @@ func runRecoveryDemo(cfg demoConfig, c codec.Codec, m *sample.Media) error {
 
 func printResult(stage string, r *pipeline.Result) {
 	m := r.Manifest
-	fmt.Printf("[%s] codec=%s target_bps=%d actual_bps=%d delta_pct=%.3f complete_au_pct=%.2f bad_au=%d keyframe_cov_pct=%.2f align_max_ms=%.6f silence_ms=%.2f unknown_ms=%.2f duplicate_aus=%d dup_saved_bytes=%d rtp_duplicates=%d paused_reads=%d segments=%d first_error_byte=%d manifest_sha256=%s\n",
+	fmt.Printf("[%s] codec=%s target_bps=%d actual_bps=%d delta_pct=%.3f complete_au_pct=%.2f bad_au=%d keyframe_coverage_pct=%.2f align_max_ms=%.6f silence_ms=%.2f silence_duration_ms=%.2f unknown_ms=%.2f duplicate_aus=%d dup_saved_bytes=%d duplicate_saved_bytes=%d rtp_duplicates=%d paused_reads=%d segments=%d first_error_byte=%d manifest_sha256=%s\n",
 		stage, m.Codec, m.TargetBPS, m.ActualBPS, m.DeltaPct, m.CompleteAUPct, m.BadAUs,
-		m.KeyframeCoverage, m.AlignMaxMS, float64(m.SilenceNS)/1e6, float64(m.UnknownNS)/1e6,
-		m.DuplicateAUs, m.DupSavedBytes, m.RTPDuplicates, r.PausedReads,
-		len(m.Segments), m.FirstErrorByte, r.ManifestSHA256)
+		m.KeyframeCoverage, m.AlignMaxMS, float64(m.SilenceNS)/1e6, float64(m.SilenceNS)/1e6,
+		float64(m.UnknownNS)/1e6, m.DuplicateAUs, m.DupSavedBytes, m.DupSavedBytes,
+		m.RTPDuplicates, r.PausedReads, len(m.Segments), m.FirstErrorByte, r.ManifestSHA256)
 }
