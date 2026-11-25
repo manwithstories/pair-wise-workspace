@@ -240,7 +240,9 @@ func finalizeSamples(segmentID, source string, tracks []core.Track, samples []co
 					return core.InvariantError(core.StageDemux, source, int64(idx),
 						"non-positive sample duration on track %d", id)
 				}
-				samples[idxs[j-1]].Duration = d
+				if samples[idxs[j-1]].Duration == 0 {
+					samples[idxs[j-1]].Duration = d
+				}
 				prevDelta = d
 			}
 		}
