@@ -327,6 +327,11 @@ func (c *Container) bindChunks() error {
 		ch := &c.Chunks[i]
 		bySeq[ch.Seq] = ch
 	}
+	// A non-fragmented container has one physical mdat (seq 0) even though
+	// its armd index may keep several logical chunk groups. Every sample in
+	// that case lives in the single mdat.
+	singleMDAT := len(c.Chunks) == 1
+	sole := bySeq[0]
 	known := map[uint32]bool{}
 	for _, t := range c.Tracks {
 		known[t.ID] = true
@@ -337,6 +342,12 @@ func (c *Container) bindChunks() error {
 			seq = c.Chunks[ci].Seq
 		}
 		ch, ok := bySeq[seq]
+		if !ok {
+			if singleMDAT {
+				ch = sole
+				ok = true
+			}
+		}
 		if !ok {
 			return model.NewError(model.StageDemux,
 				fmt.Sprintf("sample table %d has no matching mdat chunk", ci))

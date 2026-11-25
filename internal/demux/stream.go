@@ -20,9 +20,15 @@ type StreamOptions struct {
 // recoverable error (recover mode) or a hard error; a bad index is always a
 // hard error because the sample table itself is untrustworthy.
 func (c *Container) StreamSamples(opts StreamOptions, fn func(Sample) error) error {
+	// Non-fragmented files keep all payloads in one physical mdat even when
+	// the armd index has several logical groups.
+	singleMDAT := len(c.Chunks) == 1
 	for ci, table := range c.Samples {
 		var chunkEnd int64
-		if ci < len(c.Chunks) {
+		switch {
+		case singleMDAT:
+			chunkEnd = c.Chunks[0].DataEnd
+		case ci < len(c.Chunks):
 			chunkEnd = c.Chunks[ci].DataEnd
 		}
 		for si := range table {
