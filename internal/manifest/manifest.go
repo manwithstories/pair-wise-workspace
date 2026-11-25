@@ -43,6 +43,7 @@ type TrackDesc struct {
 
 // Segment is one playlist entry in presentation order.
 type Segment struct {
+	TrackID       string  `json:"track_id,omitempty"`
 	Index         int     `json:"index"`
 	Sequence      int64   `json:"sequence"`
 	URI           string  `json:"uri"`
