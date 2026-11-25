@@ -24,7 +24,7 @@ type ChunkDigest struct {
 	Index    int    `json:"index"`
 	Bytes    int    `json:"bytes"`
 	SHA256   string `json:"sha256"`
-	Replayed bool   `json:"replayed"`
+	Replayed bool   `json:"-"`
 }
 
 // CaseManifest is the independently verifiable record for one fixture case.
