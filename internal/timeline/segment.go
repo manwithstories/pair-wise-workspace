@@ -67,22 +67,34 @@ func Segmentize(tracks []Track, segDur clock.Time, base clock.TimeBase) []Segmen
 			if start < 0 {
 				start = 0 // out-of-range timestamp: clamp to origin
 			}
-			idx := int(start / segDur.Ticks)
-			if idx >= nseg {
-				idx = nseg - 1
+			end := u.End().Convert(base).Ticks
+			// A unit belongs to every segment it overlaps; a zero-duration
+			// unit belongs only to the segment containing its start.
+			lo := int(start / segDur.Ticks)
+			hi := lo
+			if end > start {
+				hi = int((end - 1) / segDur.Ticks)
 			}
-			segs[idx].Units[tr.ID] = append(segs[idx].Units[tr.ID], u)
+			if hi >= nseg {
+				hi = nseg - 1
+			}
+			for i := lo; i <= hi; i++ {
+				segs[i].Units[tr.ID] = append(segs[i].Units[tr.ID], u)
+			}
 			// Explicit gap between the previous unit's end and this start.
-			unitEnd := u.End().Convert(base).Ticks
 			if prevEnd >= 0 && start > prevEnd {
-				segs[idx].Gaps = append(segs[idx].Gaps, Gap{
+				gi := int(prevEnd / segDur.Ticks)
+				if gi >= nseg {
+					gi = nseg - 1
+				}
+				segs[gi].Gaps = append(segs[gi].Gaps, Gap{
 					Track: tr.ID,
 					Start: clock.At(prevEnd, base),
 					End:   clock.At(start, base),
 				})
 			}
-			if unitEnd > prevEnd {
-				prevEnd = unitEnd
+			if end > prevEnd {
+				prevEnd = end
 			}
 		}
 	}
