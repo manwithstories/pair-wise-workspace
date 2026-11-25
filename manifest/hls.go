@@ -87,7 +87,12 @@ func ParseHLS(source string, data []byte) (*Manifest, error) {
 	for sc.Scan() {
 		lineNo++
 		raw := strings.TrimSpace(sc.Text())
-		if raw == "" || strings.HasPrefix(raw, "#EXT-X-") == false && strings.HasPrefix(raw, "#") {
+		if raw == "" {
+			continue
+		}
+		if strings.HasPrefix(raw, "#") &&
+			!strings.HasPrefix(raw, "#EXTINF:") &&
+			!strings.HasPrefix(raw, "#EXT-X-") {
 			continue
 		}
 		if strings.HasPrefix(raw, "#EXT-X-VERSION") {
