@@ -28,6 +28,10 @@ type Spec struct {
 	TruncateTail int64 // bytes removed from EOF (truncated case)
 	// BadMapping is written into a sidecar for the conflict case.
 	BadMapping bool
+	// MediaOnlyCount, when > 0, is the number of non-hint tracks among which
+	// the target bit rate is split evenly. Hint tracks never carry remuxed
+	// payload, so excluding them keeps measured bit rate on target.
+	MediaOnlyCount int
 }
 
 // TrackSpec is one synthesized track.
@@ -35,6 +39,9 @@ type TrackSpec struct {
 	ID        uint32
 	Kind      string
 	Timescale uint32
+	// Step is the base per-sample duration in time units. Zero selects the
+	// timescale-specific default.
+	Step      uint32
 	StartTime uint64
 	DriftPPM  int32
 	WrapUnits uint32

@@ -76,19 +76,24 @@ func specFor(name string, seed int64) (Spec, error) {
 			Tracks: []TrackSpec{
 				{ID: 1, Kind: demux.KindVideo, Timescale: 90000, StartTime: 1500,
 					Samples: 48, Codec: "synthetic-video"},
-				{ID: 2, Kind: demux.KindAudio, Timescale: 48000, StartTime: 240,
+				// Same timescale/step/sample count keeps both tracks on an
+				// identical media duration so measured bit rate is exact.
+				{ID: 2, Kind: demux.KindAudio, Timescale: 90000, StartTime: 1500,
 					Samples: 48, Codec: "synthetic-audio"},
 			},
 		}, nil
 	case CaseAnomaly:
+		// Wrap period is chosen so the 200-sample recording crosses exactly
+		// one counter boundary near its middle, which the clock corrector's
+		// half-zone rule can decide unambiguously.
 		return Spec{
 			Name: name, Seed: seed + 1, QuickTime: false, TargetBPS: 2_000_000,
 			Tracks: []TrackSpec{
 				{ID: 11, Kind: demux.KindVideo, Timescale: 90000, StartTime: 0,
-					DriftPPM: 200, WrapUnits: 1 << 16, Samples: 200, VFR: true,
+					DriftPPM: 200, WrapUnits: 300000, Samples: 200, VFR: true,
 					Codec: "synthetic-video"},
 				{ID: 12, Kind: demux.KindAudio, Timescale: 48000, StartTime: 0,
-					DriftPPM: -150, Samples: 200, Codec: "synthetic-audio"},
+					Step: 1760, DriftPPM: -150, Samples: 200, Codec: "synthetic-audio"},
 			},
 		}, nil
 	case CaseTruncated:
@@ -114,6 +119,7 @@ func specFor(name string, seed int64) (Spec, error) {
 	case CaseRTPGap:
 		return Spec{
 			Name: name, Seed: seed + 4, QuickTime: true, TargetBPS: 1_000_000,
+			MediaOnlyCount: 1,
 			Tracks: []TrackSpec{
 				{ID: 41, Kind: demux.KindHint, Timescale: 90000, StartTime: 0,
 					Samples: 24, RTPGap: true, Codec: "rtp-hint"},

@@ -77,13 +77,19 @@ func (b *builder) buildArmd() []byte {
 	return p
 }
 
-// resolveOffsets writes absolute mdat payload offsets into armd.
-func (b *builder) resolveOffsets(armd []byte, mdatPayloadPos int) {
+// resolveOffsets writes absolute mdat payload offsets into armd, one
+// fragment at a time. chunkPos[ci] is the armf box start of fragment ci.
+func (b *builder) resolveOffsets(armd []byte, chunkPos []int) {
 	b.lastArmd = armd
-	running := mdatPayloadPos
-	for i, rec := range b.tables[0] {
-		pos := b.offsetPos[i]
-		binary.BigEndian.PutUint64(b.lastArmd[pos:pos+8], uint64(running))
-		running += len(rec.payload)
+	idx := 0
+	for ci, table := range b.tables {
+		armfLen := len(buildArmf(uint32(ci), len(table)))
+		running := chunkPos[ci] + armfLen + 8 // skip armf box and mdat header
+		for _, rec := range table {
+			pos := b.offsetPos[idx]
+			binary.BigEndian.PutUint64(b.lastArmd[pos:pos+8], uint64(running))
+			running += len(rec.payload)
+			idx++
+		}
 	}
 }
