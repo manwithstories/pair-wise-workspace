@@ -273,6 +273,10 @@ func printReport(rep *pipeline.Report) {
 		rep.LostPackets, rep.Unrecoverable, rep.DuplicatePackets, rep.RecoveredPackets)
 	fmt.Printf("loss_recovery_pct=%.2f\n", rep.LossRecoveryPct)
 	fmt.Printf("rejected_segments=%d segments=%d\n", rep.RejectedSegments, rep.Segments)
+	for _, f := range rep.Fits {
+		fmt.Printf("drift camera=%s slope_ppm=%.2f anchor_ref=%d anchor_local=%d boundary_err_ms=%.3f jumps=%d\n",
+			f.Camera, f.SlopePPM, f.AnchorRef, f.AnchorLocal, f.BoundaryErrMS, f.Jumps)
+	}
 	fmt.Printf("hash_match=%t output_sha256=%s\n", rep.HashMatch, rep.OutputSHA256)
 	if rep.ErrCode != "" {
 		fmt.Printf("err_code=%s\n", rep.ErrCode)
