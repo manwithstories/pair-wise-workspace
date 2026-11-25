@@ -17,12 +17,16 @@ func writeRemuxOutputs(outRoot, relDir string, cm *audit.CaseManifest, store *ch
 		return merr
 	}
 	tsRel := relDir + "/output.ts"
-	if err := checkpoint.WriteFileAtomic(filepath.Join(outRoot, filepath.FromSlash(tsRel)), tsBytes, 0o644); err != nil {
-		return err
+	tsID := "output-ts-" + cm.CaseID
+	tsHash := audit.HashBytes(tsBytes)
+	if old, ok := store.Chunk(tsID); !ok || old.SHA256 != tsHash {
+		if err := checkpoint.WriteFileAtomic(filepath.Join(outRoot, filepath.FromSlash(tsRel)), tsBytes, 0o644); err != nil {
+			return err
+		}
 	}
 	cm.OutputTS = ptrDigest(digestFromBytes(tsRel, tsBytes))
 	if err := commitChunk(cm, store, checkpoint.Chunk{
-		ID: "output-ts-" + cm.CaseID, Index: 0, SHA256: audit.HashBytes(tsBytes), Bytes: len(tsBytes),
+		ID: tsID, Index: 0, SHA256: tsHash, Bytes: len(tsBytes),
 	}); err != nil {
 		return err
 	}
@@ -33,12 +37,16 @@ func writeRemuxOutputs(outRoot, relDir string, cm *audit.CaseManifest, store *ch
 		return merr
 	}
 	mp4Rel := relDir + "/output.fmp4"
-	if err := checkpoint.WriteFileAtomic(filepath.Join(outRoot, filepath.FromSlash(mp4Rel)), fmp4Bytes, 0o644); err != nil {
-		return err
+	mp4ID := "output-fmp4-" + cm.CaseID
+	mp4Hash := audit.HashBytes(fmp4Bytes)
+	if old, ok := store.Chunk(mp4ID); !ok || old.SHA256 != mp4Hash {
+		if err := checkpoint.WriteFileAtomic(filepath.Join(outRoot, filepath.FromSlash(mp4Rel)), fmp4Bytes, 0o644); err != nil {
+			return err
+		}
 	}
 	cm.OutputFMP4 = ptrDigest(digestFromBytes(mp4Rel, fmp4Bytes))
 	if err := commitChunk(cm, store, checkpoint.Chunk{
-		ID: "output-fmp4-" + cm.CaseID, Index: 1, SHA256: audit.HashBytes(fmp4Bytes), Bytes: len(fmp4Bytes),
+		ID: mp4ID, Index: 1, SHA256: mp4Hash, Bytes: len(fmp4Bytes),
 	}); err != nil {
 		return err
 	}
@@ -127,6 +135,10 @@ func buildTraceChain(cm *audit.CaseManifest, note string) []audit.TraceStage {
 		})
 	}
 	if cm.LateReplays > 0 {
+		chain = append(chain, audit.TraceStage{
+			Component: "ts.demux", Code: media.CodeOK, TraceID: traceID,
+			Note: "VFR PTS/DTS intervals and late media-time event extracted",
+		})
 		chain = append(chain, audit.TraceStage{
 			Component: "timeline.replay", Code: media.CodeLateReplay, TraceID: traceID,
 			Note: fmt.Sprintf("%d bounded deterministic replay(s); VFR intervals retained", cm.LateReplays),

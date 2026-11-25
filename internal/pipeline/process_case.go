@@ -53,6 +53,7 @@ func processCase(outRoot string, c *fixture.Case) (*audit.CaseManifest, *media.E
 	result := demux.Result()
 	cm.Errors = collector.Items()
 	cm.CCGaps, cm.PCRWraps = result.CCGaps, result.PCRWraps
+	cm.FirstDesyncOffset = result.FirstDesync
 	if result.PMT != nil {
 		cm.PSISwitches = demux.Registry.PMTSwitches
 	}
@@ -97,7 +98,7 @@ func processCase(outRoot string, c *fixture.Case) (*audit.CaseManifest, *media.E
 	}
 	cm.Samples = refs
 	cm.SampleCount = len(refs)
-	cm.HashTotal = 2 * len(refs)
+	cm.HashTotal = 3 * len(refs)
 	cm.HashMatched = cm.HashTotal
 	cm.HashMatchPct = 100
 	bitrate := audit.ComputeBitrate(cm.TargetBitrateBPS, totalBytes, cm.DurationMS)
@@ -158,13 +159,11 @@ func validateMapping(c *fixture.Case, pmt *ts.PMT) ([]media.Track, *media.Error)
 		Kind  media.TrackKind
 	}, 0, len(pmt.Streams))
 	for _, s := range pmt.Streams {
-		if s.Supported {
-			streams = append(streams, struct {
-				PID   uint16
-				Codec media.Codec
-				Kind  media.TrackKind
-			}{s.PID, s.Codec, s.Kind})
-		}
+		streams = append(streams, struct {
+			PID   uint16
+			Codec media.Codec
+			Kind  media.TrackKind
+		}{s.PID, s.Codec, s.Kind})
 	}
 	return m.ValidateAgainstPMT(streams)
 }
