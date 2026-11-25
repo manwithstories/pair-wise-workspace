@@ -1,10 +1,14 @@
 package archivecheck_test
 
 import (
+	"bytes"
+	"encoding/binary"
+	"os"
 	"path/filepath"
 	"testing"
 
 	"mediaarchive/internal/clock"
+	"mediaarchive/internal/fault"
 	"mediaarchive/internal/ingest"
 	"mediaarchive/internal/samplegen"
 )
@@ -118,5 +122,70 @@ func TestTruncatedMP4BoxDamageLocation(t *testing.T) {
 	}
 	if fe.Location.Offset != corpus.Damage.ExpectedOffset {
 		t.Fatalf("offset error: got=%d expected=%d", fe.Location.Offset, corpus.Damage.ExpectedOffset)
+	}
+}
+
+func TestRejectOverlongBoxAndOutOfBoundsOffset(t *testing.T) {
+	dir := t.TempDir()
+	overlong := filepath.Join(dir, "overlong.mp4")
+	header := make([]byte, 8)
+	binary.BigEndian.PutUint32(header[:4], uint32(ingest.MaxMP4BoxSize+1))
+	copy(header[4:], "free")
+	if err := os.WriteFile(overlong, header, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fe, _ := ingest.LocateStructuralDamage(overlong)
+	if fe == nil || fe.Kind != fault.KindBounds {
+		t.Fatalf("expected bounds fault for overlong box, got %v", fe)
+	}
+
+	out := t.TempDir()
+	corpus, err := samplegen.Generate(out, samplegen.DefaultParams(41, 30, 1), "clean")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(corpus.AACPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	offsetBytes := make([]byte, 4)
+	binary.BigEndian.PutUint32(offsetBytes, corpus.AACDataOffset)
+	idx := bytes.Index(b, offsetBytes)
+	if idx < 0 {
+		t.Fatal("stco offset bytes not found")
+	}
+	binary.BigEndian.PutUint32(b[idx:idx+4], 0xffffffff)
+	badMP4 := filepath.Join(dir, "out-of-bounds.mp4")
+	if err := os.WriteFile(badMP4, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, _, ferr := ingest.ReadMP4(badMP4, samplegen.TrackAAC, samplegen.AACGlobalNo)
+	if ferr == nil || ferr.Kind != fault.KindBounds {
+		t.Fatalf("expected bounds fault for out-of-bounds stco, got %v", ferr)
+	}
+}
+
+func TestRejectUnknownTrackCodec(t *testing.T) {
+	out := t.TempDir()
+	corpus, err := samplegen.Generate(out, samplegen.DefaultParams(41, 30, 1), "clean")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(corpus.AACPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx := bytes.Index(b, []byte("mp4a"))
+	if idx < 0 {
+		t.Fatal("mp4a sample entry not found")
+	}
+	copy(b[idx:idx+4], "zzzz")
+	bad := filepath.Join(t.TempDir(), "unknown-codec.mp4")
+	if err := os.WriteFile(bad, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, _, ferr := ingest.ReadMP4(bad, "unknown", nil)
+	if ferr == nil || ferr.Kind != fault.KindUnsupported {
+		t.Fatalf("expected unsupported codec fault, got %v", ferr)
 	}
 }
