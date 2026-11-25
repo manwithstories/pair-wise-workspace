@@ -6,6 +6,7 @@ import (
 	"relay.local/relay/internal/fault"
 	"relay.local/relay/internal/fixture"
 	"relay.local/relay/internal/index"
+	"relay.local/relay/internal/metadata"
 	"relay.local/relay/internal/model"
 	"relay.local/relay/internal/scene"
 	"relay.local/relay/internal/transport"
@@ -152,4 +153,64 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// checkDiagnostics proves the two diagnostic paths the spec requires: an index
+// whose entries are corrupted must be invalidated and rebuilt by scanning, and
+// a track carrying an unknown colour marker must be isolated while the rest of
+// the composition continues.
+func checkDiagnostics(sc *scene.Scenario, rep *Report) error {
+	// Corrupt-index rebuild: take the MXF video track, build a good index, then
+	// poison one entry's offset and confirm Validate rejects it while
+	// Revalidate restores a fully valid table.
+	video, ok := scene.VideoTrack(sc.MXF)
+	if !ok {
+		return fault.New(-1, 0, fault.KindCorrupt, false, "MXF clip has no video track")
+	}
+	idx := index.Build([]*model.Track{video}, sc.MXF.File.Data)
+	if !idx.Valid || idx.Count() == 0 {
+		return fault.New(-1, 0, fault.KindCorrupt, false, "MXF keyframe index is invalid before corruption")
+	}
+	good := idx.Count()
+	idx.Entries[0].Offset += 3
+	if err := idx.Validate([]*model.Track{video}, sc.MXF.File.Data); err == nil {
+		return fault.New(-1, 0, fault.KindCorrupt, false,
+			"a corrupted keyframe offset was accepted by Validate")
+	}
+	idx.Revalidate([]*model.Track{video}, sc.MXF.File.Data)
+	if !idx.Valid || idx.Rebuilds != 1 || idx.Count() != good {
+		return fault.New(-1, 0, fault.KindCorrupt, false,
+			"index rebuild failed: valid=%v rebuilds=%d entries=%d/%d",
+			idx.Valid, idx.Rebuilds, idx.Count(), good)
+	}
+	rep.Notes = append(rep.Notes, fmt.Sprintf("keyframe_rebuild=%d/%d", idx.Count(), good))
+
+	// Unknown-colour isolation: attach the marker to a copy of the video track
+	// and resolve it. The resolver marks it isolated; the original composition
+	// is unaffected because it resolves a different track value.
+	probe := &model.Track{
+		ID: 999, Kind: model.Video, Codec: model.CodecMJPEG,
+		Claims: model.Claims{
+			Policy:    map[string]string{},
+			Bitstream: map[string]string{},
+			Container: map[string]string{"color": "unknown:zzzz"},
+		},
+	}
+	res := metadata.Resolve(probe, metadata.Options{})
+	if !res.Isolated || !probe.Isolated {
+		return fault.New(-1, 0, fault.KindCorrupt, false,
+			"unknown colour marker did not isolate the track")
+	}
+	isolated := false
+	for _, it := range res.Faults.Items {
+		if it.Kind == fault.KindMetadata && it.Recoverable {
+			isolated = true
+		}
+	}
+	if !isolated {
+		return fault.New(-1, 0, fault.KindCorrupt, false,
+			"colour isolation produced no recoverable diagnostic")
+	}
+	rep.Notes = append(rep.Notes, "color_isolation=1")
+	return nil
 }

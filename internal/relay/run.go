@@ -148,6 +148,11 @@ func run(ctx context.Context, command string, opts Options) (*Report, error) {
 	recs := recoverStreams(sc, rep)
 	// ---- stage 5: keyframe index ------------------------------------------
 	buildIndex(sc, rep)
+	if command == "selfcheck" {
+		if err := checkDiagnostics(sc, rep); err != nil {
+			return rep, err
+		}
+	}
 	// ---- stage 6: compose and render --------------------------------------
 	rendered, err := renderAll(ctx, sc, opts, opts.Out, opts.CancelAfter, nil)
 	if err != nil {
