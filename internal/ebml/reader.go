@@ -177,6 +177,9 @@ func (r *Reader) readByte() (byte, error) {
 	n, err := io.ReadFull(r.r, buf[:])
 	r.off += int64(n)
 	if err != nil {
+		if err == io.EOF && n == 0 {
+			return 0, io.EOF
+		}
 		return 0, media.At("ebml.read", r.off, media.ClassFatal, "truncated element header")
 	}
 	return buf[0], nil
@@ -188,6 +191,12 @@ func (r *Reader) ReadFull(p []byte) error {
 	n, err := io.ReadFull(r.r, p)
 	r.off += int64(n)
 	if err != nil {
+		if err == io.EOF && n == 0 && len(p) == 0 {
+			return nil
+		}
+		if err == io.EOF && n == 0 {
+			return io.EOF
+		}
 		return media.At("ebml.read", r.off, media.ClassFatal,
 			"truncated payload: wanted %d bytes, got %d", len(p), n)
 	}
@@ -393,9 +402,15 @@ func (r *Reader) Skip(size int64) error {
 	if size < 0 {
 		return media.At("ebml.skip", r.off, media.ClassFatal, "negative skip size")
 	}
+	if size == 0 {
+		return nil
+	}
 	n, err := io.CopyN(io.Discard, r.r, size)
 	r.off += n
 	if err != nil {
+		if err == io.EOF {
+			return io.EOF
+		}
 		return media.At("ebml.skip", r.off, media.ClassFatal,
 			"truncated skip: wanted %d bytes, got %d", size, n)
 	}
