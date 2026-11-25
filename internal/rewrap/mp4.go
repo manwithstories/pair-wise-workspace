@@ -92,7 +92,7 @@ func EncodeRawRGB(ctx context.Context, root *safe.Root, outRel string, width, he
 		"-c:v", "libx264", "-pix_fmt", "yuv420p", "-profile:v", "baseline",
 		"-g", "2", "-keyint_min", "2", "-sc_threshold", "0", "-bf", "0",
 		"-map_metadata", "-1", "-fflags", "+bitexact", "-flags:v", "+bitexact",
-		"-f", "mp4", "-y", tmp)
+		"-movflags", "+faststart", "-f", "mp4", "-y", tmp)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fault.E(fault.RewrapFailed, "rewrap", "EncodeRawRGB.stdin", err)
