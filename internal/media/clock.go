@@ -77,6 +77,7 @@ func (w *WrapExtender) Extend(raw uint64) int64 {
 		w.Wraps++
 	} else if d < -w.half {
 		d += w.mod
+		w.Wraps++
 	}
 	w.lastFull += d
 	w.lastRaw = r
