@@ -115,6 +115,7 @@ func executeDemo(cfg demoConfig) error {
 	if err != nil {
 		return err
 	}
+	audioDetailsPrinted := false
 	for _, c := range codecs {
 		res, err := pipeline.Run(pipeline.Options{
 			OutDir: filepath.Join(cfg.out, "normal", string(c)), Codec: c, Media: normal,
@@ -124,6 +125,10 @@ func executeDemo(cfg demoConfig) error {
 			return err
 		}
 		printResult("normal", res)
+		if !audioDetailsPrinted {
+			printAudioIntervals(res)
+			audioDetailsPrinted = true
+		}
 	}
 
 	if cfg.inject["truncate"] {
@@ -195,6 +200,17 @@ func runRecoveryDemo(cfg demoConfig, c codec.Codec, m *sample.Media) error {
 			"resumed manifest hash does not match uninterrupted run")
 	}
 	return nil
+}
+
+func printAudioIntervals(r *pipeline.Result) {
+	for _, s := range r.Silence.Silence {
+		fmt.Printf("[silence] start_ms=%.1f end_ms=%.1f duration_ms=%.1f threshold_dbfs=-48.00 required_duration_ms=500 status=silent\n",
+			float64(s.StartNS)/1e6, float64(s.EndNS)/1e6, float64(s.EndNS-s.StartNS)/1e6)
+	}
+	for _, g := range r.Silence.Unknown {
+		fmt.Printf("[audio-gap] start_ms=%.1f end_ms=%.1f duration_ms=%.1f status=unknown-missing-samples\n",
+			float64(g.StartNS)/1e6, float64(g.EndNS)/1e6, float64(g.EndNS-g.StartNS)/1e6)
+	}
 }
 
 func printResult(stage string, r *pipeline.Result) {

@@ -5,6 +5,7 @@ import (
 
 	"mediad/internal/checkpoint"
 	"mediad/internal/dedup"
+	"mediad/internal/silence"
 )
 
 // ManifestSegment is one complete fMP4 segment entry.
@@ -39,7 +40,9 @@ type Manifest struct {
 	CompleteAUPct    float64           `json:"complete_au_pct"`
 	KeyframeCoverage float64           `json:"keyframe_coverage_pct"`
 	SilenceNS        int64             `json:"silence_ns"`
+	SilenceIntervals []silence.Span    `json:"silence_intervals"`
 	UnknownNS        int64             `json:"unknown_ns"`
+	UnknownIntervals []silence.Span    `json:"unknown_intervals"`
 	DuplicateAUs     int64             `json:"duplicate_aus"`
 	DupSavedBytes    int64             `json:"dup_saved_bytes"`
 	AlignMaxAbsNS    int64             `json:"align_max_abs_ns"`

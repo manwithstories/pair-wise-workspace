@@ -105,6 +105,14 @@ func (rn *runner) buildManifest(sil silence.Result) *Manifest {
 	if segments == nil {
 		segments = []ManifestSegment{}
 	}
+	silenceIntervals := sil.Silence
+	if silenceIntervals == nil {
+		silenceIntervals = []silence.Span{}
+	}
+	unknownIntervals := sil.Unknown
+	if unknownIntervals == nil {
+		unknownIntervals = []silence.Span{}
+	}
 	return &Manifest{
 		Version: checkpoint.Version,
 		Codec:   string(rn.opts.Codec), Seed: rn.opts.Media.Seed,
@@ -114,7 +122,8 @@ func (rn *runner) buildManifest(sil silence.Result) *Manifest {
 		TotalAUs: total, CompleteAUs: complete, BadAUs: bad,
 		CompleteAUPct:    math.Round(10000*float64(complete)/float64(total)) / 100,
 		KeyframeCoverage: math.Round(keyCoverage*100) / 100,
-		SilenceNS:        sil.SilenceNS, UnknownNS: sil.UnknownNS,
+		SilenceNS:        sil.SilenceNS, SilenceIntervals: silenceIntervals,
+		UnknownNS: sil.UnknownNS, UnknownIntervals: unknownIntervals,
 		DuplicateAUs: rn.store.DuplicateAUs, DupSavedBytes: rn.store.SavedBytes,
 		AlignMaxAbsNS: rn.alignMax, AlignMaxMS: float64(rn.alignMax) / 1e6,
 		RTPDuplicates: rn.flow.RTPDuplicates, PausedReads: rn.pausedReads,
