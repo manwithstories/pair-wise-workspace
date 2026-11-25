@@ -65,10 +65,18 @@ func av1OBU(typ int, payload []byte) []byte {
 func AV1AU(key bool, total int, seed int64, auIndex int) []byte {
 	seqPayload := []byte{0x01, 0x0c, 0x3a, 0x00, 0x00, 0x03, 0x80}
 	seq := av1OBU(codec.OBUSequenceHeader, seqPayload)
-	// Frame OBU uses header + two-byte LEB128 for multi-KiB payloads.
-	payloadLen := total - len(seq) - 3
+	// Solve payload length against the variable-width LEB128 field.
+	payloadLen := total - len(seq) - 1 - 3
 	if payloadLen < 2 {
 		payloadLen = 2
+	}
+	for attempt := 0; attempt < 3; attempt++ {
+		lebLen := len(codec.EncodeLEB128(uint64(payloadLen)))
+		next := total - len(seq) - 1 - lebLen
+		if next == payloadLen || next < 1 {
+			break
+		}
+		payloadLen = next
 	}
 	payload := make([]byte, payloadLen)
 	if key {
@@ -80,8 +88,8 @@ func AV1AU(key bool, total int, seed int64, auIndex int) []byte {
 	frame := av1OBU(codec.OBUFrame, payload)
 	out := append(append([]byte(nil), seq...), frame...)
 	if len(out) != total {
-		// LEB128 size is stable in this fixture's size range; correct by
-		// rebuilding if tiny sizes used in unit tests.
+		// Tiny callers may not leave room for the exact padded layout; use a
+		// valid small OBU rather than emitting a mismatched length field.
 		return AV1AUSmall(key, total)
 	}
 	return out

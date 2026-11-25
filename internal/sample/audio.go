@@ -13,7 +13,7 @@ func AudioFixture() ([]byte, []silence.Gap) {
 		{30, 0},     // 0.6 s silence
 		{50, 11000}, // 1.0 s loud
 		{25, 0},     // 0.5 s silence threshold
-		{50, 13000}, // 1.0 s loud
+		{55, 13000}, // 1.1 s loud; total fixture is exactly 4 s
 	}
 	var pcm []byte
 	for _, p := range parts {
