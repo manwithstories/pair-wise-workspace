@@ -86,7 +86,7 @@ func TestRecoverFromRedundantCopy(t *testing.T) {
 		packet(13, 2000, "c"), // carries copy of 12
 		packet(14, 4000, "e"),
 	}
-	red := Redundancy{13: 12}
+	red := Redundancy{13: RepairCopy{Orig: 12, Payload: []byte("c"), Timestamp: 2000}}
 	res, err := Recover(0xABCD, "cam1", in, red, Options{SentSeqs: sent})
 	if err != nil {
 		t.Fatal(err)
@@ -169,18 +169,21 @@ func TestRandomLossRecoveryRate(t *testing.T) {
 	const n = 2000
 	sent := make([]uint16, n)
 	payloads := make(map[uint16][]byte, n)
-	type redundantCopy struct {
-		wire, orig uint16
-	}
-	copies := make(map[uint16]uint16)
+	// Every carrier redundantly re-sends its predecessor's payload, as an
+	// RTX/FEC scheme would; the receiver gets a second chance at each packet.
+	copies := make(map[uint16]RepairCopy)
 	for i := 0; i < n; i++ {
 		sent[i] = uint16(i)
 		payloads[uint16(i)] = []byte{byte(i), byte(i >> 8), 0xAB}
 	}
 	drop := make(map[uint16]bool)
 	for i := 0; i < n; i++ {
-		if i > 0 && i%3 == 0 {
-			copies[uint16(i)] = uint16(i - 1)
+		if i > 0 {
+			copies[uint16(i)] = RepairCopy{
+				Orig:      uint16(i - 1),
+				Payload:   payloads[uint16(i-1)],
+				Timestamp: uint32(i-1) * 3000,
+			}
 		}
 		if rng.Float64() < 0.03 {
 			drop[uint16(i)] = true
@@ -191,11 +194,7 @@ func TestRandomLossRecoveryRate(t *testing.T) {
 		if drop[uint16(i)] {
 			continue
 		}
-		pl := payloads[uint16(i)]
-		if orig, ok := copies[uint16(i)]; ok {
-			pl = payloads[orig]
-		}
-		in = append(in, packet(uint16(i), uint32(i)*3000, string(pl)))
+		in = append(in, packet(uint16(i), uint32(i)*3000, string(payloads[uint16(i)])))
 	}
 	res, err := Recover(1, "cam1", in, copies, Options{SentSeqs: sent})
 	if err != nil {

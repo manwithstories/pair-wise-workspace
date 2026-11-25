@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/pion/rtp"
+
 	"mediad/internal/media"
 )
 
@@ -17,6 +19,7 @@ type Container string
 const (
 	ContainerCMAF Container = "cmaf"
 	ContainerTS   Container = "ts"
+	ContainerRTP  Container = "rtp"
 )
 
 // InitTrack is one track discovered in an initialization segment.
@@ -59,6 +62,24 @@ type SegmentRequest struct {
 	Keys         map[uint32]media.TrackKey
 	Refs         map[uint32]int64
 	Limits       media.Limits
+	// RTP is set for RTP-sourced segments: already-parsed packets plus their
+	// repair copies. Data is ignored in that case.
+	RTP *RTPInput
+}
+
+// RTPInput is a parsed RTP segment handed to an RTP adapter. Packets must
+// already be recovered and unwrapped by the recovery stage.
+type RTPInput struct {
+	Packets []*rtp.Packet
+	Repairs []Repair
+}
+
+// Repair is a redundant copy of a lost packet.
+type Repair struct {
+	Wire      uint16
+	Timestamp uint32
+	Marker    bool
+	Payload   []byte
 }
 
 // Adapter decodes one container version.
@@ -103,6 +124,7 @@ func DefaultRegistry() *Registry {
 	r := NewRegistry()
 	r.Register(&CMAFV1{})
 	r.Register(&TSV1{})
+	r.Register(&RTPV1{})
 	return r
 }
 

@@ -10,18 +10,26 @@ import (
 	"github.com/pion/rtp"
 )
 
-// RTPPacketRecord is one transmitted packet. RedundantFor, when non-zero,
-// marks this packet as re-carrying the payload of an earlier wire sequence so
-// the receiver can repair that packet if it was lost.
+// RepairCopyRecord is a redundant copy of one packet carried by another, as
+// RTX or an FEC block would carry. Orig is the wire sequence being repaired.
+type RepairCopyRecord struct {
+	Orig      uint16 `json:"orig"`
+	Payload   []byte `json:"payload"`
+	Timestamp uint32 `json:"timestamp"`
+	Marker    bool   `json:"marker"`
+}
+
+// RTPPacketRecord is one received packet. Repair, when present, redundantly
+// re-carries an earlier packet so the receiver can restore it if it was lost.
 type RTPPacketRecord struct {
-	SSRC         uint32 `json:"ssrc"`
-	Camera       string `json:"camera"`
-	Seq          uint16 `json:"seq"`
-	Timestamp    uint32 `json:"timestamp"`
-	Marker       bool   `json:"marker"`
-	PayloadType  uint8  `json:"payload_type"`
-	Payload      []byte `json:"payload"`
-	RedundantFor int32  `json:"redundant_for"` // wire seq this copy repairs, -1 if none
+	SSRC        uint32            `json:"ssrc"`
+	Camera      string            `json:"camera"`
+	Seq         uint16            `json:"seq"`
+	Timestamp   uint32            `json:"timestamp"`
+	Marker      bool              `json:"marker"`
+	PayloadType uint8             `json:"payload_type"`
+	Payload     []byte            `json:"payload"`
+	Repair      *RepairCopyRecord `json:"repair,omitempty"`
 }
 
 // RTPTrace is a recorded, possibly lossy packet stream for one SSRC, along
@@ -35,13 +43,13 @@ type RTPTrace struct {
 	Recoverable []uint16          `json:"recoverable"` // dropped but recoverable via redundancy
 }
 
-// RedundantFor returns a map from a redundant packet's wire sequence to the
-// sequence it repairs, suitable for recovery.Redundancy.
-func (t *RTPTrace) RedundantFor() map[uint16]uint16 {
-	out := make(map[uint16]uint16)
+// RedundantFor returns the repair copies keyed by carrier wire sequence, in
+// the shape recovery.Recover expects.
+func (t *RTPTrace) RedundantFor() map[uint16]RepairCopyRecord {
+	out := make(map[uint16]RepairCopyRecord)
 	for _, r := range t.Received {
-		if r.RedundantFor >= 0 {
-			out[r.Seq] = uint16(r.RedundantFor)
+		if r.Repair != nil {
+			out[r.Seq] = *r.Repair
 		}
 	}
 	return out
@@ -99,32 +107,19 @@ func buildRTPTrace(opts Options, cam Camera, rng *rand.Rand) *RTPTrace {
 		ts      uint32
 		marker  bool
 		payload []byte
-		redFor  int32
 	}
 	sent := make([]sentPacket, 0, framesPerCam)
 	for f := 0; f < framesPerCam; f++ {
-		payload := samplePayload(cam, f/opts.FramesPerFrag, f%opts.FramesPerFrag)
-		rec := sentPacket{
+		sent = append(sent, sentPacket{
 			wire:    seqBase + uint16(f),
 			ts:      uint32((90000 + int64(f)*3000) % (1 << 32)),
 			marker:  (f+1)%opts.FramesPerFrag == 0,
-			payload: payload,
-			redFor:  -1,
-		}
-		// Every third frame after the first redundantly carries the previous
-		// frame's payload in addition to its own.
-		if f > 0 && f%3 == 0 {
-			rec.payload = sent[f-1].payload
-			rec.ts = sent[f-1].ts
-			rec.marker = sent[f-1].marker
-			rec.redFor = int32(sent[f-1].wire)
-		}
-		sent = append(sent, rec)
-		trace.SentSeqs = append(trace.SentSeqs, rec.wire)
+			payload: samplePayload(cam, f/opts.FramesPerFrag, f%opts.FramesPerFrag),
+		})
+		trace.SentSeqs = append(trace.SentSeqs, sent[f].wire)
 	}
 
-	// Decide which packets are dropped. A packet is recoverable if some later
-	// redundant copy that survives in transit re-carries it.
+	// Decide which packets are dropped in transit.
 	drop := make(map[uint16]bool)
 	for f := 0; f < framesPerCam; f++ {
 		if opts.Profile == ProfileRecover && opts.Loss > 0 && rng.Float64() < opts.Loss {
@@ -133,17 +128,15 @@ func buildRTPTrace(opts Options, cam Camera, rng *rand.Rand) *RTPTrace {
 		}
 	}
 
-	// Walk backwards: a redundant copy repairs its predecessor only if the
-	// copy itself survived and the predecessor was dropped.
+	// Every packet except the first redundantly re-carries the previous
+	// packet's frame, emulating RTX/FEC. A dropped packet is recoverable iff
+	// its successor (the carrier) survived.
 	repaired := make(map[uint16]bool)
-	for f := len(sent) - 1; f >= 0; f-- {
-		if sent[f].redFor < 0 {
-			continue
-		}
+	for f := 1; f < framesPerCam; f++ {
 		if drop[sent[f].wire] {
-			continue
+			continue // carrier lost
 		}
-		orig := uint16(sent[f].redFor)
+		orig := sent[f-1].wire
 		if drop[orig] && !repaired[orig] {
 			repaired[orig] = true
 			trace.Recoverable = append(trace.Recoverable, orig)
@@ -154,16 +147,24 @@ func buildRTPTrace(opts Options, cam Camera, rng *rand.Rand) *RTPTrace {
 		if drop[sent[f].wire] {
 			continue
 		}
-		trace.Received = append(trace.Received, RTPPacketRecord{
-			SSRC:         trace.SSRC,
-			Camera:       cam.Name,
-			Seq:          sent[f].wire,
-			Timestamp:    sent[f].ts,
-			Marker:       sent[f].marker,
-			PayloadType:  96,
-			Payload:      sent[f].payload,
-			RedundantFor: sent[f].redFor,
-		})
+		rec := RTPPacketRecord{
+			SSRC:        trace.SSRC,
+			Camera:      cam.Name,
+			Seq:         sent[f].wire,
+			Timestamp:   sent[f].ts,
+			Marker:      sent[f].marker,
+			PayloadType: 96,
+			Payload:     sent[f].payload,
+		}
+		if f > 0 {
+			rec.Repair = &RepairCopyRecord{
+				Orig:      sent[f-1].wire,
+				Payload:   sent[f-1].payload,
+				Timestamp: sent[f-1].ts,
+				Marker:    sent[f-1].marker,
+			}
+		}
+		trace.Received = append(trace.Received, rec)
 	}
 	// Deterministic shuffle of wire order to exercise reordering.
 	if len(trace.Received) > 1 {

@@ -49,10 +49,20 @@ type Result struct {
 	OutOfOrder     int         `json:"out_of_order"`
 }
 
-// Redundancy maps a wire sequence number to the wire sequence number of the
-// packet whose payload it redundantly re-carries. Fixture traces encode this
-// relationship; real streams would derive it from FEC or RTX metadata.
-type Redundancy map[uint16]uint16
+// RepairCopy is a redundant copy of one packet carried by another packet on
+// the wire, as RTX or an FEC block would carry. Orig is the wire sequence
+// number being repaired.
+type RepairCopy struct {
+	Orig      uint16
+	Payload   []byte
+	Timestamp uint32
+	Marker    bool
+}
+
+// Redundancy maps a received carrier's wire sequence number to the repair copy
+// it carries. Real streams derive this from RTX/FEC metadata; fixtures encode
+// it explicitly so recovery can be scored.
+type Redundancy map[uint16]RepairCopy
 
 // Options bounds recovery work and supplies the sender's intended sequence
 // window.
@@ -152,25 +162,32 @@ func Recover(ssrc uint32, camera string, in []*rtp.Packet, red Redundancy, opts 
 	res.OutOfOrder = outOfOrder
 	res.ReceivedCount = len(bySeq)
 
-	// Index redundant copies by the unwrapped sequence they repair.
+	// Index repair copies by the unwrapped sequence they restore. A repair is
+	// usable only if the carrier that holds it actually arrived.
 	repair := make(map[int64]Packet)
-	for wire, origWire := range red {
-		src, ok := bySeq[seqForWire(wire)]
-		if !ok {
-			continue // the packet carrying the copy was itself lost
+	for wire, rc := range red {
+		if _, ok := bySeq[seqForWire(wire)]; !ok {
+			continue // carrier lost
 		}
-		target := seqForWire(origWire)
+		target := seqForWire(rc.Orig)
 		if _, already := bySeq[target]; already {
-			continue // original received, no repair needed
+			continue
 		}
 		if _, dup := repair[target]; dup {
 			continue
 		}
-		p := src.pkt
-		p.Seq = target
-		p.Wire = origWire
-		p.Recovered = true
-		repair[target] = p
+		payload := append([]byte(nil), rc.Payload...)
+		repair[target] = Packet{
+			Seq:       target,
+			Wire:      rc.Orig,
+			Timestamp: media.Unwrap32Timestamp(0, rc.Timestamp),
+			Marker:    rc.Marker,
+			PT:        96,
+			SSRC:      ssrc,
+			Payload:   payload,
+			Hash:      sha256.Sum256(payload),
+			Recovered: true,
+		}
 	}
 
 	sentSet := make(map[int64]bool, len(sent))
