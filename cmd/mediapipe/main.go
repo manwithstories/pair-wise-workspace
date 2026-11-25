@@ -351,9 +351,14 @@ func summarizeCase(name string, opts jobOptions, res *processResult) demoCase {
 		c.Note = err.Error()
 	}
 	c.Manifest = b.Manifest()
-	// Persist a manifest per case when a workdir is available, so a delivery
-	// lead can inspect the recorded tracks, mapping, and timeline.
+	// Persist the delivered file and its manifest when a workdir is available,
+	// so a delivery lead can inspect the artifact, not just the report.
 	if opts.WorkDir != "" {
+		if err := writeArtifact(opts, name, res.Output); err != nil {
+			c.ExitCode = media.ExitCode(err)
+			c.Note = err.Error()
+			return c
+		}
 		path := filepath.Join(opts.WorkDir, "manifests", name+".json")
 		if err := b.WriteFile(path); err != nil && c.ExitCode == 0 {
 			c.ExitCode = media.ExitCode(err)
@@ -361,6 +366,22 @@ func summarizeCase(name string, opts jobOptions, res *processResult) demoCase {
 		}
 	}
 	return c
+}
+
+// writeArtifact saves the remuxed file under <workdir>/output.
+func writeArtifact(opts jobOptions, name string, data []byte) error {
+	dir := filepath.Join(opts.WorkDir, "output")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	ext := ".mkv"
+	switch opts.Target {
+	case mapping.TargetWebM:
+		ext = ".webm"
+	case mapping.TargetFMP4:
+		ext = ".mp4"
+	}
+	return os.WriteFile(filepath.Join(dir, name+ext), data, 0o644)
 }
 
 func failureCase(name string, err error) demoCase {

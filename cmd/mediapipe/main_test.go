@@ -282,6 +282,15 @@ func TestManifestWrittenWhenWorkdirGiven(t *testing.T) {
 	if m.OutputDigest == "" || m.ReplayDigest == "" {
 		t.Fatal("manifest missing digests")
 	}
+	// The delivered artifact must exist and match the manifest's recorded size.
+	artifact := filepath.Join(dir, "output", "success.mkv")
+	info, err := os.Stat(artifact)
+	if err != nil {
+		t.Fatalf("delivered artifact missing: %v", err)
+	}
+	if info.Size() != m.OutputBytes {
+		t.Fatalf("artifact %d bytes, manifest says %d", info.Size(), m.OutputBytes)
+	}
 	// The late case must also write a manifest with recomputed windows.
 	lm, err := readManifest(filepath.Join(dir, "manifests", "late.json"))
 	if err != nil {
