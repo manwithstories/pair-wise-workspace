@@ -133,7 +133,31 @@ func parseArmd(payload []byte) ([]TrackMeta, [][]Sample, error) {
 	if r.err != nil {
 		return nil, nil, model.NewError(model.StageDemux, "truncated armd payload").Wrap(r.err)
 	}
+	// Optional damage trailer appended by the remux writer. Its presence is
+	// signaled purely by remaining bytes, so files written by older builds
+	// without a trailer still parse.
+	if len(r.b) >= 4 {
+		if err := parseDamageTrailer(r); err != nil {
+			return nil, nil, err
+		}
+	}
 	return tracks, chunks, nil
+}
+
+// parseDamageTrailer reads the trailing recovered-damage log.
+func parseDamageTrailer(r *rd) error {
+	n := r.u32()
+	for i := uint32(0); i < n; i++ {
+		r.u32() // track id
+		r.u64() // offset
+		r.u32() // sample seq
+		k := int(r.byte())
+		r.bytes(k)
+	}
+	if r.err != nil {
+		return model.NewError(model.StageDemux, "truncated armd damage trailer").Wrap(r.err)
+	}
+	return nil
 }
 
 func kindString(k byte) string {
