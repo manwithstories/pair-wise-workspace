@@ -92,7 +92,7 @@ func Run(opts Options) (*Result, error) {
 		reports: codec.ValidateStream(c, stream.Blob, stream.Indexes),
 		journal: journal, journalPath: journalPath,
 		manifestPath: manifestPath, initName: initName, manifestName: manifestName,
-		cutter: cut.New(cut.Config{}), store: dedup.NewStore(),
+		cutter: cut.New(cut.Config{TargetSegmentNS: 900_000_000}), store: dedup.NewStore(),
 		contents: make(map[string]dedup.Content), flow: newRTPFlow(),
 		firstErrorByte: -1,
 	}

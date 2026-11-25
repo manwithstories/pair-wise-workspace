@@ -45,7 +45,7 @@ type Manifest struct {
 	AlignMaxAbsNS    int64             `json:"align_max_abs_ns"`
 	AlignMaxMS       float64           `json:"align_max_ms"`
 	RTPDuplicates    int64             `json:"rtp_duplicates"`
-	PausedReads      int64             `json:"paused_reads"`
+	PausedReads      int64             `json:"-"`
 	FirstErrorByte   int64             `json:"first_error_byte"`
 }
 
