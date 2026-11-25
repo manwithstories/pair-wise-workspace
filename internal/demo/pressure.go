@@ -42,23 +42,31 @@ func RunPressure(parent context.Context, capBytes int64) (pipeline.Snapshot, err
 		return nil
 	})
 
-	count := int(capBytes/chunk) + 4
-	if count < 4 {
-		count = 4
-	}
-	results := make(chan error, count)
-	for i := 0; i < count; i++ {
-		data := make([]byte, chunk)
-		id := "pressure-" + twoDigit(i)
-		go func() {
-			results <- p.Submit(parent, pipeline.Item{ID: id, Weight: chunk, Data: data})
-		}()
+	firstData := make([]byte, chunk)
+	if err := p.Submit(parent, pipeline.Item{ID: "pressure-00", Weight: chunk, Data: firstData}); err != nil {
+		return p.Snapshot(), err
 	}
 	select {
 	case <-started:
 	case <-time.After(5 * time.Second):
 		close(hold)
+		_ = p.Close()
 		return p.Snapshot(), context.DeadlineExceeded
+	}
+
+	// With pressure-00 resident, this many extras is guaranteed to make at
+	// least one Reserve call wait regardless of goroutine scheduling.
+	extra := int(capBytes/chunk) + 2
+	if extra < 4 {
+		extra = 4
+	}
+	results := make(chan error, extra)
+	for i := 1; i <= extra; i++ {
+		data := make([]byte, chunk)
+		id := "pressure-" + twoDigit(i)
+		go func() {
+			results <- p.Submit(parent, pipeline.Item{ID: id, Weight: chunk, Data: data})
+		}()
 	}
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) && p.Snapshot().BackpressureEvents == 0 {
@@ -66,12 +74,15 @@ func RunPressure(parent context.Context, capBytes int64) (pipeline.Snapshot, err
 	}
 	if p.Snapshot().BackpressureEvents == 0 {
 		close(hold)
+		for i := 0; i < extra; i++ {
+			<-results
+		}
 		_ = p.Close()
 		return p.Snapshot(), context.DeadlineExceeded
 	}
 	close(hold)
 	var firstErr error
-	for i := 0; i < count; i++ {
+	for i := 0; i < extra; i++ {
 		if err := <-results; err != nil && firstErr == nil {
 			firstErr = err
 		}
