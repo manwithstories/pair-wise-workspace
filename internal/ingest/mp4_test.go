@@ -59,6 +59,18 @@ func TestReadTruncatedMDAT(t *testing.T) {
 	}
 }
 
+func TestRejectMaliciousBoxLengthOverflow(t *testing.T) {
+	// Declare a 32-bit box size far beyond the actual buffer.
+	data := []byte{0xff, 0xff, 0xff, 0xff, 'f', 't', 'y', 'p', 'x'}
+	_, err := ReadFragmentedMP4(data, 1)
+	if err == nil {
+		t.Fatal("expected malicious length rejection")
+	}
+	if ce, ok := clock.AsError(err); !ok || ce.Code != clock.CodeTruncatedMP4 {
+		t.Fatalf("expected structured truncation, got %v", err)
+	}
+}
+
 func TestReadTruncatedMOOF(t *testing.T) {
 	track := &MP4Track{TrackID: 5, TimeScale: 30000, Samples: []MP4Sample{
 		{Duration: 33_333_333, Data: []byte("sample")},
