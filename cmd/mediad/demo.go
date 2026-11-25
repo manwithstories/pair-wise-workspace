@@ -52,16 +52,19 @@ func runDemo(opts demoOptions) int {
 		}
 	}
 
-	faults, err := fixture.BuildFaults(opts.seed, clean)
-	if err != nil {
-		return operationalError(err)
-	}
-	if err := faults.WriteFaults(opts.dir); err != nil {
-		return operationalError(err)
-	}
-	checks, err := demo.VerifyFaults(faults)
-	if err != nil {
-		return pipelineError(err)
+	var checks demo.FaultCheckResult
+	if opts.faults == "all" {
+		faults, err := fixture.BuildFaults(opts.seed, clean)
+		if err != nil {
+			return operationalError(err)
+		}
+		if err := faults.WriteFaults(opts.dir); err != nil {
+			return operationalError(err)
+		}
+		checks, err = demo.VerifyFaults(faults)
+		if err != nil {
+			return pipelineError(err)
+		}
 	}
 
 	built, err := pipeline.Build(opts.seed, specs, clean[:])
@@ -161,9 +164,11 @@ func runDemo(opts demoOptions) int {
 	fmt.Printf("clean segments=%d renditions=%d\n", len(built.Alignment.Segments), len(specs))
 	fmt.Printf("skew_ms=%.3f bound_ms=20\n", built.Alignment.MaxSkewMS)
 	fmt.Println("skew_ms<=20")
-	fmt.Printf("damage first_bad_offset=%d offset_error_packets=%d\n", checks.FirstBadOffset, checks.OffsetErrorPackets)
-	fmt.Printf("faults continuity_gaps=%d retained_psi_version=%d rtp_duplicates=%d\n",
-		checks.ContinuityGaps, checks.RetainedPSIVersion, checks.RTPDuplicates)
+	if opts.faults == "all" {
+		fmt.Printf("damage first_bad_offset=%d offset_error_packets=%d\n", checks.FirstBadOffset, checks.OffsetErrorPackets)
+		fmt.Printf("faults continuity_gaps=%d retained_psi_version=%d rtp_duplicates=%d\n",
+			checks.ContinuityGaps, checks.RetainedPSIVersion, checks.RTPDuplicates)
+	}
 	fmt.Printf("resume_ms=%d replayed_packets=%d committed_outputs=%d replayed_outputs=%d repeat_replayed_outputs=%d\n",
 		resumeMS, replayedPackets, full.Committed, full.Replayed, repeat.Replayed)
 	fmt.Println("resume_ms<=1000 replayed_packets<=1")
@@ -202,7 +207,7 @@ func findSafeBoundary(built *pipeline.Built, packetIndex int) (int, int64, error
 
 func usageError(format string, args ...any) int {
 	fmt.Fprintf(os.Stderr, "usage error: "+format+"\n", args...)
-	fmt.Fprintln(os.Stderr, "usage: mediad demo --seed N --dir DIR --faults all --interrupt-after 128 [--resume]")
+	printUsage(os.Stderr)
 	return 1
 }
 

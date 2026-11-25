@@ -20,6 +20,8 @@ func run(args []string) int {
 	switch args[0] {
 	case "demo":
 		return runDemoCommand(args[1:])
+	case "scan":
+		return runScanCommand(args[1:])
 	case "help", "-h", "--help":
 		printUsage(os.Stdout)
 		return 0
@@ -56,4 +58,5 @@ func printUsage(w *os.File) {
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "usage:")
 	fmt.Fprintln(w, "  mediad demo --seed 73021 --dir DIR --faults all --interrupt-after 128 --resume")
+	fmt.Fprintln(w, "  mediad scan --file PATH")
 }
