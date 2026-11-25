@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -242,7 +243,7 @@ func (t *Track) FieldTable() []string {
 			keys = append(keys, k)
 		}
 	}
-	sortStrings(keys)
+	sort.Strings(keys)
 	seen := map[string]bool{}
 	for _, k := range keys {
 		if seen[k] {
@@ -259,12 +260,4 @@ func (t *Track) FieldTable() []string {
 		out = append(out, fmt.Sprintf("%s/sample.%d=%d,%d,%d,%t", t.Label(), s.Index, s.DTS, s.Duration, s.Size, s.Sync))
 	}
 	return out
-}
-
-func sortStrings(v []string) {
-	for i := 1; i < len(v); i++ {
-		for j := i; j > 0 && v[j] < v[j-1]; j-- {
-			v[j], v[j-1] = v[j-1], v[j]
-		}
-	}
 }
