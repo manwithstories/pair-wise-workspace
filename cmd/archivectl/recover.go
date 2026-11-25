@@ -125,32 +125,36 @@ func executeRecover(opts recoverOptions) (recoverMetrics, manifest.Journal, erro
 
 	events := container.CollectEvents(asset)
 	entries := manifest.BuildEntries(events)
-	if err := manifest.WriteCSV(opts.Manifest, entries); err != nil {
+	maxMS, _, err := manifest.CheckEvents(entries, events)
+	if err != nil {
+		return m, nowJournal, err
+	}
+	m.manifestMaxErrorMS = maxMS
+	csvBytes, err := manifest.EncodeCSV(entries)
+	if err != nil {
+		return m, nowJournal, err
+	}
+	m.outputHash = remux.OutputHash
+	m.manifestHash = manifest.HashBytes(csvBytes)
+
+	// Check a resumed checkpoint before creating any new output artifact.
+	if opts.Resume && oldJournal.InputSHA256 != "" {
+		if oldJournal.OutputSHA256 != m.outputHash || oldJournal.ManifestSHA256 != m.manifestHash {
+			return m, nowJournal, timeline.New(timeline.CodeIntegrity, "resume", "recomputed artifacts differ from journal")
+		}
+	}
+	if err := atomicWriteFile(opts.Manifest, csvBytes, 0o644); err != nil {
+		return m, nowJournal, err
+	}
+	if err := atomicWriteFile(opts.Out, remux.Bytes, 0o644); err != nil {
 		return m, nowJournal, err
 	}
 	readEntries, err := manifest.ReadCSV(opts.Manifest)
 	if err != nil {
 		return m, nowJournal, err
 	}
-	maxMS, _, err := manifest.CheckEvents(readEntries, events)
-	if err != nil {
+	if _, _, err := manifest.CheckEvents(readEntries, events); err != nil {
 		return m, nowJournal, err
-	}
-	m.manifestMaxErrorMS = maxMS
-	manifestHash, err := manifest.HashFile(opts.Manifest)
-	if err != nil {
-		return m, nowJournal, err
-	}
-	if err := atomicWriteFile(opts.Out, remux.Bytes, 0o644); err != nil {
-		return m, nowJournal, err
-	}
-	m.outputHash = manifest.HashBytes(remux.Bytes)
-	m.manifestHash = manifestHash
-
-	if opts.Resume && oldJournal.InputSHA256 != "" {
-		if oldJournal.OutputSHA256 != m.outputHash || oldJournal.ManifestSHA256 != m.manifestHash {
-			return m, nowJournal, timeline.New(timeline.CodeIntegrity, "resume", "recomputed artifacts differ from journal")
-		}
 	}
 	j := nowJournal
 	j.Complete = true

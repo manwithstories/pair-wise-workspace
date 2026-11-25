@@ -66,7 +66,8 @@ AGENTS.md.local
 
 # Local acceptance runs and built binaries
 .tmp/
-archivectl
+/archivectl
+/.tmp/archivectl
 
 # ---- 兜底通配：任何名字包含这些关键词的目录 ----
 # （不用 *coder*/ 以免误伤 encoder/ decoder/ 等正常目录）

@@ -3,6 +3,7 @@
 package manifest
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/csv"
 	"encoding/hex"
@@ -46,16 +47,12 @@ func BuildEntries(events []container.Event) []LedgerEntry {
 	return out
 }
 
-// WriteCSV writes a deterministic CSV ledger.
-func WriteCSV(path string, entries []LedgerEntry) error {
-	f, err := os.Create(path)
-	if err != nil {
-		return timeline.Wrap(timeline.CodeInvalidArgument, "create manifest", err)
-	}
-	defer f.Close()
-	w := csv.NewWriter(f)
+// EncodeCSV returns the deterministic CSV ledger bytes.
+func EncodeCSV(entries []LedgerEntry) ([]byte, error) {
+	var buf bytes.Buffer
+	w := csv.NewWriter(&buf)
 	if err := w.Write(header); err != nil {
-		return err
+		return nil, err
 	}
 	for _, e := range entries {
 		row := []string{
@@ -70,14 +67,26 @@ func WriteCSV(path string, entries []LedgerEntry) error {
 			e.Label,
 		}
 		if err := w.Write(row); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	w.Flush()
 	if err := w.Error(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// WriteCSV writes a deterministic CSV ledger.
+func WriteCSV(path string, entries []LedgerEntry) error {
+	b, err := EncodeCSV(entries)
+	if err != nil {
 		return err
 	}
-	return f.Close()
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		return timeline.Wrap(timeline.CodeInvalidArgument, "create manifest", err)
+	}
+	return nil
 }
 
 // ReadCSV reads and validates a ledger.
