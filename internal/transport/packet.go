@@ -99,20 +99,65 @@ func ParsePacket(raw []byte, offset int64) (Packet, error) {
 	return p, nil
 }
 
-// Reader reads and optionally checks CC sequences from an io.Reader.
+// CCTracker detects per-PID continuity jumps in packet order.
+type CCTracker struct {
+	mu     sync.Mutex
+	lastCC map[uint16]uint8
+	seen   map[uint16]bool
+	gaps   []CCGap
+}
+
+func NewCCTracker() *CCTracker {
+	return &CCTracker{lastCC: make(map[uint16]uint8), seen: make(map[uint16]bool)}
+}
+
+// Check processes one packet and returns the new gap, if any.
+func (t *CCTracker) Check(p Packet) *CCGap {
+	if p.PID == 0x1fff {
+		return nil
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.seen[p.PID] {
+		t.seen[p.PID] = true
+		t.lastCC[p.PID] = p.CC
+		return nil
+	}
+	last := t.lastCC[p.PID]
+	expected := (last + 1) & 0x0f
+	var gap *CCGap
+	// An identical CC is a legal duplicate; do not classify it as a jump.
+	if p.CC != expected && p.CC != last {
+		missing := (int(p.CC) - int(expected) + 16) % 16
+		if missing == 0 {
+			missing = 16
+		}
+		g := CCGap{PID: p.PID, Offset: p.Offset, Expected: expected, Got: p.CC, Missing: missing}
+		t.gaps = append(t.gaps, g)
+		gap = &g
+	}
+	t.lastCC[p.PID] = p.CC
+	return gap
+}
+
+// Gaps returns a copy of detected CC gaps.
+func (t *CCTracker) Gaps() []CCGap {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]CCGap(nil), t.gaps...)
+}
+
+// Reader reads fixed 188-byte TS packets from an io.Reader.
 type Reader struct {
 	r       io.Reader
 	offset  int64
 	checkCC bool
-	lastCC  map[uint16]uint8
-	seenPID map[uint16]bool
-	CCGaps  []CCGap
-	mu      sync.Mutex
+	cc      *CCTracker
 }
 
 // NewReader creates a TS packet reader.
 func NewReader(r io.Reader) *Reader {
-	return &Reader{r: r, lastCC: make(map[uint16]uint8), seenPID: make(map[uint16]bool)}
+	return &Reader{r: r, cc: NewCCTracker()}
 }
 
 // NewLimitedReader bounds the input to maxBytes, supporting bounded ingestion.
@@ -146,40 +191,14 @@ func (r *Reader) Read() (Packet, error) {
 	if err != nil {
 		return p, err
 	}
-	if r.checkCC && p.PID != 0x1fff {
-		r.checkContinuity(p)
+	if r.checkCC {
+		r.cc.Check(p)
 	}
 	return p, nil
 }
 
-func (r *Reader) checkContinuity(p Packet) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if !r.seenPID[p.PID] {
-		r.seenPID[p.PID] = true
-		r.lastCC[p.PID] = p.CC
-		return
-	}
-	last := r.lastCC[p.PID]
-	expected := (last + 1) & 0x0f
-	// An identical CC is a legal duplicate; do not classify it as a jump.
-	if p.CC != expected && p.CC != last {
-		missing := (int(p.CC) - int(expected) + 16) % 16
-		if missing == 0 {
-			missing = 16
-		}
-		gap := CCGap{PID: p.PID, Offset: p.Offset, Expected: expected, Got: p.CC, Missing: missing}
-		r.CCGaps = append(r.CCGaps, gap)
-	}
-	r.lastCC[p.PID] = p.CC
-}
-
-// Gaps returns a copy of detected CC gaps.
-func (r *Reader) Gaps() []CCGap {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return append([]CCGap(nil), r.CCGaps...)
-}
+// Gaps returns Reader-level CC gaps.
+func (r *Reader) Gaps() []CCGap { return r.cc.Gaps() }
 
 // Queue is a bounded TS packet queue. A full channel blocks the producer,
 // providing backpressure instead of dropping media or growing without limit.
