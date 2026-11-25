@@ -9,8 +9,12 @@ if [[ -x /opt/homebrew/bin/brew ]]; then
 fi
 
 go version
+go mod tidy
 go build -o /tmp/bcast ./cmd/bcast
 go test ./...
+# `go mod tidy` treats the matching toolchain pin as redundant; restore the
+# explicit delivery requirement after all Go commands have resolved modules.
+go mod edit -toolchain=go1.25.6
 
 if [[ -e "$ROOT" ]]; then
   case "$ROOT" in

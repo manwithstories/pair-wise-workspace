@@ -14,4 +14,5 @@ fi
 
 brew install ffmpeg
 go mod tidy
+go mod edit -toolchain=go1.25.6
 go version
