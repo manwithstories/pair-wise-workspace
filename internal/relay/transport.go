@@ -15,59 +15,47 @@ import (
 )
 
 type streamResult struct {
-	name         string
-	expected     int // distinct packets the generator actually sent
-	expectedLost int
-	got          transport.Result
+	name              string
+	expected          int // distinct packets the generator actually sent
+	expectedLost      int // packets the generator removed outright
+	expectedReordered int // packets the generator delayed out of order
+	got               transport.Result
 }
 
-// ok reports whether recovery matched the ground truth exactly.
+// ok reports whether recovery matched the ground truth exactly: every packet
+// the generator actually sent appears once, nothing was dropped by the reorder
+// window, and the only losses are the packets the generator removed.
 func (r streamResult) ok() bool {
 	return r.got.Stats.Unique == r.expected &&
 		r.got.Stats.Dropped == 0 &&
-		r.got.Stats.Lost == r.lostExpected()
-}
-
-func (r streamResult) lostExpected() int {
-	return r.expectedLost
+		r.got.Stats.Lost == r.expectedLost &&
+		r.got.Stats.Recovered == r.expectedReordered
 }
 
 // recoverStreams recovers every generated stream through the real wire
 // encoding and aggregates wrap counts and client-side statistics.
 func recoverStreams(sc *scene.Scenario, rep *Report) []streamResult {
 	out := make([]streamResult, 0, len(sc.RTP))
-	recovered, total := 0, 0
+	recovered := 0
 	for _, s := range sc.RTP {
 		res := recoverOne(sc, s)
-		expected := s.Stream.Total - s.Stream.Dropped
-		sr := streamResult{name: s.Name, expected: expected, got: res}
-		sr.expectedLost = s.Stream.Dropped
+		sr := streamResult{
+			name:              s.Name,
+			expected:          s.Stream.Total - s.Stream.Dropped,
+			expectedLost:      s.Stream.Dropped,
+			expectedReordered: s.Stream.Reordered,
+			got:               res,
+		}
 		out = append(out, sr)
 		rep.Wraps += res.Stats.Wraps
-		if res.Stats.Recovered > 0 {
-			total++
-			if sr.ok() {
-				recovered++
-			}
+		if sr.ok() {
+			recovered++
 		}
 		for _, it := range res.Faults.Items {
 			rep.Faults.Add(it)
 		}
 	}
-	if total == 0 {
-		total = len(sc.RTP)
-	}
-	if recovered == 0 && len(out) > 0 {
-		// Count streams that recovered cleanly even if no packet happened to
-		// be out of order.
-		recovered = 0
-		for _, sr := range out {
-			if sr.ok() {
-				recovered++
-			}
-		}
-	}
-	rep.Recovered = fmt.Sprintf("%d/%d", recovered, total)
+	rep.Recovered = fmt.Sprintf("%d/%d", recovered, len(sc.RTP))
 	return out
 }
 
