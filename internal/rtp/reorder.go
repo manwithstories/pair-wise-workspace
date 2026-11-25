@@ -40,7 +40,8 @@ type Reorderer struct {
 	window     int
 
 	buf      map[uint16]*rtp.Packet
-	declared map[uint16]bool // seqs already emitted as gaps
+	emitted  map[uint16][]byte // payloads of emitted packets (dedup/conflict)
+	declared map[uint16]bool   // seqs already emitted as gaps
 	expect   uint16
 	started  bool
 	stats    Stats
@@ -53,6 +54,7 @@ func New(baseWindow, maxWindow int) *Reorderer {
 		maxWindow:  maxWindow,
 		window:     baseWindow,
 		buf:        map[uint16]*rtp.Packet{},
+		emitted:    map[uint16][]byte{},
 		declared:   map[uint16]bool{},
 	}
 }
@@ -96,16 +98,25 @@ func (r *Reorderer) Push(p *rtp.Packet) ([]*rtp.Packet, error) {
 		return nil, nil
 	}
 	if prev, ok := r.buf[seq]; ok {
-		if bytes.Equal(prev.Payload, p.Payload) {
-			r.stats.Duplicates++ // identical duplicate: eliminated
-			return nil, nil
-		}
-		r.stats.Conflicts = append(r.stats.Conflicts, Conflict{Seq: seq})
-		return nil, fault.New(fault.KindConflict, "reorder",
-			"ssrc %d seq %d: same sequence, different payload; quarantined", p.SSRC, seq)
+		return r.checkDuplicate(seq, prev.Payload, p)
+	}
+	if payload, ok := r.emitted[seq]; ok {
+		return r.checkDuplicate(seq, payload, p)
 	}
 	r.buf[seq] = p
 	return r.drain(false), nil
+}
+
+// checkDuplicate classifies a repeated sequence number: identical payload is
+// an eliminated duplicate; different payload is a quarantined conflict.
+func (r *Reorderer) checkDuplicate(seq uint16, prev []byte, p *rtp.Packet) ([]*rtp.Packet, error) {
+	if bytes.Equal(prev, p.Payload) {
+		r.stats.Duplicates++ // identical duplicate: eliminated
+		return nil, nil
+	}
+	r.stats.Conflicts = append(r.stats.Conflicts, Conflict{Seq: seq})
+	return nil, fault.New(fault.KindConflict, "reorder",
+		"ssrc %d seq %d: same sequence, different payload; quarantined", p.SSRC, seq)
 }
 
 // Flush force-emits everything still buffered, declaring gaps where needed.
@@ -119,6 +130,7 @@ func (r *Reorderer) drain(flush bool) []*rtp.Packet {
 	for {
 		if p, ok := r.buf[r.expect]; ok {
 			out = append(out, p)
+			r.emitted[r.expect] = p.Payload
 			delete(r.buf, r.expect)
 			r.expect++
 			continue
