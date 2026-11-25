@@ -9,30 +9,30 @@ import (
 
 // SegmentInput is one expected media segment and its observed RTP packets.
 type SegmentInput struct {
-	TrackID       string
-	TrackNumber   uint32
-	GlobalIndex   int
+	TrackID        string
+	TrackNumber    uint32
+	GlobalIndex    int
 	SegmentInTrack int
-	Timescale     uint32
-	DurationUnits uint64
-	TFDT          uint64
-	Discontinuity bool
-	Keyframe      bool
-	SeqStart      uint64
-	SeqEnd        uint64
-	Arrival       []ingest.Packet
-	Retransmit    []ingest.Packet
-	Payload       []byte
-	BandwidthBps  int
+	Timescale      uint32
+	DurationUnits  uint64
+	TFDT           uint64
+	Discontinuity  bool
+	Keyframe       bool
+	SeqStart       uint64
+	SeqEnd         uint64
+	Arrival        []ingest.Packet
+	Retransmit     []ingest.Packet
+	Payload        []byte
+	BandwidthBps   int
 }
 
 // TrackInput groups a track's segments.
 type TrackInput struct {
-	ID          string
-	Number      uint32
-	Timescale   uint32
-	Init        []byte
-	Segments    []SegmentInput
+	ID        string
+	Number    uint32
+	Timescale uint32
+	Init      []byte
+	Segments  []SegmentInput
 }
 
 // BandwidthStep is one bandwidth transition.
@@ -43,33 +43,33 @@ type BandwidthStep struct {
 
 // AlignedSegment is a repaired, canonical fMP4 segment.
 type AlignedSegment struct {
-	GlobalIndex   int                  `json:"global_index"`
-	TrackID       string               `json:"track_id"`
-	SegmentInTrack int                 `json:"segment_in_track"`
-	OutputRel     string               `json:"output_rel"`
-	StartTicks    int64                `json:"start_ticks"`
-	EndTicks      int64                `json:"end_ticks"`
-	TFDTOut       uint64               `json:"tfdt_out"`
-	Complete      bool                 `json:"complete"`
-	Keyframe      bool                 `json:"keyframe"`
-	Window        int                  `json:"window"`
-	Missing       []uint64             `json:"missing,omitempty"`
-	Gaps          []ingest.Gap         `json:"gaps,omitempty"`
-	Data          []byte               `json:"-"`
-	TimelineEvent *media.TimelineEvent `json:"timeline_event,omitempty"`
+	GlobalIndex    int                  `json:"global_index"`
+	TrackID        string               `json:"track_id"`
+	SegmentInTrack int                  `json:"segment_in_track"`
+	OutputRel      string               `json:"output_rel"`
+	StartTicks     int64                `json:"start_ticks"`
+	EndTicks       int64                `json:"end_ticks"`
+	TFDTOut        uint64               `json:"tfdt_out"`
+	Complete       bool                 `json:"complete"`
+	Keyframe       bool                 `json:"keyframe"`
+	Window         int                  `json:"window"`
+	Missing        []uint64             `json:"missing,omitempty"`
+	Gaps           []ingest.Gap         `json:"gaps,omitempty"`
+	Data           []byte               `json:"-"`
+	TimelineEvent  *media.TimelineEvent `json:"timeline_event,omitempty"`
 }
 
 // Report summarizes alignment and damage evidence.
 type Report struct {
-	Segments        []AlignedSegment    `json:"segments"`
-	Duplicates      int                 `json:"duplicates"`
-	Conflicts       []ingest.Conflict   `json:"conflicts,omitempty"`
-	BurstLosses     int                 `json:"burst_losses"`
-	Recovered       int                 `json:"recovered"`
-	BandwidthSteps  int                 `json:"bandwidth_steps"`
-	WindowTrace     []int               `json:"window_trace"`
-	TimelineEvents  []media.TimelineEvent `json:"timeline_events,omitempty"`
-	Incomplete      int                 `json:"incomplete_segments"`
+	Segments       []AlignedSegment      `json:"segments"`
+	Duplicates     int                   `json:"duplicates"`
+	Conflicts      []ingest.Conflict     `json:"conflicts,omitempty"`
+	BurstLosses    int                   `json:"burst_losses"`
+	Recovered      int                   `json:"recovered"`
+	BandwidthSteps int                   `json:"bandwidth_steps"`
+	WindowTrace    []int                 `json:"window_trace"`
+	TimelineEvents []media.TimelineEvent `json:"timeline_events,omitempty"`
+	Incomplete     int                   `json:"incomplete_segments"`
 }
 
 // WindowForBandwidth maps a bandwidth tier to a bounded reorder window.

@@ -148,7 +148,7 @@ func UnwrapUint(bits uint, last uint64, value uint64, haveLast bool) uint64 {
 type ResetKind string
 
 const (
-	ResetNone       ResetKind = ""
+	ResetNone          ResetKind = ""
 	ResetDiscontinuity ResetKind = "discontinuity"
 	ResetTFDTFallback  ResetKind = "tfdt_fallback_corrected"
 )
@@ -163,10 +163,10 @@ type TimelineEvent struct {
 }
 
 type trackClock struct {
-	lastRaw      int64
-	lastCommon   int64
-	epochOffset  int64
-	have         bool
+	lastRaw     int64
+	lastCommon  int64
+	epochOffset int64
+	have        bool
 }
 
 // Timeline enforces one common tick base while preserving evidence of resets.

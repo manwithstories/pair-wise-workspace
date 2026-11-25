@@ -24,26 +24,26 @@ func (m Mismatch) String() string {
 
 // DASHManifest is the small, deterministic DASH profile used by mediad.
 type DASHManifest struct {
-	XMLName                   xml.Name        `xml:"MPD"`
-	XMLNS                     string          `xml:"xmlns,attr"`
-	Profiles                  string          `xml:"profiles,attr,omitempty"`
-	Type                      string          `xml:"type,attr"`
-	MediaPresentationDuration string          `xml:"mediaPresentationDuration,attr"`
-	MinBufferTime             string          `xml:"minBufferTime,attr"`
-	Period                    DASHPeriod      `xml:"Period"`
+	XMLName                   xml.Name   `xml:"MPD"`
+	XMLNS                     string     `xml:"xmlns,attr"`
+	Profiles                  string     `xml:"profiles,attr,omitempty"`
+	Type                      string     `xml:"type,attr"`
+	MediaPresentationDuration string     `xml:"mediaPresentationDuration,attr"`
+	MinBufferTime             string     `xml:"minBufferTime,attr"`
+	Period                    DASHPeriod `xml:"Period"`
 }
 
 // DASHPeriod contains one adaptation set in the fixture profile.
 type DASHPeriod struct {
-	ID            string                `xml:"id,attr,omitempty"`
-	Duration      string                `xml:"duration,attr,omitempty"`
-	AdaptationSet DASHAdaptationSet     `xml:"AdaptationSet"`
+	ID            string            `xml:"id,attr,omitempty"`
+	Duration      string            `xml:"duration,attr,omitempty"`
+	AdaptationSet DASHAdaptationSet `xml:"AdaptationSet"`
 }
 
 // DASHAdaptationSet groups representations.
 type DASHAdaptationSet struct {
-	ContentType string             `xml:"contentType,attr"`
-	SegmentTpl  DASHSegmentTpl     `xml:"SegmentTemplate"`
+	ContentType     string               `xml:"contentType,attr"`
+	SegmentTpl      DASHSegmentTpl       `xml:"SegmentTemplate"`
 	Representations []DASHRepresentation `xml:"Representation"`
 }
 
@@ -58,13 +58,13 @@ type DASHSegmentTpl struct {
 
 // DASHRepresentation is one bitrate tier.
 type DASHRepresentation struct {
-	ID                string `xml:"id,attr"`
-	Bandwidth         int    `xml:"bandwidth,attr"`
-	Width             int    `xml:"width,attr"`
-	Height            int    `xml:"height,attr"`
-	Codecs            string `xml:"codecs,attr"`
-	MimeType          string `xml:"mimeType,attr"`
-	SAR               string `xml:"sar,attr,omitempty"`
+	ID        string `xml:"id,attr"`
+	Bandwidth int    `xml:"bandwidth,attr"`
+	Width     int    `xml:"width,attr"`
+	Height    int    `xml:"height,attr"`
+	Codecs    string `xml:"codecs,attr"`
+	MimeType  string `xml:"mimeType,attr"`
+	SAR       string `xml:"sar,attr,omitempty"`
 }
 
 // ParseDASH parses and validates required fields.
@@ -103,7 +103,7 @@ func ParseDASH(data []byte) (*DASHManifest, error) {
 		r.ID = strings.TrimSpace(r.ID)
 		r.Codecs = strings.TrimSpace(r.Codecs)
 		if r.ID == "" {
-			return nil, media.NewError(media.CodeMissingField, "manifest.dash", "Representation.id", "required", )
+			return nil, media.NewError(media.CodeMissingField, "manifest.dash", "Representation.id", "required")
 		}
 		if r.Bandwidth <= 0 {
 			return nil, media.NewError(media.CodeMissingField, "manifest.dash", fmt.Sprintf("Representation[%s]@bandwidth", r.ID), "must be positive")

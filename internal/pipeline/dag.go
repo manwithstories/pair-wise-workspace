@@ -58,14 +58,14 @@ func buildDAG(b *fixture.Bundle, report *repair.Report) (*flow.DAG, error) {
 			OutputRel: seg.OutputRel,
 			Retries:   1,
 			Inputs: map[string]string{
-				"seed":          strconv.FormatInt(b.Seed, 10),
-				"global_index":  strconv.Itoa(seg.GlobalIndex),
-				"start_ticks":   strconv.FormatInt(seg.StartTicks, 10),
-				"end_ticks":     strconv.FormatInt(seg.EndTicks, 10),
-				"tfdt_out":      strconv.FormatUint(seg.TFDTOut, 10),
-				"keyframe":      strconv.FormatBool(seg.Keyframe),
-				"complete":      strconv.FormatBool(seg.Complete),
-				"fragment_sha":  metric.BytesSHA256(seg.Data),
+				"seed":         strconv.FormatInt(b.Seed, 10),
+				"global_index": strconv.Itoa(seg.GlobalIndex),
+				"start_ticks":  strconv.FormatInt(seg.StartTicks, 10),
+				"end_ticks":    strconv.FormatInt(seg.EndTicks, 10),
+				"tfdt_out":     strconv.FormatUint(seg.TFDTOut, 10),
+				"keyframe":     strconv.FormatBool(seg.Keyframe),
+				"complete":     strconv.FormatBool(seg.Complete),
+				"fragment_sha": metric.BytesSHA256(seg.Data),
 			},
 			Produce: func() ([]byte, error) {
 				if !seg.Complete {

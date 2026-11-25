@@ -10,10 +10,10 @@ import (
 
 // HLSSegment is one media segment line and its preceding tags.
 type HLSSegment struct {
-	Index                 int     `json:"index"`
-	URI                   string  `json:"uri"`
-	Duration              float64 `json:"duration"`
-	DiscontinuityBefore   bool    `json:"discontinuity_before"`
+	Index               int     `json:"index"`
+	URI                 string  `json:"uri"`
+	Duration            float64 `json:"duration"`
+	DiscontinuityBefore bool    `json:"discontinuity_before"`
 }
 
 // HLSPlaylist is the constrained media playlist model.

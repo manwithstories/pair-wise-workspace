@@ -16,14 +16,14 @@ import (
 
 // Packet is the transport-independent media packet retained by the pipeline.
 type Packet struct {
-	Sequence      uint16 `json:"sequence"`
-	UnwrappedSeq  uint64 `json:"unwrapped_sequence"`
-	Timestamp     uint32 `json:"timestamp"`
-	UnwrappedTS   uint64 `json:"unwrapped_timestamp"`
-	SSRC          uint32 `json:"ssrc"`
-	Marker        bool   `json:"marker"`
-	Payload       []byte `json:"-"`
-	ArrivalIndex  int    `json:"arrival_index"`
+	Sequence     uint16 `json:"sequence"`
+	UnwrappedSeq uint64 `json:"unwrapped_sequence"`
+	Timestamp    uint32 `json:"timestamp"`
+	UnwrappedTS  uint64 `json:"unwrapped_timestamp"`
+	SSRC         uint32 `json:"ssrc"`
+	Marker       bool   `json:"marker"`
+	Payload      []byte `json:"-"`
+	ArrivalIndex int    `json:"arrival_index"`
 }
 
 // FromPion converts a pion RTP packet and assigns wrap-extended counters.
@@ -96,14 +96,14 @@ type Gap struct {
 
 // Report is the deterministic result of RTP convergence.
 type Report struct {
-	Packets       []Packet   `json:"-"`
-	Duplicates    int        `json:"duplicates"`
-	Conflicts     []Conflict `json:"conflicts"`
-	Gaps          []Gap      `json:"gaps"`
-	Missing       []uint64   `json:"missing"`
-	BurstLosses   int        `json:"burst_losses"`
-	Recovered     int        `json:"recovered"`
-	WindowSize    int        `json:"window_size"`
+	Packets     []Packet   `json:"-"`
+	Duplicates  int        `json:"duplicates"`
+	Conflicts   []Conflict `json:"conflicts"`
+	Gaps        []Gap      `json:"gaps"`
+	Missing     []uint64   `json:"missing"`
+	BurstLosses int        `json:"burst_losses"`
+	Recovered   int        `json:"recovered"`
+	WindowSize  int        `json:"window_size"`
 }
 
 // Stream deduplicates and reorders one RTP SSRC/track.

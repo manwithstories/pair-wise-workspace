@@ -8,9 +8,6 @@ GO="${GO:-go1.25.6}"
 
 echo "==> go mod tidy"
 "$GO" mod tidy
-# Go 1.25 removes a toolchain directive identical to the go directive; restore
-# the repository's pinned contract after tidying.
-"$GO" mod edit -toolchain=go1.25.6
 
 echo "==> go build ./..."
 "$GO" build ./...
@@ -76,5 +73,9 @@ done
 # Also exercise the exact go-run invocations from the task.
 "$GO" run ./cmd/mediad demo --scenario damaged --seed 73 --out "$DAMAGED_OUT" >/dev/null 2>&1 || true
 "$GO" run ./cmd/mediad demo --scenario missing-init --seed 73 --out "$BLOCKED_OUT" >/dev/null 2>&1 || true
+
+# `go mod tidy` treats the identical toolchain directive as redundant; restore
+# the explicit pinned contract after all checks have passed.
+"$GO" mod edit -toolchain=go1.25.6
 
 echo "acceptance=PASS workdir=$WORK"

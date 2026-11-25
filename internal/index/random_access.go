@@ -11,16 +11,16 @@ import (
 
 // Entry locates one independently addressable segment or keyframe.
 type Entry struct {
-	Index       int    `json:"index"`
-	SegmentID   string `json:"segment_id"`
-	Path        string `json:"path"`
-	StartTicks  int64  `json:"start_ticks"`
-	EndTicks    int64  `json:"end_ticks"`
-	Keyframe    bool   `json:"keyframe"`
-	BoxOffset   int64  `json:"box_offset"`
-	Size        int    `json:"size"`
-	SHA256      string `json:"sha256"`
-	Complete    bool   `json:"complete"`
+	Index      int    `json:"index"`
+	SegmentID  string `json:"segment_id"`
+	Path       string `json:"path"`
+	StartTicks int64  `json:"start_ticks"`
+	EndTicks   int64  `json:"end_ticks"`
+	Keyframe   bool   `json:"keyframe"`
+	BoxOffset  int64  `json:"box_offset"`
+	Size       int    `json:"size"`
+	SHA256     string `json:"sha256"`
+	Complete   bool   `json:"complete"`
 }
 
 // Index is a sorted random-access table.

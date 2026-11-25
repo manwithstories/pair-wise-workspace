@@ -11,20 +11,20 @@ import (
 type Code string
 
 const (
-	CodeOK               Code = "ok"
-	CodeInvalidArgument  Code = "invalid_argument"
-	CodeMalformed        Code = "malformed_input"
-	CodeMissingField     Code = "missing_field"
-	CodeTruncatedBox     Code = "truncated_box"
-	CodePacketConflict   Code = "packet_conflict"
-	CodeUnrepairedGap    Code = "unrepaired_gap"
+	CodeOK                Code = "ok"
+	CodeInvalidArgument   Code = "invalid_argument"
+	CodeMalformed         Code = "malformed_input"
+	CodeMissingField      Code = "missing_field"
+	CodeTruncatedBox      Code = "truncated_box"
+	CodePacketConflict    Code = "packet_conflict"
+	CodeUnrepairedGap     Code = "unrepaired_gap"
 	CodeBlockedDependency Code = "blocked_dependency"
-	CodeNotFound         Code = "not_found"
-	CodeOutOfRange       Code = "out_of_range"
-	CodePathViolation    Code = "path_violation"
-	CodeTooLarge         Code = "too_large"
-	CodeLocalIO          Code = "local_io"
-	CodeInternal         Code = "internal"
+	CodeNotFound          Code = "not_found"
+	CodeOutOfRange        Code = "out_of_range"
+	CodePathViolation     Code = "path_violation"
+	CodeTooLarge          Code = "too_large"
+	CodeLocalIO           Code = "local_io"
+	CodeInternal          Code = "internal"
 )
 
 // Error is the structured error type exchanged across subsystem boundaries.

@@ -11,10 +11,10 @@ func TestRationalConversionExactForCommonTimescales(t *testing.T) {
 		timescale uint32
 		want      int64
 	}{
-		{9000, 90000, 9000},       // 0.1s in 90kHz
-		{4800, 48000, 9000},       // 0.1s audio
-		{3003, 30000, 9009},       // 100.1ms, rounded to common ticks
-		{180000, 90000, 180000},   // 2s
+		{9000, 90000, 9000},     // 0.1s in 90kHz
+		{4800, 48000, 9000},     // 0.1s audio
+		{3003, 30000, 9009},     // 100.1ms, rounded to common ticks
+		{180000, 90000, 180000}, // 2s
 	}
 	for _, tc := range cases {
 		got := ConvertTicks(tc.value, Rational{Num: 1, Den: int64(tc.timescale)}, CommonTimebase)
