@@ -21,7 +21,8 @@ type Gap struct {
 // Stats counts packet fates for one stream.
 type Stats struct {
 	Received  int `json:"received"`
-	Reordered int `json:"reordered"` // arrived out of order, re-seated (recovered)
+	Recovered int `json:"recovered"` // lost packet re-seated before declaration
+	Reordered int `json:"reordered"` // arrived out of order, buffered
 	Duplicate int `json:"duplicate"`
 	Late      int `json:"late"` // arrived after its slot was emitted/declared lost
 	Lost      int `json:"lost"` // never recovered
@@ -29,16 +30,17 @@ type Stats struct {
 
 // RecoveryPct returns recovered/(recovered+lost) as a percentage.
 func (s Stats) RecoveryPct() float64 {
-	tot := s.Reordered + s.Lost
+	tot := s.Recovered + s.Lost
 	if tot == 0 {
 		return 100
 	}
-	return 100 * float64(s.Reordered) / float64(tot)
+	return 100 * float64(s.Recovered) / float64(tot)
 }
 
 // Add merges another stream's stats.
 func (s *Stats) Add(o Stats) {
 	s.Received += o.Received
+	s.Recovered += o.Recovered
 	s.Reordered += o.Reordered
 	s.Duplicate += o.Duplicate
 	s.Late += o.Late
@@ -100,7 +102,9 @@ func (r *Repairer) Push(p *rtp.Packet) {
 	}
 	r.stats.Received++
 	if ext != r.next {
-		r.stats.Reordered++ // out of order; will be re-seated by timestamp
+		r.stats.Reordered++ // out of order; buffered for re-seating
+	} else if len(r.pending) > 0 {
+		r.stats.Recovered++ // fills a hole that followers were waiting on
 	}
 	r.pending[ext] = p
 	if ext > r.highest {
