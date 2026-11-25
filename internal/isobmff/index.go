@@ -151,7 +151,8 @@ type sampleRun struct{ firstSample, firstDTS, delta uint64 }
 
 func (a *analyzer) finishTrack(tb *trackBuilder, idx int) TrackInfo {
 	name := a.trackName(tb, idx)
-	ti := TrackInfo{Name: name, Kind: tb.kind, Timescale: tb.timescale}
+	ti := TrackInfo{Name: name, Kind: tb.kind, Timescale: tb.timescale,
+		Duration: clock.Zero(), StartDTS: clock.Zero(), MaxKeyInt: clock.Zero()}
 	if tb.timescale <= 0 {
 		if !tb.truncated {
 			a.faults.Add(fault.Span{Track: name, Code: fault.CodeTruncatedBox, Detail: "missing mdhd"})
@@ -232,6 +233,9 @@ func (a *analyzer) checkDataRanges(tb *trackBuilder, name string, sampleDTS func
 			stscIdx++
 		}
 		spc := uint64(tb.stsc[stscIdx].SamplesPerChunk)
+		if sn+spc > tb.stszCount {
+			spc = tb.stszCount - sn // last chunk may be partial
+		}
 		var extent uint64
 		if tb.stszSize != 0 {
 			extent = spc * uint64(tb.stszSize)
