@@ -90,12 +90,19 @@ func RunDemo(opts Options) (*Report, error) {
 		if err := verify.VerifySegmentHash(s); err != nil {
 			return err
 		}
-		mp4, err := verify.BuildMP4Sidecar(uint32(s.Index), s.StartNS, []byte(s.SHA256))
-		if err != nil {
-			return model.InvariantError(model.PhaseMP4, s.KeyframeOffset, "build sidecar", err)
-		}
-		if err := verify.ValidateMP4Sidecar(mp4); err != nil {
-			return err
+		s.MP4Validated = false
+		for _, b := range s.Blocks {
+			if b != nil && b.Track != nil && verify.SupportedMP4Codec(b.Track.CodecID) {
+				mp4, err := verify.BuildMP4Sidecar(uint32(s.Index), s.StartNS, []byte(s.SHA256))
+				if err != nil {
+					return model.InvariantError(model.PhaseMP4, s.KeyframeOffset, "build sidecar", err)
+				}
+				if err := verify.ValidateMP4Sidecar(mp4); err != nil {
+					return err
+				}
+				s.MP4Validated = true
+				break
+			}
 		}
 		for _, b := range s.Blocks {
 			if b != nil && b.Track != nil && b.Track.CodecID == "A_OPUS" {

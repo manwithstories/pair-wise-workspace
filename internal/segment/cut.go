@@ -30,6 +30,7 @@ type Segment struct {
 	SHA256         string            `json:"sha256"`
 	SilentWindows  int               `json:"silent_windows"`
 	Fingerprints   []string          `json:"fingerprints,omitempty"`
+	MP4Validated   bool              `json:"-"`
 }
 
 // TimeRange returns [start,end) in nanoseconds.

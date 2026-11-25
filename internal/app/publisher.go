@@ -37,7 +37,7 @@ func newPublisher(out string) (*publisher, error) {
 func (p *publisher) Publish(_ context.Context, item pipeline.Item) error {
 	s := item.Segment
 	rec := verify.RecordFromSegment(s)
-	rec.MP4Validated = true
+	rec.MP4Validated = s.MP4Validated
 
 	jsonData, err := json.MarshalIndent(rec, "", "  ")
 	if err != nil {
@@ -45,6 +45,20 @@ func (p *publisher) Publish(_ context.Context, item pipeline.Item) error {
 	}
 	jsonData = append(jsonData, '\n')
 
+	base := fmt.Sprintf("segment-%03d", s.Index)
+	jsonName := filepath.ToSlash(filepath.Join("segments", base+".json"))
+	if err := os.WriteFile(filepath.Join(p.dir, jsonName), jsonData, 0o644); err != nil {
+		return err
+	}
+	p.mu.Lock()
+	p.records = append(p.records, rec)
+	jsonSum := sha256.Sum256(jsonData)
+	p.files = append(p.files, manifestEntry{name: jsonName, hash: hex.EncodeToString(jsonSum[:])})
+	p.mu.Unlock()
+
+	if !s.MP4Validated {
+		return nil
+	}
 	mp4Data, err := verify.BuildMP4Sidecar(uint32(s.Index), s.StartNS, []byte(s.SHA256))
 	if err != nil {
 		return err
@@ -52,22 +66,12 @@ func (p *publisher) Publish(_ context.Context, item pipeline.Item) error {
 	if err := verify.ValidateMP4Sidecar(mp4Data); err != nil {
 		return err
 	}
-
-	base := fmt.Sprintf("segment-%03d", s.Index)
-	jsonName := filepath.ToSlash(filepath.Join("segments", base+".json"))
 	mp4Name := filepath.ToSlash(filepath.Join("segments", base+".mp4"))
-	if err := os.WriteFile(filepath.Join(p.dir, jsonName), jsonData, 0o644); err != nil {
-		return err
-	}
 	if err := os.WriteFile(filepath.Join(p.dir, mp4Name), mp4Data, 0o644); err != nil {
 		return err
 	}
-
-	sum := sha256.Sum256(jsonData)
-	p.mu.Lock()
-	p.records = append(p.records, rec)
-	p.files = append(p.files, manifestEntry{name: jsonName, hash: hex.EncodeToString(sum[:])})
 	mp4Sum := sha256.Sum256(mp4Data)
+	p.mu.Lock()
 	p.files = append(p.files, manifestEntry{name: mp4Name, hash: hex.EncodeToString(mp4Sum[:])})
 	p.mu.Unlock()
 	return nil
