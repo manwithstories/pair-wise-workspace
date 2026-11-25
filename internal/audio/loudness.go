@@ -77,14 +77,15 @@ func MeasureLUFS(b *Buffer) float64 {
 		return silenceLUFS
 	}
 	filters := make([][2]biquad, b.Channels)
+	baseFilters := kWeightFilters(b.Rate)
+	for c := range filters {
+		filters[c] = baseFilters
+	}
 	sums := make([]float64, b.Channels)
 	counts := make([]int, b.Channels)
 	for f := 0; f < b.Frames(); f++ {
 		for c := 0; c < b.Channels; c++ {
 			x := b.Samples[f*b.Channels+c]
-			if math.Abs(x) < 1e-12 {
-				// Still feed filters below; this only supports silence detection.
-			}
 			fs := filters[c]
 			x = fs[0].process(x)
 			x = fs[1].process(x)
