@@ -83,19 +83,26 @@ func (p *Pipeline) release(size int64) {
 // Run wires src through the stages and drains the final output. A slow
 // stage blocks producers once queues and the byte budget are full
 // (backpressure). Cancellation aborts all stages and returns ErrAborted.
+//
+// A budget token is held exactly while an item waits in a managed hop
+// buffer: each gate acquires on entry, each relay releases when the
+// item leaves toward the next stage, and the final drain releases the
+// last hop's tokens. Items in a stage's hands hold no budget; queued
+// bytes never exceed the configured budget.
 func (p *Pipeline) Run(ctx context.Context, src <-chan Item, stages ...Stage) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	in := src
 	errs := make([]error, len(stages))
-	hops := make([]chan Item, 0, len(stages))
+	managed := make([]chan Item, 0, len(stages))
 	var wg sync.WaitGroup
+	in := src
 	for i, st := range stages {
-		raw := make(chan Item, p.Queue)
-		out := make(chan Item, p.Queue)
-		hops = append(hops, out)
+		raw := make(chan Item, p.Queue)   // stage output, unmanaged
+		out := make(chan Item, p.Queue)   // managed: items here hold tokens
+		rel := make(chan Item, p.Queue)   // stage input, tokens released
+		managed = append(managed, out)
 		idx, stage, stageIn := i, st, in
-		wg.Add(2)
+		wg.Add(3)
 		go func() { // stage worker
 			defer wg.Done()
 			defer close(raw)
@@ -103,7 +110,7 @@ func (p *Pipeline) Run(ctx context.Context, src <-chan Item, stages ...Stage) er
 				errs[idx] = err
 			}
 		}()
-		go func() { // budget gate between stages
+		go func() { // gate: acquire a token per item entering out
 			defer wg.Done()
 			defer close(out)
 			aborted := false
@@ -123,16 +130,28 @@ func (p *Pipeline) Run(ctx context.Context, src <-chan Item, stages ...Stage) er
 				}
 			}
 		}()
-		in = out
+		go func() { // relay: release the token as the item leaves out
+			defer wg.Done()
+			defer close(rel)
+			for it := range out {
+				p.release(it.Size)
+				select {
+				case rel <- it:
+				case <-ctx.Done():
+					return // leftovers in out are drained after wg.Wait
+				}
+			}
+		}()
+		in = rel
 	}
-	for it := range in {
-		p.release(it.Size)
+	for it := range in { // final drain: items here hold no tokens
+		_ = it
 	}
 	wg.Wait()
-	// After abort, items acquired into intermediate hop buffers were
-	// never consumed downstream; drain them so no budget token leaks.
-	for _, hop := range hops[:max(len(hops)-1, 0)] {
-		for it := range hop {
+	// After abort, items stranded in managed buffers were never consumed
+	// downstream; release their tokens. All channels are closed by now.
+	for _, ch := range managed {
+		for it := range ch {
 			p.release(it.Size)
 		}
 	}
