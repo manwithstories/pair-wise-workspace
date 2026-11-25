@@ -6,10 +6,15 @@
 
 ## 技术栈
 
-- Go 1.25.6（`go.mod` 声明 `go 1.25.6` / `toolchain go1.25.6`）
+- Go 1.25.6（`go.mod` 声明 `go 1.25.6`）
 - `github.com/abema/go-mp4 v1.7.4`：fMP4 box 解析
 - `github.com/pion/rtp v1.10.6`：RTP 包结构
 - 标准库 `context`、`testing`、`container/heap`、`math/rand/v2`
+
+> 关于 toolchain：当 `toolchain` 与 `go` 指令版本完全相同时，`go mod tidy`
+> （Go 官方工具链，`GOTOOLCHAIN=local` 与 `auto` 行为一致）会把该冗余指令
+> 规范化移除。因此工具链固定通过 `go 1.25.6` 表达；如需显式 toolchain 行，
+> 可执行 `go mod edit -toolchain=go1.25.6`，但下一次 `go mod tidy` 仍会剥离。
 
 ## 模块布局
 
