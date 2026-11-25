@@ -126,9 +126,8 @@ func Build(frames []demux.Frame, clock *timeline.Clock, cfg Config) (*Result, er
 			continue
 		}
 
-		cur.PSIVersions = addVersion(cur.PSIVersions, f.PSIVersion)
-		switch {
-		case isVideo:
+		if isVideo {
+			cur.PSIVersions = addVersion(cur.PSIVersions, f.PSIVersion)
 			off := blobOffset
 			if f.KeyFrame {
 				cur.Keyframes = append(cur.Keyframes, KeyframeRef{
@@ -139,9 +138,6 @@ func Build(frames []demux.Frame, clock *timeline.Clock, cfg Config) (*Result, er
 			cur.VideoFrames++
 			cur.Video = append(cur.Video, f)
 			blobOffset += 8 + len(f.Payload)
-		case f.Codec == "pcm_s16le":
-			cur.AudioFrames++
-			cur.AudioPCM = append(cur.AudioPCM, f.Payload...)
 		}
 	}
 
@@ -149,6 +145,21 @@ func Build(frames []demux.Frame, clock *timeline.Clock, cfg Config) (*Result, er
 		last := cur.Video[len(cur.Video)-1]
 		endTicks := last.PTSTicks + uint64(cfg.FrameDuration)*timeline.PCRHz/uint64(time.Second)
 		closeCurrent(last.PTS+cfg.FrameDuration, endTicks)
+	}
+
+	all := append(append([]*Segment(nil), res.Segments...), res.Rejected...)
+	for _, f := range ordered {
+		if f.Codec != "pcm_s16le" {
+			continue
+		}
+		for _, s := range all {
+			if f.PTS >= s.Start && f.PTS < s.End {
+				s.AudioFrames++
+				s.AudioPCM = append(s.AudioPCM, f.Payload...)
+				s.PSIVersions = addVersion(s.PSIVersions, f.PSIVersion)
+				break
+			}
+		}
 	}
 	return res, nil
 }
