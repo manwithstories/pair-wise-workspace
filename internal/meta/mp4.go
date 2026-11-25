@@ -12,16 +12,16 @@ import (
 
 // MP4Track is the raw track-level claims extracted from an MP4.
 type MP4Track struct {
-	ID          int64
-	Type        string
-	TimeScale   uint32
-	Duration    int64
-	Width       uint32
-	Height      uint32
-	Matrix      [9]int32
-	Rotation    Rotation
-	TrackColor  *Color
-	Crop        *Crop
+	ID         int64
+	Type       string
+	TimeScale  uint32
+	Duration   int64
+	Width      uint32
+	Height     uint32
+	Matrix     [9]int32
+	Rotation   Rotation
+	TrackColor *Color
+	Crop       *Crop
 }
 
 // MP4Meta is the extracted MP4 metadata before reconciliation.
@@ -29,15 +29,6 @@ type MP4Meta struct {
 	Brand          string
 	Tracks         []*MP4Track
 	ContainerColor *Color
-}
-
-func pathHas(p gomp4.BoxPath, want string) bool {
-	for _, bt := range p {
-		if bt.String() == want {
-			return true
-		}
-	}
-	return false
 }
 
 // rotationFromMatrix converts a tkhd transformation matrix to whole degrees.
@@ -156,7 +147,10 @@ func ReadMP4(data []byte) (meta *MP4Meta, retErr *media.Fault) {
 			}
 			if c, ok := box.(*gomp4.Colr); ok {
 				col := mapNCLX(c)
-				if pathHas(h.Path, "stsd") && cur != nil {
+				// A colr reached while a trak scope is active is a track/sample
+				// description; a sibling at moov level (visited before/after the
+				// trak scope) is treated as the container claim.
+				if cur != nil {
 					cur.TrackColor = col
 				} else {
 					m.ContainerColor = col
