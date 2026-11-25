@@ -116,11 +116,12 @@ type Index struct {
 	Ranges   []DamagedRange `json:"ranges"`
 	Errors   []fault.Error  `json:"errors"`
 	Stats    Stats          `json:"stats"`
-	// OriginPCR is the first PCR on the absolute timeline; all timestamps in this
-	// index are expressed relative to it, so the deliverer and the scanner share
-	// one axis.
-	OriginPCR int64 `json:"origin_pcr"`
-	FirstError int64 `json:"first_error"`
+	// OriginTicks is the absolute tick that every keyframe and range timestamp
+	// in this index is measured against (keyframes carry abs - origin).
+	OriginTicks int64 `json:"origin_ticks"`
+	// OriginPCR is the first PCR on the absolute timeline, kept for reporting.
+	OriginPCR   int64 `json:"origin_pcr"`
+	FirstError  int64 `json:"first_error"`
 }
 
 // ProgramInfo is the demux layout discovered from the PAT/PMT.
@@ -191,6 +192,7 @@ type Scanner struct {
 	frames     int64
 	damaged    int64
 	keyframes  int64
+	capture    bool
 }
 
 // openRange is a damaged range still accruing packets, closed when either the
@@ -225,6 +227,18 @@ func Run(input []byte) *Index {
 	s := NewScanner(input)
 	s.walk()
 	return s.finish()
+}
+
+// RunWithSamples scans like Run but also retains the per-frame sample bytes,
+// which the deliverer needs to build fMP4 samples. The returned units are not
+// stored in the Index (they would make the cache enormous); they are returned
+// alongside it.
+func RunWithSamples(input []byte) (*Index, []ts.AccessUnit) {
+	s := NewScanner(input)
+	s.capture = true
+	s.walk()
+	idx := s.finish()
+	return idx, s.units
 }
 
 // walk iterates transport packets, feeding every parser. Short trailing chunks
@@ -352,6 +366,7 @@ func (s *Scanner) adoptPMT(pmt *ts.PMT) {
 			s.prog.VideoPID = st.PID
 			if s.video == nil {
 				s.video = ts.NewVideoAssembler(st.StreamType)
+				s.video.SetCaptureSamples(s.capture)
 			}
 		}
 		if st.IsAudio() && s.audioPID == 0 {
@@ -383,7 +398,7 @@ func (s *Scanner) handlePES(p *ts.Packet) {
 		abs, _ := s.tsSet.Observe(hdr)
 		if abs != clock.NoTime {
 			absPTS = abs
-			if s.originPTS == 0 && s.originAbs == clock.NoTime {
+			if s.originPTS == 0 {
 				s.originPTS = abs
 			}
 			s.advance(abs)
@@ -496,11 +511,12 @@ func (s *Scanner) flush() {
 func (s *Scanner) finish() *Index {
 	s.originAbs = s.alignOrigin()
 	idx := &Index{
-		Source:    Source{SHA256: Hash(s.input), Bytes: int64(len(s.input))},
-		Program:   s.prog,
-		OriginPCR: s.firstPCR,
-		Errors:    s.errors.Sorted(),
-		Ranges:    s.ranges,
+		Source:      Source{SHA256: Hash(s.input), Bytes: int64(len(s.input))},
+		Program:     s.prog,
+		OriginTicks: s.originAbs,
+		OriginPCR:   s.firstPCR,
+		Errors:      s.errors.Sorted(),
+		Ranges:      s.ranges,
 	}
 	if s.firstPCR == clock.NoTime {
 		s.firstPCR = 0
@@ -526,14 +542,17 @@ func (s *Scanner) finish() *Index {
 	return idx
 }
 
-// alignOrigin picks the timeline origin: the first PCR if present, else the
-// first video PTS, else zero.
+// alignOrigin picks the timeline origin. Frame timestamps are PTS values, so a
+// keyframe's board position is PTS - origin; the video PTS origin is preferred
+// when one exists. The first PCR is a fallback so a stream with PCR but no PES
+// timestamps still gets a non-zero origin. Samples and keyframes are always
+// expressed against whichever origin wins here.
 func (s *Scanner) alignOrigin() int64 {
-	if s.firstPCR != clock.NoTime {
-		return s.firstPCR
-	}
 	if s.originPTS != 0 {
 		return s.originPTS
+	}
+	if s.firstPCR != clock.NoTime {
+		return s.firstPCR
 	}
 	return 0
 }

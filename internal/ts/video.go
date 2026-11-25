@@ -35,6 +35,14 @@ type AccessUnit struct {
 	Keyframe   bool
 	Size       int
 	SliceCount int
+	// SampleData is the VCL payload (slice NAL bodies, start codes included)
+	// captured for fMP4 muxing. It is nil unless CaptureSamples was enabled.
+	SampleData []byte
+	// SPS and PPS hold the parameter-set bodies seen in the unit, in raw
+	// byte form, when CaptureSamples is enabled. The muxer uses the first pair
+	// to build avcC.
+	SPS []byte
+	PPS []byte
 }
 
 // VideoAssembler builds access units from a video PID's elementary stream. It
@@ -63,6 +71,10 @@ type VideoAssembler struct {
 	curVCL   bool
 	curSize  int
 	curSlices int
+	samples   bool
+	curData   []byte
+	curSPS    []byte
+	curPPS    []byte
 
 	units []AccessUnit
 }
@@ -71,6 +83,11 @@ type VideoAssembler struct {
 func NewVideoAssembler(streamType uint8) *VideoAssembler {
 	return &VideoAssembler{streamType: streamType}
 }
+
+// SetCaptureSamples enables retention of the per-frame sample bytes and the
+// SPS/PPS bodies. The scanner leaves it off for pure indexing; the deliverer
+// turns it on so it can build real fMP4 samples.
+func (v *VideoAssembler) SetCaptureSamples(on bool) { v.samples = on }
 
 // PushPES ingests a PES payload that carries elementary video data. off is the
 // byte offset of the TS packet that began the PES; pts is the absolute PTS,
@@ -206,6 +223,13 @@ func (v *VideoAssembler) handleNAL(nal []byte) {
 		v.rotateForHeader()
 		v.curSize += len(nal)
 	case NALSPS, NALPPS:
+		if v.samples {
+			if t == NALSPS {
+				v.curSPS = append([]byte(nil), nal...)
+			} else {
+				v.curPPS = append([]byte(nil), nal...)
+			}
+		}
 		if v.curVCL {
 			v.closeAndReopen()
 		}
@@ -214,14 +238,26 @@ func (v *VideoAssembler) handleNAL(nal []byte) {
 		v.curVCL = true
 		v.curSlices++
 		v.curSize += len(nal)
+		v.collectVCL(nal)
 	case NALSliceIDR:
 		v.curVCL = true
 		v.curKey = true
 		v.curSlices++
 		v.curSize += len(nal)
+		v.collectVCL(nal)
 	default:
 		v.curSize += len(nal)
 	}
+}
+
+// collectVCL stores a slice NAL's bytes (including the start-code prefix) when
+// sample capture is enabled, so the muxer can emit it verbatim in mdat.
+func (v *VideoAssembler) collectVCL(nal []byte) {
+	if !v.samples {
+		return
+	}
+	v.curData = append(v.curData, 0x00, 0x00, 0x00, 0x01)
+	v.curData = append(v.curData, nal...)
 }
 
 // rotateForHeader begins a new unit for a parameter-set or AUD boundary. A
@@ -255,24 +291,35 @@ func (v *VideoAssembler) closeUnit() {
 	v.inUnit = false
 }
 
-// emitUnit appends the in-flight access unit.
+// emitUnit appends the in-flight access unit and resets unit state. When
+// sample capture is on, the collected slices and parameter sets travel with the
+// unit; otherwise those fields stay nil.
 func (v *VideoAssembler) emitUnit() {
 	if !v.inUnit || v.curSlices == 0 {
 		return
 	}
-	v.units = append(v.units, AccessUnit{
+	u := AccessUnit{
 		Index:      v.nextIndex,
 		ByteOffset: v.startOff,
 		Ticks:      v.curPTS,
 		Keyframe:   v.curKey,
 		Size:       v.curSize,
 		SliceCount: v.curSlices,
-	})
+	}
+	if v.samples {
+		u.SampleData = v.curData
+		u.SPS = v.curSPS
+		u.PPS = v.curPPS
+	}
+	v.units = append(v.units, u)
 	v.nextIndex++
 	v.curKey = false
 	v.curVCL = false
 	v.curSize = 0
 	v.curSlices = 0
+	v.curData = nil
+	v.curSPS = nil
+	v.curPPS = nil
 }
 
 // Flush closes any in-flight unit at end of stream and derives durations from
