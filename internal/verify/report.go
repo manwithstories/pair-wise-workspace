@@ -7,10 +7,18 @@ import (
 
 // WriteReport prints the stable terminal acceptance report.
 func WriteReport(w io.Writer, r *Result) {
-	for _, c := range r.Clips {
+	for i, c := range r.Clips {
+		normal, resumed, match := "", "", true
+		if i < len(r.NormalHashes) {
+			normal = r.NormalHashes[i]
+		}
+		if i < len(r.ResumeHashes) {
+			resumed = r.ResumeHashes[i]
+		}
+		match = normal == resumed && normal == c.SHA256
 		fmt.Fprintf(w,
-			"%s clip_sha256=%s content_fingerprint=%s silence_windows=%d timeline_markers=%d\n",
-			c.ID, c.SHA256, c.FP, c.Silence, c.Markers)
+			"%s clip_sha256=%s normal_sha256=%s resume_sha256=%s hash_match=%t content_fingerprint=%s silence_windows=%d timeline_markers=%d\n",
+			c.ID, c.SHA256, normal, resumed, match, c.FP, c.Silence, c.Markers)
 	}
 	fmt.Fprintf(w, "roundtrip=%.2f%%\n", r.Roundtrip)
 	fmt.Fprintf(w, "keyframe_hit=%.2f%%\n", r.KeyframeHit)
