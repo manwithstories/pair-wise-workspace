@@ -47,7 +47,7 @@ func DecodeRGBRange(ctx context.Context, ffmpegBin, path string, startFrame, cou
 	expr := fmt.Sprintf("between(n\\,%d\\,%d)", startFrame, startFrame+count-1)
 	cmd := exec.CommandContext(ctx, ffmpegBin, "-v", "error", "-i", path,
 		"-vf", "select="+expr+",setpts=N/FRAME_RATE/TB",
-		"-vsync", "0", "-frames:v", strconv.Itoa(count),
+		"-fps_mode", "passthrough", "-frames:v", strconv.Itoa(count),
 		"-pix_fmt", "rgb24", "-f", "rawvideo", "-")
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
