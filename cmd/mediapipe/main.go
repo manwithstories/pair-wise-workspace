@@ -165,6 +165,7 @@ func runAllCases(opts jobOptions) ([]demoCase, int) {
 	add(truncatedCase(opts, fixtures.truncated), 2)
 	add(beyondHorizonCase(opts, fixtures.clean), 3)
 	add(resumeCase(opts, fixtures.clean), 0)
+	add(interruptedCase(opts, fixtures.clean), 4)
 	add(unsupportedCase(opts, fixtures.clean), 3)
 	return cases, worst
 }

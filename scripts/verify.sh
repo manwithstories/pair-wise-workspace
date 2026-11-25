@@ -92,6 +92,10 @@ BEGIN { failed = 0 }
         printf "FAIL beyond-horizon: exit %d, want 3\n", exitc > "/dev/stderr"
         failed = 1
     }
+    if (name == "interrupted" && exitc != 4) {
+        printf "FAIL interrupted: exit %d, want 4\n", exitc > "/dev/stderr"
+        failed = 1
+    }
     if (name == "unsupported" && exitc != 3) {
         printf "FAIL unsupported: exit %d, want 3\n", exitc > "/dev/stderr"
         failed = 1

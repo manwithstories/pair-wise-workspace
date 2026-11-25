@@ -401,6 +401,31 @@ func (w *failingWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// interruptedCase runs a write that fails midway and reports the classified
+// exit code, proving a recoverable interruption surfaces as 4.
+func interruptedCase(opts jobOptions, data []byte) demoCase {
+	in, err := demux.Demux(bytes.NewReader(data), demux.DefaultLimits())
+	if err != nil {
+		return failureCase("interrupted", err)
+	}
+	tracks, rules := adaptForTarget(opts.Target, in.Tracks)
+	plan, err := mapping.NewResolver(opts.Target, rules).Resolve(tracks)
+	if err != nil {
+		return failureCase("interrupted", err)
+	}
+	packets := mappedPackets(plan, in.Packets)
+	sortPackets(packets)
+	werr, err := simulateDiskFailure(plan, tracks, packets, remux.Options{
+		Target: opts.Target, ClusterSpan: opts.ClusterSpan, ClusterCRC: true,
+	})
+	if err != nil {
+		return failureCase("interrupted", err)
+	}
+	c := demoCase{Name: "interrupted", ExitCode: media.ExitCode(werr), CorruptOff: -1}
+	c.Note = "short write classified as recoverable; resume from checkpoint"
+	return c
+}
+
 // simulateDiskFailure runs a write that fails midway and returns the resulting
 // error for classification.
 func simulateDiskFailure(plan *mapping.Plan, tracks []media.Track, packets []media.Packet, opts remux.Options) (error, error) {

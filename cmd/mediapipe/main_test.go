@@ -180,6 +180,11 @@ func TestDemoUnsupportedMappingExitsThree(t *testing.T) {
 	if v := requireField(t, cases["beyond-horizon"], "exit"); v != "3" {
 		t.Fatalf("beyond-horizon exit=%s", v)
 	}
+	// The interrupted case exercises exit code 4 for a recoverable write
+	// failure; it is an expected failure and must not fail the demo.
+	if v := requireField(t, cases["interrupted"], "exit"); v != "4" {
+		t.Fatalf("interrupted exit=%s", v)
+	}
 }
 
 func TestDemoBudgetIsRespected(t *testing.T) {
