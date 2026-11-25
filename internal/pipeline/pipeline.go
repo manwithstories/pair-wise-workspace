@@ -51,6 +51,8 @@ type Report struct {
 	OutputSamples    int                  `json:"output_samples"`
 	OutputTracks     int                  `json:"output_tracks"`
 	SamplesPerTrack  map[string]int       `json:"samples_per_track,omitempty"`
+	OutputPath       string               `json:"output_path,omitempty"`
+	IndexPath        string               `json:"index_path,omitempty"`
 	OutputSHA256     string               `json:"output_sha256,omitempty"`
 	SamplesSHA256    string               `json:"samples_sha256,omitempty"`
 	HashMatch        bool                 `json:"hash_match"`
@@ -303,6 +305,8 @@ func finalize(cfg Config, rep *Report, tracks []*remux.TrackInput, align bool) e
 	rep.OutputSHA256 = sum.OutputSHA256
 	rep.SamplesSHA256 = sum.SampleSHA256
 	rep.HashMatch = sum.SourceHashMatch
+	rep.OutputPath = filepath.Join(cfg.OutDir, "output.mp4")
+	rep.IndexPath = filepath.Join(cfg.OutDir, "output.index.json")
 	return nil
 }
 
