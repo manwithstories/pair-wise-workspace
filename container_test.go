@@ -57,6 +57,24 @@ func TestTSRejectsTruncationAndSyncDamage(t *testing.T) {
 	}
 }
 
+func TestTSRejectsTimestampRollbackWithoutTimelineRepair(t *testing.T) {
+	bad := fixture.MediaSegment(42, "stage", 4)
+	// Sample indices are interleaved: 0=V0, 2=V1. Move V1 behind V0.
+	bad.Samples[2].DTS = bad.Samples[0].DTS - 1
+	bad.Samples[2].PTS = bad.Samples[0].PTS - 1
+	wire, err := demux.MuxTS(bad)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = demux.ParseTS(bad.ID, "rollback.ts", wire)
+	if err == nil {
+		t.Fatal("timestamp rollback accepted")
+	}
+	if core.ExitCode(err) != core.ExitInvariant {
+		t.Fatalf("exit=%d err=%v", core.ExitCode(err), err)
+	}
+}
+
 func TestCMAFRoundTripPreservesEssence(t *testing.T) {
 	want := fixture.MediaSegment(42, "side", 1)
 	out, err := remux.CMAF(want.Tracks, want.Samples)
