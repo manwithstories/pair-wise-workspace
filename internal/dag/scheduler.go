@@ -23,9 +23,13 @@ type Node struct {
 	Run        func() error
 }
 
-// Key is the idempotency key: SHA-256 over params and input content.
+// Key is the idempotency key: SHA-256 over the node identity, its
+// parameters and its input content. Identical input+params under a
+// different node still produce distinct keys.
 func (n *Node) Key() string {
 	h := sha256.New()
+	h.Write([]byte(n.ID))
+	h.Write([]byte{0})
 	h.Write([]byte(n.Params))
 	h.Write([]byte{0})
 	h.Write(n.Input)
