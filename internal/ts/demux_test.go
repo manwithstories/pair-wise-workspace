@@ -28,6 +28,19 @@ func TestDemuxRoundTripsFixtureSamples(t *testing.T) {
 	}
 }
 
+func TestDemuxEnforcesSampleLimit(t *testing.T) {
+	cases, err := fixture.Suite(412)
+	if err != nil {
+		t.Fatal(err)
+	}
+	limits := media.DefaultLimits()
+	limits.MaxSamples = 1
+	_, merr := ts.Demux(cases[0].TS, limits, media.NewCollector(64))
+	if merr == nil || merr.Code != media.CodeResourceLimit {
+		t.Fatalf("expected resource limit, got %v", merr)
+	}
+}
+
 func TestDemuxTracksCCPCRAndTruncation(t *testing.T) {
 	cases, err := fixture.Suite(412)
 	if err != nil {
