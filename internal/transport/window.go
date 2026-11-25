@@ -107,13 +107,21 @@ func (w *ReorderWindow) Accept(p *rtp.Packet, raw []byte) ([]OrderedPacket, erro
 		w.Counters.Reordered++
 	}
 
+	ready := make([]OrderedPacket, 0)
 	// A sequence outside the bounded span is a window overflow. Advance the
-	// expected edge and ledger every absent sequence rather than buffering
-	// without limit or inventing media.
+	// expected edge, deliver buffered packets we are forced to pass, and ledger
+	// only sequences that were actually absent. This never invents media.
 	if extSeq-int64(w.Size) >= w.next {
 		w.Counters.WindowOverflows++
-		for extSeq-int64(w.Size) >= w.next {
-			w.recordGap(w.next, "window-overflow")
+		target := extSeq - int64(w.Size) + 1
+		for w.next < target {
+			if buffered, ok := w.buf[w.next]; ok {
+				ready = append(ready, buffered)
+				delete(w.buf, w.next)
+				w.Counters.Delivered++
+			} else {
+				w.recordGap(w.next, "window-overflow")
+			}
 			w.next++
 		}
 	}
@@ -128,7 +136,8 @@ func (w *ReorderWindow) Accept(p *rtp.Packet, raw []byte) ([]OrderedPacket, erro
 		ArrivalIndex:      w.Counters.Packets - 1,
 	}
 	w.buf[extSeq] = op
-	return w.flushContiguous(), nil
+	ready = append(ready, w.flushContiguous()...)
+	return ready, nil
 }
 
 func (w *ReorderWindow) flushContiguous() []OrderedPacket {

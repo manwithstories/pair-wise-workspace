@@ -88,6 +88,35 @@ func TestBoundedWindowOverflowDoesNotBufferForever(t *testing.T) {
 	}
 }
 
+func TestWindowOverflowDoesNotMarkBufferedPacketsMissing(t *testing.T) {
+	w, _ := NewReorderWindow(4)
+	mustAccept := func(seq uint16) []OrderedPacket {
+		ready, err := w.AcceptBytes(mustPacket(t, seq, nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ready
+	}
+	mustAccept(0)
+	mustAccept(2) // buffered behind missing 1
+	mustAccept(3)
+	ready := mustAccept(10)
+	gotSeqs := make([]int64, 0, len(ready))
+	for _, p := range ready {
+		gotSeqs = append(gotSeqs, p.ExtendedSequence)
+	}
+	if len(gotSeqs) != 2 || gotSeqs[0] != 2 || gotSeqs[1] != 3 {
+		t.Fatalf("overflow delivery=%v want [2 3]", gotSeqs)
+	}
+	// Missing forced-forward sequences are 1 and 4,5,6; 2/3 were received.
+	if w.Counters.GapPackets != 4 {
+		t.Fatalf("gap packets=%d want 4: %+v", w.Counters.GapPackets, w.Gaps)
+	}
+	if len(w.Gaps) != 2 || w.Gaps[0].Start != 1 || w.Gaps[1].Start != 4 || w.Gaps[1].End != 6 {
+		t.Fatalf("gap ranges=%+v", w.Gaps)
+	}
+}
+
 func TestAssembleReorderedDuplicatedChunks(t *testing.T) {
 	payload := bytes.Repeat([]byte("ORAL-HISTORY-"), 40)
 	chunks := [][]byte{payload[:100], payload[100:220], payload[220:]}
