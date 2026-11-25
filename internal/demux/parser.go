@@ -66,9 +66,20 @@ func NewParser(rs io.ReadSeeker, cfg Config) (*Parser, error) {
 		return nil, err
 	}
 	if cfg.MaxMetadataPayload == 0 {
-		cfg = DefaultConfig()
+		cfg.MaxMetadataPayload = 1 << 20
 	}
-	return &Parser{r: r, cfg: cfg, last: map[uint64]model.Nanoseconds{}}, nil
+	if cfg.MaxBlockPayload == 0 {
+		cfg.MaxBlockPayload = 256 << 10
+	}
+	if cfg.RecoveryScan == 0 {
+		cfg.RecoveryScan = ebml.DefaultMaxScan
+	}
+	return &Parser{
+		r:        r,
+		cfg:      cfg,
+		Metadata: DefaultMetadata(),
+		last:     map[uint64]model.Nanoseconds{},
+	}, nil
 }
 
 // Offset returns the parser's current source offset.
