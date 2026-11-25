@@ -17,6 +17,7 @@ type Config struct {
 	Root           *safe.Root
 	Timeline       *model.Timeline
 	Key            index.Key
+	Index          *index.Store
 	Params         Params
 	InterruptAfter int
 }
@@ -91,7 +92,7 @@ func Run(ctx context.Context, cfg Config) (*Report, *Checkpoint, error) {
 		}
 	}()
 
-	exec := &execConfig{root: cfg.Root, key: cfg.Key, timeline: cfg.Timeline, params: cfg.Params}
+	exec := &execConfig{root: cfg.Root, key: cfg.Key, indexStore: cfg.Index, timeline: cfg.Timeline, params: cfg.Params}
 	newCount := 0
 	for item := range segCh {
 		if err := ctx.Err(); err != nil {

@@ -27,6 +27,9 @@ func (e *execConfig) executeSegment(ctx context.Context, seg model.Segment) (*pr
 	switch seg.Mode {
 	case "copy":
 		src := seg.Sources[0]
+		if err := assertKeyframe(e.indexStore, src.Asset, seg.KeyframeNeed); err != nil {
+			return nil, err
+		}
 		start, count, err := rangeFrames(src, frameDur)
 		if err != nil {
 			return nil, err
@@ -128,10 +131,35 @@ func (e *execConfig) executeSegment(ctx context.Context, seg model.Segment) (*pr
 }
 
 type execConfig struct {
-	root     *safe.Root
-	key      index.Key
-	timeline *model.Timeline
-	params   Params
+	root       *safe.Root
+	key        index.Key
+	indexStore *index.Store
+	timeline   *model.Timeline
+	params     Params
+}
+
+func assertKeyframe(store *index.Store, assetRel string, need []uint32) error {
+	if store == nil {
+		return nil
+	}
+	asset := store.Assets[assetRel]
+	if asset == nil || asset.Rejected {
+		return fault.E(fault.IndexInvalid, "engine", "assertKeyframe", fmt.Errorf("asset index missing: %s", assetRel)).WithPath(assetRel)
+	}
+	for _, n := range need {
+		hit := false
+		for _, tr := range asset.Tracks {
+			if int(n) >= 1 && int(n) <= len(tr.Samples) && tr.Samples[n-1].Index == n && tr.Samples[n-1].Keyframe {
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			return fault.E(fault.IndexInvalid, "engine", "assertKeyframe",
+				fmt.Errorf("sample %d is not indexed as a keyframe", n)).WithPath(assetRel)
+		}
+	}
+	return nil
 }
 
 func rangeFrames(src model.SourceInterval, frameDur model.Rational) (int64, int64, error) {

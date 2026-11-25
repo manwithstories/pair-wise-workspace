@@ -54,7 +54,7 @@ func runResume(args []string) error {
 		return err
 	}
 	rep, _, err := engine.Run(context.Background(), engine.Config{
-		Root: root, Timeline: tl, Key: key, Params: params,
+		Root: root, Timeline: tl, Key: key, Index: scan.Store, Params: params,
 	})
 	if err != nil {
 		return err

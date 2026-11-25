@@ -104,7 +104,7 @@ func runDemo(args []string) error {
 	}
 
 	rep, _, runErr := engine.Run(context.Background(), engine.Config{
-		Root: root, Timeline: set.Timeline, Key: key,
+		Root: root, Timeline: set.Timeline, Key: key, Index: store,
 		Params: params, InterruptAfter: *interruptAfter,
 	})
 	if runErr != nil {

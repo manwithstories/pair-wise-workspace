@@ -179,7 +179,7 @@ func cleanReferenceRerun(parent string, seed int) ([]string, error) {
 		return nil, err
 	}
 	rep, _, err := engine.Run(context.Background(), engine.Config{
-		Root: set.Root, Timeline: set.Timeline, Key: key, Params: params,
+		Root: set.Root, Timeline: set.Timeline, Key: key, Index: scan.Store, Params: params,
 	})
 	if err != nil {
 		return nil, err

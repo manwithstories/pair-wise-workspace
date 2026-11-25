@@ -35,7 +35,7 @@ func setupRun(t *testing.T, dir string, interrupt int) (*engine.Report, *engine.
 		t.Fatal(err)
 	}
 	return engine.Run(context.Background(), engine.Config{
-		Root: set.Root, Timeline: set.Timeline, Key: key,
+		Root: set.Root, Timeline: set.Timeline, Key: key, Index: store,
 		Params: params, InterruptAfter: interrupt,
 	})
 }
@@ -71,7 +71,7 @@ func TestInterruptResumeMatchesCleanRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	resumed, cp2, err := engine.Run(context.Background(), engine.Config{
-		Root: set.Root, Timeline: set.Timeline, Key: key, Params: params,
+		Root: set.Root, Timeline: set.Timeline, Key: key, Index: scan.Store, Params: params,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -119,7 +119,7 @@ func TestFailedSegmentDoesNotAdvanceCheckpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, cp, err := engine.Run(context.Background(), engine.Config{
-		Root: set.Root, Timeline: set.Timeline, Key: key, Params: engine.DefaultParams(),
+		Root: set.Root, Timeline: set.Timeline, Key: key, Index: scan.Store, Params: engine.DefaultParams(),
 	})
 	if err == nil {
 		t.Fatal("missing source must fail segment")
