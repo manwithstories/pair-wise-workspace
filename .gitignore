@@ -71,3 +71,9 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Go build / test artifacts ----
+/fieldqc
+*.test
+*.out
+coverage.txt
