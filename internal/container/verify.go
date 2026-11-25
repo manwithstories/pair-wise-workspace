@@ -36,9 +36,17 @@ func VerifyAssets(source, output *Asset) (FidelityReport, error) {
 		for i := 0; i < n; i++ {
 			a := st.Samples[i]
 			b := ot.Samples[i]
+			ah := a.Hash
+			if ah == "" {
+				ah = HashBytes(a.Data)
+			}
+			bh := b.Hash
+			if bh == "" {
+				bh = HashBytes(b.Data)
+			}
 			r.SampleCount++
 			r.PayloadBytes += int64(a.Size)
-			if a.Size != b.Size || a.Hash != b.Hash || HashBytes(b.Data) != b.Hash {
+			if a.Size != b.Size || ah != bh || HashBytes(b.Data) != bh {
 				r.PayloadHashMismatch++
 			}
 			if a.DTS != b.DTS || a.PTS != b.PTS {
