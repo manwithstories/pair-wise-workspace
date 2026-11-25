@@ -71,3 +71,11 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Go build and test artifacts ----
+/mediacheck
+/cmd/mediacheck/mediacheck
+*.test
+*.out
+coverage.txt
+/dist/
