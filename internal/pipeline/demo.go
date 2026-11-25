@@ -3,6 +3,7 @@
 package pipeline
 
 import (
+	"encoding/json"
 	"sort"
 
 	"github.com/pairwise/mediad/internal/fixture"
@@ -73,27 +74,27 @@ func Run(opts Options) (*Result, error) {
 	res := &Result{Options: opts, Bundle: bundle}
 
 	// Manifest parse -> normalize -> serialize -> reparse evidence.
-	if _, dashData, err := bundle.DASHManifest(); err != nil {
+	_, dashData, err := bundle.DASHManifest()
+	if err != nil {
 		return res, err
-	} else {
-		_, original, reparsed, mismatch, err := manifest.RoundTripDASH(dashData)
-		if err != nil {
-			return res, err
-		}
-		res.RoundTripTotal += 1
-		if mismatch == nil && manifest.CompareDASH(manifest.NormalizeDASH(original), manifest.NormalizeDASH(reparsed)) == nil {
-			res.RoundTripMatched++
-		}
 	}
-	if _, hlsData := bundle.HLSManifest(); true {
-		_, original, reparsed, mismatch, err := manifest.RoundTripHLS(hlsData)
-		if err != nil {
-			return res, err
-		}
-		res.RoundTripTotal += 1
-		if mismatch == nil && manifest.CompareHLS(manifest.NormalizeHLS(original), manifest.NormalizeHLS(reparsed)) == nil {
-			res.RoundTripMatched++
-		}
+	canonicalDASH, dashOriginal, dashReparsed, dashMismatch, err := manifest.RoundTripDASH(dashData)
+	if err != nil {
+		return res, err
+	}
+	res.RoundTripTotal++
+	if dashMismatch == nil && manifest.CompareDASH(manifest.NormalizeDASH(dashOriginal), manifest.NormalizeDASH(dashReparsed)) == nil {
+		res.RoundTripMatched++
+	}
+
+	_, hlsData := bundle.HLSManifest()
+	canonicalHLS, hlsOriginal, hlsReparsed, hlsMismatch, err := manifest.RoundTripHLS(hlsData)
+	if err != nil {
+		return res, err
+	}
+	res.RoundTripTotal++
+	if hlsMismatch == nil && manifest.CompareHLS(manifest.NormalizeHLS(hlsOriginal), manifest.NormalizeHLS(hlsReparsed)) == nil {
+		res.RoundTripMatched++
 	}
 	res.RoundTripRate = 100
 	if res.RoundTripTotal > 0 {
@@ -118,6 +119,12 @@ func Run(opts Options) (*Result, error) {
 		return res, err
 	}
 	res.Store = st
+	if err := st.WriteAtomic("manifest/normalized.mpd", canonicalDASH); err != nil {
+		return res, err
+	}
+	if err := st.WriteAtomic("manifest/normalized.m3u8", canonicalHLS); err != nil {
+		return res, err
+	}
 	exec, err := flow.NewExecutor(st, "dag-state.json")
 	if err != nil {
 		return res, err
@@ -153,6 +160,13 @@ func Run(opts Options) (*Result, error) {
 		return res, err
 	}
 	res.Index = idx
+	indexJSON, err := json.MarshalIndent(idx, "", "  ")
+	if err != nil {
+		return res, media.Wrap(err, media.CodeInternal, "pipeline.index", "random-access.json", "index serialization failed")
+	}
+	if err := st.WriteAtomic("index/random-access.json", indexJSON); err != nil {
+		return res, err
+	}
 	queries := make([]int64, 0, len(idx.Entries))
 	for _, e := range idx.Entries {
 		queries = append(queries, e.StartTicks)
