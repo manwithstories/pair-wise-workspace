@@ -47,7 +47,6 @@ type ReorderBuffer struct {
 	base    uint16
 	window  uint16
 	packets map[uint16]*rtp.Packet
-	seen    map[uint16]struct{}
 	report  Report
 }
 
@@ -59,7 +58,6 @@ func NewReorderBuffer(base, window uint16) *ReorderBuffer {
 	return &ReorderBuffer{
 		next: base, base: base, window: window,
 		packets: make(map[uint16]*rtp.Packet),
-		seen:    make(map[uint16]struct{}),
 		report:  Report{Base: base},
 	}
 }
@@ -83,14 +81,13 @@ func (b *ReorderBuffer) Add(pkt *rtp.Packet) AddResult {
 	}
 	seq := pkt.SequenceNumber
 	b.report.Received++
-	if _, ok := b.seen[seq]; ok {
+	if _, pending := b.packets[seq]; pending {
 		b.report.Duplicates++
 		return Duplicate
 	}
 	delta := SeqDelta(b.next, seq)
 	if delta < 0 {
-		// Already delivered or an old duplicate after map compaction.
-		b.seen[seq] = struct{}{}
+		// Already delivered; sequence arithmetic makes this wrap-safe.
 		b.report.Duplicates++
 		return Duplicate
 	}
@@ -100,7 +97,6 @@ func (b *ReorderBuffer) Add(pkt *rtp.Packet) AddResult {
 	if delta > 0 {
 		b.report.Reordered++
 	}
-	b.seen[seq] = struct{}{}
 	b.packets[seq] = pkt
 	return Added
 }
