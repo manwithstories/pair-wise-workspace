@@ -50,6 +50,13 @@ func VerifyDirectory(dir string) (*VerifiedSuite, *media.Error) {
 		if verr := verifyDigest(dir, *cm.OutputFMP4); verr != nil {
 			return nil, verr
 		}
+		bitrate := ComputeBitrate(cm.TargetBitrateBPS, cm.OutputTS.Bytes, cm.DurationMS)
+		if bitrate.ActualBPS != cm.ActualBitrateBPS || abs64(bitrate.DeltaPPM) > 5000 {
+			return nil, &media.Error{
+				Code: media.CodeCountInvalid, Component: "audit.verify",
+				Message: fmt.Sprintf("%s bitrate outside target: report=%+v", cm.CaseID, bitrate),
+			}
+		}
 
 		inputHashes, inputCount, verr := readTSHashes(filepath.Join(dir, cm.Input.Path))
 		if verr != nil {

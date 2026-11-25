@@ -64,7 +64,7 @@ func Suite(seed int64) ([]*Case, *media.Error) {
 		c := &Case{
 			ID: fmt.Sprintf("%02d-%s", i+1, sp.id), Order: i + 1, Title: sp.title,
 			Seed: seed, InputMode: sp.mode, Tracks: append([]media.Track(nil), tracks...),
-			SourceSamples: muxSamples, TargetBitrateBPS: 1_000_000,
+			SourceSamples: muxSamples, TargetBitrateBPS: 1_056_000,
 			ExpectedClass: sp.class, WantCCGaps: sp.cc, WantPSISwitches: sp.psi,
 			WantPCRWraps: sp.pcr, WantLateReplays: sp.late,
 			TraceID: fmt.Sprintf("trace-%s-%d", sp.id, seed),

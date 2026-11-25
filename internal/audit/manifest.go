@@ -51,12 +51,14 @@ type CaseManifest struct {
 	HashTotal    int               `json:"hash_total"`
 	HashMatchPct float64           `json:"hash_match_pct"`
 
-	DurationMS        int64 `json:"duration_ms"`
-	AuditedDurationMS int64 `json:"audited_duration_ms,omitempty"`
-	SkewMS            int64 `json:"manifest_skew_ms"`
-	TargetBitrateBPS  int64 `json:"bitrate_target_bps"`
-	ActualBitrateBPS  int64 `json:"bitrate_actual_bps"`
-	BitrateDeltaPPM   int64 `json:"bitrate_delta_ppm"`
+	DurationMS           int64 `json:"duration_ms"`
+	AuditedDurationMS    int64 `json:"audited_duration_ms,omitempty"`
+	SkewMS               int64 `json:"manifest_skew_ms"`
+	TargetBitrateBPS     int64 `json:"bitrate_target_bps"`
+	ActualBitrateBPS     int64 `json:"bitrate_actual_bps"`
+	ElementaryBitrateBPS int64 `json:"elementary_bitrate_actual_bps,omitempty"`
+	FMP4BitrateBPS       int64 `json:"fmp4_bitrate_actual_bps,omitempty"`
+	BitrateDeltaPPM      int64 `json:"bitrate_delta_ppm"`
 
 	CCGaps            int    `json:"cc_gaps"`
 	FirstDesyncOffset int64  `json:"first_desync_offset"`

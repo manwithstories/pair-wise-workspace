@@ -101,12 +101,16 @@ func processCase(outRoot string, c *fixture.Case) (*audit.CaseManifest, *media.E
 	cm.HashTotal = 3 * len(refs)
 	cm.HashMatched = cm.HashTotal
 	cm.HashMatchPct = 100
-	bitrate := audit.ComputeBitrate(cm.TargetBitrateBPS, totalBytes, cm.DurationMS)
-	cm.ActualBitrateBPS = bitrate.ActualBPS
-	cm.BitrateDeltaPPM = bitrate.DeltaPPM
+	cm.ElementaryBitrateBPS = audit.ComputeBitrate(0, totalBytes, cm.DurationMS).ActualBPS
 
 	if oerr := writeRemuxOutputs(outRoot, relDir, cm, store, tracks, samples); oerr != nil {
 		return nil, oerr
+	}
+	tsBitrate := audit.ComputeBitrate(cm.TargetBitrateBPS, cm.OutputTS.Bytes, cm.DurationMS)
+	cm.ActualBitrateBPS = tsBitrate.ActualBPS
+	cm.BitrateDeltaPPM = tsBitrate.DeltaPPM
+	if cm.OutputFMP4 != nil {
+		cm.FMP4BitrateBPS = audit.ComputeBitrate(0, cm.OutputFMP4.Bytes, cm.DurationMS).ActualBPS
 	}
 	cm.Class = fixture.ClassClean
 	if len(cm.Errors) > 0 || cm.CCGaps+cm.PSISwitches+cm.PCRWraps+cm.LateReplays > 0 {
