@@ -18,12 +18,12 @@ say() { printf '%s\n' "$*" >&2; }
 say "== go version"
 "$GO" version
 
-say "== mod tidy (diff only)"
-if ! "$GO" mod tidy -diff >/dev/null 2>&1; then
-    # tidy may want to drop the redundant toolchain line; that is cosmetic and
-    # does not affect the build. Report it but do not fail the gate.
-    say "note: go.mod is not tidy-clean (toolchain line is intentionally explicit)"
-fi
+say "== mod tidy"
+# The spec's acceptance chain runs tidy before build. Go treats a toolchain
+# line equal to the go directive as redundant and removes it; the repository
+# ships with it because the delivery contract requires it, and tidy normalises
+# it away here so the subsequent build is not blocked by -mod=readonly.
+"$GO" mod tidy
 
 say "== build"
 "$GO" build ./...
