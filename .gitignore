@@ -74,3 +74,10 @@ AGENTS.md.local
 
 # MediaPack local verification state
 .mediapack/
+
+# Go build and coverage artifacts
+/mediapack
+*.test
+*.out
+coverage.txt
+dist/
