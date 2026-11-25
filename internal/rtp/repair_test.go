@@ -136,3 +136,20 @@ func TestLatePacketCounted(t *testing.T) {
 		t.Fatalf("emitted %v", got)
 	}
 }
+
+func TestDuplicateAfterEmissionCounted(t *testing.T) {
+	r := NewRepairer(8, 90000)
+	for s := uint16(0); s < 5; s++ {
+		r.Push(pkt(s, uint32(s)*3600))
+	}
+	r.Take() // emits 0..4; cursor now at 5
+	r.Push(pkt(2, 7200))
+	r.Flush()
+	st := r.Stats()
+	if st.Duplicate != 1 {
+		t.Fatalf("Duplicate=%d, want 1 (%+v)", st.Duplicate, st)
+	}
+	if st.Late != 0 {
+		t.Fatalf("Late=%d, want 0 for an emitted duplicate (%+v)", st.Late, st)
+	}
+}

@@ -55,6 +55,7 @@ type Repairer struct {
 	started bool
 	highest uint32
 	pending map[uint32]*rtp.Packet
+	seen    map[uint32]struct{} // every extended seq received once (dup detection below next)
 	out     []*rtp.Packet
 	stats   Stats
 	gaps    []Gap
@@ -69,7 +70,10 @@ func NewRepairer(window int, clockRate uint32) *Repairer {
 	if window < 1 {
 		window = 1
 	}
-	return &Repairer{window: window, rate: int64(clockRate), pending: map[uint32]*rtp.Packet{}}
+	return &Repairer{
+		window: window, rate: int64(clockRate),
+		pending: map[uint32]*rtp.Packet{}, seen: map[uint32]struct{}{},
+	}
 }
 
 // extend maps a 16-bit sequence number onto the extended 32-bit axis,
@@ -93,13 +97,24 @@ func (r *Repairer) Push(p *rtp.Packet) {
 	if !r.started {
 		r.next, r.started = ext, true
 	} else if ext < r.next {
-		r.stats.Late++
+		// Below the emit cursor: a repeat of something already received
+		// is a duplicate; an unseen sequence is genuinely late.
+		if _, dup := r.seen[ext]; dup {
+			r.stats.Duplicate++
+		} else {
+			r.stats.Late++
+		}
 		return
 	}
 	if _, dup := r.pending[ext]; dup {
 		r.stats.Duplicate++
 		return
 	}
+	if _, dup := r.seen[ext]; dup {
+		r.stats.Duplicate++
+		return
+	}
+	r.seen[ext] = struct{}{}
 	r.stats.Received++
 	if ext != r.next {
 		r.stats.Reordered++ // out of order; buffered for re-seating
