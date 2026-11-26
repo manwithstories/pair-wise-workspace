@@ -147,6 +147,9 @@ func (a *Assembler) Handle(p Packet) error {
 		a.buffered[p.Seq] = p
 		a.bufBytes += int64(len(p.Data))
 		a.stats.Reordered++
+		// A gap may have marked this sequence missing before the late packet
+		// itself arrived and entered the bounded reorder buffer.
+		delete(a.missing, p.Seq)
 		a.addGapLocked(p.Seq)
 		return nil
 	}
