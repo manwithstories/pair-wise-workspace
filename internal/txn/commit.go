@@ -188,6 +188,35 @@ func (c *Commit) Committed() []CommitManifest {
 	return append([]CommitManifest(nil), c.committed...)
 }
 
+// CommittedPayload reconstructs the exact byte stream covered by every
+// committed manifest, in commit order, by reading WAL data records. Records
+// that were staged but never committed (or aborted) are excluded.
+func (c *Commit) CommittedPayload() ([]byte, error) {
+	records, err := c.wal.Replay()
+	if err != nil {
+		return nil, clock.WrapError(clock.StageCommit, clock.ErrReplay, 0, false,
+			"read wal for payload", err)
+	}
+	dataByID := make(map[uint64][]byte, len(records))
+	for _, rec := range records {
+		if rec.Kind == KindData {
+			dataByID[rec.ID] = rec.Data
+		}
+	}
+	var out []byte
+	for _, m := range c.committed {
+		for _, id := range m.RecordIDs {
+			data, ok := dataByID[id]
+			if !ok {
+				return nil, clock.NewError(clock.StageCommit, clock.ErrReplay, 0, false,
+					"committed record "+itoa(id)+" missing during payload rebuild")
+			}
+			out = append(out, data...)
+		}
+	}
+	return out, nil
+}
+
 // PendingCount reports staged-but-uncommitted records.
 func (c *Commit) PendingCount() int { return len(c.pending) }
 
