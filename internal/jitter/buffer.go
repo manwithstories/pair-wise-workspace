@@ -93,7 +93,7 @@ func (b *Buffer) Push(p *rtpio.Packet) error {
 	if len(b.items) >= b.maxPackets {
 		return media.New(media.KindInternal, "jitter.Push", "bounded reorder queue full")
 	}
-	if p.ExtSequence > b.next && b.started {
+	if p.ExtSequence > b.next {
 		b.Stats.Reordered++
 	}
 	b.started = true
