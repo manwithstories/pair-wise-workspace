@@ -71,3 +71,10 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# Go / local verification outputs
+/medcheck
+*.test
+*.out
+/out/
+/tmp-medcheck/
