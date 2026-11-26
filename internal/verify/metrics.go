@@ -9,6 +9,7 @@
 package verify
 
 import (
+	"encoding/json"
 	"math"
 
 	"archivemedia/internal/model"
@@ -28,14 +29,14 @@ func DefaultThresholds() Thresholds {
 
 // SegmentMetric 是单片段测量输入。
 type SegmentMetric struct {
-	SegmentID      string
-	Bytes          int64
-	Duration       model.Duration
-	TargetBitrate  int64
+	SegmentID     string
+	Bytes         int64
+	Duration      model.Duration
+	TargetBitrate int64
 	// 对齐：清单声明边界与时间线吸附边界的偏差（微秒绝对值）。
-	AlignErrorUs   int64
+	AlignErrorUs int64
 	// PSNR 输入：原始与恢复的 Y 平面字节（等长）。
-	OriginalY []byte
+	OriginalY  []byte
 	RecoveredY []byte
 	// 音频 RMS 输入（线性 PCM，-1..1）。
 	AudioSamples []float64
@@ -67,6 +68,31 @@ type Report struct {
 	PerSegment        []SegmentResult `json:"-"`
 }
 
+// JSON 安全哨兵：标准 encoding/json 不支持 NaN/Inf，数字静音（-Inf dBFS）
+// 与无失真（+Inf PSNR）映射为有限值，保证报告永远可序列化为一行 JSON。
+const (
+	jsonSilenceDb = -120.0
+	jsonPerfectDb = 99.0
+)
+
+// MarshalJSON 输出把 Inf 哨兵有限化的报告。
+func (r Report) MarshalJSON() ([]byte, error) {
+	type alias Report
+	a := alias(r)
+	a.RmsDb = sanitizeInf(r.RmsDb, jsonSilenceDb)
+	a.PsnrDb = sanitizeInf(r.PsnrDb, jsonPerfectDb)
+	a.BitrateDeltaPct = sanitizeInf(r.BitrateDeltaPct, 0)
+	a.AlignErrorMs = sanitizeInf(r.AlignErrorMs, 0)
+	return json.Marshal(a)
+}
+
+func sanitizeInf(v, sentinel float64) float64 {
+	if math.IsInf(v, 0) || math.IsNaN(v) {
+		return sentinel
+	}
+	return v
+}
+
 // PSNR 计算两段等长 Y 平面的峰值信噪比（8 位，峰值 255）。
 // 完全无失真返回高分哨兵；长度不一致按可比较前缀计算并放大误差。
 func PSNR(original, recovered []byte) float64 {
@@ -86,7 +112,7 @@ func PSNR(original, recovered []byte) float64 {
 	if mse == 0 {
 		return 99.0 // 无失真哨兵，远超 32dB 门限
 	}
-	return 10 * math.Log10((255.0 * 255.0) / mse)
+	return 10 * math.Log10((255.0*255.0)/mse)
 }
 
 // RMSDb 计算线性 PCM（-1..1）的 RMS dBFS。
@@ -124,13 +150,13 @@ func Evaluate(metrics []SegmentMetric, silence, dupGroups int, provenance string
 		PerSegment:        make([]SegmentResult, 0, len(metrics)),
 	}
 	var (
-		totalBytes    int64
-		totalDur      model.Duration
-		totalTarget   int64
-		weightedPsnr  float64
-		psnrWeight    float64
-		worstAlignUs  int64
-		rmsVals       []float64
+		totalBytes     int64
+		totalDur       model.Duration
+		weightedTarget float64 // 按片段时长加权的目标码率累计
+		weightedPsnr   float64
+		psnrWeight     float64
+		worstAlignUs   int64
+		rmsVals        []float64
 	)
 	for _, m := range metrics {
 		actual := bitrate(m.Bytes, m.Duration)
@@ -148,7 +174,8 @@ func Evaluate(metrics []SegmentMetric, silence, dupGroups int, provenance string
 		})
 		totalBytes += m.Bytes
 		totalDur += m.Duration
-		totalTarget += m.TargetBitrate
+		// 目标码率按时长加权：等价于总目标比特数/总时长。
+		weightedTarget += float64(m.TargetBitrate) * m.Duration.Seconds()
 		if !math.IsInf(psnr, 1) {
 			weightedPsnr += psnr * m.Duration.Seconds()
 			psnrWeight += m.Duration.Seconds()
@@ -158,12 +185,15 @@ func Evaluate(metrics []SegmentMetric, silence, dupGroups int, provenance string
 		}
 		rmsVals = append(rmsVals, rms)
 	}
-	// 汇总码率按总字节/总时长，避免片段均值偏差。
+	// 汇总码率按总字节/总时长；目标码率用相同时长口径，保证偏差可比。
 	report.ActualBitrateBps = bitrate(totalBytes, totalDur)
-	report.TargetBitrateBps = totalTarget
-	if totalTarget > 0 {
+	if totalDur > 0 {
+		report.TargetBitrateBps = int64(math.Round(weightedTarget / totalDur.Seconds()))
+	}
+	if report.TargetBitrateBps > 0 {
 		report.BitrateDeltaPct = round2(
-			(float64(report.ActualBitrateBps) - float64(totalTarget)) / float64(totalTarget) * 100)
+			(float64(report.ActualBitrateBps) - float64(report.TargetBitrateBps)) /
+				float64(report.TargetBitrateBps) * 100)
 	}
 	if psnrWeight > 0 {
 		report.PsnrDb = round2(weightedPsnr / psnrWeight)
