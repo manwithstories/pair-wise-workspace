@@ -84,7 +84,7 @@ func Build(opts Options) *manifest.Manifest {
 	for _, bp := range bps {
 		wrap := int64(0)
 		if opts.InjectWrap {
-			wrap = bp.wrapPeriod
+			wrap = scaledWrapPeriod(bp, opts.DurationS)
 		}
 		s := manifest.Stream{
 			ID: bp.id, Kind: bp.kind, Codec: bp.codec, Container: manifest.ContainerMP4,
@@ -127,6 +127,22 @@ func fileName(bp streamBlueprint) string {
 		return "audio.m4a"
 	}
 	return "video" + string(rune('0'+bp.id)) + ".mp4"
+}
+
+// scaledWrapPeriod shrinks the blueprint wrap period for short fixtures so
+// every run observes several wraps: the full 30-minute blueprint keeps its
+// declared period (480-900s), while a shorter run wraps roughly every eighth
+// of its duration, never more often than every 3 seconds.
+func scaledWrapPeriod(bp streamBlueprint, durationS int64) int64 {
+	const fullRunS int64 = 1800
+	if durationS >= fullRunS {
+		return bp.wrapPeriod
+	}
+	periodS := durationS / 8
+	if periodS < 3 {
+		periodS = 3
+	}
+	return periodS * bp.timebaseNum
 }
 
 // driftSeconds returns the modelled supplier offset at a given second.
