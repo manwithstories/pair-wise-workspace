@@ -34,6 +34,25 @@ func TestTimelineAdoptsForwardLeap(t *testing.T) {
 	}
 }
 
+func TestTimelineLeapReanchorsForLaterRollback(t *testing.T) {
+	const dur = 90000
+	tl := NewTimeline(90000)
+	tl.ResolveTFDT(true, 0)
+	tl.Advance(dur) // expected 90000
+	// Adopt a forward leap to 3*dur, then commit one segment duration.
+	if d := tl.ResolveTFDT(true, 3*dur); d.Value != 3*dur || d.Repaired {
+		t.Fatalf("leap decision: %+v", d)
+	}
+	tl.Advance(dur) // expected 4*dur if correctly re-anchored
+	// A tfdt of 2*dur+1 is behind the true segment end (4*dur) but ahead
+	// of the stale pre-leap expectation; it must still be repaired to 4*dur
+	// so the output DTS never rolls back behind the leap segment's end.
+	d := tl.ResolveTFDT(true, 2*dur+1)
+	if !d.Repaired || d.Value != 4*dur {
+		t.Fatalf("post-leap rollback not repaired to monotonic base: %+v", d)
+	}
+}
+
 func TestTimelineMissingTFDT(t *testing.T) {
 	tl := NewTimeline(90000)
 	d := tl.ResolveTFDT(false, 0)

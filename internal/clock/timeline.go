@@ -79,6 +79,10 @@ func (t *Timeline) ResolveTFDT(hasTFDT bool, value uint64) Decision {
 		d.Reason = "tfdt rollback, repaired from timeline"
 	default:
 		d.Value = value
+		// Re-anchor on the adopted value so the following Advance yields
+		// value+duration and a later partial rollback is repaired against
+		// the true end of this segment, preserving output DTS monotonicity.
+		t.next = int64(value)
 		if int64(value) > exp {
 			d.Reason = "forward leap adopted"
 		}
