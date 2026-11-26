@@ -173,6 +173,26 @@ func Run(opts Options) (*Result, error) {
 		return nil, core.New(core.KindInputRace, op,
 			"input WAV changed during scan/repair; output was not committed")
 	}
+	if clockPath != "" {
+		postClock, err := verify.FileSHA256(clockPath)
+		if err != nil {
+			return nil, err
+		}
+		if postClock != opts.Index.ClockSHA256 {
+			return nil, core.New(core.KindInputRace, op,
+				"clock record changed during repair; output was not committed")
+		}
+	}
+	if opts.Index.ChecksPath != "" {
+		postChecks, err := verify.FileSHA256(opts.Index.ChecksPath)
+		if err != nil {
+			return nil, err
+		}
+		if postChecks != opts.Index.ChecksSHA256 {
+			return nil, core.New(core.KindInputRace, op,
+				"block check record changed during repair; output was not committed")
+		}
+	}
 	if err := os.Rename(tmpName, opts.OutputPath); err != nil {
 		return nil, core.Wrap(core.KindIO, op, opts.OutputPath, err)
 	}
