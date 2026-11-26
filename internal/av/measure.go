@@ -26,66 +26,166 @@ type LoudnessReport struct {
 }
 
 // MeasureInterleaved analyses an interleaved stereo float bus at 48 kHz.
-// Loudness follows BS.1770-4: K-weighting, 400 ms gated blocks with a -70 LUFS
-// absolute gate and a -10 LU relative gate. True peak is estimated with 4x
-// oversampling; clipping counts samples at or beyond full scale.
 func MeasureInterleaved(samples []float32) LoudnessReport {
-	var rep LoudnessReport
-	frames := len(samples) / 2
-	rep.Frames = int64(frames)
-	if frames == 0 {
-		rep.IntegratedLUFS = -70
-		rep.TruePeakDBTP = -120
-		rep.SamplePeakDBFS = -120
-		return rep
-	}
+	m := NewLoudnessMeter()
+	m.Push(samples)
+	return m.Report()
+}
 
-	// K-weighting via two biquads (high shelf + high pass) at 48 kHz.
+// Meter is a streaming BS.1770 loudness and peak meter. It keeps only the
+// active 400 ms block and the gated block powers, so memory stays bounded no
+// matter how long the programme is. Frames must be pushed in order on the
+// stereo 48 kHz delivery bus.
+type Meter struct {
+	shelf    *biquad
+	highpass *biquad
+	// 400 ms block window with 100 ms hop.
+	ring        []float64 // interleaved K-weighted powers, 2 values per frame
+	ringPos     int
+	ringFill    int
+	hopSince    int
+	frames      int64
+	blockPowers []float64
+	// Peak statistics.
+	samplePeak float64
+	truePeak   float64
+	clipCount  int64
+	// Silence tracking.
+	silenceRun   int
+	silentFrames int64
+	silentRuns   int
+	// True-peak look-ahead: last few raw samples per channel.
+	histL, histR []float64
+}
+
+// NewLoudnessMeter returns a ready streaming meter.
+func NewLoudnessMeter() *Meter {
+	blockLen := OutputRate * 4 / 10
 	shelf := (&biquad{}).highShelf(OutputRate, 1681.974450955533, 0.7071752, 3.999843853973347)
-	highpass := (&biquad{}).highPass(OutputRate, 38.13547087602444, 0.5003270373238773)
+	hp := (&biquad{}).highPass(OutputRate, 38.13547087602444, 0.5003270373238773)
+	return &Meter{
+		shelf:    &shelf,
+		highpass: &hp,
+		ring:     make([]float64, blockLen*2),
+	}
+}
 
-	left := make([]float64, frames)
-	right := make([]float64, frames)
-	var samplePeak float64
-	clipCount := int64(0)
+const meterHop = OutputRate / 10
+
+// Push feeds interleaved stereo samples.
+func (m *Meter) Push(samples []float32) {
+	frames := len(samples) / 2
 	for i := 0; i < frames; i++ {
 		l := float64(samples[i*2])
 		r := float64(samples[i*2+1])
 		al, ar := math.Abs(l), math.Abs(r)
-		if al > samplePeak {
-			samplePeak = al
+		if al > m.samplePeak {
+			m.samplePeak = al
 		}
-		if ar > samplePeak {
-			samplePeak = ar
+		if ar > m.samplePeak {
+			m.samplePeak = ar
 		}
 		if al >= 1.0 || ar >= 1.0 {
-			clipCount++
+			m.clipCount++
 		}
-		left[i] = shelf.process(highpass.process(l))
-		right[i] = shelf.processR(highpass.processR(r))
-	}
-	rep.ClippedSamples = clipCount
-	rep.SamplePeakDBFS = dbfs(samplePeak)
+		m.trackPeak(l, r)
+		// Silence: both channels below -60 dBFS.
+		if math.Max(al, ar) < 0.001 {
+			m.silenceRun++
+		} else {
+			if m.silenceRun >= OutputRate/10 {
+				m.silentRuns++
+				m.silentFrames += int64(m.silenceRun)
+			}
+			m.silenceRun = 0
+		}
 
-	// 400 ms blocks with 100 ms hop, BS.1770 channel weights 1.0 for L/R.
-	const blockLen = OutputRate * 4 / 10
-	const hopLen = OutputRate / 10
-	type block struct{ power float64 }
-	var blocks []block
-	for start := 0; start+blockLen <= frames; start += hopLen {
-		var sum float64
-		for i := start; i < start+blockLen; i++ {
-			sum += left[i]*left[i] + right[i]*right[i]
+		kl := m.shelf.process(m.highpass.process(l))
+		kr := m.shelf.processR(m.highpass.processR(r))
+		m.ring[m.ringPos*2] = kl * kl
+		m.ring[m.ringPos*2+1] = kr * kr
+		m.ringPos = (m.ringPos + 1) % (len(m.ring) / 2)
+		if m.ringFill < len(m.ring)/2 {
+			m.ringFill++
 		}
-		blocks = append(blocks, block{power: sum / float64(blockLen)})
+		m.frames++
+		m.hopSince++
+		if m.ringFill == len(m.ring)/2 && m.hopSince >= meterHop {
+			m.hopSince = 0
+			m.emitBlock()
+		}
 	}
-	if len(blocks) == 0 {
-		// Short signals: use one block over whatever exists.
-		var sum float64
-		for i := 0; i < frames; i++ {
-			sum += left[i]*left[i] + right[i]*right[i]
+}
+
+// trackPeak keeps a short history and estimates the inter-sample peak with a
+// 4x Hann-windowed sinc over the retained window.
+func (m *Meter) trackPeak(l, r float64) {
+	m.histL = append(m.histL, l)
+	m.histR = append(m.histR, r)
+	const hist = 17
+	if len(m.histL) > hist {
+		m.histL = m.histL[len(m.histL)-hist:]
+		m.histR = m.histR[len(m.histR)-hist:]
+	}
+	for _, h := range [][]float64{m.histL, m.histR} {
+		if len(h) < hist {
+			continue
 		}
-		blocks = append(blocks, block{power: sum / float64(frames)})
+		center := h[len(h)-1]
+		if a := math.Abs(center); a > m.truePeak {
+			m.truePeak = a
+		}
+		for k := 1; k < 4; k++ {
+			t := float64(k) / 4
+			var acc float64
+			for j := 0; j < len(h); j++ {
+				d := t - float64(len(h)-1-j)
+				var sinc float64
+				if math.Abs(d) < 1e-9 {
+					sinc = 1
+				} else {
+					sinc = math.Sin(math.Pi*d) / (math.Pi * d)
+				}
+				w := 0.5 + 0.5*math.Cos(math.Pi*d/8)
+				acc += h[j] * sinc * w
+			}
+			if a := math.Abs(acc); a > m.truePeak {
+				m.truePeak = a
+			}
+		}
+	}
+}
+
+func (m *Meter) emitBlock() {
+	var sum float64
+	for _, v := range m.ring {
+		sum += v
+	}
+	m.blockPowers = append(m.blockPowers, sum/float64(len(m.ring)/2))
+}
+
+// Report finalises the gated integrated loudness.
+func (m *Meter) Report() LoudnessReport {
+	rep := LoudnessReport{
+		Frames:         m.frames,
+		ClippedSamples: m.clipCount,
+		SamplePeakDBFS: dbfs(m.samplePeak),
+		TruePeakDBTP:   dbtp(m.truePeak),
+		SilentRuns:     m.silentRuns,
+	}
+	// A trailing run that is still open at Report time counts if it is long
+	// enough to be a real silent stretch.
+	trailing := int64(0)
+	if m.silenceRun >= OutputRate/10 {
+		rep.SilentRuns++
+		trailing = int64(m.silenceRun)
+	}
+	rep.SilentSeconds = float64(m.silentFrames+trailing) / OutputRate
+	if m.frames == 0 {
+		rep.IntegratedLUFS = -70
+		rep.TruePeakDBTP = -120
+		rep.SamplePeakDBFS = -120
+		return rep
 	}
 	blockLoudness := func(p float64) float64 {
 		if p <= 0 {
@@ -93,63 +193,44 @@ func MeasureInterleaved(samples []float32) LoudnessReport {
 		}
 		return -0.691 + 10*math.Log10(p)
 	}
-	// Absolute gate.
 	var gated []float64
-	for _, b := range blocks {
-		if l := blockLoudness(b.power); l >= -70 {
-			gated = append(gated, b.power)
+	for _, p := range m.blockPowers {
+		if blockLoudness(p) >= -70 {
+			gated = append(gated, p)
 		}
 	}
 	if len(gated) == 0 {
-		rep.IntegratedLUFS = -70
-	} else {
-		// Relative gate at mean(gated) - 10 LU.
-		var mean float64
-		for _, p := range gated {
-			mean += p
-		}
-		mean /= float64(len(gated))
-		relGate := blockLoudness(mean) - 10
-		var sum, n float64
-		for _, p := range gated {
-			if blockLoudness(p) >= relGate {
-				sum += p
-				n++
-			}
-		}
-		if n == 0 {
+		if len(m.blockPowers) == 0 {
+			// Very short signal: fall back to the mean power seen so far.
 			rep.IntegratedLUFS = -70
-		} else {
-			rep.IntegratedLUFS = blockLoudness(sum / n)
+			return rep
+		}
+		// All blocks below the absolute gate: still report a value so a quiet
+		// test signal normalises instead of being treated as silence.
+		var sum float64
+		for _, p := range m.blockPowers {
+			sum += p
+		}
+		rep.IntegratedLUFS = blockLoudness(sum / float64(len(m.blockPowers)))
+		return rep
+	}
+	var mean float64
+	for _, p := range gated {
+		mean += p
+	}
+	mean /= float64(len(gated))
+	relGate := blockLoudness(mean) - 10
+	var sum, n float64
+	for _, p := range gated {
+		if blockLoudness(p) >= relGate {
+			sum += p
+			n++
 		}
 	}
-
-	// True peak: 4x oversample with a windowed sinc; track the maximum.
-	rep.TruePeakDBTP = dbtp(oversampledPeak(samples))
-
-	// Silence detection: contiguous runs of stereo frames under -60 dBFS for
-	// at least 100 ms.
-	const silenceThresh = 0.001
-	const minRun = OutputRate / 10
-	run := 0
-	for i := 0; i < frames; i++ {
-		amp := math.Max(math.Abs(float64(samples[i*2])), math.Abs(float64(samples[i*2+1])))
-		if amp < silenceThresh {
-			run++
-			if run >= minRun {
-				// Count this whole run once at its end; mark by tracking start.
-			}
-		} else {
-			if run >= minRun {
-				rep.SilentRuns++
-				rep.SilentSeconds += float64(run) / OutputRate
-			}
-			run = 0
-		}
-	}
-	if run >= minRun {
-		rep.SilentRuns++
-		rep.SilentSeconds += float64(run) / OutputRate
+	if n == 0 {
+		rep.IntegratedLUFS = blockLoudness(mean)
+	} else {
+		rep.IntegratedLUFS = blockLoudness(sum / n)
 	}
 	return rep
 }
