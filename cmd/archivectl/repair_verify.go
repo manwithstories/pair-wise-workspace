@@ -41,6 +41,9 @@ func runRepair(args []string) int {
 		return 1
 	}
 	fmt.Println(digest)
+	for i, s := range result.Coverage {
+		fmt.Printf("repaired_range[%d]=[%d,%d) frames=%d\n", i, s.StartFrame, s.EndFrame, s.Frames())
+	}
 	if result.RecoveredFrames > 0 || len(idx.Damage) > 0 {
 		return 2
 	}
