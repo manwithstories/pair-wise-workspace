@@ -12,29 +12,38 @@ import (
 // blocks are CRC-checked against the manifest, and a short final read is
 // marked Truncated rather than padded with fake samples. The log receives
 // one structured entry per defect but processing always runs to the end.
+//
+// When the manifest declares parity blocks, block indices follow extended
+// numbering (all PCM blocks first, then parity blocks), while StartFrame
+// keeps each block's position on the audio frame grid.
 func (r *Reader) ReadBlocks(log *model.ErrorLog) ([]FrameBlock, error) {
 	blockFrames := r.BlockFrames()
-	var totalBlocks int
+	var totalBlocks, dataBlocks int
 	if r.manifest != nil && len(r.manifest.CRC) > 0 {
 		// The manifest is authoritative: dropped blocks leave no PCM
 		// bytes, so the payload length alone cannot count blocks.
 		totalBlocks = len(r.manifest.CRC)
+		dataBlocks = r.manifest.DataBlocks
 	} else {
 		totalBlocks = int((r.TotalFrames() + int64(blockFrames) - 1) / int64(blockFrames))
+		dataBlocks = totalBlocks
 	}
+	paritySet := indexSet(r.parityIndices())
 	missing := r.missingSet()
 
 	blocks := make([]FrameBlock, 0, totalBlocks)
 	for idx := 0; idx < totalBlocks; idx++ {
-		b := FrameBlock{
-			Index:      idx,
-			StartFrame: int64(idx * blockFrames),
-			Frames:     blockFrames,
-		}
-		if idx == totalBlocks-1 {
-			if rem := int(r.TotalFrames() - b.StartFrame); rem < blockFrames {
-				b.Frames = rem
+		b := FrameBlock{Index: idx, Frames: blockFrames, Parity: paritySet[idx]}
+		if idx < dataBlocks {
+			b.StartFrame = int64(idx * blockFrames)
+			if idx == dataBlocks-1 {
+				if rem := int(r.TotalFrames() - b.StartFrame); rem < blockFrames && rem > 0 {
+					b.Frames = rem
+				}
 			}
+		} else {
+			// Parity blocks carry one full block width of check bytes.
+			b.StartFrame = int64(dataBlocks * blockFrames)
 		}
 		if r.manifest != nil && idx < len(r.manifest.CRC) {
 			b.WantCRC = r.manifest.CRC[idx]
@@ -72,11 +81,15 @@ func (r *Reader) ReadBlocks(log *model.ErrorLog) ([]FrameBlock, error) {
 		}
 		blocks = append(blocks, b)
 		r.read += int64(n)
-		if err == io.EOF {
-			break
-		}
 	}
 	return blocks, nil
+}
+
+func (r *Reader) parityIndices() []int {
+	if r.manifest == nil {
+		return nil
+	}
+	return r.manifest.ParityAt
 }
 
 func (r *Reader) missingSet() map[int]bool {

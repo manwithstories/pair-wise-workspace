@@ -45,8 +45,13 @@ type Manifest struct {
 	Missing []int
 	// CRC holds the original CRC32 (IEEE) of every block's PCM bytes.
 	CRC []uint32
-	Layout string
-	Color  string
+	// ParityAt lists extended block indices that hold XOR parity data.
+	ParityAt []int
+	// DataBlocks is the count of PCM blocks preceding parity blocks;
+	// zero means every block is a PCM block (non-parity carriers).
+	DataBlocks int
+	Layout     string
+	Color      string
 }
 
 // FrameBlock is one fixed-height slice of the PCM payload. A Missing or
@@ -62,6 +67,8 @@ type FrameBlock struct {
 	Missing    bool
 	Corrupt    bool
 	Truncated  bool
+	// Parity marks an XOR parity block rather than an audio PCM block.
+	Parity bool
 }
 
 // Reader streams a carrier as frame blocks.
@@ -213,6 +220,16 @@ func parseManifest(raw []byte) (*Manifest, error) {
 	for i := range m.CRC {
 		m.CRC[i] = binary.LittleEndian.Uint32(raw[pos : pos+4])
 		pos += 4
+	}
+	// Optional parity trailer: data-block count then parity indices.
+	if len(raw)-pos >= 4 {
+		m.DataBlocks = int(binary.LittleEndian.Uint32(raw[pos : pos+4]))
+		pos += 4
+		for pos+4 <= len(raw) {
+			m.ParityAt = append(m.ParityAt,
+				int(binary.LittleEndian.Uint32(raw[pos:pos+4])))
+			pos += 4
+		}
 	}
 	return m, nil
 }
