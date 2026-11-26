@@ -76,3 +76,5 @@ AGENTS.md.local
 .demo/
 .scan/
 .scan-debug*/
+.mt/
+.mt2/
