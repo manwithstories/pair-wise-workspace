@@ -12,8 +12,8 @@ func TestWrap16(t *testing.T) {
 	}{
 		{10, 12, 2},
 		{12, 10, -2},
-		{65534, 1, 3},   // forward wrap
-		{1, 65534, -3},  // backward wrap
+		{65534, 1, 3},  // forward wrap
+		{1, 65534, -3}, // backward wrap
 		{0, 0, 0},
 		{32767, 0, -32767},
 	}

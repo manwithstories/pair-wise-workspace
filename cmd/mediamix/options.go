@@ -5,23 +5,23 @@ package main
 
 // Exit codes follow the acceptance contract.
 const (
-	exitOK             = 0
-	exitInputError     = 2
-	exitRollbackFailed = 3
+	exitOK              = 0
+	exitInputError      = 2
+	exitRollbackFailed  = 3
 	exitMetricsExceeded = 4
 )
 
 // options holds the parsed command-line flags.
 type options struct {
-	caseName        string
-	seed            int64
-	seconds         int
-	loss            float64
-	reorder         float64
-	queueMiB        int
-	slowConsumerMs  int
-	fault           string
-	outDir          string
+	caseName       string
+	seed           int64
+	seconds        int
+	loss           float64
+	reorder        float64
+	queueMiB       int
+	slowConsumerMs int
+	fault          string
+	outDir         string
 }
 
 func defaultOptions() options {

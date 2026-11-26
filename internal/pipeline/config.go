@@ -4,8 +4,6 @@
 package pipeline
 
 import (
-	"context"
-
 	"mediamix/internal/audio"
 	"mediamix/internal/buffer"
 	"mediamix/internal/rtp"
@@ -16,21 +14,21 @@ import (
 type Fault string
 
 const (
-	FaultNone          Fault = ""
+	FaultNone           Fault = ""
 	FaultAfterNormalize Fault = "after-normalize" // after resample, before loudness
-	FaultBeforeCommit  Fault = "before-commit"    // after loudness, before WAL commit
+	FaultBeforeCommit   Fault = "before-commit"   // after loudness, before WAL commit
 )
 
 // Config controls one pipeline run.
 type Config struct {
-	WorkDir         string
-	QueueBytes      int
-	QueueItems      int
-	SlowConsumerMs  int
-	Fault           Fault
-	Source          rtp.StreamConfig
-	Reorder         rtp.ReorderConfig
-	Target          audio.TargetSpec
+	WorkDir        string
+	QueueBytes     int
+	QueueItems     int
+	SlowConsumerMs int
+	Fault          Fault
+	Source         rtp.StreamConfig
+	Reorder        rtp.ReorderConfig
+	Target         audio.TargetSpec
 }
 
 // DefaultConfig returns safe local defaults within the 8 MiB queue cap.
@@ -65,14 +63,4 @@ func (f Frame) ByteSize() int {
 		return 0
 	}
 	return len(f.Payload)
-}
-
-// runState holds the per-run accumulators shared by the stages.
-type runState struct {
-	ctx      context.Context
-	cancel   context.CancelFunc
-	queue    *buffer.Window[Frame]
-	plc      *audio.PLC
-	conv     *audio.Converter
-	loud     *audio.LoudnessNormaliser
 }

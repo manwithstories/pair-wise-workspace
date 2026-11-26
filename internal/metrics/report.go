@@ -12,10 +12,10 @@ import (
 
 // Thresholds from the delivery acceptance criteria.
 const (
-	MaxAVSyncMS          = 5.0
-	MinRecoveryPct       = 95.0
-	MaxP95LatencyMS      = 250.0
-	MaxQueuePeakBytes    = 8 << 20 // 8 MiB
+	MaxAVSyncMS       = 5.0
+	MinRecoveryPct    = 95.0
+	MaxP95LatencyMS   = 250.0
+	MaxQueuePeakBytes = 8 << 20 // 8 MiB
 )
 
 // Sample is one measured stage traversal.
@@ -111,8 +111,8 @@ func Build(caseName string, samples []Sample, lostPackets, recoveredGaps int64,
 
 // Verdict explains which acceptance thresholds, if any, a report violates.
 type Verdict struct {
-	OK       bool
-	Reasons  []string
+	OK      bool
+	Reasons []string
 }
 
 // Evaluate checks a report against every acceptance threshold.

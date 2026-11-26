@@ -39,11 +39,11 @@ func DefaultSource() SourceSpec {
 // boundaries: the resampler delay is flushed at Close and the total output
 // sample count is verified against the integer rate ratio.
 type Converter struct {
-	src   SourceSpec
-	dst   TargetSpec
-	swr   *astiav.SoftwareResampleContext
-	inN   int64 // accepted source samples
-	outN  int64 // produced destination samples
+	src    SourceSpec
+	dst    TargetSpec
+	swr    *astiav.SoftwareResampleContext
+	inN    int64 // accepted source samples
+	outN   int64 // produced destination samples
 	closed bool
 }
 

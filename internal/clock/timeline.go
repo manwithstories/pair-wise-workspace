@@ -77,9 +77,9 @@ type Timeline struct {
 	valid  bool
 	offset Tick // tick - scaledRtp, once calibrated
 	// last calibration inputs, used to detect report jumps
-	lastRTP   uint32
-	lastNTP   Tick
-	haveLast  bool
+	lastRTP  uint32
+	lastNTP  Tick
+	haveLast bool
 }
 
 // NewTimeline creates a timeline for a track running at rtpClockRate.

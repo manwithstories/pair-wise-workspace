@@ -21,12 +21,12 @@ const (
 // safety ceiling. The graph has no adaptive second pass, so equal inputs
 // always produce byte-identical outputs — required for replay hashing.
 type LoudnessNormaliser struct {
-	graph   *astiav.FilterGraph
-	src     *astiav.BuffersrcFilterContext
-	sink    *astiav.BuffersinkFilterContext
-	rate    int
+	graph    *astiav.FilterGraph
+	src      *astiav.BuffersrcFilterContext
+	sink     *astiav.BuffersinkFilterContext
+	rate     int
 	channels int
-	closed  bool
+	closed   bool
 }
 
 // NewLoudnessNormaliser builds the filter graph for 48 kHz stereo float.

@@ -12,11 +12,11 @@ import (
 
 // CommitManifest is the durable record of one committed boundary.
 type CommitManifest struct {
-	Seq       uint64 `json:"seq"`        // monotonic commit sequence
-	RecordIDs []uint64 `json:"records"`  // WAL data record IDs in this commit
-	Bytes     int    `json:"bytes"`      // payload bytes committed
-	SHA256    string `json:"sha256"`     // hash over the concatenated payload
-	Stage     string `json:"stage"`      // pipeline stage that produced it
+	Seq       uint64   `json:"seq"`     // monotonic commit sequence
+	RecordIDs []uint64 `json:"records"` // WAL data record IDs in this commit
+	Bytes     int      `json:"bytes"`   // payload bytes committed
+	SHA256    string   `json:"sha256"`  // hash over the concatenated payload
+	Stage     string   `json:"stage"`   // pipeline stage that produced it
 }
 
 // Commit coordinates WAL records with on-disk atomic commits. A commit is

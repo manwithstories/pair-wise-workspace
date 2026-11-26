@@ -31,14 +31,14 @@ func DefaultStreamConfig() StreamConfig {
 // FixtureConfig controls the impairment injection. All randomness derives
 // from Seed so runs are fully reproducible.
 type FixtureConfig struct {
-	Seed              int64
-	Seconds           int
-	LossRate          float64
-	ReorderRate       float64
-	DuplicateRate     float64
-	ForceSeqWrap      bool // place the stream end near a 16-bit seq wrap
+	Seed               int64
+	Seconds            int
+	LossRate           float64
+	ReorderRate        float64
+	DuplicateRate      float64
+	ForceSeqWrap       bool // place the stream end near a 16-bit seq wrap
 	ForceTimestampWrap bool // place the start near a 32-bit timestamp wrap
-	SenderReportEvery int  // packets between SRs; 0 disables
+	SenderReportEvery  int  // packets between SRs; 0 disables
 }
 
 // Event records an injected impairment for test assertions.

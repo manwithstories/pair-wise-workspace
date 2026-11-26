@@ -24,22 +24,22 @@ const (
 
 // Packet is a parsed RTP packet.
 type Packet struct {
-	Version        uint8
-	Padding        bool
-	Extension      bool
-	CC             uint8
-	Marker         bool
-	PayloadType    uint8
-	Seq            uint16
-	Timestamp      uint32
-	SSRC           uint32
-	CSRC           []uint32
-	ExtProfile     uint16
-	ExtData        []byte
-	Payload        []byte
-	PaddingBytes   int
-	RawLen         int
-	ArrivalTick     clock.Tick
+	Version      uint8
+	Padding      bool
+	Extension    bool
+	CC           uint8
+	Marker       bool
+	PayloadType  uint8
+	Seq          uint16
+	Timestamp    uint32
+	SSRC         uint32
+	CSRC         []uint32
+	ExtProfile   uint16
+	ExtData      []byte
+	Payload      []byte
+	PaddingBytes int
+	RawLen       int
+	ArrivalTick  clock.Tick
 }
 
 // ErrMalformed is the sentinel wrapped by parse failures.

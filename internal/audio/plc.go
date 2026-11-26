@@ -9,21 +9,21 @@ import (
 // exponentially decaying hold; every concealed frame is counted so the
 // metrics layer can compute an honest recovery rate.
 type PLC struct {
-	channels        int
-	lastGood        []float32
-	decay           float64
-	concealed       int64 // target-rate frames synthesised
-	concealedSpans  int64 // successful concealment calls (recovered packets/gaps)
-	tailTruncated   int64
-	spanLen         int // consecutive concealed frames in the current gap
-	maxSpan         int // concealment beyond this span is not attempted
+	channels       int
+	lastGood       []float32
+	decay          float64
+	concealed      int64 // target-rate frames synthesised
+	concealedSpans int64 // successful concealment calls (recovered packets/gaps)
+	tailTruncated  int64
+	spanLen        int // consecutive concealed frames in the current gap
+	maxSpan        int // concealment beyond this span is not attempted
 }
 
 // PLCConfig tunes concealment.
 type PLCConfig struct {
-	Channels   int
-	Decay      float64 // per-frame amplitude multiplier, e.g. 0.9995
-	MaxSpan    int     // frames; longer gaps are only partially concealed
+	Channels int
+	Decay    float64 // per-frame amplitude multiplier, e.g. 0.9995
+	MaxSpan  int     // frames; longer gaps are only partially concealed
 }
 
 // DefaultPLCConfig returns conservative stereo settings.
