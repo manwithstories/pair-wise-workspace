@@ -2,7 +2,11 @@
 // indexes and re-chunks multi-camera MP4/MOV captures for fast delivery.
 // It is a pure terminal tool: no GUI, no browser, no external services.
 //
-// Usage: mediaroute <command> [flags]
+// Usage:
+//
+//	mediaroute demo [--seed N] [--minutes N] [--cameras N] [--bitrates N]
+//	                [--queue-mib N] [--slow-consumer-ms N]
+//	                [--strict-boundary] [--workdir DIR] [--keep]
 //
 // Exit codes: 0 = verification completed (isolated faults included),
 // 1 = I/O or internal error, 2 = invalid manifest or unrecoverable
@@ -19,8 +23,13 @@ func main() {
 		usage()
 		os.Exit(2)
 	}
-	usage()
-	os.Exit(2)
+	switch os.Args[1] {
+	case "demo":
+		os.Exit(runDemo(os.Args[2:]))
+	default:
+		usage()
+		os.Exit(2)
+	}
 }
 
 func usage() {
