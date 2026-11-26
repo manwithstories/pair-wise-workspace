@@ -71,3 +71,9 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 本项目本地构建/测试产物（不提交）----
+/ffdbg/
+/bq-out/
+/bq-out-*/
+*.test
