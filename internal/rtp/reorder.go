@@ -131,7 +131,7 @@ func (b *ReorderBuffer) Push(pkt *InPacket) PushResult {
 
 	if !b.initialized {
 		b.initialized = true
-		b.next = seq
+		b.next = seq + 1
 		b.remember(seq, sum, pkt.RawOffset)
 		b.Stats.DeliveredPackets++
 		return PushResult{Ready: []*InPacket{pkt}, Disposition: DispositionDelivered}

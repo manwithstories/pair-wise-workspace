@@ -45,7 +45,7 @@ func runPacketDiagnostics() PacketDiagnostics {
 	d.ConflictsIsolated = dup.Stats.ConflictsIsolated
 
 	wrap := mrtp.NewReorderBuffer(16)
-	order := []uint16{65530, 65533, 65532, 65531, 0, 65535}
+	order := []uint16{65530, 65533, 65532, 65531, 0, 65534, 65535}
 	for i, seq := range order {
 		wrap.Push(diagnosticPacket(seq, byte(seq), int64(8192+i*64)))
 	}
