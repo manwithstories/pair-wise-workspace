@@ -13,9 +13,26 @@ func ParseFile(src *Source) *File {
 		f.MDAT = append(f.MDAT, ByteRange{Offset: b.PayloadOffset, End: b.End})
 	}
 	f.Tracks = buildTracks(src, idx, &f.Faults)
+	enrichFaultMediaTimes(f)
 	validateSampleRanges(f)
 	validateFragmentRanges(f)
 	return f
+}
+
+func enrichFaultMediaTimes(f *File) {
+	timescales := map[uint32]uint32{}
+	for _, t := range f.Tracks {
+		timescales[t.TrackID] = t.Timescale
+	}
+	for i := range f.Faults {
+		fault := &f.Faults[i]
+		if fault.TrackID == 0 || fault.MediaTime.Timescale != 0 {
+			continue
+		}
+		if ts, ok := timescales[fault.TrackID]; ok {
+			fault.MediaTime.Timescale = ts
+		}
+	}
 }
 
 func buildTracks(src *Source, idx *BoxIndex, faults *[]media.Fault) []*Track {

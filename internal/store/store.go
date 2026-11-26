@@ -57,16 +57,11 @@ func (s *Store) SaveCommitted(t Task, result any) (*Checkpoint, error) {
 		Status:        StatusCommitted,
 		Result:        raw,
 	}
-	data, err := json.MarshalIndent(cp, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-	data = append(data, '\n')
 	path, err := s.checkpointPath(t.Key)
 	if err != nil {
 		return nil, err
 	}
-	if err := WriteFileAtomic(path, data, 0o644); err != nil {
+	if err := cp.SaveAtomic(path); err != nil {
 		return nil, err
 	}
 	if err := s.Bind(t); err != nil {

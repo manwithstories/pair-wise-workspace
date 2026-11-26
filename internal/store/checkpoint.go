@@ -13,3 +13,13 @@ type Checkpoint struct {
 	Status        string          `json:"status"`
 	Result        json.RawMessage `json:"result,omitempty"`
 }
+
+// SaveAtomic canonicalizes and atomically writes this checkpoint to path.
+func (c Checkpoint) SaveAtomic(path string) error {
+	data, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return WriteFileAtomic(path, data, 0o644)
+}

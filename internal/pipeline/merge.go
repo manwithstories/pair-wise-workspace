@@ -111,7 +111,12 @@ func OrderedMerge(ctx context.Context, outcomes []Outcome, cfg MergeConfig) (*re
 			}
 			r.Tracks = append(r.Tracks, tr)
 		}
-		r.Faults = append(r.Faults, res.Faults...)
+		for _, fault := range res.Faults {
+			// Keep reports workspace-independent while SHA-256 remains the
+			// authoritative provenance link.
+			fault.File = filepath.Base(fault.File)
+			r.Faults = append(r.Faults, fault)
+		}
 	}
 
 	sortFaults(r.Faults)
