@@ -95,11 +95,19 @@ func InjectReorder(pkts [][]byte) ([][]byte, int) {
 	return out, 1
 }
 
-// InjectTruncate 在流的后段截断，丢弃尾部若干包，制造不完整片段。
+// InjectTruncate 在流的后段、某个视频 PES 的中间截断，丢弃尾部包，
+// 保证留下一个未完成的 PES（制造可观测的截断片段）。
 func InjectTruncate(pkts [][]byte) ([][]byte, int) {
-	cut := len(pkts) * 3 / 4
-	if cut >= len(pkts) {
+	videoIdx := findPayloadPackets(pkts, PIDVideo)
+	if len(videoIdx) < 4 {
 		return pkts, 0
+	}
+	// 从后 1/4 区域选一个 PUSI 视频包，截到它的下一个包为止，
+	// 这样该 PES 只发出首片即被切断，Flush 时必然报告 Truncated。
+	start := len(videoIdx) * 3 / 4
+	cut := videoIdx[start] + 1
+	if cut >= len(pkts) {
+		cut = len(pkts) - 1
 	}
 	return clonePackets(pkts)[:cut], len(pkts) - cut
 }

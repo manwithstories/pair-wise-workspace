@@ -71,3 +71,6 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# 本地演示/测试产物目录，不提交
+.tmp/

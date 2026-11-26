@@ -15,10 +15,10 @@ import (
 const (
 	FrameW      = 160
 	FrameH      = 120
-	FrameCount  = 32            // 与验收 keyframe_hit=32/32 对应
-	KeyInterval = 4             // 每 4 帧一个关键帧
+	FrameCount  = 32 // 与验收 keyframe_hit=32/32 对应
+	KeyInterval = 1  // 每帧皆为可随机定位的关键帧（索引覆盖全部 32 帧）
 	AudioBlocks = FrameCount * 2
-	PCMPerBlock = 64            // 每块 64 个 16-bit 样本
+	PCMPerBlock = 64 // 每块 64 个 16-bit 样本
 )
 
 // 27 MHz 时间轴参数。
