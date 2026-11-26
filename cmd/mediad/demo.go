@@ -69,6 +69,9 @@ func runDemo(cfg demoConfig) error {
 	if err != nil {
 		return err
 	}
+	if err := removeIfExists(cachePath); err != nil {
+		return err
+	}
 	c1, err := pipeline.LoadOrBuildIndex(cleanPath, cachePath)
 	if err != nil {
 		return err
@@ -99,6 +102,9 @@ func runDemo(cfg demoConfig) error {
 	if err != nil {
 		return err
 	}
+	if err := removeIfExists(freshOut, freshCkpt); err != nil {
+		return err
+	}
 	fresh, err := pipeline.Run(pipeline.Options{
 		InputPath: cleanPath, OutputPath: freshOut, CheckpointPath: freshCkpt,
 		CachePath: runCache, Requests: req,
@@ -113,6 +119,9 @@ func runDemo(cfg demoConfig) error {
 	}
 	deliveredCkpt, err := pipeline.SafeJoin(cfg.Work, "delivered.checkpoint.json")
 	if err != nil {
+		return err
+	}
+	if err := removeIfExists(deliveredOut, deliveredCkpt); err != nil {
 		return err
 	}
 	_, err = pipeline.Run(pipeline.Options{

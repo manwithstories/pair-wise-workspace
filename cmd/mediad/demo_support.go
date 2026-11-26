@@ -9,6 +9,15 @@ import (
 	"mediad/internal/trackmap"
 )
 
+func removeIfExists(paths ...string) error {
+	for _, p := range paths {
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			return model.Wrap(model.CodeInternal, model.StageCLI, "reset demo artifact", err).WithSource(p)
+		}
+	}
+	return nil
+}
+
 func demoMapping() []trackmap.Request {
 	return []trackmap.Request{
 		{SourceID: 1, OutputID: 1},

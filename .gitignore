@@ -71,3 +71,11 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Go build/test artifacts and local demo output ----
+/tmp/
+/mediad
+/dist/
+*.test
+*.out
+coverage.txt
