@@ -5,6 +5,7 @@ package pipeline
 import (
 	"github.com/pairwise/relay/internal/cache"
 	"github.com/pairwise/relay/internal/checkpoint"
+	"github.com/pairwise/relay/internal/media"
 	"github.com/pairwise/relay/internal/transport"
 )
 
@@ -84,6 +85,7 @@ type Result struct {
 	TransportStats    transport.Stats
 	GapSegments       []uint64
 	Discontinuities   []uint64
+	Faults            []*media.Fault
 	Checkpoint        *checkpoint.Checkpoint
 	Interrupted       bool
 }

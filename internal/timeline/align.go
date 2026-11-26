@@ -210,6 +210,17 @@ func Align(tracks []TrackInput, segmentCount int, duration90k int64) (*Report, e
 	return report, nil
 }
 
+// GapSegments returns common boundaries containing an unavailable cell.
+func (r *Report) GapSegments() []uint64 {
+	var out []uint64
+	for _, b := range r.Boundaries {
+		if b.Gap {
+			out = append(out, b.Index)
+		}
+	}
+	return out
+}
+
 // SamplesContinuous proves that a trun has positive, non-overflowing sample
 // durations whose total matches the expected common segment duration within
 // the one-tick tolerance.
