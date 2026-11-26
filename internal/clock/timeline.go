@@ -60,6 +60,8 @@ func (t *Timeline) ResolveTFDT(hasTFDT bool, value uint64) Decision {
 		d.Undetermined = true
 		d.Reason = "no tfdt and no timeline anchor"
 	case !ok:
+		// Anchor the timeline on the first segment's own tfdt.
+		t.next, t.valid = int64(value), true
 		d.Reason = "anchored on first segment tfdt"
 	case !hasTFDT:
 		d.Value = uint64(exp)
