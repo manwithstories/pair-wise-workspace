@@ -68,13 +68,13 @@ func Generate(profile string, seed int64) (*Trace, error) {
 	}
 
 	t := &Trace{
-		Profile: profile, Seed: seed, PacketCount: 48, VideoCount: 72,
+		Profile: profile, Seed: seed, PacketCount: 48, VideoCount: 48,
 		PacketIntervalMS: 20, StartSequence: 65520,
 		AudioSSRC: 0xA0D10001, VideoSSRC: 0xB1DE0002,
 	}
 	if profile == ProfileCorrupt {
 		t.PacketCount = 32
-		t.VideoCount = 48
+		t.VideoCount = 32
 	}
 	t.JitterMS = deterministicJitter(profile, seed, t.PacketCount)
 	t.Conditions = defaultConditions(profile)
@@ -168,13 +168,13 @@ func (t *Trace) ConditionAt(nowMS int) Condition {
 
 // WaitWindowMS derives an adaptive playout window from bandwidth/RTT/jitter.
 func WaitWindowMS(c Condition) int {
-	serialMS := int(math.Round(14000 / math.Max(64, float64(c.BandwidthKbps))))
-	wait := 24 + c.JitterMS + c.RTTMS/3 + serialMS
+	serialMS := 2500 / math.Max(64, float64(c.BandwidthKbps))
+	wait := 16 + c.JitterMS/3 + c.RTTMS/6 + int(math.Round(serialMS))
 	if wait < 35 {
 		return 35
 	}
-	if wait > 115 {
-		return 115
+	if wait > 80 {
+		return 80
 	}
 	return wait
 }
