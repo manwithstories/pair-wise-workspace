@@ -155,6 +155,9 @@ func (a *Assembler) Handle(p Packet) error {
 func (a *Assembler) addGapLocked(until uint64) {
 	var added []uint64
 	for s := a.nextSeq; s < until; s++ {
+		if _, buffered := a.buffered[s]; buffered {
+			continue
+		}
 		if _, ok := a.missing[s]; !ok {
 			a.missing[s] = &missingState{}
 			added = append(added, s)
