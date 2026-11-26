@@ -43,7 +43,7 @@ func shortFixture(t *testing.T, dir string) (*manifest.Manifest, *timeline.Timel
 		perStream[s.ID] = m.PacketsForStream(s.ID)
 	}
 	tl, errs := timeline.Compose(m, perStream,
-		map[int]*clock.WrapExpander{}, map[int][]clock.WrapEvent{})
+		map[int]*clock.WrapExpander{}, map[int][]clock.WrapEvent{}, nil)
 	if len(errs) != 0 {
 		t.Fatal(errs)
 	}
