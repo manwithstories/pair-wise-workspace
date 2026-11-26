@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -237,11 +238,18 @@ func mustAtoi(s string) int {
 }
 
 func detectOverlaps(doc *Document) {
-	for i := 1; i < len(doc.Cues); i++ {
-		prev, cur := doc.Cues[i-1], doc.Cues[i]
-		if cur.StartMS < prev.EndMS {
+	sorted := append([]Cue(nil), doc.Cues...)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].StartMS < sorted[j].StartMS })
+	var maxEnd int64 = -1
+	var maxEndLine int
+	for _, cur := range sorted {
+		if maxEnd >= 0 && cur.StartMS < maxEnd {
 			doc.Issues = append(doc.Issues, Issue{SourceLine: cur.SourceLine, StartMS: cur.StartMS, EndMS: cur.EndMS,
-				Kind: fault.OverlappingCue, Message: fmt.Sprintf("overlaps cue at source line %d", prev.SourceLine)})
+				Kind: fault.OverlappingCue, Message: fmt.Sprintf("overlaps cue at source line %d", maxEndLine)})
+		}
+		if cur.EndMS > maxEnd {
+			maxEnd = cur.EndMS
+			maxEndLine = cur.SourceLine
 		}
 	}
 }

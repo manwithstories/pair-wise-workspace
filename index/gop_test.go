@@ -39,11 +39,11 @@ func TestAtomicSaveResumeAndStableHashes(t *testing.T) {
 		idx.Segments[1].Hash = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
 		return idx, nil
 	}
-	first, resumed, err := ResumeOrBuild(path, build)
+	first, resumed, err := ResumeOrBuild(path, 17, build)
 	if err != nil || resumed {
 		t.Fatalf("first build resumed=%v err=%v", resumed, err)
 	}
-	second, resumed, err := ResumeOrBuild(path, build)
+	second, resumed, err := ResumeOrBuild(path, 17, build)
 	if err != nil || !resumed {
 		t.Fatalf("second load resumed=%v err=%v", resumed, err)
 	}

@@ -166,10 +166,14 @@ func Load(path string) (*Index, error) {
 	return &idx, nil
 }
 
-// ResumeOrBuild loads a valid checkpoint; otherwise builds and atomically saves.
-func ResumeOrBuild(path string, build func() (*Index, error)) (idx *Index, resumed bool, err error) {
+// ResumeOrBuild loads a valid checkpoint for expectedSeed; otherwise builds
+// and atomically saves a fresh index.
+func ResumeOrBuild(path string, expectedSeed int64, build func() (*Index, error)) (idx *Index, resumed bool, err error) {
 	if existing, loadErr := Load(path); loadErr == nil {
-		return existing, true, nil
+		if existing.Seed == expectedSeed {
+			return existing, true, nil
+		}
+		_ = os.Remove(path)
 	} else if !errors.Is(loadErr, os.ErrNotExist) {
 		// A corrupt index is rebuilt rather than resuming from unsafe state.
 		_ = os.Remove(path)

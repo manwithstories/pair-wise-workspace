@@ -13,7 +13,7 @@ func persistOutputs(workDir, caseName string, idx *index.Index, srt, vtt []byte)
 		return false, err
 	}
 	indexPath := filepath.Join(workDir, fmt.Sprintf("index-%s.json", caseName))
-	_, resumed, err := index.ResumeOrBuild(indexPath, func() (*index.Index, error) { return idx, nil })
+	_, resumed, err := index.ResumeOrBuild(indexPath, idx.Seed, func() (*index.Index, error) { return idx, nil })
 	if err != nil {
 		return resumed, err
 	}
