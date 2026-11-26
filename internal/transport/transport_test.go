@@ -191,6 +191,58 @@ func TestWraparoundUnwrap(t *testing.T) {
 	}
 }
 
+func TestTimestampUnwrapMatchesGroundTruth(t *testing.T) {
+	// The fixture records both the wrapped wire RawTS and the monotonic
+	// UnwrappedTS ground truth; the receiver must reconstruct the latter.
+	clip, err := fixture.Generate(fixture.DefaultConfig(41))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tsMod := map[uint32]int64{}
+	for _, tr := range clip.Tracks {
+		if tr.WrapModulus > 0 {
+			tsMod[tr.ID] = tr.WrapModulus
+		}
+	}
+	if len(tsMod) == 0 {
+		t.Fatal("fixture must enable timestamp wrap")
+	}
+	r, err := NewReceiver(Config{ReorderWindow: 16, TSWrapModulus: tsMod})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range clip.Packets {
+		if err := r.Ingest(p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, gaps, _ := r.Flush()
+	if len(gaps) != 0 {
+		t.Fatalf("clean wrapped stream must not gap: %+v", gaps)
+	}
+	truth := map[[2]uint32]int64{}
+	for _, p := range clip.Packets {
+		if p.IsParity {
+			continue
+		}
+		truth[[2]uint32{p.Track, p.Seq}] = p.UnwrappedTS
+	}
+	checked := 0
+	for _, p := range out {
+		want, ok := truth[[2]uint32{p.Track, p.Seq}]
+		if !ok {
+			continue
+		}
+		if p.RawTS != want {
+			t.Fatalf("track %d seq %d unwrapped=%d want=%d", p.Track, p.Seq, p.RawTS, want)
+		}
+		checked++
+	}
+	if checked == 0 {
+		t.Fatal("no packets verified against unwrap ground truth")
+	}
+}
+
 func TestReorderWindowLateArrival(t *testing.T) {
 	r, _ := NewReceiver(Config{ReorderWindow: 4, WrapModulus: 0})
 	// Sequence 1 is genuinely missing; the high watermark advances well past

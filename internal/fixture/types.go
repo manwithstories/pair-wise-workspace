@@ -86,10 +86,13 @@ type NumDen struct {
 type Packet struct {
 	Track    uint32
 	Seq      uint32 // RTP-style per-track sequence number
-	RawTS    int64  // native timebase ticks, possibly wrapped / drifted
-	TrueUS   int64  // ground-truth normalized position in microseconds
-	Duration int64  // frame duration in native ticks (VFR for video)
-	Payload  []byte // deterministic synthetic content
+	RawTS    int64  // native timebase ticks after wrap modulo (wire value)
+	// UnwrappedTS is the monotonic drift tick before the wrap modulo. It is
+	// the ground truth the transport timestamp-unwrapper must reconstruct.
+	UnwrappedTS int64
+	TrueUS      int64 // ground-truth normalized position in microseconds
+	Duration    int64 // frame duration in native ticks (VFR for video)
+	Payload     []byte // deterministic synthetic content
 	// FEC group index; parity packets share the group with 8 media packets.
 	FECGroup int
 	IsParity bool

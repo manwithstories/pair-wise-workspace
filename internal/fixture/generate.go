@@ -17,11 +17,18 @@ const (
 	MaxEvents       = 10_000
 )
 
+// Wrap moduli force several per-track timestamp rollovers inside the ~10 s
+// demo span so wraparound expansion is exercised end to end.
+const (
+	videoWrapModulus = 1 << 16 // 90 kHz ticks -> wraps roughly every 728 ms
+	audioWrapModulus = 1 << 15 // 48 kHz ticks -> wraps roughly every 683 ms
+)
+
 // defaultTracks builds the four canonical demo tracks.
 func defaultTracks() []Track {
 	return []Track{
-		{ID: 1, Kind: KindVideo, Timebase: NumDen{1, 90000}, DriftPPM: 120, PayloadLen: 256},
-		{ID: 2, Kind: KindAudio, Timebase: NumDen{1, 48000}, DriftPPM: 40, PayloadLen: 192},
+		{ID: 1, Kind: KindVideo, Timebase: NumDen{1, 90000}, DriftPPM: 120, WrapModulus: videoWrapModulus, PayloadLen: 256},
+		{ID: 2, Kind: KindAudio, Timebase: NumDen{1, 48000}, DriftPPM: 40, WrapModulus: audioWrapModulus, PayloadLen: 192},
 		{ID: 3, Kind: KindSubtitle, Timebase: NumDen{1, 1000}, PayloadLen: 96},
 		{ID: 4, Kind: KindChapter, Timebase: NumDen{1, 1000}, PayloadLen: 64},
 	}
@@ -54,12 +61,14 @@ func Generate(cfg Config) (*Clip, error) {
 				durUS = frameUS / 2
 			}
 		}
-		raw := driftedTicks(curUS, videoTB, tracks[0].DriftPPM)
+		drifted := driftedTicks(curUS, videoTB, tracks[0].DriftPPM)
+		raw := drifted
 		if tracks[0].WrapModulus > 0 {
-			raw %= tracks[0].WrapModulus
+			raw = drifted % tracks[0].WrapModulus
 		}
 		durTicks, _ := timeline.FromStandard(durUS, videoTB)
 		p := newPacket(cfg.Seed, tracks[0], uint32(f), raw, curUS, durTicks)
+		p.UnwrappedTS = drifted
 		clip.Packets = append(clip.Packets, p)
 		curUS += durUS
 	}
@@ -68,12 +77,14 @@ func Generate(cfg Config) (*Clip, error) {
 	audioFrameUS := int64(1024) * 1_000_000 / 48000
 	curUS = 0
 	for a := 0; a < cfg.AudioPackets; a++ {
-		raw := driftedTicks(curUS, audioTB, tracks[1].DriftPPM)
+		drifted := driftedTicks(curUS, audioTB, tracks[1].DriftPPM)
+		raw := drifted
 		if tracks[1].WrapModulus > 0 {
-			raw %= tracks[1].WrapModulus
+			raw = drifted % tracks[1].WrapModulus
 		}
 		durTicks, _ := timeline.FromStandard(int64(audioFrameUS), audioTB)
 		p := newPacket(cfg.Seed, tracks[1], uint32(a), raw, curUS, durTicks)
+		p.UnwrappedTS = drifted
 		clip.Packets = append(clip.Packets, p)
 		curUS += int64(audioFrameUS)
 	}

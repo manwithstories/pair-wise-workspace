@@ -91,8 +91,17 @@ func Run(ctx context.Context, name string, cfg Config) (*Outcome, error) {
 		return nil, err
 	}
 
-	// 3. Transport recovery: reorder, dedup, FEC, precise gaps.
-	recv, err := transport.NewReceiver(transport.Config{ReorderWindow: cfg.ReorderWindow})
+	// 3. Transport recovery: reorder, dedup, FEC, precise gaps. Per-track
+	// timestamp wrap moduli from the fixture drive timestamp unwrapping.
+	tsMod := map[uint32]int64{}
+	for _, tr := range clip.Tracks {
+		if tr.WrapModulus > 0 {
+			tsMod[tr.ID] = tr.WrapModulus
+		}
+	}
+	recv, err := transport.NewReceiver(transport.Config{
+		ReorderWindow: cfg.ReorderWindow, TSWrapModulus: tsMod,
+	})
 	if err != nil {
 		return nil, err
 	}

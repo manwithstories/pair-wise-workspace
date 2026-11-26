@@ -28,6 +28,10 @@ type Config struct {
 	ReorderWindow int
 	// WrapModulus > 0 enables per-track sequence unwrapping (e.g. 1<<16 RTP).
 	WrapModulus int64
+	// TSWrapModulus maps a track to its raw-timestamp wrap modulus (e.g.
+	// 2^16 for a 90 kHz video clock). Tracks absent from the map are not
+	// timestamp-unwrapped.
+	TSWrapModulus map[uint32]int64
 }
 
 // trackReceiver holds per-track reorder and FEC state.
@@ -39,6 +43,31 @@ type trackReceiver struct {
 	seen     map[int64]bool
 	fec      *FECResolver
 	maxSeen  int64
+}
+
+// tsExpander reconstructs a monotonic timestamp from a wrapping wire clock.
+// Unlike the sequence Unwrapper, timestamps advance by small regular deltas,
+// so any backwards move relative to the previous in-range value is a wrap:
+// the accumulated modulus is increased by one boundary.
+type tsExpander struct {
+	modulus   int64
+	carry     int64
+	prev      int64
+	havePrev  bool
+	wraps     int
+}
+
+func newTSExpander(modulus int64) *tsExpander { return &tsExpander{modulus: modulus} }
+
+// expand returns the monotonic (wrap-free) timestamp for an in-range raw value.
+func (e *tsExpander) expand(raw int64) int64 {
+	if e.havePrev && raw < e.prev {
+		e.carry += e.modulus
+		e.wraps++
+	}
+	e.prev = raw
+	e.havePrev = true
+	return raw + e.carry
 }
 
 // Receiver restores all tracks of one stream.
@@ -222,6 +251,22 @@ func (r *Receiver) Flush() ([]fixture.Packet, []Gap, Stats) {
 		}
 		return r.out[i].Track < r.out[j].Track
 	})
+	// Timestamp unwrapping runs only after the stream is fully reordered, so
+	// each track's packets are visited in monotonic delivery order.
+	expanders := map[uint32]*tsExpander{}
+	for i := range r.out {
+		p := &r.out[i]
+		mod, ok := r.cfg.TSWrapModulus[p.Track]
+		if !ok || mod <= 0 {
+			continue
+		}
+		exp, ok := expanders[p.Track]
+		if !ok {
+			exp = newTSExpander(mod)
+			expanders[p.Track] = exp
+		}
+		p.RawTS = exp.expand(p.RawTS)
+	}
 	return r.out, r.gaps, r.stats
 }
 

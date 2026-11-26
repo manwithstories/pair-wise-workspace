@@ -89,7 +89,14 @@ func (n *Normalizer) Estimate(packets []fixture.Packet, tracks []fixture.Track) 
 			return timeline.TrackError("clock.estimate", p.Track, p.RawTS,
 				tbByTrack[p.Track], false, fmt.Errorf("%w: negative raw timestamp", timeline.ErrOverflow))
 		}
-		x := float64(p.RawTS)
+		// Fit against the monotonic (wrap-free) tick value. When the fixture
+		// records an explicit unwrapped tick use it; otherwise fall back to
+		// the raw value for callers that feed already-unwrapped packets.
+		ticks := p.UnwrappedTS
+		if ticks == 0 && p.RawTS != 0 {
+			ticks = p.RawTS
+		}
+		x := float64(ticks)
 		y := float64(p.TrueUS)
 		acc.sumX += x
 		acc.sumY += y
@@ -97,10 +104,10 @@ func (n *Normalizer) Estimate(packets []fixture.Packet, tracks []fixture.Track) 
 		acc.sumXX += x * x
 		acc.n++
 		if !acc.have {
-			acc.firstRaw, acc.firstUS = p.RawTS, p.TrueUS
+			acc.firstRaw, acc.firstUS = ticks, p.TrueUS
 			acc.have = true
 		}
-		acc.lastRaw, acc.lastUS = p.RawTS, p.TrueUS
+		acc.lastRaw, acc.lastUS = ticks, p.TrueUS
 	}
 
 	for id, acc := range accs {
@@ -154,7 +161,11 @@ func (n *Normalizer) Normalize(p fixture.Packet) (Normalized, error) {
 		return Normalized{}, timeline.TrackError("clock.normalize", p.Track, p.RawTS,
 			timeline.RationalZero, false, fmt.Errorf("no drift model for track"))
 	}
-	corrected := int64(math.Round((float64(p.RawTS) - m.Intercept) * m.Slope))
+	ticks := p.UnwrappedTS
+	if ticks == 0 && p.RawTS != 0 {
+		ticks = p.RawTS
+	}
+	corrected := int64(math.Round((float64(ticks) - m.Intercept) * m.Slope))
 	// Clamp origin noise: fitted intercept can push the earliest frame a few
 	// microseconds negative even though media time starts at zero.
 	if corrected < 0 && corrected > -DriftLimitUS {

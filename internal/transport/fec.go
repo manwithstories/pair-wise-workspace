@@ -184,14 +184,15 @@ func rebuildXOR(g *groupState, missingSlot int) fixture.Packet {
 		}
 	}
 	return fixture.Packet{
-		Track:     g.track,
-		Seq:       parity.Seq,
-		RawTS:     parity.RawTS,
-		TrueUS:    parity.TrueUS,
-		Duration:  parity.Duration,
-		Payload:   payload,
-		FECGroup:  g.group,
-		Recovered: true,
+		Track:       g.track,
+		Seq:         parity.Seq,
+		RawTS:       parity.RawTS,
+		UnwrappedTS: parity.UnwrappedTS,
+		TrueUS:      parity.TrueUS,
+		Duration:    parity.Duration,
+		Payload:     payload,
+		FECGroup:    g.group,
+		Recovered:   true,
 	}
 }
 

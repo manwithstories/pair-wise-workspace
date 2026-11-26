@@ -69,8 +69,8 @@ func TestVFREnabledAndMonotonic(t *testing.T) {
 func TestDriftApplied(t *testing.T) {
 	cfg := DefaultConfig(41)
 	clip, _ := Generate(cfg)
-	// Video track drifts +120 PPM; raw ticks must exceed the undrifted value
-	// after enough time has elapsed.
+	// Video track drifts +120 PPM; the monotonic (pre-wrap) tick must exceed
+	// the undrifted value after enough time has elapsed.
 	tb := mustTB(clip.Tracks[0].Timebase)
 	var checked bool
 	for _, p := range clip.Packets {
@@ -81,14 +81,38 @@ func TestDriftApplied(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if p.RawTS <= undrifted {
-			t.Fatalf("drift not applied: raw=%d undrifted=%d", p.RawTS, undrifted)
+		if p.UnwrappedTS <= undrifted {
+			t.Fatalf("drift not applied: unwrapped=%d undrifted=%d", p.UnwrappedTS, undrifted)
+		}
+		// The wire value must stay inside the wrap modulus.
+		if p.RawTS >= clip.Tracks[0].WrapModulus || p.RawTS < 0 {
+			t.Fatalf("wrapped raw out of modulus: %d", p.RawTS)
 		}
 		checked = true
 		break
 	}
 	if !checked {
 		t.Fatal("no late video packet found for drift check")
+	}
+}
+
+func TestWraparoundGenerated(t *testing.T) {
+	clip, _ := Generate(DefaultConfig(41))
+	mod := map[uint32]int64{}
+	for _, tr := range clip.Tracks {
+		mod[tr.ID] = tr.WrapModulus
+	}
+	wrapped := 0
+	for _, p := range clip.Packets {
+		if p.IsParity || mod[p.Track] == 0 {
+			continue
+		}
+		if p.UnwrappedTS >= p.RawTS+mod[p.Track] {
+			wrapped++
+		}
+	}
+	if wrapped == 0 {
+		t.Fatal("expected wrapped timestamps in the generated clip")
 	}
 }
 
