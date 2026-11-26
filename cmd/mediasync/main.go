@@ -14,7 +14,17 @@ import (
 )
 
 func main() {
-	os.Exit(run(os.Args, os.Stdout, os.Stderr))
+	os.Exit(runWithRecovery(os.Args, os.Stdout, os.Stderr))
+}
+
+func runWithRecovery(args []string, stdout, stderr io.Writer) (code int) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Fprintf(stderr, "internal error: %v\n", r)
+			code = model.ExitInternal
+		}
+	}()
+	return run(args, stdout, stderr)
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
