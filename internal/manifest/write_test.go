@@ -22,7 +22,7 @@ func TestBuildOnlyCommittedAndSorted(t *testing.T) {
 		rec("seg-2", "key-z", "committed"),
 		rec("seg-1", "key-a", "committed"),
 	}
-	m := Build(records, "run-1", "2026-01-01T00:00:00Z")
+	m := Build(records, "run-1", "2026-01-01T00:00:00Z", RunStats{SilenceIntervals: 2, DuplicateGroups: 1})
 	if m.SegmentCount != 2 {
 		t.Fatalf("count=%d", m.SegmentCount)
 	}
@@ -37,7 +37,7 @@ func TestBuildOnlyCommittedAndSorted(t *testing.T) {
 func TestAtomicWriteReadAndStableBytes(t *testing.T) {
 	root := t.TempDir()
 	m := Build([]*journal.SegmentRecord{rec("seg-1", "key-a", "committed")},
-		"run-1", "fixed-time")
+		"run-1", "fixed-time", RunStats{})
 	h1, err := WriteAtomically(root, m)
 	if err != nil {
 		t.Fatal(err)
@@ -62,7 +62,7 @@ func TestAtomicWriteReadAndStableBytes(t *testing.T) {
 }
 
 func TestManifestSchemaAndEmpty(t *testing.T) {
-	m := Build(nil, "run-empty", "t")
+	m := Build(nil, "run-empty", "t", RunStats{})
 	if m.SchemaVersion != "1.0" || m.SegmentCount != 0 {
 		t.Fatalf("空清单字段错误: %+v", m)
 	}

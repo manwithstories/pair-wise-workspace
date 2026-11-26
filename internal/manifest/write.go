@@ -23,17 +23,24 @@ const ManifestFileName = "manifest.json"
 
 // SegmentEntry 是清单中的一个片段条目（只含已提交数据）。
 type SegmentEntry struct {
-	SegmentID       string            `json:"segment_id"`
-	SourceID        string            `json:"source_id"`
-	IdempotencyKey  string            `json:"idempotency_key"`
-	AdapterName     string            `json:"adapter_name"`
-	AdapterVersion  string            `json:"adapter_version"`
-	FilePath        string            `json:"file_path"`
-	FileSha256      string            `json:"file_sha256"`
-	StartUs         int64             `json:"start_us"`
-	EndUs           int64             `json:"end_us"`
-	ProvenanceSha256 string           `json:"provenance_sha256"`
-	Params          map[string]string `json:"params"`
+	SegmentID        string            `json:"segment_id"`
+	SourceID         string            `json:"source_id"`
+	IdempotencyKey   string            `json:"idempotency_key"`
+	AdapterName      string            `json:"adapter_name"`
+	AdapterVersion   string            `json:"adapter_version"`
+	FilePath         string            `json:"file_path"`
+	FileSha256       string            `json:"file_sha256"`
+	StartUs          int64             `json:"start_us"`
+	EndUs            int64             `json:"end_us"`
+	ProvenanceSha256 string            `json:"provenance_sha256"`
+	Params           map[string]string `json:"params"`
+}
+
+// RunStats 持久化运行期统计，使 verify 子命令无需重跑流水线即可还原
+// 静音区间数与重复分组数。
+type RunStats struct {
+	SilenceIntervals int `json:"silence_intervals"`
+	DuplicateGroups  int `json:"duplicate_groups"`
 }
 
 // Manifest 是完整清单。
@@ -43,29 +50,30 @@ type Manifest struct {
 	GeneratedAt   string         `json:"generated_at"`
 	Segments      []SegmentEntry `json:"segments"`
 	// 派生统计，供核验与终端报告直接读取。
-	SegmentCount int    `json:"segment_count"`
-	ManifestSha  string `json:"manifest_sha256,omitempty"`
+	SegmentCount int      `json:"segment_count"`
+	Stats        RunStats `json:"stats"`
+	ManifestSha  string   `json:"manifest_sha256,omitempty"`
 }
 
 // Build 从已提交的 journal 记录构造清单（确定性排序）。
-func Build(records []*journal.SegmentRecord, runID, generatedAt string) Manifest {
+func Build(records []*journal.SegmentRecord, runID, generatedAt string, stats RunStats) Manifest {
 	entries := make([]SegmentEntry, 0, len(records))
 	for _, r := range records {
 		entries = append(entries, SegmentEntry{
 			SegmentID: r.SegmentID, SourceID: r.SourceID,
 			IdempotencyKey: r.IdempotencyKey,
-			AdapterName: r.AdapterName, AdapterVersion: r.AdapterVersion,
+			AdapterName:    r.AdapterName, AdapterVersion: r.AdapterVersion,
 			FilePath: r.FilePath, FileSha256: r.FileSha256,
 			StartUs: r.StartUs, EndUs: r.EndUs,
 			ProvenanceSha256: r.Provenance,
-			Params: cloneParams(r.Params),
+			Params:           cloneParams(r.Params),
 		})
 	}
 	// 按幂等键排序，保证与提交顺序无关的确定性输出。
 	sort.Slice(entries, func(i, j int) bool { return entries[i].IdempotencyKey < entries[j].IdempotencyKey })
 	return Manifest{
 		SchemaVersion: "1.0", RunID: runID, GeneratedAt: generatedAt,
-		Segments: entries, SegmentCount: len(entries),
+		Segments: entries, SegmentCount: len(entries), Stats: stats,
 	}
 }
 
