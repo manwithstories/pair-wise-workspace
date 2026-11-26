@@ -196,7 +196,9 @@ func Run(cfg Config) (*Output, error) {
 				Duplicates: ing.Stats.Duplicates, Conflicts: ing.Stats.Conflicts, Malformed: ing.Stats.Malformed,
 				Recovered: repairReport.Recovered, RecoverableLoss: repairReport.RecoverableLoss,
 				UnrecoverableGaps: repairReport.UnrecoverableGap, RecoveryRate: repairReport.RecoveryRate,
-				AVSyncP95MS: syncReport.P95AbsMS, E2EP95MS: metrics.Percentile(e2eMS, 0.95),
+				AVSyncP95MS: syncReport.P95AbsMS, AVGapOffsetMS: syncReport.MaxGapOffsetMS,
+				PropagatedGaps: syncReport.PropagatedGaps,
+				E2EP95MS:       metrics.Percentile(e2eMS, 0.95),
 			}
 			avAbs := make([]float64, 0, len(syncReport.Samples))
 			for _, s := range syncReport.Samples {

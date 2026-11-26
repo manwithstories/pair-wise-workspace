@@ -50,6 +50,9 @@ func TestBurstRecoveryFailOncePreservesArtifactHash(t *testing.T) {
 	if retry.Stats.AVSyncP95MS > 20 || retry.Stats.E2EP95MS > 180 {
 		t.Fatalf("thresholds failed: av=%.2f e2e=%.2f", retry.Stats.AVSyncP95MS, retry.Stats.E2EP95MS)
 	}
+	if retry.Stats.PropagatedGaps == 0 || retry.Stats.AVGapOffsetMS <= 20 {
+		t.Fatalf("burst gap should propagate with reported offset: gaps=%d offset=%.2f", retry.Stats.PropagatedGaps, retry.Stats.AVGapOffsetMS)
+	}
 	if retry.DAG == nil || len(retry.DAG.Retried) != 1 || retry.DAG.Retried[0] != "audio.repair" {
 		t.Fatalf("dag report=%+v", retry.DAG)
 	}

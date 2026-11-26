@@ -24,6 +24,8 @@ type Stats struct {
 	UnrecoverableGaps int     `json:"unrecoverable_gaps,omitempty"`
 	RecoveryRate      float64 `json:"recovery_rate"`
 	AVSyncP95MS       float64 `json:"av_sync_p95_ms"`
+	AVGapOffsetMS     float64 `json:"av_gap_offset_ms,omitempty"`
+	PropagatedGaps    int     `json:"propagated_gaps,omitempty"`
 	E2EP95MS          float64 `json:"e2e_p95_ms"`
 	FirstBlocked      string  `json:"first_blocked"`
 	OutputSHA256      string  `json:"-"`
@@ -91,6 +93,10 @@ func (s Stats) PrintKeyValues(w io.Writer) {
 	_, _ = fmt.Fprintf(w, "recoverable_loss=%d\n", s.RecoverableLoss)
 	_, _ = fmt.Fprintf(w, "recovery_rate=%.3f\n", s.RecoveryRate)
 	_, _ = fmt.Fprintf(w, "av_sync_p95_ms=%.2f\n", s.AVSyncP95MS)
+	if s.PropagatedGaps > 0 {
+		_, _ = fmt.Fprintf(w, "propagated_gaps=%d\n", s.PropagatedGaps)
+		_, _ = fmt.Fprintf(w, "av_gap_offset_ms=%.2f\n", s.AVGapOffsetMS)
+	}
 	_, _ = fmt.Fprintf(w, "e2e_p95_ms=%.2f\n", s.E2EP95MS)
 	_, _ = fmt.Fprintf(w, "first_blocked=%s\n", firstBlocked)
 	_, _ = fmt.Fprintf(w, "output_sha256=%s\n", s.OutputSHA256)
