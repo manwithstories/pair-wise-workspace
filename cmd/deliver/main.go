@@ -116,7 +116,7 @@ func runVerify(args []string) int {
 		}
 		committed, resumed = seq, true
 	} else if err != nil {
-		return fatalOrInterrupted(ctx, c.ckpt, committed, err)
+		return fatalOrInterrupted(ctx, c.ckpt, pr, err)
 	}
 	committed, err = runPipeline(ctx, clock, c, stream, retry, committed, -1, rep)
 	if err != nil {
