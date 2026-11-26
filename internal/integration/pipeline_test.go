@@ -89,3 +89,33 @@ func TestSlowConsumerBackPressureAndResume(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestQueueBudgetNeverExceeded runs the complete resume flow under a budget
+// smaller than several queued fragments and asserts the measured peak never
+// crosses the ceiling, including across the resume boundary.
+func TestQueueBudgetNeverExceeded(t *testing.T) {
+	sc := fixture.BuildAllScenario()
+	reports := healthyReports(t, sc)
+	const budget int64 = 1500
+	dir := t.TempDir()
+
+	p, err := stream.New(stream.Config{
+		OutDir: dir, QueueBytes: budget, ConsumerDelay: time.Millisecond,
+	}, output.NewWriter())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Run(context.Background(), reports); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	peak := p.PeakQueueBytes()
+	if peak > budget {
+		t.Fatalf("peak %d exceeded budget %d", peak, budget)
+	}
+	if peak <= 0 {
+		t.Fatal("expected non-zero queue usage")
+	}
+	if err := p.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
