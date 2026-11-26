@@ -46,6 +46,7 @@ type Track struct {
 	SampleRate int // 音频
 	Channels   int
 	Codec      string
+	WrapBits   int // 时间戳回绕位宽，0 表示不回绕
 }
 
 // FramePacket 是一次解码粒度的时间戳记录。
