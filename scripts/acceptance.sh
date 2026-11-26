@@ -23,6 +23,8 @@ grep '^segment_hash ' "$work/run2.txt" > "$work/hashes2.txt"
 diff -u "$work/hashes1.txt" "$work/hashes2.txt"
 grep -E '^segment_sha256=[0-9a-f]{64}$' "$work/run1.txt" >/dev/null
 
+go build -o "$work/medcheck" ./cmd/medcheck
+
 expect_code() {
   local want="$1"
   shift
@@ -36,8 +38,10 @@ expect_code() {
   fi
 }
 
-expect_code 2 go run ./cmd/medcheck demo --case invalid
-expect_code 3 go run ./cmd/medcheck demo --case damaged --seed 17 --strict --workdir "$work/strict"
-expect_code 4 go run ./cmd/medcheck demo --case clean --workdir /dev/null/medcheck-io-fail
+# Check the compiled entrypoint directly; "go run" wraps nonzero program exits
+# as go tool exit status 1.
+expect_code 2 "$work/medcheck" demo --case invalid
+expect_code 3 "$work/medcheck" demo --case damaged --seed 17 --strict --workdir "$work/strict"
+expect_code 4 "$work/medcheck" demo --case clean --workdir /dev/null/medcheck-io-fail
 
 echo "acceptance checks passed"
