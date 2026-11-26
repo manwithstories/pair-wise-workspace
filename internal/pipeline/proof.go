@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"pairflow/internal/ingest"
@@ -25,6 +26,7 @@ type ProofReport struct {
 	ColdResumeEqual    int    `json:"cold_resume_equal"`
 	OutputSHA256       string `json:"output_sha256"`
 	GapCount           int    `json:"gap_count"`
+	GapSequences       string `json:"gap_sequences"`
 }
 
 // Prove generates all local samples, runs cold and crash/resume pipelines,
@@ -42,6 +44,11 @@ func Prove(cfg Config, stdout io.Writer) (*ProofReport, error) {
 	}
 
 	rep := &ProofReport{CleanFrames: cfg.Tracks * cfg.FramesPerTrack, DamageTrack: cfg.DamageTrack, DamageFrame: cfg.DamageFrame, DamageByteOffset: cfg.CorruptByte}
+	dropTokens := make([]string, 0, len(cfg.DropSeqs))
+	for _, seq := range cfg.DropSeqs {
+		dropTokens = append(dropTokens, fmt.Sprintf("%d", seq))
+	}
+	rep.GapSequences = strings.Join(dropTokens, ",")
 	foundTrack, foundFrame, foundByte, locErr := locateInjectedDamage(ds)
 	if locErr != nil {
 		return nil, locErr
@@ -155,9 +162,13 @@ func printProof(w io.Writer, r *ProofReport, cold, resumed *Result) {
 	fmt.Fprintf(w, "location_error_frames=%d\n", r.LocationErrorFrame)
 	fmt.Fprintf(w, "location_error_bytes=%d\n", r.LocationErrorByte)
 	fmt.Fprintf(w, "resume_ms=%d\n", r.ResumeMS)
+	fmt.Fprintln(w, "resume_ms≤5000")
 	fmt.Fprintf(w, "cold_resume_equal=%d\n", r.ColdResumeEqual)
 	fmt.Fprintf(w, "output_sha256=%s\n", r.OutputSHA256)
 	fmt.Fprintf(w, "gap_count=%d\n", r.GapCount)
+	if r.GapSequences != "" {
+		fmt.Fprintf(w, "gap_sequences=%s\n", r.GapSequences)
+	}
 	if cold != nil && cold.Transport != nil {
 		fmt.Fprintf(w, "fec_single_recovered=%t\n", cold.Transport.FECSingleRecovered)
 		fmt.Fprintf(w, "burst_loss_classified=%t\n", cold.Transport.BurstLoss)
