@@ -122,7 +122,7 @@ func writeChild(mw *mp4.Writer, typ mp4.BoxType, box mp4.IImmutableBox) (uint64,
 
 func writeTrun(mw *mp4.Writer, f *ingest.Fragment) error {
 	trun := &mp4.Trun{
-		FullBox:     mp4.FullBox{Flags: flags32(0x000f01)},
+		FullBox:     mp4.FullBox{Version: 1, Flags: flags32(0x000f01)},
 		SampleCount: uint32(len(f.Samples)),
 	}
 	for _, s := range f.Samples {

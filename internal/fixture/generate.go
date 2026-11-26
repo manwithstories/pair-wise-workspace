@@ -97,7 +97,9 @@ func BuildFragment(spec FragmentSpec) []byte {
 	for _, e := range entries {
 		trunBody = append(trunBody, e...)
 	}
-	trun := box("trun", fullBox(0, trunFlags, trunBody))
+	// trun version 1: composition_time_offset is signed, matching the
+	// int32 SampleCompositionTimeOffsetV1 field used by the parser.
+	trun := box("trun", fullBox(1, trunFlags, trunBody))
 	// moof = 8-byte header + traf(8-byte header + mfhd/tfhd/tfdt/trun); the
 	// first sample begins right after the 8-byte mdat header.
 	moofLen := 8 + 8 + len(mfhd) + len(tfhd) + len(tfdt) + len(trun)
