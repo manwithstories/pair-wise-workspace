@@ -50,13 +50,38 @@ func RatFromUnits(value, timescale int64) Rat { return NewRat(value, timescale) 
 // RatFromMillis converts milliseconds to seconds.
 func RatFromMillis(ms int64) Rat { return NewRat(ms, 1000) }
 
-func (r Rat) Add(o Rat) Rat { return NewRat(r.Num*o.Den+o.Num*r.Den, r.Den*o.Den) }
-func (r Rat) Sub(o Rat) Rat { return NewRat(r.Num*o.Den-o.Num*r.Den, r.Den*o.Den) }
+// norm repairs a zero-value Rat (Den == 0) so the zero value behaves
+// as 0/1 in every operation.
+func (r Rat) norm() Rat {
+	if r.Den <= 0 {
+		if r.Den < 0 {
+			r.Num = -r.Num
+			r.Den = -r.Den
+		} else {
+			r.Den = 1
+		}
+	}
+	return r
+}
+
+func (r Rat) Add(o Rat) Rat {
+	r, o = r.norm(), o.norm()
+	return NewRat(r.Num*o.Den+o.Num*r.Den, r.Den*o.Den)
+}
+
+func (r Rat) Sub(o Rat) Rat {
+	r, o = r.norm(), o.norm()
+	return NewRat(r.Num*o.Den-o.Num*r.Den, r.Den*o.Den)
+}
 
 // Mul scales r by an integer factor.
-func (r Rat) Mul(n int64) Rat { return NewRat(r.Num*n, r.Den) }
+func (r Rat) Mul(n int64) Rat {
+	r = r.norm()
+	return NewRat(r.Num*n, r.Den)
+}
 
 func (r Rat) Cmp(o Rat) int {
+	r, o = r.norm(), o.norm()
 	l, rr := r.Num*o.Den, o.Num*r.Den
 	switch {
 	case l < rr:
@@ -70,11 +95,15 @@ func (r Rat) Cmp(o Rat) int {
 func (r Rat) IsZero() bool     { return r.Num == 0 }
 func (r Rat) IsNegative() bool { return r.Num < 0 }
 
-func (r Rat) Float64() float64 { return float64(r.Num) / float64(r.Den) }
+func (r Rat) Float64() float64 {
+	r = r.norm()
+	return float64(r.Num) / float64(r.Den)
+}
 
 // String renders the canonical "num/den" form ("3" for 3/1). It is used in
 // reports, so it must stay deterministic.
 func (r Rat) String() string {
+	r = r.norm()
 	if r.Den == 1 {
 		return strconv.FormatInt(r.Num, 10)
 	}
