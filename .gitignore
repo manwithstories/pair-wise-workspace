@@ -71,3 +71,12 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# Go / media pipeline build products and local working data
+/mediapipe
+/bin/
+/dist/
+/.tmp/
+*.test
+*.out
+coverage.*
