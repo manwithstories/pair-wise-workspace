@@ -82,9 +82,9 @@ func (r Rational) Milliseconds() int64 {
 	num := r.N * 1000
 	q := num / r.D
 	rem := num % r.D
-	if rem <= -r.D/2 {
+	if rem < 0 && -2*rem >= r.D {
 		q--
-	} else if rem >= r.D/2 {
+	} else if rem > 0 && 2*rem >= r.D {
 		q++
 	}
 	return q
