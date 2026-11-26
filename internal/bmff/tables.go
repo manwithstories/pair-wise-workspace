@@ -12,16 +12,9 @@ func u16(b []byte, o int) uint16 { return binary.BigEndian.Uint16(b[o : o+2]) }
 func u32(b []byte, o int) uint32 { return binary.BigEndian.Uint32(b[o : o+4]) }
 func u64(b []byte, o int) uint64 { return binary.BigEndian.Uint64(b[o : o+8]) }
 
-func (s *Reader) parseStbl(stbl *BoxHeader, t *Track) error {
+func (s *Reader) parseStblTablesOnly(stbl *BoxHeader, t *Track) error {
 	if s.MaxSamples == 0 {
 		s.MaxSamples = DefaultMaxSamples
-	}
-	stsd, err := s.MustChild(stbl, "stsd")
-	if err != nil {
-		return err
-	}
-	if err := s.parseStsd(stsd, t); err != nil {
-		return err
 	}
 
 	durations, err := s.parseSTTS(stbl)

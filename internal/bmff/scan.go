@@ -11,10 +11,11 @@ import (
 const DefaultMaxBoxDepth = 40
 
 type Reader struct {
-	R        io.ReaderAt
-	Size     int64
-	Source   string
-	MaxDepth int
+	R          io.ReaderAt
+	Size       int64
+	Source     string
+	MaxDepth   int
+	MaxSamples int
 }
 
 func NewReader(source string, r io.ReaderAt, size int64) *Reader {
