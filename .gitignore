@@ -4,6 +4,14 @@
 #       子目录中生成的同名文件夹都会被忽略
 # ============================================================
 
+# ---- 构建产物：仓库只交付源码，不提交二进制 ----
+/mediamix
+/bin/
+*.test
+*.out
+*.dylib
+*.a
+
 # ---- Claude Code / Claude App (Anthropic) ----
 .claude/
 .claude.json
