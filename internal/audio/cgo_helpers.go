@@ -18,6 +18,11 @@ static void mediamix_copy_frame_payload(AVFrame *f, const void *src, int n) {
 static void mediamix_read_f32(AVFrame *f, float *dst, int n) {
 	memcpy(dst, f->data[0], (size_t)n * sizeof(float));
 }
+
+// mediamix_write_f32 writes n float32 values into the frame's first plane.
+static void mediamix_write_f32(AVFrame *f, const float *src, int n) {
+	memcpy(f->data[0], src, (size_t)n * sizeof(float));
+}
 */
 import "C"
 
@@ -51,4 +56,16 @@ func readF32(f *astiav.Frame, n int) []float32 {
 		C.int(n),
 	)
 	return out
+}
+
+// writeF32 writes interleaved float32 samples into the frame's first plane.
+func writeF32(f *astiav.Frame, samples []float32) {
+	if len(samples) == 0 {
+		return
+	}
+	C.mediamix_write_f32(
+		(*C.AVFrame)(unsafe.Pointer(f.UnsafePointer())),
+		(*C.float)(unsafe.Pointer(&samples[0])),
+		C.int(len(samples)),
+	)
 }
