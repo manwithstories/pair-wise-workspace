@@ -72,6 +72,10 @@ func DiagnoseFile(path, manifestDir string) Diagnosis {
 		// secondary alignment issue must not replace the first bad record.
 		_, _ = cutter.Assign(*bad)
 	}
+	if me, ok := media.First(first); ok && me.Stage == "timeline.validate" {
+		// The record was successfully parsed before validation located it.
+		first = media.PrependStage(first, "timeline.reader")
+	}
 	first = segment.AnnotateError(first)
 	first = manifest.ReportCorruption(manifestDir, first)
 	d.Err = first

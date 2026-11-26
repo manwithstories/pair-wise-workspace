@@ -112,6 +112,24 @@ func Annotate(err error, stage string) error {
 	return &cp
 }
 
+// PrependStage records an already-completed upstream stage without changing
+// source location. It is used when parsing succeeded but validation failed.
+func PrependStage(err error, stage string) error {
+	if err == nil {
+		return nil
+	}
+	me, ok := First(err)
+	if !ok {
+		return E(ErrUnlocatedCorrupt, stage, Meta{RecordNo: -1}, err)
+	}
+	cp := *me
+	if len(cp.Stages) > 0 && cp.Stages[0] == stage {
+		return &cp
+	}
+	cp.Stages = append([]string{stage}, cp.Stages...)
+	return &cp
+}
+
 // First extracts a unified error.
 func First(err error) (*Error, bool) {
 	var me *Error
