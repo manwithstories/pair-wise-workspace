@@ -152,17 +152,24 @@ func (s *SegmentRepair) SHA256() string {
 
 // Layer is an independent representation recovery state.
 type Layer struct {
-	Name            string
-	Segments        map[int]*SegmentRepair
-	RecoveredBlocks int
-	BadSegments     []int
-	SegmentHashes   map[int]string
-	faults          *fault.Model
+	Name                   string
+	Segments               map[int]*SegmentRepair
+	RecoveredBlocks        int
+	BadSegments            []int
+	UnrecoverablePositions map[int][]int
+	SegmentHashes          map[int]string
+	faults                 *fault.Model
 }
 
 // NewLayer creates a named recovery layer.
 func NewLayer(name string, faults *fault.Model) *Layer {
-	return &Layer{Name: name, Segments: make(map[int]*SegmentRepair), SegmentHashes: make(map[int]string), faults: faults}
+	return &Layer{
+		Name:                   name,
+		Segments:               make(map[int]*SegmentRepair),
+		UnrecoverablePositions: make(map[int][]int),
+		SegmentHashes:          make(map[int]string),
+		faults:                 faults,
+	}
 }
 
 // AddSegment registers a codeword.
@@ -176,6 +183,7 @@ func (l *Layer) RecoverAll() {
 		l.RecoveredBlocks += len(recovered)
 		if len(badPositions) > 0 {
 			l.BadSegments = append(l.BadSegments, id)
+			l.UnrecoverablePositions[id] = append([]int(nil), badPositions...)
 			l.faults.Add(fault.Fault{
 				Kind:    fault.BadSegment,
 				Segment: id,

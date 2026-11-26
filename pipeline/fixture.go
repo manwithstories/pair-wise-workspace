@@ -29,6 +29,7 @@ type Fixture struct {
 	Case         string
 	Seed         int64
 	Source       ingest.Source
+	Ordered      []ingest.Packet
 	Frames       []Frame
 	AUBytes      []byte
 	CleanCues    []subtitle.Cue
@@ -49,7 +50,8 @@ func BuildFixture(caseName string, seed int64) *Fixture {
 		}, Payload: payload})
 	}
 
-	f := &Fixture{Case: caseName, Seed: seed, Source: src, CleanCues: buildCues(), AUBytes: buildAUBytes(rng)}
+	f := &Fixture{Case: caseName, Seed: seed, Source: src, Ordered: ordered,
+		CleanCues: buildCues(), AUBytes: buildAUBytes(rng)}
 	for _, p := range ordered {
 		f.Frames = append(f.Frames, Frame{Packet: p})
 	}
