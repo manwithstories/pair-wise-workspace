@@ -10,6 +10,10 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
 )
 
 // Corpus layout constants.
@@ -150,4 +154,125 @@ func buildSegment(p segParams) []byte {
 
 	styp := box("styp", []byte("msdh\x00\x00\x00\x00msdhmsix"))
 	return concat(styp, moof, mdat)
+}
+
+// pdtBase is the program-date-time anchor for the HLS playlist.
+var pdtBase = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// hlsDiscontinuities lists the segment indices that open a new
+// discontinuity sequence (two discontinuities in a clean corpus).
+var hlsDiscontinuities = map[int]bool{3: true, 7: true}
+
+func hlsMasterPlaylist() string {
+	return "#EXTM3U\n" +
+		"#EXT-X-VERSION:7\n" +
+		"#EXT-X-STREAM-INF:BANDWIDTH=800000,CODECS=\"avc1.4d401f\",RESOLUTION=1280x720\n" +
+		"media.m3u8\n"
+}
+
+func hlsMediaPlaylist(fault Fault) string {
+	var b strings.Builder
+	b.WriteString("#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:1\n")
+	b.WriteString("#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n")
+	half := time.Duration(SegDuration) * time.Second / time.Duration(Timescale)
+	for i := 0; i < HLSSegments; i++ {
+		if hlsDiscontinuities[i] {
+			b.WriteString("#EXT-X-DISCONTINUITY\n")
+		}
+		pdt := pdtBase.Add(time.Duration(i) * half)
+		if fault == FaultDiscBoundary && i == 7 {
+			pdt = pdtBase.Add(-time.Hour) // rollback across the boundary
+		}
+		b.WriteString("#EXT-X-PROGRAM-DATE-TIME:" + pdt.Format("2006-01-02T15:04:05.000Z") + "\n")
+		dur := "0.500000"
+		if fault == FaultInvalidDuration && i == 2 {
+			dur = "-0.500000"
+		}
+		fmt.Fprintf(&b, "#EXTINF:%s,\nseg%d.m4s\n", dur, i)
+	}
+	b.WriteString("#EXT-X-ENDLIST\n")
+	return b.String()
+}
+
+func dashMPD() string {
+	return `<?xml version="1.0" encoding="UTF-8"?>
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" mediaPresentationDuration="PT2.5S">
+  <Period id="p0" duration="PT2.5S">
+    <AdaptationSet id="1" mimeType="video/mp4" codecs="avc1.4d401f">
+      <Representation id="a" bandwidth="800000" width="1280" height="720">
+        <SegmentTemplate timescale="90000" presentationTimeOffset="0" startNumber="0" media="a/seg$Number$.m4s">
+          <SegmentTimeline>
+            <S t="0" d="45000" r="4"/>
+          </SegmentTimeline>
+        </SegmentTemplate>
+      </Representation>
+      <Representation id="b" bandwidth="400000" width="1280" height="720">
+        <SegmentTemplate timescale="90000" presentationTimeOffset="90000" startNumber="0" media="b/seg$Number$.m4s">
+          <SegmentTimeline>
+            <S t="90000" d="45000" r="4"/>
+          </SegmentTimeline>
+        </SegmentTemplate>
+      </Representation>
+    </AdaptationSet>
+  </Period>
+</MPD>
+`
+}
+
+// Generate writes the corpus under out, creating directories as needed.
+// Output is deterministic: the same fault always yields the same bytes.
+func Generate(out string, fault Fault) error {
+	writeFile := func(rel string, data []byte) error {
+		p := filepath.Join(out, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(p, data, 0o644)
+	}
+
+	for i := 0; i < HLSSegments; i++ {
+		if fault == FaultMissingSegment && i == 5 {
+			continue
+		}
+		data := buildSegment(segParams{
+			seq:  uint32(i + 1),
+			tfdt: uint64(i * SegDuration),
+			seed: fmt.Sprintf("hls/seg%d", i),
+		})
+		if fault == FaultTruncatedBox && i == 4 {
+			data = data[:len(data)-32] // cut the mdat payload short
+		}
+		if err := writeFile(fmt.Sprintf("hls/seg%d.m4s", i), data); err != nil {
+			return err
+		}
+	}
+
+	reps := []struct {
+		name string
+		pto  uint64
+	}{{DashRepA, 0}, {DashRepB, 90000}}
+	for _, r := range reps {
+		for i := 0; i < DashSegments; i++ {
+			tfdt := r.pto + uint64(i*SegDuration)
+			if fault == FaultTfdtRollback && r.name == DashRepA && i == 2 {
+				tfdt = 0 // rolls back below the previous segment
+			}
+			data := buildSegment(segParams{
+				seq:  uint32(100 + i),
+				tfdt: tfdt,
+				seed: fmt.Sprintf("dash/%s/seg%d", r.name, i),
+			})
+			if err := writeFile(fmt.Sprintf("dash/%s/seg%d.m4s", r.name, i), data); err != nil {
+				return err
+			}
+		}
+	}
+
+	if err := writeFile("hls/master.m3u8", []byte(hlsMasterPlaylist())); err != nil {
+		return err
+	}
+	if err := writeFile("hls/media.m3u8", []byte(hlsMediaPlaylist(fault))); err != nil {
+		return err
+	}
+	return writeFile("dash/manifest.mpd", []byte(dashMPD()))
 }
