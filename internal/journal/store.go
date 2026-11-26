@@ -31,34 +31,34 @@ const (
 type Status string
 
 const (
-	StatusPending    Status = "pending"
-	StatusCommitted  Status = "committed"
+	StatusPending     Status = "pending"
+	StatusCommitted   Status = "committed"
 	StatusInterrupted Status = "interrupted"
-	StatusCorrupt    Status = "corrupt"
+	StatusCorrupt     Status = "corrupt"
 )
 
 // SegmentRecord 是一个片段的溯源记录。
 type SegmentRecord struct {
-	SegmentID    string            `json:"segment_id"`
-	SourceID     string            `json:"source_id"`
-	IdempotencyKey string          `json:"idempotency_key"`
-	AdapterName  string            `json:"adapter_name"`
-	AdapterVersion string          `json:"adapter_version"`
-	Status       Status            `json:"status"`
-	FilePath     string            `json:"file_path"`
-	FileSha256   string            `json:"file_sha256"`
-	StartUs      int64             `json:"start_us"`
-	EndUs        int64             `json:"end_us"`
-	Params       map[string]string `json:"params"`
-	Provenance   string            `json:"provenance_sha256"`
+	SegmentID      string            `json:"segment_id"`
+	SourceID       string            `json:"source_id"`
+	IdempotencyKey string            `json:"idempotency_key"`
+	AdapterName    string            `json:"adapter_name"`
+	AdapterVersion string            `json:"adapter_version"`
+	Status         Status            `json:"status"`
+	FilePath       string            `json:"file_path"`
+	FileSha256     string            `json:"file_sha256"`
+	StartUs        int64             `json:"start_us"`
+	EndUs          int64             `json:"end_us"`
+	Params         map[string]string `json:"params"`
+	Provenance     string            `json:"provenance_sha256"`
 }
 
 // Checkpoint 是可续跑的全量状态。
 type Checkpoint struct {
-	RunID      string                     `json:"run_id"`
-	UpdatedAt  string                     `json:"updated_at"`
-	Segments   map[string]*SegmentRecord  `json:"segments"`
-	Order      []string                   `json:"order"` // 确定性提交顺序
+	RunID       string                    `json:"run_id"`
+	UpdatedAt   string                    `json:"updated_at"`
+	Segments    map[string]*SegmentRecord `json:"segments"`
+	Order       []string                  `json:"order"` // 确定性提交顺序
 	InterruptAt int                       `json:"interrupt_after"`
 }
 
@@ -161,17 +161,33 @@ func ProvenanceHash(r *SegmentRecord) string {
 }
 
 // Prepare 登记一个待提交片段（pending），不触发检查点提交。
-// 同幂等键已存在且已提交时直接返回既有记录，实现重复运行短路。
+// 同幂等键已存在（无论 committed 还是中断遗留的 pending）都返回既有记录，
+// 不重复追加 Order，保证检查点中每个键只出现一次。
 func (s *Store) Prepare(r *SegmentRecord) (*SegmentRecord, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if existing, ok := s.cp.Segments[r.IdempotencyKey]; ok && existing.Status == StatusCommitted {
+	if existing, ok := s.cp.Segments[r.IdempotencyKey]; ok {
 		return existing, true, nil
 	}
 	r.Status = StatusPending
 	s.cp.Segments[r.IdempotencyKey] = r
 	s.cp.Order = append(s.cp.Order, r.IdempotencyKey)
 	return r, false, nil
+}
+
+// Get 只读返回任意状态的片段记录（committed 或中断遗留的 pending）。
+func (s *Store) Get(key string) (*SegmentRecord, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.cp.Segments[key]
+	return r, ok
+}
+
+// RecordCount 返回检查点中不同幂等键的数量，用于续跑序号初始化。
+func (s *Store) RecordCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.cp.Segments)
 }
 
 // Commit 在片段文件确认落盘后提交检查点，并追加溯源事件。
@@ -280,6 +296,18 @@ func HashFile(path string) (string, error) {
 	}
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:]), nil
+}
+
+// AggregateProvenance 把多个片段溯源哈希排序后再聚合为运行级 provenance。
+// 排序保证与片段顺序无关、重复运行结果一致。
+func AggregateProvenance(prov []string) string {
+	sorted := append([]string(nil), prov...)
+	sort.Strings(sorted)
+	h := sha256.New()
+	for _, p := range sorted {
+		h.Write([]byte(p))
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // SafePath 把 name 解析为 root 内的绝对路径，拒绝任何越界（路径穿越）。
