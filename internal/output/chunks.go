@@ -63,7 +63,7 @@ func WriteChunk(dir, name string, c Chunk) (string, string, int64, error) {
 func writeChunkMP4(f *os.File, c Chunk) error {
 	w := gomp4.NewWriter(f)
 	ctx := gomp4.Context{}
-	if _, err := gomp4.Marshal(w, &gomp4.Ftyp{
+	if _, err := writeBox(w, &gomp4.Ftyp{
 		MajorBrand:   gomp4.BrandISOM(),
 		MinorVersion: 512,
 		CompatibleBrands: []gomp4.CompatibleBrandElem{
@@ -103,7 +103,7 @@ func writeMoov(w *gomp4.Writer, c Chunk, mdatPayload uint64, ctx gomp4.Context) 
 	}
 	n := len(c.Samples)
 	stts, total := buildStts(c.Samples)
-	if _, err := gomp4.Marshal(w, &gomp4.Mdhd{
+	if _, err := writeBox(w, &gomp4.Mdhd{
 		Timescale:  c.Timescale,
 		DurationV0: uint32(total),
 	}, ctx); err != nil {
@@ -131,7 +131,7 @@ func writeMoov(w *gomp4.Writer, c Chunk, mdatPayload uint64, ctx gomp4.Context) 
 		&gomp4.Stco{EntryCount: 1, ChunkOffset: []uint32{uint32(mdatPayload)}},
 	}
 	for _, b := range boxes {
-		if _, err := gomp4.Marshal(w, b, ctx); err != nil {
+		if _, err := writeBox(w, b, ctx); err != nil {
 			return model.New(model.CodeIO, "chunk stbl box", err)
 		}
 	}
@@ -141,6 +141,22 @@ func writeMoov(w *gomp4.Writer, c Chunk, mdatPayload uint64, ctx gomp4.Context) 
 		}
 	}
 	return nil
+}
+
+// writeBox writes one complete box: header, marshalled payload, and
+// the back-patched size. It returns the total box size in bytes.
+func writeBox(w *gomp4.Writer, box gomp4.IImmutableBox, ctx gomp4.Context) (uint64, error) {
+	if _, err := w.StartBox(&gomp4.BoxInfo{Type: box.GetType()}); err != nil {
+		return 0, err
+	}
+	if _, err := gomp4.Marshal(w, box, ctx); err != nil {
+		return 0, err
+	}
+	bi, err := w.EndBox()
+	if err != nil {
+		return 0, err
+	}
+	return bi.Size, nil
 }
 
 // buildStts rebuilds decoding-time deltas from repaired DTS values.

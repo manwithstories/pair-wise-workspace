@@ -66,7 +66,7 @@ func writeTrack(path string, ts trackSpec) error {
 	defer f.Close()
 	w := gomp4.NewWriter(f)
 	ctx := gomp4.Context{}
-	ftypLen, err := gomp4.Marshal(w, ftypBox(), ctx)
+	ftypLen, err := writeBox(w, ftypBox(), ctx)
 	if err != nil {
 		return model.New(model.CodeIO, "fixture ftyp", err)
 	}
@@ -145,7 +145,7 @@ func (ts trackSpec) moovBytes(stco uint32) ([]byte, error) {
 		if err := start(gomp4.BoxTypeEdts()); err != nil {
 			return nil, model.New(model.CodeIO, "fixture edts", err)
 		}
-		if _, err := gomp4.Marshal(w, ts.elst, ctx); err != nil {
+		if _, err := writeBox(w, ts.elst, ctx); err != nil {
 			return nil, model.New(model.CodeIO, "fixture elst", err)
 		}
 		if _, err := w.EndBox(); err != nil {
@@ -155,7 +155,7 @@ func (ts trackSpec) moovBytes(stco uint32) ([]byte, error) {
 	if err := start(gomp4.BoxTypeMdia()); err != nil {
 		return nil, model.New(model.CodeIO, "fixture mdia", err)
 	}
-	if _, err := gomp4.Marshal(w, &gomp4.Mdhd{
+	if _, err := writeBox(w, &gomp4.Mdhd{
 		Timescale: ts.timescale, DurationV0: uint32(ts.duration()),
 	}, ctx); err != nil {
 		return nil, model.New(model.CodeIO, "fixture mdhd", err)
@@ -177,7 +177,7 @@ func (ts trackSpec) moovBytes(stco uint32) ([]byte, error) {
 		&gomp4.Stco{EntryCount: 1, ChunkOffset: []uint32{stco}},
 	}
 	for _, b := range boxes {
-		if _, err := gomp4.Marshal(w, b, ctx); err != nil {
+		if _, err := writeBox(w, b, ctx); err != nil {
 			return nil, model.New(model.CodeIO, "fixture stbl box", err)
 		}
 	}
@@ -201,6 +201,22 @@ func ftypBox() *gomp4.Ftyp {
 			{CompatibleBrand: gomp4.BrandMP41()},
 		},
 	}
+}
+
+// writeBox writes one complete box: header, marshalled payload, and
+// the back-patched size. It returns the total box size in bytes.
+func writeBox(w *gomp4.Writer, box gomp4.IImmutableBox, ctx gomp4.Context) (uint64, error) {
+	if _, err := w.StartBox(&gomp4.BoxInfo{Type: box.GetType()}); err != nil {
+		return 0, err
+	}
+	if _, err := gomp4.Marshal(w, box, ctx); err != nil {
+		return 0, err
+	}
+	bi, err := w.EndBox()
+	if err != nil {
+		return 0, err
+	}
+	return bi.Size, nil
 }
 
 // section is an in-memory io.WriteSeeker for building small box trees.

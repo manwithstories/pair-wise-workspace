@@ -66,6 +66,12 @@ func Generate(spec Spec) (*Generated, error) {
 	}
 	g := &Generated{BaseDir: spec.Dir, SegmentSec: spec.SegmentSec}
 	g.Boundary.Segment = 4 + int(spec.Seed%4)
+	if maxSeg := n/kfEvery - 2; g.Boundary.Segment > maxSeg {
+		g.Boundary.Segment = maxSeg // keep the anomaly inside the media
+	}
+	if g.Boundary.Segment < 1 {
+		g.Boundary.Segment = 1
+	}
 	var lines []string
 	for cam := 0; cam < spec.Cameras; cam++ {
 		for tier, br := range spec.Bitrates {
@@ -124,11 +130,12 @@ func (g *Generated) applyFaults(t *trackSpec, camera string, cam, tier, boundary
 		t.truncateTail += 7 // cut mid-sample
 		g.ContainerFaults++
 	case cam == 2 && tier == 0:
-		t.stts = []gomp4.SttsEntry{ // zero-delta run, compensated in-segment
-			{SampleCount: 93, SampleDelta: delta},
+		base := 2 * n / 3 // zero-delta run, compensated inside one segment
+		t.stts = []gomp4.SttsEntry{
+			{SampleCount: uint32(base), SampleDelta: delta},
 			{SampleCount: 3, SampleDelta: 0},
 			{SampleCount: 3, SampleDelta: 2 * delta},
-			{SampleCount: uint32(n - 99), SampleDelta: delta},
+			{SampleCount: uint32(n - base - 6), SampleDelta: delta},
 		}
 		g.ContainerFaults++
 	case cam == 2 && tier == 1:
