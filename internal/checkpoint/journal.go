@@ -181,13 +181,22 @@ func (s *Store) CommitChunk(rec *ChunkRecord) error {
 
 func atomicWrite(path string, data []byte) error {
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, path); err != nil {
+	if _, err := f.Write(data); err != nil {
+		f.Close()
 		return err
 	}
-	return nil
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // LoadIndex reads the atomically committed index. A missing index is rebuilt
