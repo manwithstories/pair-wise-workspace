@@ -1,9 +1,11 @@
 package metadata
 
 import (
+	"errors"
 	"testing"
 
 	"mediaflow/internal/fixture"
+	"mediaflow/internal/timeline"
 )
 
 func sampleEvents() []fixture.Event {
@@ -45,6 +47,16 @@ func TestTruncationIsolationAndOffsets(t *testing.T) {
 	}
 	if len(rep.TruncatedOffs) != 1 || rep.TruncatedOffs[0] != rep.Truncated[0].Offset {
 		t.Fatal("truncated first-offset not recorded")
+	}
+	if len(rep.TruncationErrors) != 1 {
+		t.Fatalf("expected one structured truncation error, got %d", len(rep.TruncationErrors))
+	}
+	te := rep.TruncationErrors[0]
+	if !errors.Is(te, timeline.ErrTruncated) || te.Track != 5 || !timeline.Recoverable(te) {
+		t.Fatalf("truncation error model wrong: %+v", te)
+	}
+	if te.AtMicros != rep.Truncated[0].StartUS {
+		t.Fatal("truncation error must carry normalized time position")
 	}
 	// The truncated emsg spans [200000,200000); point event isolates a single
 	// boundary, so safe segments must exist on both sides.

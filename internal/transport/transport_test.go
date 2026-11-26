@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"errors"
 	"testing"
 
 	"mediaflow/internal/fixture"
@@ -128,6 +129,10 @@ func TestFECMultipleLossGap(t *testing.T) {
 		}
 		if g.EndUS < g.StartUS && g.EndUS != 0 {
 			t.Fatalf("gap time bounds inverted: %+v", g)
+		}
+		ge := g.AsError()
+		if !errors.Is(ge, timeline.ErrGap) || ge.Track != g.Track || !timeline.Recoverable(ge) {
+			t.Fatalf("gap structured error wrong: %+v", ge)
 		}
 	}
 	if totalMissing != 5 {

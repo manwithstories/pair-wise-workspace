@@ -5,7 +5,10 @@
 package transport
 
 import (
+	"fmt"
+
 	"mediaflow/internal/fixture"
+	"mediaflow/internal/timeline"
 )
 
 // Gap records an unrecovered packet loss with exact sequence identity and the
@@ -19,6 +22,16 @@ type Gap struct {
 	StartUS     int64 // conservative lower bound on the missing time range
 	EndUS       int64 // conservative upper bound
 	Recoverable bool  // true when a single parity packet could have helped
+}
+
+// AsError converts the gap into the shared structured error model, carrying
+// the affected track, the group's time position and the ErrGap sentinel. The
+// error is recoverable: safe segments before and after remain processable.
+func (g Gap) AsError() *timeline.Error {
+	return timeline.Wrap("transport.gap", g.Track, int64(g.SeqFrom),
+		timeline.RationalOne, g.StartUS, true,
+		fmt.Errorf("%w: track=%d group=%d seq=[%d..%d] count=%d",
+			timeline.ErrGap, g.Track, g.FECGroup, g.SeqFrom, g.SeqTo, g.Count))
 }
 
 // groupState tracks one FEC block: up to GroupSize media packets plus parity.

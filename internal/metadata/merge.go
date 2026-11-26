@@ -5,6 +5,7 @@
 package metadata
 
 import (
+	"fmt"
 	"sort"
 
 	"mediaflow/internal/fixture"
@@ -15,6 +16,7 @@ import (
 type MergedEvent struct {
 	Track      uint32
 	Kind       fixture.EventKind
+	RawTS      int64 // native timestamp before normalization
 	StartUS    int64
 	DurationUS int64
 	EndUS      int64
@@ -38,6 +40,10 @@ type Report struct {
 	Segments      []Segment
 	Truncated     []MergedEvent
 	TruncatedOffs []int64 // first byte offsets of every truncated payload
+	// TruncationErrors carries a structured, recoverable ErrTruncated error per
+	// cut-short payload so callers can report track and time position while
+	// continuing to process the surrounding safe segments.
+	TruncationErrors []*timeline.Error
 }
 
 // Config controls merge behavior.
@@ -73,6 +79,7 @@ func Merge(events []fixture.Event, spanUS int64, cfg Config) (*Report, error) {
 		me := MergedEvent{
 			Track:      ev.Track,
 			Kind:       ev.Kind,
+			RawTS:      ev.RawTS,
 			StartUS:    startUS,
 			DurationUS: durUS,
 			EndUS:      endUS,
@@ -104,6 +111,10 @@ func Merge(events []fixture.Event, spanUS int64, cfg Config) (*Report, error) {
 		if ev.Truncated {
 			rep.Truncated = append(rep.Truncated, ev)
 			rep.TruncatedOffs = append(rep.TruncatedOffs, ev.Offset)
+			rep.TruncationErrors = append(rep.TruncationErrors, timeline.Wrap(
+				"metadata.merge", ev.Track, ev.RawTS, cfg.EventTimebase,
+				ev.StartUS, true,
+				fmt.Errorf("%w: %s payload at offset %d", timeline.ErrTruncated, ev.Kind, ev.Offset)))
 		}
 	}
 	rep.Segments = buildSegments(rep.Events, spanUS)
