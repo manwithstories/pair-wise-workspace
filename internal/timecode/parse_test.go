@@ -86,4 +86,29 @@ func TestResolveDailyWrap(t *testing.T) {
 	if _, err := ResolveDaily(0, FPS25, 12*3600_000); err == nil {
 		t.Error("half-day ambiguity should be rejected")
 	}
+	// Label just before midnight, reference just after: unwraps negative.
+	got, err = ResolveDaily(24*60*60*25-75, FPS25, 0) // 23:59:57:00 @25
+	if err != nil || got != -3000 {
+		t.Errorf("got %d, %v; want -3000", got, err)
+	}
+}
+
+func TestFormatRoundTrip(t *testing.T) {
+	for _, fps := range []FPS{FPS24, FPS25, FPS30} {
+		for _, f := range []int64{0, 1, 90000, fps.FramesPerDay() - 1} {
+			got, err := Parse(Format(f, fps, false), fps, false)
+			if err != nil || got != f {
+				t.Errorf("fps %v frame %d round trip = %d, %v", fps, f, got, err)
+			}
+		}
+	}
+	for _, f := range []int64{0, 2, 1800, 17982, 107892, 2589407} {
+		got, err := Parse(Format(f, FPS2997, true), FPS2997, true)
+		if err != nil || got != f {
+			t.Errorf("DF frame %d round trip = %d, %v", f, got, err)
+		}
+	}
+	if s := Format(1800, FPS2997, true); s != "00:01:00;02" {
+		t.Errorf("Format(1800) = %q", s)
+	}
 }

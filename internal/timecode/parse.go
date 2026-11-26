@@ -5,6 +5,7 @@
 package timecode
 
 import (
+	"fmt"
 	"regexp"
 	"strconv"
 
@@ -98,12 +99,49 @@ func MsToFrames(ms int64, fps FPS) int64 {
 // FrameDurMs returns the exact frame duration as a rational (num/den ms).
 func FrameDurMs(fps FPS) (int64, int64) { return int64(fps.Den) * 1000, int64(fps.Num) }
 
+// Format renders a frame count as a timecode label (inverse of Parse).
+func Format(frames int64, fps FPS, drop bool) string {
+	nom := int64(fps.Nominal())
+	if !drop {
+		fr := ((frames % (nom * 86400)) + nom*86400) % (nom * 86400)
+		hh := fr / (nom * 3600)
+		fr %= nom * 3600
+		mm := fr / (nom * 60)
+		fr %= nom * 60
+		return fmt.Sprintf("%02d:%02d:%02d:%02d", hh, mm, fr/nom, fr%nom)
+	}
+	const (
+		perMin   = 1798
+		per10Min = 17982
+		perHour  = 107892
+		perDay   = 2589408
+	)
+	fr := ((frames % perDay) + perDay) % perDay
+	hh := fr / perHour
+	fr %= perHour
+	mm := fr/per10Min*10
+	m := fr % per10Min
+	var rem int64
+	if m < 1800 { // first minute of a 10-minute block drops nothing
+		rem = m
+	} else {
+		rem = m - 1800
+		mm += rem/perMin + 1
+		rem %= perMin
+	}
+	ss, ff := rem/30, rem%30
+	if mm%10 != 0 && ss == 0 {
+		ff += 2 // labels 00 and 01 do not exist here
+	}
+	return fmt.Sprintf("%02d:%02d:%02d;%02d", hh, mm, ss, ff)
+}
+
 // ResolveDaily maps a wrapped time-of-day frame count onto the unified
 // timeline near refMs, unwrapping across midnight. A label landing
 // exactly half a day from the reference is ambiguous and rejected.
 func ResolveDaily(frames int64, fps FPS, refMs int64) (model.MediaMs, error) {
 	base := FramesToMs(frames, fps) // 0 <= base < DayMs
-	k := (refMs - base + DayMs/2) / DayMs
+	k := floorDiv(refMs-base+DayMs/2, DayMs)
 	cand := base + k*DayMs
 	diff := cand - refMs
 	if diff < 0 {
@@ -114,4 +152,12 @@ func ResolveDaily(frames int64, fps FPS, refMs int64) (model.MediaMs, error) {
 			"timecode is exactly 12h from reference %dms; ambiguous wrap", refMs)
 	}
 	return cand, nil
+}
+
+func floorDiv(a, b int64) int64 {
+	q := a / b
+	if a%b != 0 && (a < 0) != (b < 0) {
+		q--
+	}
+	return q
 }
