@@ -175,60 +175,59 @@ func produce(ctx context.Context, cfg RunConfig, mgr *checkpoint.Manager, q *str
 }
 
 func consume(ctx context.Context, cfg RunConfig, mgr *checkpoint.Manager, q *stream.Queue[timeline.Record], initialChunks int) (error, int64) {
-	var batch []timeline.Record
-	var weights []int64
 	var processed int64
 	armed := cfg.InterruptAfterChunks > 0 && initialChunks < cfg.InterruptAfterChunks
-	releaseAll := func() {
-		for _, w := range weights {
-			q.Release(w)
-		}
-		weights = nil
-	}
+	var chunk *checkpoint.ChunkWriter
+
 	for {
 		rec, weight, err := q.Pop(ctx)
 		if errors.Is(err, stream.ErrClosed) {
 			break
 		}
 		if err != nil {
-			releaseAll()
 			return err, processed
 		}
 		processed++
 		if err := stream.SlowHook(ctx, processed, cfg.SlowEvery, cfg.SlowDelay); err != nil {
 			q.Release(weight)
-			releaseAll()
 			return err, processed
 		}
-		batch = append(batch, rec)
-		weights = append(weights, weight)
-		if len(batch) < cfg.ChunkRecords {
+		if chunk == nil {
+			chunk, err = mgr.BeginChunk()
+			if err != nil {
+				q.Release(weight)
+				return err, processed
+			}
+		}
+		if err := chunk.Write(rec); err != nil {
+			q.Release(weight)
+			return err, processed
+		}
+		// The record has been streamed into the chunk hasher/file; its weighted
+		// queue reservation can now be released before the index commit.
+		q.Release(weight)
+
+		if chunk.Count() < cfg.ChunkRecords {
 			continue
 		}
 		if armed && len(mgr.Index.Chunks) == cfg.InterruptAfterChunks {
-			path := filepath.Join(cfg.Root, "chunks", fmt.Sprintf("chunk-%06d.ndjson", len(mgr.Index.Chunks)))
-			if err := fixture.WriteNDJSON(path, batch); err != nil {
-				releaseAll()
+			if err := chunk.Persist(); err != nil {
 				return err, processed
 			}
-			releaseAll()
-			return media.E(media.ErrInterrupted, "app.interrupt",
-				batch[len(batch)-1].Meta(batch[len(batch)-1].RecordNo, batch[len(batch)-1].LineNo),
+			meta := rec.Meta(rec.RecordNo, rec.LineNo)
+			chunk = nil // Deliberately leave an uncommitted orphan for recovery.
+			return media.E(media.ErrInterrupted, "app.interrupt", meta,
 				fmt.Errorf("simulated interruption after %d committed chunks", cfg.InterruptAfterChunks)), processed
 		}
-		if _, err := mgr.CommitChunk(batch); err != nil {
-			releaseAll()
+		if _, err := chunk.Commit(); err != nil {
 			return err, processed
 		}
-		releaseAll()
-		batch = batch[:0]
+		chunk = nil
 	}
-	if len(batch) > 0 {
-		if _, err := mgr.CommitChunk(batch); err != nil {
-			releaseAll()
+	if chunk != nil && chunk.Count() > 0 {
+		if _, err := chunk.Commit(); err != nil {
 			return err, processed
 		}
-		releaseAll()
 	}
 	return nil, processed
 }
