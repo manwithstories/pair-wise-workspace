@@ -45,6 +45,7 @@ type Buffer struct {
 	items      map[uint64]*rtpio.Packet
 	arrival    map[uint64]int64
 	maxPushed  uint64
+	lastNowMS  int64
 	started    bool
 	Stats      Stats
 }
@@ -109,6 +110,7 @@ func (b *Buffer) Push(p *rtpio.Packet) error {
 // Advance releases contiguous packets and classifies holes whose adaptive
 // waiting window has expired.
 func (b *Buffer) Advance(nowMS int64) ([]*rtpio.Packet, []Gap) {
+	b.lastNowMS = nowMS
 	var out []*rtpio.Packet
 	var gaps []Gap
 
@@ -147,7 +149,8 @@ func (b *Buffer) Advance(nowMS int64) ([]*rtpio.Packet, []Gap) {
 
 // FlushThrough releases the stream through expectedLast, marking tail loss.
 func (b *Buffer) FlushThrough(expectedLast uint64) ([]*rtpio.Packet, []Gap) {
-	out, gaps := b.Advance(1 << 62)
+	flushNow := b.lastNowMS + int64(b.waitMS)
+	out, gaps := b.Advance(flushNow)
 	if b.next <= expectedLast {
 		missing := make([]uint64, 0, expectedLast-b.next+1)
 		for seq := b.next; seq <= expectedLast; seq++ {
@@ -159,7 +162,7 @@ func (b *Buffer) FlushThrough(expectedLast uint64) ([]*rtpio.Packet, []Gap) {
 		if len(missing) > 0 {
 			gap := Gap{
 				SSRC: b.ssrc, FromExtSeq: missing[0], ToExtSeq: missing[len(missing)-1],
-				Missing: missing, DetectedMS: 1 << 62, Reason: "end_of_stream",
+				Missing: missing, DetectedMS: flushNow, Reason: "end_of_stream",
 			}
 			gaps = append(gaps, gap)
 			b.Stats.Gaps += len(missing)
