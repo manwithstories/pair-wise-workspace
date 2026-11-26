@@ -147,6 +147,16 @@ func buildMoof(seq uint32, frags []OutFrag, offsets []int32) ([]byte, error) {
 	return m.buf, nil
 }
 
+// SegmentBytes marshals one segment fully in memory. It is used by the
+// fixture generator and by tests; the pipeline streams to files instead.
+func SegmentBytes(seq uint32, frags []OutFrag) ([]byte, error) {
+	m := &memWS{}
+	if _, err := MarshalSegment(m, seq, frags); err != nil {
+		return nil, err
+	}
+	return m.buf, nil
+}
+
 // MarshalSegment writes one output segment (styp, moof, mdat) and returns
 // the payload hash of each track. Sample payloads are written verbatim.
 func MarshalSegment(w io.WriteSeeker, seq uint32, frags []OutFrag) (map[uint32][32]byte, error) {
