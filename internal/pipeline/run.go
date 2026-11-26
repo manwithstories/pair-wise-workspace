@@ -72,7 +72,7 @@ func Run(idx *index.Index, opts Options) (*Outcome, error) {
 
 	next, inflight := 0, 0
 	stopped := false
-	for next < len(todo) || inflight > 0 {
+	for inflight > 0 || (next < len(todo) && !stopped) {
 		var jobCh chan<- index.SegmentRef
 		var job index.SegmentRef
 		if next < len(todo) && !stopped {
