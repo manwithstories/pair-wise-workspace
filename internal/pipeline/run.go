@@ -33,6 +33,10 @@ type Config struct {
 	Seed         int64
 	ProgramSecs  int
 	Resume       bool
+	// TolerateIntegrity, when true, treats cache integrity failures as
+	// expected self-healing events (counted as CacheRejects and rebuilt)
+	// rather than aborting the run. Used by the resume demonstration.
+	TolerateIntegrity bool
 	// SlowConsumer, when > 0, is an artificial per-segment sink delay used to
 	// demonstrate backpressure. Production callers pass zero.
 	SlowConsumerDelay func()
@@ -99,25 +103,19 @@ func runRendition(ctx context.Context, sem *memSemaphore, ri *RenditionInput,
 		_ = clock.SetSR(timeline.SRAnchor{NTPTime: sr.NTPTime, RTPTime: sr.RTPTime})
 	}
 	builder := segment.NewBuilder(ri.Name, clock)
-	nextIndex := 0
-	if cfg.Resume {
-		nextIndex = ckpt.NextIndex(ri.Name)
-	}
 
 	emit := func(seg *segment.Segment) error {
 		// Source digest proves what the segment bytes were derived from; the
 		// CAS independently hashes the stored output.
 		sourceHash := hashBytes(seg.Data)
 		key := cache.Key{Rendition: ri.Name, SegmentID: seg.ID, SourceHash: sourceHash}
+		alreadyCommitted := cfg.Resume && ckpt.HashFor(ri.Name, seg.Index) != ""
 
-		if cfg.Resume {
-			// Already committed in a prior run: the cache must reproduce the
-			// exact committed hash or it is an integrity failure.
-			if committed := ckpt.HashFor(ri.Name, seg.Index); committed != "" {
-				if seg.SHA256 != committed {
-					return timeline.IntegrityError("pipeline.resume",
-						"resumed segment hash differs from checkpoint", nil)
-				}
+		if alreadyCommitted {
+			// The deterministic rebuild must reproduce the committed hash.
+			if committed := ckpt.HashFor(ri.Name, seg.Index); seg.SHA256 != committed {
+				return timeline.IntegrityError("pipeline.resume",
+					"resumed segment hash differs from checkpoint", nil)
 			}
 		}
 
@@ -125,6 +123,11 @@ func runRendition(ctx context.Context, sem *memSemaphore, ri *RenditionInput,
 		if gerr != nil {
 			if errors.Is(gerr, timeline.ErrIntegrity) {
 				rr.CacheRejects++
+				if !cfg.TolerateIntegrity {
+					return gerr
+				}
+				// Self-heal: the invalid entry was removed by the cache; the
+				// freshly rebuilt payload below restores it.
 			} else {
 				return gerr
 			}
@@ -144,22 +147,27 @@ func runRendition(ctx context.Context, sem *memSemaphore, ri *RenditionInput,
 		if err := sem.Acquire(ctx, size); err != nil {
 			return err
 		}
-		defer sem.Release(size)
 		if cfg.SlowConsumerDelay != nil {
 			cfg.SlowConsumerDelay()
 		}
 		if err := writeSegment(ctx, filepath.Join(segDir, seg.ID+".ts"), payload); err != nil {
+			sem.Release(size)
 			return err
 		}
-		// Checkpoint only after durable write + hash verification.
+		sem.Release(size)
+		// Verify the output hash after the durable write.
 		got := hashBytes(payload)
 		if got != seg.SHA256 {
 			return timeline.IntegrityError("pipeline.hash",
 				"written segment failed output hash verification", nil)
 		}
 		seg.SHA256 = got
-		if err := ckpt.CommitSegment(ri.Name, seg.Index, got, seg.EndTick, 0); err != nil {
-			return err
+		// Checkpoint only advances for newly committed work; already-committed
+		// segments are re-verified but never re-sequenced.
+		if !alreadyCommitted {
+			if err := ckpt.CommitSegment(ri.Name, seg.Index, got, seg.EndTick, 0); err != nil {
+				return err
+			}
 		}
 		rr.Segments = append(rr.Segments, seg)
 		return nil
@@ -187,15 +195,12 @@ func runRendition(ctx context.Context, sem *memSemaphore, ri *RenditionInput,
 			return nil, perr
 		}
 		for _, seg := range made {
-			if seg.Index < nextIndex {
-				continue // resume: skip work already durably committed
-			}
 			if err := emit(seg); err != nil {
 				return nil, err
 			}
 		}
 	}
-	if tail := builder.Flush(); tail != nil && tail.Index >= nextIndex {
+	if tail := builder.Flush(); tail != nil {
 		if err := emit(tail); err != nil {
 			return nil, err
 		}
