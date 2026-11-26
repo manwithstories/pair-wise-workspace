@@ -112,6 +112,16 @@ func printSelfTest(r *pipeline.SelfTestReport) {
 	for _, line := range r.Metrics.KeyValueLines() {
 		fmt.Println(line)
 	}
+	fmt.Printf("recovery_totals packets=%d lost=%d recovered=%d unrecovered=%d retransmissions=%d\n",
+		r.Metrics.Packets, r.Metrics.LostPackets, r.Metrics.RecoveredPackets,
+		r.Metrics.UnrecoveredPackets, r.Metrics.Retransmissions)
+	if r.Verify != nil {
+		switchCheck := "passed"
+		if r.Verify.LadderMismatch != 0 {
+			switchCheck = "failed"
+		}
+		fmt.Printf("ladder_mismatch=%d switch_boundary_check=%s\n", r.Verify.LadderMismatch, switchCheck)
+	}
 	fmt.Printf("report_json=%s\n", r.Out+"/selftest-report.json")
 }
 
