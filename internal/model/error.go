@@ -148,7 +148,8 @@ func ExitCode(err error) int {
 		return 2
 	case CodeCorruptBox:
 		return 3
-	case CodeRetryExhausted, CodeIncomplete, CodeIntegrity, CodeCheckpointCorrupt:
+	case CodeRetryExhausted, CodeIncomplete, CodeIntegrity, CodeCheckpointCorrupt,
+		CodeVersionMismatch, CodeDuplicateConflict:
 		return 4
 	default:
 		return 1
