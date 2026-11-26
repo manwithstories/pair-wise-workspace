@@ -154,13 +154,15 @@ func VerifyFile(path string) (*Report, error) {
 	if videoTrack != nil {
 		ladder, ladderFaults := ladderpkg.Build(videoTrack, ladderpkg.DefaultLevels())
 		rep.Faults = append(rep.Faults, ladderFaults...)
-		rep.LadderMismatch = ladder.MismatchCount()
-		rep.BoundaryMismatch += rep.LadderMismatch
-		if len(ladder.Renditions) >= 2 && len(ladder.Renditions[0].Boundaries) > 0 {
-			n := ladder.Renditions[0].Boundaries[0].SampleNumber
-			if _, fault := ladder.CheckSwitch(0, 1, n); fault != nil {
-				rep.BoundaryMismatch++
-				rep.Faults = append(rep.Faults, fault)
+		if ladder != nil {
+			rep.LadderMismatch = ladder.MismatchCount()
+			rep.BoundaryMismatch += rep.LadderMismatch
+			if len(ladder.Renditions) >= 2 && len(ladder.Renditions[0].Boundaries) > 0 {
+				n := ladder.Renditions[0].Boundaries[0].SampleNumber
+				if _, fault := ladder.CheckSwitch(0, 1, n); fault != nil {
+					rep.BoundaryMismatch++
+					rep.Faults = append(rep.Faults, fault)
+				}
 			}
 		}
 	}
