@@ -58,6 +58,11 @@ func (f Fault) Error() string {
 	return s
 }
 
+// String implements fmt.Stringer.
+func (f Fault) String() string {
+	return f.Error()
+}
+
 // NewFault builds a fault with the offset field defaulted to -1 (n/a).
 func NewFault(kind FaultKind, seq, track uint32, offset int64, detail string) Fault {
 	return Fault{Kind: kind, Seq: seq, Track: track, Offset: offset, Detail: detail}
