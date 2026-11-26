@@ -66,9 +66,8 @@ func buildStbl(t *media.Track) ([]byte, error) {
 func buildStts(samples []media.Sample) ([]byte, error) {
 	var entries []gomp4.SttsEntry
 	for _, s := range samples {
-		if s.Duration == 0 {
-			return nil, media.NewFault(media.CodeTimestampMissing, "sample %d has zero duration", s.Index).Fatal()
-		}
+		// Zero deltas are intentionally encodable so fixtures can carry a
+		// missing/corrupt stts entry for the repair stage to fix.
 		if len(entries) > 0 && entries[len(entries)-1].SampleDelta == s.Duration && entries[len(entries)-1].SampleCount < ^uint32(0) {
 			entries[len(entries)-1].SampleCount++
 			continue
