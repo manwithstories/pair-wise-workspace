@@ -37,8 +37,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		FailOnce: *failOnce,
 	})
 	if out == nil {
-		fmt.Fprintf(stderr, "internal_error=%v\n", err)
-		return 1
+		kind := media.Classify(err)
+		fmt.Fprintf(stdout, "error_type=%s\n", kind)
+		fmt.Fprintf(stderr, "error [%s]: %v\n", kind, err)
+		return media.ExitCode(err)
 	}
 
 	printDAGEvents(stdout, out)
