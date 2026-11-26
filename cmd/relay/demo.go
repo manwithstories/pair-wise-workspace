@@ -183,7 +183,7 @@ func interruptedResume(ctx context.Context, opts options,
 	}
 	first, err := stream.New(
 		stream.Config{OutDir: opts.outDir, QueueBytes: opts.queueBytes,
-			ConsumerDelay: opts.consumerDelay,
+			ConsumerDelay:  opts.consumerDelay,
 			InterruptAfter: opts.interruptAfter}, output.NewWriter())
 	if err != nil {
 		return 0, err

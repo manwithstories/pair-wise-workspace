@@ -13,8 +13,8 @@ import (
 // dependencies (edges point from a track to every track it waits on).
 type Node struct {
 	Spec      TrackSpec
-	Published bool   // false when the track failed validation or was blocked
-	Reason   *media.Fault
+	Published bool // false when the track failed validation or was blocked
+	Reason    *media.Fault
 }
 
 // Graph is the explicit directed dependency graph of all tracks.

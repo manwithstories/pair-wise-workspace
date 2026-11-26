@@ -17,13 +17,13 @@ import (
 
 // Entry points at one random-access sample.
 type Entry struct {
-	TrackID       uint32 `json:"track_id"`
-	Sequence      uint32 `json:"sequence"` // repaired contiguous sequence
-	SampleIndex   uint32 `json:"sample_index"`
-	GlobalDTS     uint64 `json:"global_dts"`
-	FragmentPath  string `json:"fragment_path"`
-	SampleOffset  int64  `json:"sample_offset"` // source-level byte offset
-	Sync          bool   `json:"sync"`
+	TrackID      uint32 `json:"track_id"`
+	Sequence     uint32 `json:"sequence"` // repaired contiguous sequence
+	SampleIndex  uint32 `json:"sample_index"`
+	GlobalDTS    uint64 `json:"global_dts"`
+	FragmentPath string `json:"fragment_path"`
+	SampleOffset int64  `json:"sample_offset"` // source-level byte offset
+	Sync         bool   `json:"sync"`
 }
 
 // Index is the sorted keyframe catalog for one pipeline run.

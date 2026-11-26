@@ -15,20 +15,20 @@ import (
 // repaired decode time expressed in the shared global timescale.
 type RepairedFragment struct {
 	*ingest.Fragment
-	NewSequence uint32
-	GlobalDTS   uint64
+	NewSequence  uint32
+	GlobalDTS    uint64
 	RepairedTfdt uint64 // monotonic baseMediaDecodeTime in track timescale
-	RawHash     string  // sha256 of the fragment's source bytes
+	RawHash      string // sha256 of the fragment's source bytes
 }
 
 // TrackReport summarizes one track's repair outcome.
 type TrackReport struct {
-	TrackID     uint32
-	Accepted    []*RepairedFragment
-	Deduped     int
-	GapsFilled  []uint32
-	Isolated    []uint32 // source sequences quarantined
-	Fault       *media.Fault
+	TrackID    uint32
+	Accepted   []*RepairedFragment
+	Deduped    int
+	GapsFilled []uint32
+	Isolated   []uint32 // source sequences quarantined
+	Fault      *media.Fault
 }
 
 // RepairTrack deduplicates, validates sequence numbers, fills mfhd gaps and

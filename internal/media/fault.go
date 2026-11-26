@@ -11,26 +11,26 @@ const (
 	FaultNone FaultCode = ""
 
 	// Ingest faults.
-	FaultTruncated     FaultCode = "truncated_box"      // box header/payload runs past EOF
-	FaultBadLength     FaultCode = "invalid_box_length" // declared length smaller than header
-	FaultSampleRange   FaultCode = "sample_range"       // trun samples exceed mdat payload
-	FaultOverflow      FaultCode = "arithmetic_overflow"
-	FaultStructure     FaultCode = "structure"           // required box missing or duplicated
+	FaultTruncated   FaultCode = "truncated_box"      // box header/payload runs past EOF
+	FaultBadLength   FaultCode = "invalid_box_length" // declared length smaller than header
+	FaultSampleRange FaultCode = "sample_range"       // trun samples exceed mdat payload
+	FaultOverflow    FaultCode = "arithmetic_overflow"
+	FaultStructure   FaultCode = "structure" // required box missing or duplicated
 
 	// Timeline faults.
-	FaultSequenceGap   FaultCode = "mfhd_gap"        // repaired, kept for diagnostics
-	FaultDuplicate     FaultCode = "duplicate_fragment"
-	FaultConflict      FaultCode = "sequence_conflict"
-	FaultTFDTRollback  FaultCode = "tfdt_rollback"
-	FaultUnrepairable  FaultCode = "unrepairable_track"
-	FaultGraphCycle    FaultCode = "dependency_cycle"
-	FaultMissingDep    FaultCode = "missing_dependency"
-	FaultDepFailed     FaultCode = "dependency_failed"
+	FaultSequenceGap  FaultCode = "mfhd_gap" // repaired, kept for diagnostics
+	FaultDuplicate    FaultCode = "duplicate_fragment"
+	FaultConflict     FaultCode = "sequence_conflict"
+	FaultTFDTRollback FaultCode = "tfdt_rollback"
+	FaultUnrepairable FaultCode = "unrepairable_track"
+	FaultGraphCycle   FaultCode = "dependency_cycle"
+	FaultMissingDep   FaultCode = "missing_dependency"
+	FaultDepFailed    FaultCode = "dependency_failed"
 
 	// Stream / persistence faults.
-	FaultQueueLimit    FaultCode = "queue_limit"
-	FaultCheckpoint    FaultCode = "checkpoint_io"
-	FaultHashMismatch  FaultCode = "hash_mismatch"
+	FaultQueueLimit   FaultCode = "queue_limit"
+	FaultCheckpoint   FaultCode = "checkpoint_io"
+	FaultHashMismatch FaultCode = "hash_mismatch"
 )
 
 // Fault is the unified error type shared by every subsystem. It always

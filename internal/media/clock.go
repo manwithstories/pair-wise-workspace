@@ -17,7 +17,7 @@ const MaxTime uint64 = math.MaxUint64
 // Clock describes one track's time base. Timescale is the number of time
 // units that pass in one second, per ISO/IEC 14496-12 mdhd.timescale.
 type Clock struct {
-	TrackID    uint32
+	TrackID   uint32
 	Timescale uint32
 }
 

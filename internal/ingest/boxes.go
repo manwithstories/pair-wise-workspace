@@ -17,27 +17,27 @@ import (
 
 // Sample describes one sample entry reconstructed from a trun box.
 type Sample struct {
-	Index               uint32
-	Duration            uint32
-	Size                uint32
-	Flags               uint32
-	CompositionOffset   int32 // signed (trun version 1 semantics)
-	DataOffset          int64 // absolute byte offset of the sample inside mdat
-	Sync                bool  // sample is a random-access point (flags bit 16 clear)
+	Index             uint32
+	Duration          uint32
+	Size              uint32
+	Flags             uint32
+	CompositionOffset int32 // signed (trun version 1 semantics)
+	DataOffset        int64 // absolute byte offset of the sample inside mdat
+	Sync              bool  // sample is a random-access point (flags bit 16 clear)
 }
 
 // Fragment is the parsed view of one moof+mdat fragment. Mdat aliases the
 // backing Raw slice (no extra copy); callers must treat both as read-only.
 type Fragment struct {
-	TrackID     uint32
-	Sequence    uint32 // mfhd.sequence_number
-	Tfdt        uint64 // baseMediaDecodeTime in track timescale
-	MoofOffset  int64  // absolute offset of the moof header in the source
-	RawSize     int64  // total moof+mdat byte length
-	Samples     []Sample
-	Mdat        []byte
-	Raw         []byte
-	Source      string
+	TrackID    uint32
+	Sequence   uint32 // mfhd.sequence_number
+	Tfdt       uint64 // baseMediaDecodeTime in track timescale
+	MoofOffset int64  // absolute offset of the moof header in the source
+	RawSize    int64  // total moof+mdat byte length
+	Samples    []Sample
+	Mdat       []byte
+	Raw        []byte
+	Source     string
 }
 
 // BoxHeader is the decoded 8/16-byte ISO BMFF box header.

@@ -21,7 +21,7 @@ type RoundTripReport struct {
 	Reparsed int
 	Failed   int
 	// Rate is Reparsed / total output fragments, as a percentage 0..100.
-	Rate float64
+	Rate   float64
 	Faults []*media.Fault
 }
 

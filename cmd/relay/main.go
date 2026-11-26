@@ -12,10 +12,10 @@ import (
 
 // Exit codes mandated by the acceptance contract.
 const (
-	exitOK       = 0
-	exitArgs     = 2
-	exitVerify   = 3
-	exitWrite    = 4
+	exitOK     = 0
+	exitArgs   = 2
+	exitVerify = 3
+	exitWrite  = 4
 )
 
 type options struct {

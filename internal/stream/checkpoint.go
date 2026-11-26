@@ -28,10 +28,10 @@ type CheckpointEntry struct {
 
 // Checkpoint is an append-only, fsync-backed commit log.
 type Checkpoint struct {
-	mu       sync.Mutex
-	path     string
-	file     *os.File
-	writer   *bufio.Writer
+	mu        sync.Mutex
+	path      string
+	file      *os.File
+	writer    *bufio.Writer
 	committed map[string]CheckpointEntry
 }
 

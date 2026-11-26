@@ -9,19 +9,19 @@ import (
 type TrackKind string
 
 const (
-	KindVideo   TrackKind = "video"
-	KindAudio   TrackKind = "audio"
-	KindRemote  TrackKind = "remote_dub"
-	KindOrphan  TrackKind = "cyclic"
+	KindVideo  TrackKind = "video"
+	KindAudio  TrackKind = "audio"
+	KindRemote TrackKind = "remote_dub"
+	KindOrphan TrackKind = "cyclic"
 )
 
 // TrackSpec declares one track and its explicit synchronization dependencies.
 type TrackSpec struct {
-	ID           uint32
-	Kind         TrackKind
-	Timescale    uint32
-	DependsOn    []uint32 // edges of the explicit track dependency graph
-	SampleDur    uint32   // per-sample duration in track timescale
+	ID        uint32
+	Kind      TrackKind
+	Timescale uint32
+	DependsOn []uint32 // edges of the explicit track dependency graph
+	SampleDur uint32   // per-sample duration in track timescale
 }
 
 // InputFile is one delivered fixture file plus its expected parse outcome.

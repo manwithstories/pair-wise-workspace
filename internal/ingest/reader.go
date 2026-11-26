@@ -50,7 +50,7 @@ func (rd *Reader) Next() (*ReadEvent, error) {
 			if err == io.EOF || err == io.ErrUnexpectedEOF {
 				return &ReadEvent{
 					Offset: rd.pos,
-					Fault:  media.NewFault(media.FaultTruncated, 0, 0, rd.pos,
+					Fault: media.NewFault(media.FaultTruncated, 0, 0, rd.pos,
 						"trailing bytes do not form a box header"),
 				}, nil
 			}

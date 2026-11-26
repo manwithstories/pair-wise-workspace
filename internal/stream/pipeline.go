@@ -21,8 +21,8 @@ type Sink interface {
 
 // Config controls a pipeline run.
 type Config struct {
-	OutDir       string
-	QueueBytes   int64
+	OutDir        string
+	QueueBytes    int64
 	ConsumerDelay time.Duration // artificial slow-consumer latency per item
 	// InterruptAfter, when > 0, cancels the run after this many commits to
 	// simulate an interrupted batch.
@@ -41,9 +41,9 @@ type Counters struct {
 
 // Pipeline wires ingest -> repair -> bounded sink with back pressure.
 type Pipeline struct {
-	cfg   Config
-	cp    *Checkpoint
-	sink  Sink
+	cfg    Config
+	cp     *Checkpoint
+	sink   Sink
 	queues []*BoundedQueue
 }
 
