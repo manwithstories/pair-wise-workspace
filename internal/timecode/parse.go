@@ -129,10 +129,10 @@ func Format(frames int64, fps FPS, drop bool) string {
 		mm += rem/perMin + 1
 		rem %= perMin
 	}
-	ss, ff := rem/30, rem%30
-	if mm%10 != 0 && ss == 0 {
-		ff += 2 // labels 00 and 01 do not exist here
+	if mm%10 != 0 {
+		rem += 2 // labels 00 and 01 of second 0 do not exist here
 	}
+	ss, ff := rem/30, rem%30
 	return fmt.Sprintf("%02d:%02d:%02d;%02d", hh, mm, ss, ff)
 }
 
