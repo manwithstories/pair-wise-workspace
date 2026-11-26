@@ -28,6 +28,7 @@ const (
 	CodeBoundaryMismatch    Code = "boundary_mismatch"
 	CodeRecoveryFailed      Code = "recovery_failed"
 	CodeMetricThreshold     Code = "metric_threshold"
+	CodeInternal            Code = "internal_error"
 )
 
 // ByteRange identifies an inclusive-start byte interval in the source file.
@@ -133,4 +134,12 @@ func AsFault(err error) (*Fault, bool) {
 		return f, true
 	}
 	return nil, false
+}
+
+// AsFaultOrInternal extracts a *Fault or wraps an internal error.
+func AsFaultOrInternal(err error) *Fault {
+	if f, ok := AsFault(err); ok {
+		return f
+	}
+	return NewFault(CodeInternal, "%v", err).Fatal()
 }

@@ -252,7 +252,7 @@ func validateOffsets(t *media.Track, stbl *Box, fileSize int64, top []*Box) []*m
 	// Same-track sample intervals must not overlap. Sorting only local indices
 	// keeps this safe for non-interleaved and interleaved files alike.
 	type interval struct {
-		idx int
+		idx        int
 		start, end int64
 	}
 	ivs := make([]interval, 0, len(t.Samples))
