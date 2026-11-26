@@ -233,7 +233,9 @@ func (c *Cache) quarantineFiles(refPath, objectPath string, objectBytes []byte, 
 	if objectPath != "" {
 		dst := filepath.Join(qdir, base+".object")
 		if len(objectBytes) > 0 {
-			_ = os.WriteFile(dst, objectBytes, 0o600)
+			if err := os.WriteFile(dst, objectBytes, 0o600); err == nil {
+				_ = os.Remove(objectPath)
+			}
 		} else {
 			_ = os.Rename(objectPath, dst)
 		}
