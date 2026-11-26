@@ -87,6 +87,10 @@ func New(code Code, stage Stage, message string) *Error {
 	return &Error{Code: code, Stage: stage, Message: message}
 }
 
+func Newf(code Code, stage Stage, format string, args ...any) *Error {
+	return New(code, stage, fmt.Sprintf(format, args...))
+}
+
 func Wrap(code Code, stage Stage, message string, cause error) *Error {
 	if cause == nil {
 		return New(code, stage, message)

@@ -11,6 +11,7 @@ const IndexVersion = 1
 // BoxHeader is an exact located BMFF/MOV box. Offset is the first size byte.
 type BoxHeader struct {
 	Type          string `json:"type"`
+	Depth         int    `json:"depth"`
 	Offset        int64  `json:"offset"`
 	HeaderSize    int64  `json:"header_size"`
 	Size          int64  `json:"size"`
