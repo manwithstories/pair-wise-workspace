@@ -100,7 +100,7 @@ func deterministicSamplePayload(t *media.Track, s *media.Sample) []byte {
 		magic = []byte("MDIASYNC!")
 	}
 	copy(b, magic)
-	for i := 8; i < len(b); i++ {
+	for i := len(magic); i < len(b); i++ {
 		b[i] = byte(t.ID*31 + uint32(s.Index)*7 + uint32(i))
 	}
 	return b
