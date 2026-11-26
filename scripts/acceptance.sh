@@ -61,7 +61,8 @@ for token in \
 done
 assert_grep damaged-manifest 'psi_crc_reject=1' "$DAMAGED/r0_600000.m3u8"
 assert_grep damaged-manifest 'missing_idr=1' "$DAMAGED/r0_600000.m3u8"
-assert_grep damaged-recovery 'psi_crc_reject' "$DAMAGED/report.json"
+assert_grep damaged-recovery 'psi_crc_mismatch' "$DAMAGED/recovery.json"
+assert_grep damaged-recovery '"seq": 11' "$DAMAGED/recovery.json"
 
 echo '== truncated =='
 "$BIN" demo --seed 23 --case truncated --bitrates 600000,1200000 --segments 12 --out "$TRUNCATED" \
