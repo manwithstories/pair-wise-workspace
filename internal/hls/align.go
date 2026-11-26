@@ -19,6 +19,7 @@ type Event struct {
 	Cam     string // stage, side or roam
 	MediaMs model.MediaMs
 	Bytes   int
+	EnqMs   int64 // wall-clock ms at enqueue, for latency metrics
 }
 
 // Size implements pipe.Item.
@@ -131,6 +132,29 @@ func (r *Reassembler) Push(e Event) []Event {
 			break
 		}
 	}
+	return r.drain()
+}
+
+// Next returns the next expected sequence number.
+func (r *Reassembler) Next() int64 { return r.next }
+
+// Flush declares outstanding gaps lost and drains the buffer at end of
+// stream.
+func (r *Reassembler) Flush() []Event {
+	for len(r.buf) > 0 {
+		if _, ok := r.buf[r.next]; ok {
+			break
+		}
+		if _, ok := r.cache[r.next]; ok {
+			break
+		}
+		r.Lost++
+		r.next++
+	}
+	return r.drain()
+}
+
+func (r *Reassembler) drain() []Event {
 	var out []Event
 	for {
 		if ev, ok := r.buf[r.next]; ok {

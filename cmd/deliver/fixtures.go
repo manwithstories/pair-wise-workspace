@@ -77,7 +77,7 @@ func calibrate(c camSpec) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return timecode.ResolveDaily(f, c.fps, 0)
+	return timecode.ResolveDaily(f, c.fps, c.drop, 0)
 }
 
 // genCheckpoints formats each camera's wrapping timecode labels and
@@ -97,7 +97,7 @@ func genCheckpoints(cams []camSpec, seconds int) ([]hls.Event, error) {
 			if err != nil {
 				return nil, err
 			}
-			ms, err := timecode.ResolveDaily(f, c.fps, off+t)
+			ms, err := timecode.ResolveDaily(f, c.fps, c.drop, off+t)
 			if err != nil {
 				return nil, err
 			}

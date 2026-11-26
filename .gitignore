@@ -71,3 +71,6 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 交付物运行产物 ----
+out/

@@ -88,12 +88,12 @@ func Parse(s string, fps FPS, drop bool) (int64, error) {
 
 // FramesToMs converts a frame count to media milliseconds (rounded).
 func FramesToMs(frames int64, fps FPS) int64 {
-	return (frames*int64(fps.Den)*1000 + int64(fps.Num)/2) / int64(fps.Num)
+	return floorDiv(frames*int64(fps.Den)*1000+int64(fps.Num)/2, int64(fps.Num))
 }
 
 // MsToFrames converts media milliseconds to the nearest frame count.
 func MsToFrames(ms int64, fps FPS) int64 {
-	return (ms*int64(fps.Num) + int64(fps.Den)*500) / (int64(fps.Den) * 1000)
+	return floorDiv(ms*int64(fps.Num)+int64(fps.Den)*500, int64(fps.Den)*1000)
 }
 
 // FrameDurMs returns the exact frame duration as a rational (num/den ms).
@@ -136,18 +136,28 @@ func Format(frames int64, fps FPS, drop bool) string {
 	return fmt.Sprintf("%02d:%02d:%02d;%02d", hh, mm, ss, ff)
 }
 
+// dayFramesDF is the real frame count of one 24h drop-frame day.
+const dayFramesDF = 2589408
+
 // ResolveDaily maps a wrapped time-of-day frame count onto the unified
-// timeline near refMs, unwrapping across midnight. A label landing
-// exactly half a day from the reference is ambiguous and rejected.
-func ResolveDaily(frames int64, fps FPS, refMs int64) (model.MediaMs, error) {
-	base := FramesToMs(frames, fps) // 0 <= base < DayMs
-	k := floorDiv(refMs-base+DayMs/2, DayMs)
-	cand := base + k*DayMs
+// timeline near refMs, unwrapping across midnight. The wrap period is
+// the real day length (drop-frame days are ~86ms shorter than 24h). A
+// label landing exactly half a day from the reference is ambiguous and
+// rejected.
+func ResolveDaily(frames int64, fps FPS, drop bool, refMs int64) (model.MediaMs, error) {
+	dayFrames := fps.FramesPerDay()
+	if drop {
+		dayFrames = dayFramesDF
+	}
+	dayMs := FramesToMs(dayFrames, fps)
+	base := FramesToMs(frames, fps) // 0 <= base < dayMs
+	k := floorDiv(refMs-base+dayMs/2, dayMs)
+	cand := base + k*dayMs
 	diff := cand - refMs
 	if diff < 0 {
 		diff = -diff
 	}
-	if 2*diff == DayMs {
+	if 2*diff == dayMs {
 		return 0, model.Fatalf(model.StageTimecode,
 			"timecode is exactly 12h from reference %dms; ambiguous wrap", refMs)
 	}

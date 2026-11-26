@@ -73,21 +73,21 @@ func TestFrameMsRoundTrip(t *testing.T) {
 
 func TestResolveDailyWrap(t *testing.T) {
 	// Reference 23:59:59.000; label 00:00:02:00 @25fps unwraps to next day.
-	got, err := ResolveDaily(50, FPS25, 86399_000)
+	got, err := ResolveDaily(50, FPS25, false, 86399_000)
 	if err != nil || got != 86402_000 {
 		t.Errorf("got %d, %v; want 86402000", got, err)
 	}
 	// Same label near noon stays same-day.
-	got, err = ResolveDaily(50, FPS25, 12*3600_000)
+	got, err = ResolveDaily(50, FPS25, false, 12*3600_000)
 	if err != nil || got != 2000 {
 		t.Errorf("got %d, %v; want 2000", got, err)
 	}
 	// Exactly 12h away is ambiguous.
-	if _, err := ResolveDaily(0, FPS25, 12*3600_000); err == nil {
+	if _, err := ResolveDaily(0, FPS25, false, 12*3600_000); err == nil {
 		t.Error("half-day ambiguity should be rejected")
 	}
 	// Label just before midnight, reference just after: unwraps negative.
-	got, err = ResolveDaily(24*60*60*25-75, FPS25, 0) // 23:59:57:00 @25
+	got, err = ResolveDaily(24*60*60*25-75, FPS25, false, 0) // 23:59:57:00 @25
 	if err != nil || got != -3000 {
 		t.Errorf("got %d, %v; want -3000", got, err)
 	}
