@@ -140,12 +140,17 @@ func buildInputs(v *verifyFlags) []*pipeline.RenditionInput {
 }
 
 func openStores(dir string) (*cache.Store, *checkpoint.Store, error) {
+	return openStoresWithSecret(dir, []byte(fmt.Sprintf("archive-seed-%d", 41)))
+}
+
+// openStoresWithSecret opens the CAS and checkpoint under dir bound to secret,
+// letting tests simulate a checkpoint integrity failure with the wrong secret.
+func openStoresWithSecret(dir string, secret []byte) (*cache.Store, *checkpoint.Store, error) {
 	cas, err := cache.Open(filepath.Join(dir, "cas"))
 	if err != nil {
 		return nil, nil, err
 	}
-	ckpt, err := checkpoint.Open(filepath.Join(dir, "checkpoint.json"),
-		[]byte(fmt.Sprintf("archive-seed-%d", 41)))
+	ckpt, err := checkpoint.Open(filepath.Join(dir, "checkpoint.json"), secret)
 	if err != nil {
 		return nil, nil, err
 	}
