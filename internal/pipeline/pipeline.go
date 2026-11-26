@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"sort"
 	"time"
 
 	"bq/internal/clock"
@@ -84,10 +85,10 @@ func (r *Runner) Run(ctx context.Context, m *manifest.Manifest) (*RunResult, []m
 	var tl *timeline.Timeline
 	var drift []timeline.DriftReport
 	timed("clock", func() []model.Error {
-		perStream, expanders, wrapEvents, clockErrs := expandClocks(m, rec)
+		perStream, expanders, wrapEvents, preExpanded, clockErrs := expandClocks(m, rec)
 		all = append(all, clockErrs...)
 		var composeErrs []model.Error
-		tl, composeErrs = timeline.Compose(m, perStream, expanders, wrapEvents)
+		tl, composeErrs = timeline.Compose(m, perStream, expanders, wrapEvents, preExpanded)
 		return composeErrs
 	})
 	timed("timeline", func() []model.Error {
@@ -115,7 +116,9 @@ func (r *Runner) Run(ctx context.Context, m *manifest.Manifest) (*RunResult, []m
 	// Stage 5: verification over the unified evidence.
 	var report verify.Report
 	timed("verify", func() []model.Error {
-		wrapCount := countWraps(m, rec)
+		// Wrap count comes straight from the clock-stage evidence, so the
+		// verifier never re-derives (and potentially disagrees with) it.
+		wrapCount := countCodes(all, model.ErrPTSWrap)
 		unrec := countUnrecoverable(drift)
 		in := verify.Input{
 			Manifest: m, Timeline: tl, Drift: drift, Transport: rec,
@@ -136,49 +139,85 @@ func (r *Runner) Run(ctx context.Context, m *manifest.Manifest) (*RunResult, []m
 
 // expandClocks runs the per-stream wrap expander over recovered media and
 // emits a PTS_WRAP record for every detected wraparound so wrap events
-// propagate into verification evidence.
+// propagate into verification evidence. It also returns each media packet's
+// base-corrected, unwrapped source ticks (keyed by source offset) so the
+// timeline composer never has to re-expand.
 func expandClocks(m *manifest.Manifest, rec *transport.Result) (
 	map[int][]manifest.Packet, map[int]*clock.WrapExpander,
-	map[int][]clock.WrapEvent, []model.Error) {
+	map[int][]clock.WrapEvent, map[int]map[int64]int64, []model.Error) {
 
 	perStream := make(map[int][]manifest.Packet)
 	expanders := make(map[int]*clock.WrapExpander)
 	wrapEvents := make(map[int][]clock.WrapEvent)
+	preExpanded := make(map[int]map[int64]int64)
 	var errs []model.Error
 
 	for i := range m.Streams {
 		s := &m.Streams[i]
 		var exp *clock.WrapExpander
 		if s.WrapPeriod > 0 {
-			exp, _ = clock.NewWrapExpander(s.ID, s.WrapPeriod)
+			// Base is the zero-phase origin expressed in SOURCE ticks (the
+			// stream start PTS); expansion stays on the source axis and is only
+			// converted to master ticks later by timeline.Compose.
+			exp, _ = clock.NewWrapExpanderWithBase(s.ID, s.WrapPeriod, s.StartPTS)
 		}
 		expanders[s.ID] = exp
-		var streamPkts []manifest.Packet
-		for _, p := range rec.Packets {
-			if p.StreamID != s.ID {
+		// Recovery appends reconstructed packets after the delivered block,
+		// so re-establish per-stream sequence order before the wrap expander
+		// sees the stream: a monotonic expander must never read out-of-order
+		// PTS values. Parity packets follow the media they belong to.
+		streamPkts := sortedStreamPackets(rec.Packets, s.ID)
+		expandedMap := make(map[int64]int64)
+		for _, p := range streamPkts {
+			if p.Kind != manifest.KindMedia {
 				continue
 			}
-			streamPkts = append(streamPkts, p)
-			if exp != nil && p.Kind == manifest.KindMedia {
-				_, ev, err := exp.Expand(p.RawPTS, p.SourceOffset)
-				if err != nil {
-					errs = append(errs, model.NewError(model.StageClock, s.ID,
-						model.ErrIntegerOverflow, model.SeverityFatal,
-						err.Error(), p.SourceOffset, p.RawPTS, true))
-					continue
-				}
-				if ev != nil {
-					wrapEvents[s.ID] = append(wrapEvents[s.ID], *ev)
-					errs = append(errs, model.NewError(model.StageClock, s.ID,
-						model.ErrPTSWrap, model.SeverityRecovered,
-						fmt.Sprintf("wrap #%d raw_pts=%d", ev.WrapCount, ev.RawPTS),
-						p.SourceOffset, p.RawPTS, true))
-				}
+			if exp == nil {
+				// No wrap: still remove the fixed start-PTS phase so every
+				// stream shares the zero-phase source origin.
+				expandedMap[p.SourceOffset] = p.RawPTS - s.StartPTS
+				continue
+			}
+			full, ev, err := exp.Expand(p.RawPTS, p.SourceOffset)
+			if err != nil {
+				errs = append(errs, model.NewError(model.StageClock, s.ID,
+					model.ErrIntegerOverflow, model.SeverityFatal,
+					err.Error(), p.SourceOffset, p.RawPTS, true))
+				continue
+			}
+			expandedMap[p.SourceOffset] = full
+			if ev != nil {
+				wrapEvents[s.ID] = append(wrapEvents[s.ID], *ev)
+				errs = append(errs, model.NewError(model.StageClock, s.ID,
+					model.ErrPTSWrap, model.SeverityRecovered,
+					fmt.Sprintf("wrap #%d raw_pts=%d", ev.WrapCount, ev.RawPTS),
+					p.SourceOffset, p.RawPTS, true))
 			}
 		}
+		preExpanded[s.ID] = expandedMap
 		perStream[s.ID] = streamPkts
 	}
-	return perStream, expanders, wrapEvents, errs
+	return perStream, expanders, wrapEvents, preExpanded, errs
+}
+
+// sortedStreamPackets returns one stream's packets in deterministic order:
+// media packets first by ascending sequence, then parity packets. This is the
+// monotonic view the clock and timeline subsystems require.
+func sortedStreamPackets(all []manifest.Packet, streamID int) []manifest.Packet {
+	var media, parity []manifest.Packet
+	for _, p := range all {
+		if p.StreamID != streamID {
+			continue
+		}
+		if p.Kind == manifest.KindParity {
+			parity = append(parity, p)
+			continue
+		}
+		media = append(media, p)
+	}
+	sort.SliceStable(media, func(i, j int) bool { return media[i].Seq < media[j].Seq })
+	sort.SliceStable(parity, func(i, j int) bool { return parity[i].GroupID < parity[j].GroupID })
+	return append(media, parity...)
 }
 
 func (r *Runner) exportFrames(m *manifest.Manifest, tl *timeline.Timeline,
@@ -205,24 +244,15 @@ func (r *Runner) exportFrames(m *manifest.Manifest, tl *timeline.Timeline,
 	return all, combined, renderErrs
 }
 
-func countWraps(m *manifest.Manifest, rec *transport.Result) int {
-	count := 0
-	for i := range m.Streams {
-		s := &m.Streams[i]
-		if s.WrapPeriod <= 0 {
-			continue
-		}
-		exp, _ := clock.NewWrapExpander(s.ID, s.WrapPeriod)
-		for _, p := range rec.Packets {
-			if p.StreamID != s.ID || p.Kind != manifest.KindMedia {
-				continue
-			}
-			if _, ev, err := exp.Expand(p.RawPTS, p.SourceOffset); err == nil && ev != nil {
-				count++
-			}
+// countCodes counts collected error records carrying a given code.
+func countCodes(errs []model.Error, code string) int {
+	n := 0
+	for _, e := range errs {
+		if e.Code == code {
+			n++
 		}
 	}
-	return count
+	return n
 }
 
 func countUnrecoverable(reports []timeline.DriftReport) int {
