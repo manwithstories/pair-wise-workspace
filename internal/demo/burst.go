@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"medialab/internal/clock"
+	"medialab/internal/model"
 	"medialab/internal/report"
 	"medialab/internal/rtp"
 	"medialab/internal/sample"
@@ -15,6 +16,7 @@ type burstOutcome struct {
 	packets     []*rtp.InPacket
 	recovered   [][]byte
 	states      []string
+	refs        []model.SegmentRef
 	segments    []report.SegmentResult
 	engine      *rtp.Engine
 	syncReport  *sync.Report
@@ -71,16 +73,22 @@ func runBurstScenario(seed int64, burstLoss int) (*burstOutcome, error) {
 		packets:   packets,
 		recovered: make([][]byte, len(payloads)),
 		states:    make([]string, len(payloads)),
+		refs:      make([]model.SegmentRef, len(payloads)),
 		engine:    engine,
 	}
 	for i, p := range packets {
 		if rp, ok := available[p.P.SequenceNumber]; ok {
 			out.recovered[i] = rp.P.Payload
 		}
+		state := model.StateOriginal
 		if lost[i] {
 			out.states[i] = stateBySeq[p.P.SequenceNumber]
+			state = model.RecoveryState(out.states[i])
 		} else {
-			out.states[i] = "original"
+			out.states[i] = string(model.StateOriginal)
+		}
+		out.refs[i] = model.SegmentRef{
+			Index: i, TrackID: p.TrackID, SourceOff: p.RawOffset, State: state,
 		}
 	}
 	out.segments = report.VerifySegments(payloads, out.recovered, out.states)

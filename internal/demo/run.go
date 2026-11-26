@@ -34,6 +34,7 @@ type Result struct {
 	CropOffset      int64
 	Retransmitted   int
 	XORRecovered    int
+	Provenance      []model.SegmentRef
 }
 
 // Run executes all deterministic generation, parsing, recovery and checks.
@@ -116,11 +117,19 @@ func Run(opts Options) (*Result, error) {
 		BandwidthTargets:  targets,
 		IndexSHA256:       indexHash,
 	}
+	provenance := append([]model.SegmentRef(nil), burst.refs...)
+	if len(badPipeline.Rejected) == 1 && badPipeline.Rejected[0].Origin != nil {
+		origin := badPipeline.Rejected[0].Origin
+		provenance = append(provenance, model.SegmentRef{
+			Index: -1, TrackID: origin.TrackID, SourceOff: origin.Offset,
+			State: model.StateRejected, OriginError: origin,
+		})
+	}
 	return &Result{
 		Options: opts, Metrics: m, Segments: burst.segments, Packet: pd,
 		SyncReport: burst.syncReport, Targets: targets, IndexSHA256: indexHash, TruncatedOffset: truncOffset,
 		CropOffset: cropOffset, Retransmitted: burst.engine.Retransmitted,
-		XORRecovered: burst.engine.XORRecovered,
+		XORRecovered: burst.engine.XORRecovered, Provenance: provenance,
 	}, nil
 }
 
