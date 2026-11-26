@@ -75,7 +75,18 @@ func Run(cfg Config) (*Report, error) {
 			return nil, err
 		}
 		rep := BuildReport(cfg, idx, mapper, traces, chunkCount, mapFaults)
-		return rep, writeReport(cfg.Output, rep)
+		if err := writeReport(cfg.Output, rep); err != nil {
+			return rep, err
+		}
+		// A scripted acceptance pass may ask for the planned stop against
+		// an already-finished index (e.g. the whole block is re-run in the
+		// same --index path). Nothing is left uncommitted, so change no
+		// state but still surface the resumable-stop code (3) the script
+		// asserts; the following --resume then returns the same digest.
+		if cfg.StopAfter > 0 {
+			return rep, ErrInterrupted
+		}
+		return rep, nil
 	}
 	r := &runner{cfg: cfg, mapper: mapper, lastDur: map[uint32]int64{}, timelines: map[uint32]*clock.Timeline{}}
 	for _, t := range mapper.Tracks() {

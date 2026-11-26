@@ -87,6 +87,22 @@ func TestEndToEnd(t *testing.T) {
 	if rep2.ResultsDigest != rep.ResultsDigest || len(before) != len(after) {
 		t.Fatal("rerun changed results or index")
 	}
+	// Re-issuing the planned stop against the finished index must still
+	// report ErrInterrupted (exit 3) without appending to the index, so the
+	// scripted "stop; test $? -eq 3; resume" block is re-runnable.
+	stopCfg := fcfg
+	stopCfg.StopAfter = 2
+	if _, err := Run(stopCfg); !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("stop-after on a done run: expected ErrInterrupted, got %v", err)
+	}
+	again, _ := os.ReadFile(fidx)
+	if len(again) != len(after) {
+		t.Fatal("stop-after on done run modified the index")
+	}
+	// and the following resume still completes with the identical digest
+	if _, err := Run(fcfg); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestIndexParamsMismatch(t *testing.T) {
