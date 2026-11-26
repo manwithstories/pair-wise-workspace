@@ -32,10 +32,11 @@ func runDemo(cfg demoConfig) error {
 		return model.Wrap(model.CodeInvalidArgument, model.StageCLI, "create work directory", err)
 	}
 
-	media, err := fixture.GenerateMedia(cfg.Seed, nil)
+	assets, err := fixture.GenerateProofAssets(cfg.Seed, cfg.Profile)
 	if err != nil {
 		return err
 	}
+	media := assets.Media
 	cleanPath, err := safeWriteWork(cfg.Work, "clean.mp4", media.Data)
 	if err != nil {
 		return err
@@ -48,8 +49,7 @@ func runDemo(cfg demoConfig) error {
 		return err
 	}
 
-	netPlan := fixture.GenerateNetworkPlan(media.Data, cfg.Seed, cfg.Profile)
-	stats, assembled, err := fixture.RunNetworkPlan(netPlan)
+	stats, assembled, err := fixture.RunNetworkPlan(assets.Network)
 	if err != nil {
 		return err
 	}
