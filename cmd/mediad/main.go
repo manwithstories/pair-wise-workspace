@@ -65,7 +65,7 @@ func parseDemo(args []string) (*demoOptions, error) {
 	fs.SetOutput(os.Stderr)
 	o := &demoOptions{Case: fixtures.CaseClean}
 	fs.Int64Var(&o.Seed, "seed", 41, "fixture seed")
-	fs.StringVar(&o.Case, "case", fixtures.CaseClean, "fixture case: clean, late-wrap, truncated, invalid-base")
+	fs.StringVar(&o.Case, "case", fixtures.CaseClean, "fixture case: clean, late-wrap, truncated, invalid-base, matrix, bad-layout")
 	fs.StringVar(&o.Out, "out", "", "output directory")
 	if err := fs.Parse(args); err != nil {
 		return nil, err
