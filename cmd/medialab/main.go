@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"medialab/internal/demo"
@@ -98,8 +99,8 @@ func parseBandwidth(raw string) ([]int, error) {
 	}
 	out := make([]int, 0, len(parts))
 	for _, p := range parts {
-		var v int
-		if _, err := fmt.Sscanf(strings.TrimSpace(p), "%d", &v); err != nil {
+		v, err := strconv.Atoi(strings.TrimSpace(p))
+		if err != nil {
 			return nil, fmt.Errorf("parse %q: %w", p, err)
 		}
 		if v <= 0 || v > 1_000_000 {
