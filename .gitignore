@@ -71,3 +71,10 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# Go build artifacts
+/qc
+/cmd/qc/qc
+*.test
+*.out
+.qc-state/
