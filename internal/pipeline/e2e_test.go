@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"relaycheck/internal/fixture"
+	"relaycheck/internal/provenance"
 	"relaycheck/internal/recovery"
 )
 
@@ -102,6 +103,40 @@ func TestEndToEnd(t *testing.T) {
 	// and the following resume still completes with the identical digest
 	if _, err := Run(fcfg); err != nil {
 		t.Fatal(err)
+	}
+
+	// sample-level provenance: accepted tracks carry one source digest and
+	// offset per output sample, matching the declared sample count.
+	pt, err := provenance.Open(filepath.Join(fout, "provenance"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, err := pt.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundRefs := false
+	for _, st := range all {
+		if st.Decision != provenance.Accepted {
+			continue
+		}
+		for _, tt := range st.Tracks {
+			if len(tt.Refs) == 0 {
+				continue
+			}
+			foundRefs = true
+			if len(tt.Refs) != tt.Samples {
+				t.Fatalf("seq %d refs=%d samples=%d", st.Seq, len(tt.Refs), tt.Samples)
+			}
+			for _, r := range tt.Refs {
+				if r.SHA256 == "" || r.Offset <= 0 || r.Size == 0 {
+					t.Fatalf("bad sample ref %+v", r)
+				}
+			}
+		}
+	}
+	if !foundRefs {
+		t.Fatal("no per-sample provenance refs recorded")
 	}
 }
 

@@ -11,6 +11,7 @@ type Sample struct {
 	Size     uint32
 	Flags    uint32
 	CTO      int32
+	Offset   int64 // absolute byte offset of the payload within the segment file
 	Data     []byte
 }
 
@@ -63,6 +64,7 @@ func (s *Segment) ExtractAll(seq uint32) ([][]Sample, *clock.Fault) {
 					"sample data out of mdat bounds")
 				return nil, &f
 			}
+			smp.Offset = s.MdatOffset + pos
 			smp.Data = s.Mdat[pos : pos+int64(smp.Size)]
 			pos += int64(smp.Size)
 			samples = append(samples, smp)

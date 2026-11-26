@@ -2,6 +2,8 @@ package pipeline
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -166,6 +168,9 @@ func checkTraces(cfg VerifyConfig, traces []provenance.SegmentTrace) error {
 			if err := sameSampleTable(in, out); err != nil {
 				return fmt.Errorf("verification failed: seq %d track %d: %v", tr.Seq, tt.TrackID, err)
 			}
+			if err := checkSampleRefs(tr.Seq, tt.TrackID, tt.Refs, in, out); err != nil {
+				return err
+			}
 			first := int64(outSeg.Traf[indexOfTraf(outSeg, tt.TrackID)].TFDT)
 			if first != tt.FirstDTS {
 				return fmt.Errorf("verification failed: seq %d track %d tfdt != trace", tr.Seq, tt.TrackID)
@@ -234,6 +239,33 @@ func sameSampleTable(a, b []demux.Sample) error {
 		if a[i].Duration != b[i].Duration || a[i].Size != b[i].Size ||
 			a[i].Flags != b[i].Flags || a[i].CTO != b[i].CTO {
 			return fmt.Errorf("sample %d attributes changed", i)
+		}
+	}
+	return nil
+}
+
+// checkSampleRefs independently validates the recorded per-output-sample
+// source digest and offset against a fresh parse of both the input and the
+// output. A track with samples must carry one ref per sample.
+func checkSampleRefs(seq, track uint32, refs []provenance.SampleRef, in, out []demux.Sample) error {
+	if len(in) == 0 {
+		return nil
+	}
+	if len(refs) != len(in) {
+		return fmt.Errorf("verification failed: seq %d track %d sample refs %d != samples %d",
+			seq, track, len(refs), len(in))
+	}
+	for i, r := range refs {
+		inSum := sha256.Sum256(in[i].Data)
+		if r.SHA256 != hex.EncodeToString(inSum[:]) {
+			return fmt.Errorf("verification failed: seq %d track %d sample %d input digest mismatch", seq, track, i)
+		}
+		if r.Offset != in[i].Offset || r.Size != in[i].Size {
+			return fmt.Errorf("verification failed: seq %d track %d sample %d offset/size mismatch", seq, track, i)
+		}
+		outSum := sha256.Sum256(out[i].Data)
+		if r.SHA256 != hex.EncodeToString(outSum[:]) {
+			return fmt.Errorf("verification failed: seq %d track %d sample %d output payload != input digest", seq, track, i)
 		}
 	}
 	return nil

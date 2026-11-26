@@ -21,16 +21,28 @@ const (
 	Lost        = "lost"
 )
 
+// SampleRef records the provenance of one output sample: the SHA-256 and
+// file offset of the corresponding input sample payload. Entries are in
+// sample-table order, so their index plus the list length is the sample
+// range covered by the track fragment.
+type SampleRef struct {
+	Offset int64  `json:"offset"`
+	Size   uint32 `json:"size"`
+	SHA256 string `json:"payload_sha256"`
+}
+
 // TrackTrace records one track's sample range and payload hashes within a
-// segment. PayloadSHA is the input-side hash, OutputSHA the written hash;
-// they must be equal for a lossless remux.
+// segment. PayloadSHA is the input-side aggregate hash, OutputSHA the
+// written hash; they must be equal for a lossless remux. Refs carries the
+// per-output-sample input digest and offset.
 type TrackTrace struct {
-	TrackID    uint32 `json:"track_id"`
-	Samples    int    `json:"samples"`
-	FirstDTS   int64  `json:"first_dts"`
-	Duration   int64  `json:"duration"` // total segment duration in timescale units
-	PayloadSHA string `json:"payload_sha256"`
-	OutputSHA  string `json:"output_sha256,omitempty"`
+	TrackID    uint32      `json:"track_id"`
+	Samples    int         `json:"samples"`
+	FirstDTS   int64       `json:"first_dts"`
+	Duration   int64       `json:"duration"` // total segment duration in timescale units
+	PayloadSHA string      `json:"payload_sha256"`
+	OutputSHA  string      `json:"output_sha256,omitempty"`
+	Refs       []SampleRef `json:"sample_refs,omitempty"`
 }
 
 // SegmentTrace records the provenance of one input segment position.

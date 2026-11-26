@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -167,17 +168,20 @@ func (r *runner) processPosition(pos uint32, prs []*parsedFile) ([]provenance.Se
 		samples := canonical.samples[ti]
 		outs := make([]remux.OutSample, len(samples))
 		parts := make([][]byte, 0, len(samples))
+		refs := make([]provenance.SampleRef, len(samples))
 		var dur int64
 		for i, s := range samples {
 			outs[i] = remux.OutSample{Duration: s.Duration, Size: s.Size, Flags: s.Flags, CTO: s.CTO, Data: s.Data}
 			parts = append(parts, s.Data)
 			dur += int64(s.Duration)
+			sum := sha256.Sum256(s.Data)
+			refs[i] = provenance.SampleRef{Offset: s.Offset, Size: s.Size, SHA256: hex.EncodeToString(sum[:])}
 		}
 		inHash := remux.HashPayload(parts)
 		frags = append(frags, remux.OutFrag{TrackID: track.OutID, TFDT: dec.Value, Samples: outs})
 		tts = append(tts, provenance.TrackTrace{
 			TrackID: track.OutID, Samples: len(samples), FirstDTS: int64(dec.Value),
-			Duration: dur, PayloadSHA: hex.EncodeToString(inHash[:]),
+			Duration: dur, PayloadSHA: hex.EncodeToString(inHash[:]), Refs: refs,
 		})
 		advances = append(advances, adv{tl: tl, dur: dur, tid: track.OutID})
 	}
