@@ -48,6 +48,19 @@ func runScanCommand(ctx context.Context, args []string) int {
 
 	outcomes := pipeline.Run(ctx, jobs, pipeline.Options{Workers: *workers, Store: st})
 	if ctx.Err() != nil {
+		// Workers have been reclaimed. Assemble only outcomes that completed
+		// before cancellation; this short local merge uses a fresh context so
+		// SIGINT cannot leave the partial summary itself half-built.
+		if partial, err := pipeline.OrderedMerge(context.Background(), outcomes, pipeline.MergeConfig{
+			Parameters:    params,
+			CheckpointRel: "checkpoints",
+		}); err == nil {
+			path := filepath.Join(absWork, "partial-report.json")
+			if hash, werr := report.WriteCanonical(path, partial); werr == nil {
+				fmt.Printf("completed_files=%d resume_skipped=%d partial_report_sha256=%s\n",
+					partial.Metrics.Files, partial.Metrics.ResumeSkipped, hash)
+			}
+		}
 		fmt.Fprintln(os.Stderr, "scan interrupted; committed tasks can resume")
 		return 3
 	}

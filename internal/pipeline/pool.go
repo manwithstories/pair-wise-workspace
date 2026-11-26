@@ -75,11 +75,10 @@ func Run(ctx context.Context, jobs []Job, opts Options) []Outcome {
 				}
 				outcome := processJob(ctx, job, opts, analyze)
 				if outcome.Err != nil || outcome.Result != nil || outcome.Skipped {
-					select {
-					case outCh <- outcome:
-					case <-ctx.Done():
-						return
-					}
+					// outCh has capacity for one outcome per deduplicated job,
+					// so this cannot block and a completed result is retained
+					// even if cancellation fired while it was being committed.
+					outCh <- outcome
 				}
 			}
 		}()
