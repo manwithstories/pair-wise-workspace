@@ -133,3 +133,14 @@ func TestPacketChecksumDetectsCorruption(t *testing.T) {
 		t.Fatal("expected checksum failure")
 	}
 }
+
+func TestPacketSizeLimitEnforced(t *testing.T) {
+	cfg := DefaultConfig("s")
+	cfg.MaxPacketSize = 4
+	a := NewAssembler(cfg)
+	err := a.Handle(NewPacket("s", 0, 0, []byte("12345")))
+	var me *model.Error
+	if !errors.As(err, &me) || me.Code != model.CodePacketTooLarge {
+		t.Fatalf("expected packet_too_large, got %v", err)
+	}
+}

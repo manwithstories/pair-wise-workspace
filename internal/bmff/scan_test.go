@@ -239,6 +239,35 @@ func TestFragmentedMoofTFDTAndTRUN(t *testing.T) {
 	}
 }
 
+func TestBoxDepthLimitEnforced(t *testing.T) {
+	box := bmff.NewBox("leaf").WithPayload([]byte("x"))
+	for i := 0; i < 12; i++ {
+		box = bmff.NewBox("nest").Add(box)
+	}
+	raw := box.Build()
+	r := bmff.NewReader("deep.mp4", bytes.NewReader(raw), int64(len(raw)))
+	r.MaxDepth = 4
+
+	var walk func(parent *bmff.BoxHeader) error
+	walk = func(parent *bmff.BoxHeader) error {
+		children, err := r.Children(parent)
+		if err != nil {
+			return err
+		}
+		for i := range children {
+			if err := walk(&children[i]); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	err := walk(nil)
+	var me *model.Error
+	if !errors.As(err, &me) || me.Code != model.CodeUnsupported {
+		t.Fatalf("expected depth-limit unsupported error, got %v", err)
+	}
+}
+
 func binaryBigEndianPutU32(b []byte, v uint32) {
 	b[0] = byte(v >> 24)
 	b[1] = byte(v >> 16)
