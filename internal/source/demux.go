@@ -48,6 +48,9 @@ func Probe(path string) (*Info, error) {
 	if boxErr != nil {
 		return nil, boxErr
 	}
+	if boxes == nil || !boxes.MoovPresent || !boxes.MoovComplete {
+		return nil, media.NewError(media.CodeTruncatedMoov, "moov atom is missing or truncated", nil)
+	}
 	fc := astiav.AllocFormatContext()
 	if fc == nil {
 		return nil, media.NewError(media.CodeDemux, "alloc format context failed", nil)
