@@ -68,7 +68,7 @@ func (e *codedError) Error() string { return e.msg }
 func usage() {
 	fmt.Fprint(os.Stderr, `usage: relay demo --self-generate --profile all
   --queue-bytes <bytes> --consumer-delay <duration>
-  --interrupt-after <n> --resume [--out-dir <path>]
+  --interrupt-after <n> --resume [--out-dir <path>] [--ref-dir <path>]
 `)
 }
 
@@ -135,6 +135,12 @@ func parseFlags(args []string) (options, error) {
 				return opts, err
 			}
 			opts.outDir = v
+		case "--ref-dir":
+			v, err := next()
+			if err != nil {
+				return opts, err
+			}
+			opts.refDir = v
 		default:
 			return opts, fmt.Errorf("unknown flag %q", a)
 		}
