@@ -68,6 +68,14 @@ func Build(spec Spec) (*Set, error) {
 		if err := buildInvalidTB(spec, set); err != nil {
 			return nil, err
 		}
+	case CaseMatrix:
+		if err := buildMatrix(spec, set); err != nil {
+			return nil, err
+		}
+	case CaseBadLayout:
+		if err := buildBadLayout(spec, set); err != nil {
+			return nil, err
+		}
 	default:
 		return nil, media.NewError(media.ErrManifest, "unknown fixture case %q", spec.Case)
 	}
