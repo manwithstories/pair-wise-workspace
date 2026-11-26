@@ -118,6 +118,21 @@ func TestScanAcceptsAndReportsDuplicateCue(t *testing.T) {
 	}
 }
 
+func TestFormatValidationAcceptsAllDocumentedPCMEnvelopes(t *testing.T) {
+	for channels := 1; channels <= 8; channels++ {
+		for _, bits := range []int{8, 16, 24, 32} {
+			frameBytes := channels * bits / 8
+			f := iwav.Format{
+				AudioFormat: 1, Channels: channels, SampleRate: 48000,
+				ByteRate: int64(48000 * frameBytes), BlockAlign: frameBytes, BitsPerSample: bits,
+			}
+			if err := f.Validate("test"); err != nil {
+				t.Fatalf("channels=%d bits=%d should be supported: %v", channels, bits, err)
+			}
+		}
+	}
+}
+
 func writeMinimalWAV(t *testing.T, path string, channels, bits, dataBytes int) {
 	t.Helper()
 	frameBytes := channels * bits / 8
