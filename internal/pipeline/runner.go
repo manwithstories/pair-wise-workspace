@@ -50,7 +50,7 @@ func Run(ds *Dataset, opts Options) (*Result, error) {
 		return nil, err
 	}
 	if opts.CheckpointEvery <= 0 {
-		opts.CheckpointEvery = 60
+		opts.CheckpointEvery = 120
 	}
 	if err := os.MkdirAll(opts.Dir, 0o755); err != nil {
 		return nil, err
