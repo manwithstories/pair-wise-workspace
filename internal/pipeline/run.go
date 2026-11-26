@@ -18,7 +18,7 @@ type Options struct {
 	Dir          string // base directory for track files
 	TargetBPS    int64
 	QueueCap     int // channel capacity; <=0 means 1
-	Workers      int // proxy workers; <=0 means 2
+	Workers      int // proxy stage workers; bounded to 1 (ordered feedback)
 	MaxKeyGap    int // maximum keyframe interval in frames
 	MaxFileBytes int64
 }
@@ -27,9 +27,9 @@ func (o *Options) defaults() {
 	if o.QueueCap <= 0 {
 		o.QueueCap = 1
 	}
-	if o.Workers <= 0 {
-		o.Workers = 2
-	}
+	// The proxy stage runs a single ordered encoder so that bitrate
+	// feedback is deterministic; Workers is bounded to that limit.
+	o.Workers = 1
 	if o.MaxKeyGap <= 0 {
 		o.MaxKeyGap = 48
 	}

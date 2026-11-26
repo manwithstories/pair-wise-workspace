@@ -8,6 +8,19 @@ import (
 	"mediad/internal/timeline"
 )
 
+// corruptOnTimeline reports whether a fault kind isolates media on the
+// timeline. Keyframe-interval and color warnings are reported but do not
+// carve out corrupt ranges.
+func corruptOnTimeline(k fault.Kind) bool {
+	switch k {
+	case fault.KindHashMismatch, fault.KindTruncated, fault.KindStructure,
+		fault.KindBadTimestamp, fault.KindMissingFrame:
+		return true
+	default:
+		return false
+	}
+}
+
 // buildRanges merges per-fault corrupt frame spans into half-open time
 // ranges in seconds.
 func buildRanges(clock timeline.Clock, m *manifest.Manifest, fs []fault.Fault) []timeline.HalfOpen {
@@ -28,6 +41,9 @@ func buildRanges(clock timeline.Clock, m *manifest.Manifest, fs []fault.Fault) [
 	}
 	var ranges []timeline.HalfOpen
 	for _, f := range fs {
+		if !corruptOnTimeline(f.Kind) {
+			continue
+		}
 		step, ok := steps[f.Track]
 		if !ok || f.Frame < 0 {
 			continue
@@ -58,7 +74,7 @@ func buildRanges(clock timeline.Clock, m *manifest.Manifest, fs []fault.Fault) [
 func countRecovered(res *Result) int {
 	firstCorrupt := map[string]int64{}
 	for _, f := range res.Faults {
-		if f.Frame < 0 {
+		if f.Frame < 0 || !corruptOnTimeline(f.Kind) {
 			continue
 		}
 		if cur, ok := firstCorrupt[f.Track]; !ok || f.Frame < cur {

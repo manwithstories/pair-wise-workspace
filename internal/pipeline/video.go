@@ -3,7 +3,6 @@ package pipeline
 import (
 	"context"
 	"sort"
-	"sync"
 
 	"mediad/internal/bitstream"
 	"mediad/internal/color"
@@ -63,50 +62,40 @@ func runVideo(ctx context.Context, clock timeline.Clock, t *manifest.Track,
 	jobs := make(chan frameJob, opts.QueueCap)
 	results := make(chan FrameStat, opts.QueueCap)
 	ctl := video.NewController(opts.TargetBPS, float64(fps.Num)/float64(fps.Den))
-	var mu sync.Mutex
-	var produced, done int64
-	var wg sync.WaitGroup
-	for w := 0; w < opts.Workers; w++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := range jobs {
-				img, err := decodeFrame(j.data)
-				if err != nil {
-					faults.Add(fault.Fault{Track: j.trackID, Frame: j.fr.Seq,
-						Bytes: fault.ByteRange{End: int64(len(j.data))},
-						Kind:  fault.KindStructure, Recoverable: true,
-						Detail: "decode: " + err.Error()})
-					continue
-				}
-				mu.Lock()
-				q := ctl.Quality
-				mu.Unlock()
-				pr, err := video.EncodeProxy(img, q)
-				if err != nil {
-					faults.Add(fault.Fault{Track: j.trackID, Frame: j.fr.Seq,
-						Kind: fault.KindStructure, Recoverable: true,
-						Detail: "proxy: " + err.Error()})
-					continue
-				}
-				mse := mseOf(pr)
-				mu.Lock()
-				produced += int64(len(pr.Data))
-				done++
-				ctl.Update(produced, done)
-				mu.Unlock()
-				select {
-				case results <- FrameStat{Track: j.trackID, Seq: j.fr.Seq, PTS: j.fr.PTS,
-					Bytes: int64(len(pr.Data)), MSE: mse, PSNR: psnrOf(mse)}:
-				case <-ctx.Done():
-					return
-				}
-			}
-		}()
-	}
+	// The proxy stage is a single ordered encoder: the quality feedback
+	// for frame N depends on the actual bytes of frames < N, so encoding
+	// must observe frames in sequence order to stay deterministic.
+	// Producer I/O still overlaps encoding through the bounded channels.
 	go func() {
-		wg.Wait()
-		close(results)
+		defer close(results)
+		var produced, done int64
+		for j := range jobs {
+			img, err := decodeFrame(j.data)
+			if err != nil {
+				faults.Add(fault.Fault{Track: j.trackID, Frame: j.fr.Seq,
+					Bytes: fault.ByteRange{End: int64(len(j.data))},
+					Kind:  fault.KindStructure, Recoverable: true,
+					Detail: "decode: " + err.Error()})
+				continue
+			}
+			pr, err := video.EncodeProxy(img, ctl.Quality)
+			if err != nil {
+				faults.Add(fault.Fault{Track: j.trackID, Frame: j.fr.Seq,
+					Kind: fault.KindStructure, Recoverable: true,
+					Detail: "proxy: " + err.Error()})
+				continue
+			}
+			mse := mseOf(pr)
+			produced += int64(len(pr.Data))
+			done++
+			ctl.Update(produced, done)
+			select {
+			case results <- FrameStat{Track: j.trackID, Seq: j.fr.Seq, PTS: j.fr.PTS,
+				Bytes: int64(len(pr.Data)), MSE: mse, PSNR: psnrOf(mse)}:
+			case <-ctx.Done():
+				return
+			}
+		}
 	}()
 
 	// Producer: bounded read, hash verify, structure scan. A full job
@@ -114,6 +103,7 @@ func runVideo(ctx context.Context, clock timeline.Clock, t *manifest.Track,
 	producerErr := make(chan error, 1)
 	go func() {
 		defer close(jobs)
+		defer close(producerErr)
 		for _, f := range frames {
 			if badSeq[f.Seq] {
 				continue

@@ -47,6 +47,11 @@ func TestCheckMonotonicGapRegression(t *testing.T) {
 	if !(d[0].Range.Start < d[0].Range.End) {
 		t.Fatalf("range not half-open ordered: %+v", d[0].Range)
 	}
+	// after a regression the next good frame must not raise a false gap
+	refs = []FrameRef{{Seq: 0, PTS: 0}, {Seq: 1, PTS: 3750}, {Seq: 2, PTS: 3000}, {Seq: 3, PTS: 11250}}
+	if d = c.Check(refs, 3750); len(d) != 1 {
+		t.Fatalf("false gap after regression: %+v", d)
+	}
 	// clean sequence yields nothing
 	refs = []FrameRef{{Seq: 0, PTS: 0}, {Seq: 1, PTS: 3750}, {Seq: 2, PTS: 7500}}
 	if d := c.Check(refs, 3750); len(d) != 0 {

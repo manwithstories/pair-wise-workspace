@@ -30,30 +30,42 @@ func frameImage(seed, seq int64) *image.RGBA {
 	for y := 0; y < frameH; y++ {
 		for x := 0; x < frameW; x++ {
 			img.SetRGBA(x, y, color.RGBA{
-				R: uint8((x + y) % 256), G: uint8(y * 255 / frameH), B: 128, A: 255})
+				R: uint8(x * 255 / frameW), G: uint8(y * 255 / frameH), B: 128, A: 255})
 		}
 	}
 	bx := int(seq*5) % (frameW - 40)
 	for y := frameH/2 - 30; y < frameH/2+30; y++ {
 		for x := bx; x < bx+40; x++ {
-			img.SetRGBA(x, y, color.RGBA{R: 255, G: 64, B: 64, A: 255})
+			img.SetRGBA(x, y, color.RGBA{R: 220, G: 150, B: 150, A: 255})
 		}
 	}
-	for i := 0; i < 2000; i++ {
-		x, y := rng.Intn(frameW), rng.Intn(frameH)
-		c := img.RGBAAt(x, y)
-		d := uint8(rng.Intn(9)) // 0..8, brighten-only mild noise
-		img.SetRGBA(x, y, color.RGBA{
-			R: clampAdd(c.R, d), G: clampAdd(c.G, d), B: clampAdd(c.B, d), A: 255})
+	// blocky mid-frequency texture survives the proxy downscale and gives
+	// the encoder a realistic byte budget to spend
+	const bs = 3
+	for by := 0; by < frameH/bs; by++ {
+		for bx := 0; bx < frameW/bs; bx++ {
+			d := int8(rng.Intn(21) - 10)
+			for y := by * bs; y < by*bs+bs; y++ {
+				for x := bx * bs; x < bx*bs+bs; x++ {
+					c := img.RGBAAt(x, y)
+					img.SetRGBA(x, y, color.RGBA{
+						R: clampSigned(c.R, d), G: clampSigned(c.G, d), B: clampSigned(c.B, d), A: 255})
+				}
+			}
+		}
 	}
 	return img
 }
 
-func clampAdd(v, d uint8) uint8 {
-	if int(v)+int(d) > 255 {
+func clampSigned(v uint8, d int8) uint8 {
+	s := int(v) + int(d)
+	if s < 0 {
+		return 0
+	}
+	if s > 255 {
 		return 255
 	}
-	return v + d
+	return uint8(s)
 }
 
 func frameName(codec string, seq int64) string {

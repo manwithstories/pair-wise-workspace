@@ -11,7 +11,7 @@ import (
 )
 
 // MaxDim bounds the larger side of a proxy frame.
-const MaxDim = 320
+const MaxDim = 256
 
 // Result holds one encoded proxy frame and its measurement reference.
 type Result struct {

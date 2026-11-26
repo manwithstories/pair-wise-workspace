@@ -64,31 +64,36 @@ type Discontinuity struct {
 }
 
 // Check verifies monotonic PTS and continuous sequence numbers against the
-// expected PTS step. refs must be ordered by sequence number.
+// expected PTS step. refs must be ordered by sequence number. A regressed
+// frame is isolated: PTS of later frames is checked against the last good
+// frame, while missing-frame detection uses manifest-neighbor seqs.
 func (c Clock) Check(refs []FrameRef, step int64) []Discontinuity {
 	var out []Discontinuity
+	prev := 0 // index of last good frame
 	for i := 1; i < len(refs); i++ {
-		prev, cur := refs[i-1], refs[i]
-		if cur.PTS <= prev.PTS {
+		cur := refs[i]
+		if cur.PTS <= refs[prev].PTS {
 			out = append(out, Discontinuity{
 				Regression: true,
 				Seq:        cur.Seq,
-				Range:      HalfOpen{Start: c.Seconds(cur.PTS), End: c.Seconds(prev.PTS + step)},
+				Range:      HalfOpen{Start: c.Seconds(cur.PTS), End: c.Seconds(refs[prev].PTS + step)},
 			})
-			continue
+			continue // keep prev: the regressed frame is skipped
 		}
-		delta := cur.Seq - prev.Seq
-		if gap := delta - 1; gap > 0 || cur.PTS != prev.PTS+step*delta {
-			missing := gap
+		seqGap := cur.Seq - refs[i-1].Seq - 1
+		delta := cur.Seq - refs[prev].Seq
+		if seqGap > 0 || cur.PTS != refs[prev].PTS+step*delta {
+			missing := seqGap
 			if missing < 0 {
 				missing = 0
 			}
 			out = append(out, Discontinuity{
 				Seq:     cur.Seq,
-				Range:   HalfOpen{Start: c.Seconds(prev.PTS + step), End: c.Seconds(cur.PTS)},
+				Range:   HalfOpen{Start: c.Seconds(refs[prev].PTS + step), End: c.Seconds(cur.PTS)},
 				Missing: missing,
 			})
 		}
+		prev = i
 	}
 	return out
 }
