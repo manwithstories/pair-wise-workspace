@@ -63,8 +63,9 @@ func runDemo(ctx context.Context, opts demoOptions) (string, int, error) {
 		},
 	})
 	cancelInterrupt()
-	if len(first) != 3 {
-		return "", 1, fmt.Errorf("interrupted pass committed %d outcomes, want 3", len(first))
+	_ = first // Outcomes may be dropped when cancellation wins a select; durable commits are authoritative.
+	if committed != 3 {
+		return "", 1, fmt.Errorf("interrupted pass committed %d tasks, want 3", committed)
 	}
 
 	start := time.Now()

@@ -71,3 +71,8 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# Local mediascan demo/scan outputs
+.demo/
+.scan/
+.scan-debug*/

@@ -201,13 +201,22 @@ func parseRange(src *Source, start, limit int64, depth int, trackID uint32, idx 
 		b.PayloadSize = b.Size - headerSize
 
 		if b.End > src.Size {
-			code := media.CodeTruncatedBox
 			if typ == "mdat" {
-				code = media.CodeMDATPastEOF
+				*faults = append(*faults, faultAt(src, media.CodeMDATPastEOF, media.SeverityError, trackID, off, media.Time{},
+					"mdat declared end %d exceeds file end %d by %d", b.End, src.Size, b.End-src.Size))
+				return *faults
 			}
-			*faults = append(*faults, faultAt(src, code, media.SeverityError, trackID, off, media.Time{},
-				"box %s declared end %d exceeds file end %d by %d", typ, b.End, src.Size, b.End-src.Size))
-			return *faults
+			if containerTypes[typ] {
+				// Descend through the over-long container so the deepest
+				// truncated child receives the exact corruption coordinate.
+				b.End = src.Size
+				b.Size = b.End - off
+				b.PayloadSize = b.Size - headerSize
+			} else {
+				*faults = append(*faults, faultAt(src, media.CodeTruncatedBox, media.SeverityError, trackID, off, media.Time{},
+					"box %s declared end %d exceeds file end %d by %d", typ, b.End, src.Size, b.End-src.Size))
+				return *faults
+			}
 		}
 		if b.End > limit {
 			*faults = append(*faults, faultAt(src, media.CodeBoxOutsideParent, media.SeverityError, trackID, off, media.Time{},
