@@ -64,6 +64,12 @@ func runDemo(ctx context.Context, args []string) int {
 	corruptOK, crcBad, transitionBad := runCorruptDemo(c.root, *segments, set)
 
 	recoveryRoot := filepath.Join(c.root, "recovery")
+	// The demo intentionally re-creates its crash scenario. Checkpoint resume
+	// itself is idempotent and is exercised by the two Run calls below.
+	if err := os.RemoveAll(recoveryRoot); err != nil {
+		fmt.Fprintf(os.Stderr, "cannot reset demo recovery root: %v\n", err)
+		return 1
+	}
 	firstCfg := normalCfg
 	firstCfg.Root = recoveryRoot
 	firstCfg.InterruptAfterChunks = c.interruptAfter
