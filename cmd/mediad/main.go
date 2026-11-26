@@ -90,7 +90,7 @@ func newVerifyCmd() *cobra.Command {
 				printVerify(rep)
 			}
 			if !rep.OK {
-				return &pipeline.CLIError{Code: 3, Err: fmt.Errorf("verification found %d boundary mismatches and %d seek misses", rep.BoundaryMismatch, rep.IndexSeekMiss)}
+				return &pipeline.CLIError{Code: 3, Err: fmt.Errorf("verification incomplete: index_complete=%v seek_miss=%d boundary_mismatch=%d", rep.IndexComplete, rep.IndexSeekMiss, rep.BoundaryMismatch)}
 			}
 			fmt.Println("exit_status=0 verification_passed")
 			return nil
