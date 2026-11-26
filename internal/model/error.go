@@ -59,8 +59,21 @@ func NewError(kind ErrorKind, format string, args ...any) *MediaError {
 	return &MediaError{Kind: kind, Message: fmt.Sprintf(format, args...)}
 }
 
-// WrapError 包装底层错误并保留分类。
+// WrapError 包装底层错误并保留分类；cause 为 nil 时返回 nil，
+// 使 `return model.WrapError(kind, f.Write(...), ...)` 可以直接透传成功。
 func WrapError(kind ErrorKind, cause error, format string, args ...any) *MediaError {
+	if cause == nil {
+		return nil
+	}
+	return &MediaError{Kind: kind, Message: fmt.Sprintf(format, args...), Cause: cause}
+}
+
+// Wrap 是 WrapError 的 error 接口版本：在返回 error 的函数中使用，
+// 避免把类型化 nil 的 *MediaError 装进接口造成“非 nil 的 nil”。
+func Wrap(kind ErrorKind, cause error, format string, args ...any) error {
+	if cause == nil {
+		return nil
+	}
 	return &MediaError{Kind: kind, Message: fmt.Sprintf(format, args...), Cause: cause}
 }
 
