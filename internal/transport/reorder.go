@@ -74,6 +74,7 @@ type Stats struct {
 
 type trackState struct {
 	next     uint64
+	highest  uint64
 	pending  map[uint64]Packet
 	skipped  map[uint64]Gap
 	stats    TrackStats
@@ -165,9 +166,15 @@ func (r *Reorderer) Push(p Packet) PushResult {
 		f := media.NewFault(media.CodeInputTooLarge, fragmentID(p), -1, false, "reorder queue limit %d reached", r.maxPending)
 		return PushResult{Outside: true, Fault: f}
 	}
-	if p.ID.Sequence != ts.next {
+	// Count an actual inversion: a lower acceptable sequence arrives after
+	// a higher sequence. Ascending packets queued behind a loss are not
+	// themselves reordered.
+	if !p.Retransmission && ts.highest != 0 && p.ID.Sequence < ts.highest {
 		r.stats.OutOfOrder++
 		ts.stats.OutOfOrder++
+	}
+	if p.ID.Sequence > ts.highest {
+		ts.highest = p.ID.Sequence
 	}
 	ts.pending[p.ID.Sequence] = p
 	ordered := r.drain(p.ID.key(), ts)

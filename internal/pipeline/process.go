@@ -12,8 +12,9 @@ import (
 )
 
 type segmentStore struct {
-	parsed map[string]map[uint64]*isobmff.Fragment
-	metas  map[string]map[uint64]cache.Meta
+	parsed   map[string]map[uint64]*isobmff.Fragment
+	metas    map[string]map[uint64]cache.Meta
+	MFHDGaps int
 }
 
 func processSegments(
@@ -93,11 +94,12 @@ func processSegments(
 			}
 			store.parsed[id][seg] = frag
 
-			if haveMFHD[id] && frag.MFHDSequence != lastMFHD[id]+1 {
-				// mfhd gaps are recorded but do not prevent processing: the
-				// logical segment index and tfdt/trun establish media order.
-				_ = media.NewFault(media.CodeSequenceGap, frag.ID, -1, true,
-					"mfhd jumped %d -> %d", lastMFHD[id], frag.MFHDSequence)
+			prevParsed := seg > 1 && store.parsed[id][seg-1] != nil
+			if prevParsed && frag.MFHDSequence != lastMFHD[id]+1 {
+				// A jump between two adjacent parsed logical segments is an
+				// actual mfhd numbering gap. Jumps across an unavailable
+				// segment are already accounted for as transport gaps.
+				store.MFHDGaps++
 			}
 			lastMFHD[id] = frag.MFHDSequence
 			haveMFHD[id] = true

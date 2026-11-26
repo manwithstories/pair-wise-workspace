@@ -103,6 +103,9 @@ func resolveTransport(ctx context.Context, in Input) ([]*resolvedRung, transport
 			}
 		}
 		rr.stats = r.Stats()
+		// Planning successfully refetched missing-before-close packets; the
+		// reorderer's own Recovered counter only covers after-gap recovery.
+		rr.stats.Recovered += len(plan.Recovered)
 		aggregate.Packets += rr.stats.Packets
 		aggregate.Duplicates += rr.stats.Duplicates
 		aggregate.OutOfOrder += rr.stats.OutOfOrder

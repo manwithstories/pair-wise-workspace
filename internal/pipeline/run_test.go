@@ -47,6 +47,9 @@ func TestInterruptResumeAndFullRunsProduceSameArtifactHash(t *testing.T) {
 	if resumed.TransportStats.Duplicates == 0 || resumed.TransportStats.OutOfOrder == 0 {
 		t.Fatalf("transport stats=%+v", resumed.TransportStats)
 	}
+	if resumed.MFHDGaps != 3 {
+		t.Fatalf("mfhd gaps=%d want 3", resumed.MFHDGaps)
+	}
 
 	verified, err := pipeline.Verify(ctx, in, dir)
 	if err != nil {

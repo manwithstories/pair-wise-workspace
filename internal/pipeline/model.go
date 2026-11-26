@@ -85,6 +85,8 @@ type Result struct {
 	TransportStats    transport.Stats
 	GapSegments       []uint64
 	Discontinuities   []uint64
+	MFHDGaps          int
+	TFDTRepaired      int
 	Faults            []*media.Fault
 	Checkpoint        *checkpoint.Checkpoint
 	Interrupted       bool

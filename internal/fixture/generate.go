@@ -52,7 +52,7 @@ func Generate(cfg Config) pipeline.Input {
 		Rungs:       cfg.Rungs,
 		Duration90k: pipeline.Duration90k,
 		StreamID:    streamID,
-		Window:      8,
+		Window:      16,
 		Bandwidth: transport.BandwidthTrace{
 			{AtMS: 0, Kbps: 2400},
 			{AtMS: 35, Kbps: 512},

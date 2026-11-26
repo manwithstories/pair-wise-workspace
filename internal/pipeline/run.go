@@ -100,6 +100,14 @@ func Run(ctx context.Context, in Input, workDir string) (*Result, error) {
 		return nil, err
 	}
 	damageChecked, damageDelta, damageFaults := verifyDamage(in)
+	repairedTFDT := 0
+	for _, b := range out.report.Boundaries {
+		for _, c := range b.Cells {
+			if c.Repaired {
+				repairedTFDT++
+			}
+		}
+	}
 
 	cp.ProcessedSegments = in.Segments
 	cp.Artifacts = out.artifacts
@@ -122,6 +130,7 @@ func Run(ctx context.Context, in Input, workDir string) (*Result, error) {
 		DamageChecked: damageChecked, DamageOffsetDelta: damageDelta,
 		CacheStats: cas.Stats(), TransportStats: transportStats,
 		GapSegments: gaps, Discontinuities: out.report.Discontinuities,
+		MFHDGaps: store.MFHDGaps, TFDTRepaired: repairedTFDT,
 		Faults: damageFaults, Checkpoint: cp,
 	}, nil
 }

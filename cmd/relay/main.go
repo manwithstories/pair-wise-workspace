@@ -136,6 +136,11 @@ func runDemo(args []string) error {
 	fmt.Printf("segments=%d\n", primary.Segments)
 	fmt.Printf("renditions=%d\n", primary.Renditions)
 	fmt.Printf("aligned=%d/%d\n", primary.Aligned, primary.Segments)
+	fmt.Printf("transport_duplicates=%d out_of_order=%d recovered_packets=%d closed_gaps=%d\n",
+		primary.TransportStats.Duplicates, primary.TransportStats.OutOfOrder,
+		primary.TransportStats.Recovered, primary.TransportStats.Missing)
+	fmt.Printf("mfhd_gap_events=%d tfdt_repaired=%d discontinuities=%d\n",
+		primary.MFHDGaps, primary.TFDTRepaired, len(primary.Discontinuities))
 	fmt.Printf("damage_checked=%d\n", primary.DamageChecked)
 	fmt.Printf("damage_offset_delta=%d\n", primary.DamageOffsetDelta)
 	fmt.Printf("resume_ms=%d\n", resumeMS)
