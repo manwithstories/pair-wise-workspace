@@ -89,10 +89,18 @@ func TestInterruptResumeMetricsAndStableHashes(t *testing.T) {
 		t.Fatalf("durable chunks=%d want 8", len(rep.Chunks))
 	}
 	before := map[string]string{}
+	partialCount := 0
 	for _, c := range rep.Chunks {
 		for _, s := range c.Segments {
+			if s.Partial {
+				partialCount++
+				continue
+			}
 			before[s.Path] = s.SHA256
 		}
+	}
+	if partialCount != 32 {
+		t.Fatalf("interrupted partial records=%d want 32", partialCount)
 	}
 
 	resumed, err := pipeline.RunResume(pipeline.Options{Out: opt.Out})
@@ -102,13 +110,21 @@ func TestInterruptResumeMetricsAndStableHashes(t *testing.T) {
 	if resumed.CheckpointReused != 8 || resumed.Rebuilt != 4 || resumed.Idempotent != 1 {
 		t.Fatalf("reused=%d rebuilt=%d idempotent=%d", resumed.CheckpointReused, resumed.Rebuilt, resumed.Idempotent)
 	}
+	partialCount = 0
 	for _, c := range resumed.Chunks {
 		for _, s := range c.Segments {
+			if s.Partial {
+				partialCount++
+				continue
+			}
 			if old, ok := before[s.Path]; ok && old != s.SHA256 {
 				t.Fatalf("hash changed for %s", s.Path)
 			}
 			before[s.Path] = s.SHA256
 		}
+	}
+	if partialCount != 48 {
+		t.Fatalf("partial records=%d want 48", partialCount)
 	}
 	if len(before) != 24 {
 		t.Fatalf("unique hashed segments=%d want 24", len(before))

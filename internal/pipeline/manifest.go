@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"avpipe/internal/checkpoint"
 	"avpipe/internal/hls"
@@ -16,6 +17,15 @@ const ProvenanceFile = "provenance.json"
 
 func segmentRelPath(rendition string, seq int) string {
 	return filepath.ToSlash(filepath.Join("segments", rendition, fmtSegName(seq)))
+}
+
+func segmentPartRelPath(rendition string, seq, part int) string {
+	base := segmentRelPath(rendition, seq)
+	return strings.TrimSuffix(base, ".ts") + "." + strconv.Itoa(part) + ".ts"
+}
+
+func partURIFromSegment(uri string, part int) string {
+	return strings.TrimSuffix(uri, ".ts") + "." + strconv.Itoa(part) + ".ts"
 }
 
 func fmtSegName(seq int) string {

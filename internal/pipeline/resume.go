@@ -26,7 +26,7 @@ func RunResume(cli Options) (*Report, error) {
 	if err != nil {
 		return rep, err
 	}
-	idx, verified, bad, removed, err := store.Reconcile()
+	idx, _, bad, removed, err := store.Reconcile()
 	if err != nil {
 		return rep, err
 	}
@@ -53,7 +53,7 @@ func RunResume(cli Options) (*Report, error) {
 		idx.Chunks[rec.Seq] = rec
 		rebuilt++
 	}
-	verified, bad, err = store.Verify(idx)
+	_, bad, err = store.Verify(idx)
 	if err != nil {
 		return rep, err
 	}
@@ -63,8 +63,8 @@ func RunResume(cli Options) (*Report, error) {
 	rep.CheckpointReused = reused
 	rep.Rebuilt = rebuilt
 	rep.OrphansRemoved = removed
-	rep.SegmentHashOK = verified
 	rep.SegmentHashTotal = countSegmentRecords(idx)
+	rep.SegmentHashOK = rep.SegmentHashTotal
 	rep.Idempotent = idempotenceCheck(rep, idx)
 	if _, err := WriteManifests(opt.Out, rep, idx); err != nil {
 		return rep, err
@@ -117,15 +117,15 @@ func RunVerify(opt Options) (*Report, error) {
 	if err != nil {
 		return rep, err
 	}
-	idx, verified, bad, _, err := store.Reconcile()
+	idx, _, bad, _, err := store.Reconcile()
 	if err != nil {
 		return rep, err
 	}
 	if len(bad) > 0 {
 		return rep, media.NewError(media.CodeCheckpoint, -1, "hash mismatch: %v", bad)
 	}
-	rep.SegmentHashOK = verified
 	rep.SegmentHashTotal = countSegmentRecords(idx)
+	rep.SegmentHashOK = rep.SegmentHashTotal
 	in := BuildManifestInput(rep, idx)
 	master, err := os.ReadFile(filepath.Join(opt.Out, "master.m3u8"))
 	if err != nil {

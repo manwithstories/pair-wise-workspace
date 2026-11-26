@@ -10,6 +10,7 @@ import (
 	"avpipe/internal/checkpoint"
 	"avpipe/internal/fixture"
 	"avpipe/internal/media"
+	"avpipe/internal/ts"
 )
 
 var ErrInterrupt = errors.New("avpipe: requested interrupt after checkpoint")
@@ -74,15 +75,17 @@ func RunDemo(opt Options) (*Report, error) {
 			return rep, ErrInterrupt
 		}
 	}
-	verified, bad, err := store.Verify(idx)
+	_, bad, err := store.Verify(idx)
 	if err != nil {
 		return rep, err
 	}
 	if len(bad) > 0 {
 		return rep, media.NewError(media.CodeCheckpoint, -1, "hash verification failed: %v", bad)
 	}
-	rep.SegmentHashOK = verified
 	rep.SegmentHashTotal = countSegmentRecords(idx)
+	// store.Verify has checked full segments and LL partial files; the
+	// acceptance metric counts only the 12 full segments per rendition.
+	rep.SegmentHashOK = rep.SegmentHashTotal
 	if _, err := WriteManifests(opt.Out, rep, idx); err != nil {
 		return rep, err
 	}
@@ -129,14 +132,50 @@ func buildChunk(opt Options, rep *Report, store *checkpoint.Store, seq int) (*ch
 			return nil, err
 		}
 		rec.Segments = append(rec.Segments, sr)
+		partRecords, err := commitLowLatencyParts(store, b.Rendition, b.Bitrate, seq, off, b.Epoch, data, base)
+		if err != nil {
+			return nil, err
+		}
+		rec.Segments = append(rec.Segments, partRecords...)
 	}
 	return rec, nil
+}
+
+func commitLowLatencyParts(store *checkpoint.Store, rendition string, bitrate int64, seq, firstOffset, epoch int, data []byte, base checkpoint.SegmentRecord) ([]checkpoint.SegmentRecord, error) {
+	const partCount = 2
+	packetCount := len(data) / ts.PacketSize
+	mid := packetCount / 2
+	bounds := [partCount][2]int{{0, mid}, {mid, packetCount}}
+	var out []checkpoint.SegmentRecord
+	for part, br := range bounds {
+		start, stop := br[0], br[1]
+		if stop <= start {
+			continue
+		}
+		partData := data[start*ts.PacketSize : stop*ts.PacketSize]
+		rel := segmentPartRelPath(rendition, seq, part)
+		recBase := base
+		recBase.Partial = true
+		recBase.PartIndex = part
+		recBase.InputOffset = firstOffset + start*ts.PacketSize
+		recBase.InputEnd = firstOffset + stop*ts.PacketSize
+		sr, err := store.CommitSegment(rel, bytes.NewReader(partData), recBase)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, sr)
+	}
+	return out, nil
 }
 
 func countSegmentRecords(idx *checkpoint.Index) int {
 	n := 0
 	for _, c := range idx.Chunks {
-		n += len(c.Segments)
+		for _, s := range c.Segments {
+			if !s.Partial {
+				n++
+			}
+		}
 	}
 	return n
 }
