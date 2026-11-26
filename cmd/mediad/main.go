@@ -24,6 +24,8 @@ func runCLI(args []string) int {
 		return cmdDemo(args[1:])
 	case "scan":
 		return cmdScan(args[1:])
+	case "verify":
+		return cmdVerify(args[1:])
 	case "version":
 		fmt.Println("mediad 1.0.0")
 		return 0
@@ -116,7 +118,8 @@ func printError(err error) {
 }
 
 func usage(w *os.File) {
-	fmt.Fprintln(w, "usage: mediad <demo|scan|version> [flags]")
+	fmt.Fprintln(w, "usage: mediad <demo|scan|verify|version> [flags]")
 	fmt.Fprintln(w, "  demo --work DIR --seed N --profile variable|stable --interrupt-after N")
 	fmt.Fprintln(w, "  scan --input FILE.mp4")
+	fmt.Fprintln(w, "  verify --checkpoint FILE.json [--output FILE.mp4]")
 }
