@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 )
 
 // Clock is a rational timebase. Timestamps on the wire are integer ticks of
@@ -69,11 +70,15 @@ func (c Clock) FromSeconds(sec int64) Duration {
 // the clock cannot represent the span exactly; callers that need approximate
 // alignment convert a whole number of ticks after rounding themselves.
 func (c Clock) FromMilliseconds(ms int64) (Duration, error) {
-	num := ms * c.ticksPerSecond
-	if num%1000 != 0 {
+	n := new(big.Int).Mul(big.NewInt(ms), big.NewInt(c.ticksPerSecond))
+	q, r := new(big.Int).QuoRem(n, big.NewInt(1000), new(big.Int))
+	if r.Sign() != 0 {
 		return Duration{}, fmt.Errorf("media: %d ms is not exact at %d ticks/s", ms, c.ticksPerSecond)
 	}
-	return Duration{ticks: num / 1000, clock: c}, nil
+	if !q.IsInt64() {
+		return Duration{}, fmt.Errorf("media: %d ms overflows tick range", ms)
+	}
+	return Duration{ticks: q.Int64(), clock: c}, nil
 }
 
 // FromRational expresses a span num/den seconds exactly, or reports an error.
@@ -84,11 +89,21 @@ func (c Clock) FromRational(num, den int64) (Duration, error) {
 	if num == 0 {
 		return Duration{clock: c}, nil
 	}
-	t := num * c.ticksPerSecond
-	if t%den != 0 {
+	if den < 0 {
+		num, den = -num, -den
+	}
+	// Big-integer arithmetic: EXTINF decimals and 1001-based frame rates can
+	// overflow int64 when multiplied by the tick rate, but the exactness check
+	// must still be correct.
+	n := new(big.Int).Mul(big.NewInt(num), big.NewInt(c.ticksPerSecond))
+	q, r := new(big.Int).QuoRem(n, big.NewInt(den), new(big.Int))
+	if r.Sign() != 0 {
 		return Duration{}, fmt.Errorf("media: %d/%d s is not exact at %d ticks/s", num, den, c.ticksPerSecond)
 	}
-	return Duration{ticks: t / den, clock: c}, nil
+	if !q.IsInt64() {
+		return Duration{}, fmt.Errorf("media: %d/%d s overflows tick range", num, den)
+	}
+	return Duration{ticks: q.Int64(), clock: c}, nil
 }
 
 // Add returns d+e. The clock must match.
@@ -117,12 +132,16 @@ func (d Duration) Convert(to Clock) (Duration, error) {
 	if !d.clock.Valid() || !to.Valid() {
 		return Duration{}, ErrInvalidClock
 	}
-	num := d.ticks * to.ticksPerSecond
-	if num%d.clock.ticksPerSecond != 0 {
+	n := new(big.Int).Mul(big.NewInt(d.ticks), big.NewInt(to.ticksPerSecond))
+	q, r := new(big.Int).QuoRem(n, big.NewInt(d.clock.ticksPerSecond), new(big.Int))
+	if r.Sign() != 0 {
 		return Duration{}, fmt.Errorf("media: %d ticks @%d cannot convert exactly to @%d",
 			d.ticks, d.clock.ticksPerSecond, to.ticksPerSecond)
 	}
-	return Duration{ticks: num / d.clock.ticksPerSecond, clock: to}, nil
+	if !q.IsInt64() {
+		return Duration{}, fmt.Errorf("media: tick overflow converting @%d to @%d", d.clock.ticksPerSecond, to.ticksPerSecond)
+	}
+	return Duration{ticks: q.Int64(), clock: to}, nil
 }
 
 // Seconds returns the span as a float64. Presentation only; use Ticks and
