@@ -65,6 +65,27 @@ func TestAVSyncThresholdGate(t *testing.T) {
 	}
 }
 
+func TestAVSyncIgnoresDistantOrphans(t *testing.T) {
+	// Audio shifted by a full second: outside the 500ms alignment window, so
+	// it must not be matched against a far-away video item and inflate sync.
+	tl := &timeline.Timeline{MasterHz: 90000, Streams: map[int][]timeline.Item{}}
+	for s := int64(0); s < 5; s++ {
+		tl.Streams[0] = append(tl.Streams[0], timeline.Item{
+			StreamID: 0, Seq: s, MasterPTS: s * clock.MasterHz, Keyframe: true,
+		})
+	}
+	oneSecond, _ := clock.MsToMaster(1000)
+	tl.Streams[1] = append(tl.Streams[1], timeline.Item{
+		StreamID: 1, Seq: 0, MasterPTS: oneSecond,
+	})
+	in := Input{Manifest: baseManifest(), Timeline: tl,
+		Transport: &transport.Result{Stats: map[int]*transport.Stats{}}}
+	m, _ := Compute(in)
+	if m.AVSyncMaxMs != 0 {
+		t.Fatalf("out-of-window orphan must be ignored, got %dms", m.AVSyncMaxMs)
+	}
+}
+
 func TestRecoveryPercentage(t *testing.T) {
 	res := &transport.Result{Stats: map[int]*transport.Stats{
 		0: {StreamID: 0, RecoveredPackets: 9, UnrecoveredPackets: 1},

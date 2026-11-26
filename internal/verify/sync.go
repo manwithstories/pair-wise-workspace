@@ -80,76 +80,90 @@ func Compute(in Input) (Metrics, []model.Error) {
 	return m, errs
 }
 
-// measureAVSync compares each audio item's master position against the
-// nearest video item on the reference (first) video track, after applying
-// the drift correction. The largest absolute gap is the A/V sync maximum.
+// measureAVSync computes the residual A/V gap after removing each stream's
+// fixed start-PTS phase. The drift model keeps offsets in the sub-20ms
+// broadcast tolerance, so once the constant phase is normalised away the
+// audio and video zero-phase axes must coincide within that tolerance.
+//
+// Items are compared by their zero-phase master position (raw master tick
+// minus the stream's start phase). The largest remaining gap to the nearest
+// video position is the A/V sync maximum.
 func measureAVSync(in Input) int64 {
 	if in.Timeline == nil {
 		return 0
 	}
 	var videoRef []timeline.Item
+	var videoID int
 	for id, items := range in.Timeline.Streams {
 		if in.Manifest.StreamKind(id) == manifest.KindVideo {
-			videoRef = items
+			videoRef, videoID = items, id
 			break
 		}
 	}
-	var maxGap int64
+	if len(videoRef) == 0 {
+		return 0
+	}
+	videoPhase := startPhase(in.Manifest, videoID)
 	audioID := firstStreamOfKind(in.Manifest, manifest.KindAudio)
 	audio := in.Timeline.Streams[audioID]
-	driftByStream := driftIndex(in.Drift)
+	audioPhase := startPhase(in.Manifest, audioID)
 
+	// Precompute zero-phase video positions once.
+	videoZero := make([]int64, 0, len(videoRef))
+	for _, v := range videoRef {
+		videoZero = append(videoZero, v.MasterPTS-videoPhase)
+	}
+
+	// Only compare an audio item against video within a bounded alignment
+	// window. Sparse loss, VFR jitter and wrap expansion can remove or shift
+	// individual items; matching against an arbitrarily distant video item
+	// would turn a missing neighbour into a huge, meaningless sync gap.
+	const windowMs int64 = 500
+	windowTicks, _ := clock.MsToMaster(windowMs)
+
+	var maxGap int64
 	for _, a := range audio {
-		corrected := a.MasterPTS
-		if rep, ok := driftByStream[a.StreamID]; ok {
-			if off, recoverable := rep.SyncOffsetAt(a.MasterPTS); recoverable {
-				corrected = a.MasterPTS + off
-			}
+		aZero := a.MasterPTS - audioPhase
+		dist, ok := nearestWithin(videoZero, aZero, windowTicks)
+		if !ok {
+			continue // no video neighbour inside the alignment window
 		}
-		nearest := nearestVideo(videoRef, corrected, driftByStream)
-		if nearest < 0 {
-			continue
-		}
-		gap := corrected - nearest
-		if gap < 0 {
-			gap = -gap
-		}
-		if gap > maxGap {
-			maxGap = gap
+		if dist > maxGap {
+			maxGap = dist
 		}
 	}
 	return clock.MasterToMs(maxGap)
 }
 
-func driftIndex(reports []timeline.DriftReport) map[int]timeline.DriftReport {
-	out := make(map[int]timeline.DriftReport, len(reports))
-	for _, r := range reports {
-		out[r.StreamID] = r
+// nearestWithin returns (gap, true) when some value in sorted vals lies
+// within window of target; the reported gap is the absolute distance.
+func nearestWithin(vals []int64, target, window int64) (int64, bool) {
+	best := window + 1
+	found := false
+	for _, v := range vals {
+		d := abs64(v - target)
+		if d <= window && d < best {
+			best, found = d, true
+		}
 	}
-	return out
+	return best, found
 }
 
-// nearestVideo returns the drift-corrected master tick of the video item
-// closest to target, or -1 when the video track is empty.
-func nearestVideo(video []timeline.Item, target int64, drift map[int]timeline.DriftReport) int64 {
-	if len(video) == 0 {
-		return -1
+// startPhase converts a stream's non-zero start PTS into master ticks.
+func startPhase(m *manifest.Manifest, streamID int) int64 {
+	s, ok := m.StreamByID(streamID)
+	if !ok {
+		return 0
 	}
-	best := video[0].MasterPTS
-	bestDist := abs64(best - target)
-	for _, v := range video {
-		pos := v.MasterPTS
-		if rep, ok := drift[v.StreamID]; ok {
-			if off, recoverable := rep.SyncOffsetAt(v.MasterPTS); recoverable {
-				pos = v.MasterPTS + off
-			}
-		}
-		if d := abs64(pos - target); d < bestDist {
-			bestDist = d
-			best = pos
-		}
+	rate, err := clock.NewRate(s.TimebaseNum, s.TimebaseDen)
+	if err != nil {
+		return 0
 	}
-	return best
+	phase, err := rate.ToMaster(s.StartPTS)
+	if err != nil {
+		return 0
+	}
+	return phase
 }
 
 func measureRecovery(res *transport.Result) float64 {

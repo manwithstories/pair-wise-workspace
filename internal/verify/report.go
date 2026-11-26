@@ -79,6 +79,16 @@ func (r Report) JSON() ([]byte, error) {
 	return append(data, '\n'), nil
 }
 
+// MetricsJSON renders just the metrics block, which the CLI prints to stdout
+// for the acceptance contract.
+func (r Report) MetricsJSON() ([]byte, error) {
+	data, err := json.MarshalIndent(r.Metrics, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(data, '\n'), nil
+}
+
 // ExitCode maps the report status onto the documented process exit codes:
 // 0 pass, 1 metric threshold exceeded, 2 unrecoverable input, 64 bad args
 // (handled by the CLI before a report exists).
