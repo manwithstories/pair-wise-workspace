@@ -131,8 +131,8 @@ func printScanSummary(in *scanInputs, idx *index.Index) {
 			unknown++
 		}
 	}
-	fmt.Printf("unknown_chunks_marked=%d damage_spans=%d normalized_anchors=%d\n",
-		unknown, len(idx.Damage), len(idx.Anchors))
+	fmt.Printf("unknown_chunks_marked=%d damage_spans=%d normalized_anchors=%d drift_ticks_per_frame=%d/%d\n",
+		unknown, len(idx.Damage), len(idx.Anchors), idx.Drift.TicksPerFrame.N, idx.Drift.TicksPerFrame.D)
 	for i, s := range idx.Damage {
 		fmt.Printf("damage[%d]=%s frames=[%d,%d) count=%d recoverable=%t\n",
 			i, s.Kind, s.StartFrame, s.EndFrame, s.Frames(), s.Recoverable)

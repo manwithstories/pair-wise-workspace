@@ -32,6 +32,8 @@ type Report struct {
 	RoundtripTotal   int
 	KeyframeHits     int
 	KeyframeTotal    int
+	DriftRate        string
+	MaxAnchorError   int64
 	DamageSpans      int
 	RecoveredFrames  int64
 	SegmentMatched   int
@@ -118,6 +120,17 @@ func Run(opts Options) (*Report, error) {
 	}
 
 	hits, total := keyframeHits(manifest, damagedReport)
+	maxAnchorError := int64(0)
+	for _, a := range loadedIndex.Anchors {
+		if abs64(a.FrameError) > maxAnchorError {
+			maxAnchorError = abs64(a.FrameError)
+		}
+	}
+	driftRate := "0/1"
+	if loadedIndex.Drift.TicksPerFrame.D != 0 {
+		r := loadedIndex.Drift.TicksPerFrame
+		driftRate = fmt.Sprintf("%d/%d", r.N, r.D)
+	}
 	unknown := 0
 	for _, c := range damagedReport.Chunks {
 		if c.Unknown {
@@ -182,6 +195,7 @@ func Run(opts Options) (*Report, error) {
 		WorkDir: opts.WorkDir, ExitCode: exitCode,
 		RoundtripMatched: rtMatched, RoundtripTotal: rtTotal,
 		KeyframeHits: hits, KeyframeTotal: total,
+		DriftRate: driftRate, MaxAnchorError: maxAnchorError,
 		DamageSpans: len(loadedIndex.Damage), RecoveredFrames: result.RecoveredFrames,
 		SegmentMatched: comparison.Matched, SegmentTotal: comparison.Total,
 		FileSHA256: firstDigest, RerunSHA256: rerunDigest, UnknownChunks: unknown,
@@ -242,4 +256,11 @@ func keyframeHits(m *fixture.Manifest, r *wavscan.Report) (int, int) {
 		}
 	}
 	return hits, len(expected)
+}
+
+func abs64(v int64) int64 {
+	if v < 0 {
+		return -v
+	}
+	return v
 }

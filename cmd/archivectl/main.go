@@ -76,6 +76,8 @@ func runDemo(args []string) int {
 	fmt.Printf("roundtrip_rate=%.3f\n", roundtripRate)
 	fmt.Printf("keyframe_hits=%d/%d\n", rep.KeyframeHits, rep.KeyframeTotal)
 	fmt.Printf("keyframe_hit_rate=%.3f\n", keyframeRate)
+	fmt.Printf("drift_ticks_per_frame=%s\n", rep.DriftRate)
+	fmt.Printf("max_anchor_frame_error=%d\n", rep.MaxAnchorError)
 	fmt.Printf("damage_spans=%d\n", rep.DamageSpans)
 	fmt.Printf("recovered_frames=%d\n", rep.RecoveredFrames)
 	fmt.Printf("unknown_chunks_marked=%d\n", rep.UnknownChunks)

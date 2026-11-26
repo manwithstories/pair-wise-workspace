@@ -45,6 +45,7 @@ type Index struct {
 
 	Cues    []wavscan.CuePoint       `json:"cues,omitempty"`
 	Chunks  []wavscan.ChunkInfo      `json:"chunks,omitempty"`
+	Drift   clock.DriftModel         `json:"drift_model,omitempty"`
 	Anchors []clock.NormalizedAnchor `json:"anchors,omitempty"`
 	Blocks  []clock.NormalizedBlock  `json:"blocks,omitempty"`
 
@@ -123,6 +124,7 @@ func Build(in BuildInput) (*Index, error) {
 		ExpectedFrames:  in.Report.DeclaredFrames,
 		Cues:            in.Report.Cues,
 		Chunks:          in.Report.Chunks,
+		Drift:           model,
 		Anchors:         anchors,
 		Blocks:          blocks,
 		BlockChecks:     in.BlockChecks,
