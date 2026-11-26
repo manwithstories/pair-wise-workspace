@@ -1,10 +1,13 @@
 package samplegen
 
+import "strconv"
+
 // NormalOptions controls ordinary sample-table fixture layout and mutations.
 type NormalOptions struct {
 	QuickTime   bool
 	UnknownBox  bool
 	MDATFirst   bool
+	Seed        int64
 	TruncatedAt string // marker of an stbl box to truncate after its header+4
 	ExtraSTBL   map[uint32][]*Builder
 }
@@ -36,9 +39,10 @@ func buildNormal(specs []TrackSpec, opts NormalOptions) *normalBuilt {
 	unknown := New("zzzz", []byte("scan"))
 
 	sampleData := make([]byte, 0)
+	seedByte := byte(opts.Seed)
 	for si, spec := range specs {
 		for i := 0; i < spec.SampleCount*int(spec.SampleSize); i++ {
-			sampleData = append(sampleData, byte(17+si*31+i*7))
+			sampleData = append(sampleData, byte(17)+seedByte+byte(si*31+i*7))
 		}
 	}
 	mdat := New("mdat", sampleData).Mark("mdat")
@@ -99,7 +103,7 @@ func buildNormal(specs []TrackSpec, opts NormalOptions) *normalBuilt {
 }
 
 func stcoMarker(trackID uint32) string {
-	return "stco-" + string(rune('0'+trackID))
+	return "stco-" + strconv.Itoa(int(trackID))
 }
 
 func trakBox(spec TrackSpec, stcoMarkerName string, extraSTBL ...*Builder) *Builder {

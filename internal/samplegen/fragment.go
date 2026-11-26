@@ -1,5 +1,7 @@
 package samplegen
 
+import "strconv"
+
 // FragSample is one trun sample description.
 type FragSample struct {
 	Duration uint32
@@ -95,7 +97,7 @@ func buildFragmented(quickTime bool, tracks []FragTrack) *normalBuilt {
 }
 
 func trunMarkerName(trackID uint32, fragment int) string {
-	return "trun-" + string(rune('0'+trackID)) + "-" + string(rune('0'+fragment))
+	return "trun-" + strconv.Itoa(int(trackID)) + "-" + strconv.Itoa(fragment)
 }
 
 func cleanFragTracks() []FragTrack {
