@@ -37,6 +37,8 @@ type Cue struct {
 // Issue identifies an isolated malformed, overlapping or truncated source block.
 type Issue struct {
 	SourceLine int        `json:"source_line"`
+	StartMS    int64      `json:"start_ms,omitempty"`
+	EndMS      int64      `json:"end_ms,omitempty"`
 	Kind       fault.Kind `json:"kind"`
 	Message    string     `json:"message"`
 	Raw        string     `json:"raw,omitempty"`
@@ -47,6 +49,14 @@ type Document struct {
 	Format Format  `json:"format"`
 	Cues   []Cue   `json:"cues"`
 	Issues []Issue `json:"issues"`
+}
+
+// GetCues safely returns cues for a possibly nil document.
+func (d *Document) GetCues() []Cue {
+	if d == nil {
+		return nil
+	}
+	return d.Cues
 }
 
 type locatedLine struct {
@@ -149,8 +159,8 @@ func processBlock(block []locatedLine) (Cue, *Issue) {
 	}
 	text := strings.TrimSpace(strings.Join(textParts, "\n"))
 	if text == "" {
-		return Cue{}, &Issue{SourceLine: block[timingIdx].num, Kind: fault.TruncatedCue,
-			Message: "cue has timing but no text", Raw: timing}
+		return Cue{}, &Issue{SourceLine: block[timingIdx].num, StartMS: start, EndMS: end,
+			Kind: fault.TruncatedCue, Message: "cue has timing but no text", Raw: timing}
 	}
 	if total > MaxCueBytes || int64(len(text)) > MaxCueBytes {
 		return Cue{}, &Issue{SourceLine: block[timingIdx].num, Kind: fault.MalformedCue,
@@ -212,8 +222,8 @@ func detectOverlaps(doc *Document) {
 	for i := 1; i < len(doc.Cues); i++ {
 		prev, cur := doc.Cues[i-1], doc.Cues[i]
 		if cur.StartMS < prev.EndMS {
-			doc.Issues = append(doc.Issues, Issue{SourceLine: cur.SourceLine, Kind: fault.OverlappingCue,
-				Message: fmt.Sprintf("overlaps cue at source line %d", prev.SourceLine)})
+			doc.Issues = append(doc.Issues, Issue{SourceLine: cur.SourceLine, StartMS: cur.StartMS, EndMS: cur.EndMS,
+				Kind: fault.OverlappingCue, Message: fmt.Sprintf("overlaps cue at source line %d", prev.SourceLine)})
 		}
 	}
 }
