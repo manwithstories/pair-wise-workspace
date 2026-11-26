@@ -236,6 +236,7 @@ func (p *Arc1Parser) readPacket(r *countingReader, pm *ParsedMedia, st []wrapTra
 		KeyFrame:      flags&flagKeyFrame != 0,
 		ContentHash:   wantHash,
 		PayloadSize:   payloadLen,
+		RawPayload:    payload,
 	}, nil
 }
 

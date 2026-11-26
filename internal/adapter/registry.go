@@ -63,6 +63,9 @@ type FramePacket struct {
 	ContentHash uint64
 	// PayloadSize 用于码率核验，单位字节。
 	PayloadSize int
+	// RawPayload 保留原始解码负载（arc1 的 PCM 等），供静音等内容级分析；
+	// 大体积真实容器适配器可不填充，仅依赖 ContentHash。
+	RawPayload []byte
 }
 
 // WrapEvent 标记一次时间戳回绕：在 AtTicks 处，刻度值从 High 跳回 Low。

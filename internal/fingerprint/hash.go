@@ -11,6 +11,7 @@ package fingerprint
 import (
 	"hash/fnv"
 	"sort"
+	"strconv"
 
 	"archivemedia/internal/model"
 )
@@ -42,6 +43,11 @@ type Fingerprint struct {
 	// FullKey 额外纳入时间跨度、轨道布局与段类型：用于最终归并。
 	FullKey uint64
 	Input   Input
+}
+
+// ContentKeyHex 返回内容键的十六进制形式，供幂等摘要使用。
+func (f Fingerprint) ContentKeyHex() string {
+	return strconv.FormatUint(f.ContentKey, 16)
 }
 
 // Compute 计算单段指纹，纯函数、确定性、无分配副作用。
