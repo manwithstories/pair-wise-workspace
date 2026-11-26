@@ -56,6 +56,7 @@ func Check(idx *index.Index, doc *subtitle.Document, layers []LayerState, fm *fa
 
 	for _, seg := range idx.Segments {
 		if bad[seg.Index] {
+			r.HashOK = false
 			r.addUncuttable(Interval{Segment: seg.Index, StartMS: seg.StartMS, EndMS: seg.EndMS,
 				Reason: "unrecovered segment boundary"})
 			fm.Add(fault.Fault{Kind: fault.BoundaryConflict, Segment: seg.Index,
