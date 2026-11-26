@@ -11,16 +11,17 @@ import (
 
 // Cell is one rendition's position at one common segment index.
 type Cell struct {
-	Segment       uint64       `json:"segment"`
-	Rendition     string       `json:"rendition"`
-	Present       bool         `json:"present"`
-	Gap           bool         `json:"gap"`
-	RawTFDT90k    int64        `json:"raw_tfdt_90k"`
-	Start90k      int64        `json:"start_90k"`
-	Duration90k   int64        `json:"duration_90k"`
-	Repaired      bool         `json:"repaired"`
-	Discontinuity bool         `json:"discontinuity"`
-	Fault         *media.Fault `json:"fault,omitempty"`
+	Segment             uint64       `json:"segment"`
+	Rendition           string       `json:"rendition"`
+	Present             bool         `json:"present"`
+	Gap                 bool         `json:"gap"`
+	RawTFDT90k          int64        `json:"raw_tfdt_90k"`
+	Start90k            int64        `json:"start_90k"`
+	Duration90k         int64        `json:"duration_90k"`
+	ObservedDuration90k int64        `json:"observed_duration_90k"`
+	Repaired            bool         `json:"repaired"`
+	Discontinuity       bool         `json:"discontinuity"`
+	Fault               *media.Fault `json:"fault,omitempty"`
 }
 
 // Boundary is the synchronized common boundary for one segment index.
@@ -117,7 +118,7 @@ func Align(tracks []TrackInput, segmentCount int, duration90k int64) (*Report, e
 				}
 				cell.RawTFDT90k = rawStart
 				sampleDuration, continuous := SamplesContinuous(frag, clock, duration90k)
-				cell.Duration90k = sampleDuration
+				cell.ObservedDuration90k = sampleDuration
 
 				deviates := !media.WithinOneTick(rawStart, expectedStart)
 				regresses := havePrev && rawStart < prevEnd-1
@@ -155,8 +156,17 @@ func Align(tracks []TrackInput, segmentCount int, duration90k int64) (*Report, e
 					cell.Start90k = expectedStart
 				}
 
-				if !media.WithinOneTick(cell.Start90k, expectedStart) ||
-					!media.WithinOneTick(cell.Duration90k, duration90k) {
+				if !continuous && cell.Fault == nil {
+					cell.Discontinuity = true
+					f := media.NewFault(media.CodeTimelineBreak, id, -1, true,
+						"sample durations total %d ticks, expected %d", sampleDuration, duration90k)
+					cell.Fault = f
+					report.Faults = append(report.Faults, f)
+					commonDisc[seg] = true
+					commonFaultAt[seg] = append(commonFaultAt[seg], f)
+				}
+
+				if !media.WithinOneTick(cell.Start90k, expectedStart) {
 					commonDisc[seg] = true
 				}
 				prevEnd = cell.Start90k + duration90k
@@ -185,7 +195,10 @@ func Align(tracks []TrackInput, segmentCount int, duration90k int64) (*Report, e
 			if c.Gap {
 				continue
 			}
-			if !media.WithinOneTick(c.Start90k, b.Start90k) || !media.WithinOneTick(c.Duration90k, b.Duration90k) {
+			if !media.WithinOneTick(c.Start90k, b.Start90k) {
+				aligned = false
+			}
+			if !c.Discontinuity && !media.WithinOneTick(c.ObservedDuration90k, b.Duration90k) {
 				aligned = false
 			}
 		}
