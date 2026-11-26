@@ -27,7 +27,7 @@ func Run(cfg Config) (*Report, error) {
 	fx := BuildFixture(cfg.Case, cfg.Seed)
 	rep := &Report{Case: cfg.Case, Seed: cfg.Seed, Strict: cfg.Strict, HashOK: true,
 		TimecodeBase: "25/1", TimecodeAligned: true}
-	rep.InvalidDF, rep.MidnightWrap = checkGeneratedTimecodes(fm)
+	rep.InvalidDF, rep.MidnightWrap, rep.LTCVITCAligned = checkGeneratedTimecodes(fm)
 
 	reps := fanout.Standard(1_000_000)
 	bandwidth := fanout.NewController(reps, fm)

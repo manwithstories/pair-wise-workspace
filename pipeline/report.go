@@ -40,6 +40,7 @@ type Report struct {
 	MidnightWrap       bool          `json:"midnight_wrap"`
 	TimecodeBase       string        `json:"timecode_base"`
 	TimecodeAligned    bool          `json:"timecode_aligned"`
+	LTCVITCAligned     bool          `json:"ltc_vitc_aligned"`
 	IsolatedIssues     int           `json:"isolated_issues"`
 	Recovered          int           `json:"recovered"`
 	DamagedSegments    int           `json:"damaged_segments"`
@@ -79,8 +80,8 @@ func (r *Report) String() string {
 	fmt.Fprintf(&b, "cues=%d/%d\n", r.CuesOK, r.CuesTotal)
 	fmt.Fprintf(&b, "packets=%d duplicates=%d reordered=%d burst_lost=%d bad_crc=%d\n",
 		r.PacketsReceived, r.Duplicates, r.Reordered, r.BurstLost, r.BadCRC)
-	fmt.Fprintf(&b, "bandwidth_drop=%d invalid_df=%d midnight_wrap=%t timecode=%s subtitle_tc_aligned=%t isolated_issues=%d\n",
-		r.BandwidthDrops, r.InvalidDF, r.MidnightWrap, r.TimecodeBase, r.TimecodeAligned, r.IsolatedIssues)
+	fmt.Fprintf(&b, "bandwidth_drop=%d invalid_df=%d midnight_wrap=%t timecode=%s subtitle_tc_aligned=%t ltc_vitc_aligned=%t isolated_issues=%d\n",
+		r.BandwidthDrops, r.InvalidDF, r.MidnightWrap, r.TimecodeBase, r.TimecodeAligned, r.LTCVITCAligned, r.IsolatedIssues)
 	fmt.Fprintf(&b, "recovered=%d damaged_segments=%d monotonic=%t\n",
 		r.Recovered, r.DamagedSegments, r.Monotonic)
 	fmt.Fprintf(&b, "boundary conflicts=%d cuttable=%d hash_ok=%t\n",

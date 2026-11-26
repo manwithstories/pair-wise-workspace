@@ -19,6 +19,9 @@ func TestCleanReportMeetsDeliveryMetrics(t *testing.T) {
 	if rep.Duplicates != 0 || rep.Reordered != 0 || rep.BurstLost != 0 || rep.DamagedSegments != 0 {
 		t.Fatalf("clean case has impairments: %+v", rep)
 	}
+	if !rep.TimecodeAligned || !rep.LTCVITCAligned || !rep.MidnightWrap || rep.InvalidDF != 1 {
+		t.Fatalf("timecode verification fields wrong: %+v", rep)
+	}
 	if len(rep.SegmentSHA256) != 64 {
 		t.Fatalf("bad segment hash %q", rep.SegmentSHA256)
 	}

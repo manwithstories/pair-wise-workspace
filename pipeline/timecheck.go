@@ -7,7 +7,7 @@ import (
 
 // checkGeneratedTimecodes exercises 24/25/30/NDF and 30000/1001 DF validation,
 // including a legal midnight wrap, an illegal DF number and a regression.
-func checkGeneratedTimecodes(fm *fault.Model) (invalidDF int, midnightWrap bool) {
+func checkGeneratedTimecodes(fm *fault.Model) (invalidDF int, midnightWrap bool, ltcVITCAligned bool) {
 	prev, err := clock.ParseTimecode("23:59:59:24", clock.Rate25, false)
 	if err == nil {
 		next, perr := clock.ParseTimecode("00:00:00:00", clock.Rate25, false)
@@ -35,8 +35,10 @@ func checkGeneratedTimecodes(fm *fault.Model) (invalidDF int, midnightWrap bool)
 
 	ltc, _ := clock.ParseTimecode("01:00:00:00", clock.Rate24, false)
 	vitc, _ := clock.ParseTimecode("01:00:00:01", clock.Rate24, false)
-	if align, err := clock.CheckAlignment(ltc, vitc, 1); err != nil || !align.Aligned {
+	if align, err := clock.CheckAlignment(ltc, vitc, 1); err == nil && align.Aligned {
+		ltcVITCAligned = true
+	} else {
 		fm.Add(fault.Fault{Kind: fault.InvalidTimecode, Message: "LTC/VITC alignment failed"})
 	}
-	return invalidDF, midnightWrap
+	return invalidDF, midnightWrap, ltcVITCAligned
 }
