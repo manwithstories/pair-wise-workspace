@@ -74,6 +74,24 @@ func TestReorderDedupAndCheckpointRecovery(t *testing.T) {
 	}
 }
 
+func TestSimulatorCreatesContiguousLossBursts(t *testing.T) {
+	cfg := Config{Seed: 17, RecoverableLossCount: 8, BandwidthBaseKbps: 8000}
+	s := NewSimulator(cfg, 64)
+	missing := s.RecoverableMissing()
+	adjacent := 0
+	for i := 1; i < len(missing); i++ {
+		if missing[i] == missing[i-1]+1 {
+			adjacent++
+		}
+	}
+	if adjacent == 0 {
+		t.Fatalf("expected at least one contiguous loss burst: %v", missing)
+	}
+	if len(s.Bandwidth) != 64 || s.Stats.AvgBandwidthKbps <= 0 {
+		t.Fatal("variable bandwidth trace was not generated")
+	}
+}
+
 func TestUnrecoverableLossHasExitCodeThree(t *testing.T) {
 	rb := NewReorderBuffer(1)
 	_, err := rb.Recover(3, 0, func(seq uint64) (media.Packet, bool, error) {

@@ -74,14 +74,8 @@ func NewSimulator(cfg Config, packetCount int) *Simulator {
 		swapped:       map[uint64]bool{},
 		Bandwidth:     make([]int, packetCount),
 	}
-	choose := func(n int, out map[uint64]bool) {
-		for len(out) < n && len(out) < packetCount/3 {
-			seq := uint64(2 + s.rng.Intn(max(1, packetCount-2)))
-			out[seq] = true
-		}
-	}
-	choose(cfg.RecoverableLossCount, s.recoverable)
-	choose(cfg.UnrecoverableLossCount, s.unrecoverable)
+	chooseBursts(s.rng, packetCount, cfg.RecoverableLossCount, s.recoverable)
+	chooseBursts(s.rng, packetCount, cfg.UnrecoverableLossCount, s.unrecoverable)
 	for len(s.duplicates) < cfg.DuplicateCount && len(s.duplicates) < packetCount/3 {
 		seq := uint64(2 + s.rng.Intn(max(1, packetCount-2)))
 		s.duplicates[seq] = 1 + s.rng.Intn(2)
@@ -264,6 +258,32 @@ func averageInts(xs []int) int {
 		sum += x
 	}
 	return sum / len(xs)
+}
+
+func chooseBursts(rng *rand.Rand, packetCount, total int, out map[uint64]bool) {
+	remaining := total
+	for remaining > 0 && len(out) < packetCount/3 {
+		length := remaining
+		if length >= 2 {
+			length = 2 + rng.Intn(3) // bursts of 2..4 consecutive sequence numbers
+			if length > remaining {
+				length = remaining
+			}
+		}
+		start := 2 + rng.Intn(max(1, packetCount-length-2))
+		added := 0
+		for k := 0; k < length; k++ {
+			seq := uint64(start + k)
+			if int(seq) < packetCount && !out[seq] {
+				out[seq] = true
+				added++
+				remaining--
+			}
+		}
+		if added == 0 {
+			continue
+		}
+	}
 }
 
 func sortedKeys(m map[uint64]bool) []uint64 {
