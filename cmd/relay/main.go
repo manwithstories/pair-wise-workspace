@@ -101,8 +101,12 @@ func runRun(ctx context.Context, args []string, out io.Writer) int {
 	}
 	if err != nil {
 		code := media.ExitCode(err)
+		firstBad := res.FirstBadRecord
+		if me, ok := media.First(err); ok && firstBad == 0 {
+			firstBad = me.Meta.RecordNo
+		}
 		fmt.Fprintf(out, "relay_result path=run status=error exit_code=%d records=%d first_bad_record=%d precision_ticks=%d backpressure_peak_bytes=%d restore_ms=%d recover_match=false sha256=%s error_code=%s\n",
-			code, res.Records, res.FirstBadRecord, res.PrecisionTicks, res.BackpressurePeakBytes,
+			code, res.Records, firstBad, res.PrecisionTicks, res.BackpressurePeakBytes,
 			res.RestoreMS, emptyDigest(res.SHA256), media.CodeOf(err))
 		fmt.Fprintln(os.Stderr, err)
 		return code
