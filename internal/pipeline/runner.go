@@ -179,27 +179,47 @@ func (r *Runner) runOnce(ctx context.Context, fx *rtp.Fixture, expectFault bool)
 }
 
 // produce pushes every generated packet through the reorderer and enqueues
-// ordered frames. Sender Reports calibrate the shared timeline.
+// ordered frames. Sender Reports calibrate the shared timeline. Detected
+// losses are enqueued as ordered Lost frames so the consumer can run PLC in
+// the exact sequence position where audio is missing.
 func (r *Runner) produce(ctx context.Context, fx *rtp.Fixture, reorder *rtp.Reorderer,
 	cal *rtp.Calibrator, q *buffer.Window[Frame]) error {
 	for _, sr := range fx.Reports {
 		_ = cal.Apply(sr) // rejected reports are counted inside the calibrator
 	}
-	enqueue := func(p *rtp.Packet) error {
+	var lastSeq uint16
+	haveLast := false
+
+	enqueuePacket := func(p *rtp.Packet) error {
+		// Insert one Lost frame per missing sequence number before this packet.
+		if haveLast {
+			for d := clock.Wrap16(lastSeq, p.Seq); d > 1; d-- {
+				missing := lastSeq + 1
+				if err := q.Put(ctx, Frame{Seq: missing, Tick: 0, Lost: true}); err != nil {
+					return err
+				}
+				lastSeq = missing
+			}
+		}
 		tick, _ := cal.ToTick(p.Timestamp)
-		fr := Frame{Packet: p, Tick: int64(tick), Seq: p.Seq, Payload: p.Payload}
-		return q.Put(ctx, fr)
+		if err := q.Put(ctx, Frame{Packet: p, Tick: int64(tick), Seq: p.Seq, Payload: p.Payload}); err != nil {
+			return err
+		}
+		lastSeq = p.Seq
+		haveLast = true
+		return nil
 	}
+
 	for _, pkt := range fx.Packets {
 		ordered, _ := reorder.Push(pkt)
 		for _, p := range ordered {
-			if err := enqueue(p); err != nil {
+			if err := enqueuePacket(p); err != nil {
 				return err
 			}
 		}
 	}
 	for _, p := range reorder.Flush() {
-		if err := enqueue(p); err != nil {
+		if err := enqueuePacket(p); err != nil {
 			return err
 		}
 	}

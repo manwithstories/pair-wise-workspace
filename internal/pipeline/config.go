@@ -48,16 +48,24 @@ func DefaultConfig(workDir string) Config {
 }
 
 // Frame is the unit that travels through the queue: an ordered RTP packet
-// annotated with its shared-clock tick.
+// annotated with its shared-clock tick. A frame with Lost set carries no
+// payload and signals the consumer to run PLC for that sequence number.
 type Frame struct {
-	Packet   *rtp.Packet
-	Tick     int64
-	Seq      uint16
-	Payload  []byte
+	Packet  *rtp.Packet
+	Tick    int64
+	Seq     uint16
+	Payload []byte
+	Lost    bool
 }
 
 // ByteSize implements the queue sizer so the byte budget covers payloads.
-func (f Frame) ByteSize() int { return len(f.Payload) }
+// Lost frames carry no data and therefore cost nothing.
+func (f Frame) ByteSize() int {
+	if f.Lost {
+		return 0
+	}
+	return len(f.Payload)
+}
 
 // runState holds the per-run accumulators shared by the stages.
 type runState struct {

@@ -42,6 +42,7 @@ type Reorderer struct {
 	age      map[uint16]int
 	stats    Stats
 	lastLost uint16
+	lostSeqs []uint16 // sequence numbers declared lost, in order
 }
 
 // NewReorderer creates a reorderer.
@@ -177,6 +178,14 @@ func (r *Reorderer) markLostUntil(until uint16) {
 func (r *Reorderer) markLost(seq uint16) {
 	r.stats.Lost++
 	r.lastLost = seq
+	r.lostSeqs = append(r.lostSeqs, seq)
+}
+
+// LostSequences returns the ordered sequence numbers declared lost so far.
+// The pipeline uses these to drive deterministic PLC rather than inferring
+// gaps from the (already compacted) output stream.
+func (r *Reorderer) LostSequences() []uint16 {
+	return append([]uint16(nil), r.lostSeqs...)
 }
 
 func (r *Reorderer) duplicate(seq uint16) *clock.MediaError {

@@ -20,8 +20,6 @@ func (r *Runner) consume(ctx context.Context, q *buffer.Window[Frame],
 	conv *audio.Converter, loud *audio.LoudnessNormaliser, plc *audio.PLC,
 	committer *txn.Commit, cal *rtp.Calibrator, res *Result, expectFault bool) error {
 
-	var expectedSeq uint16
-	haveSeq := false
 	pts := int64(0)
 
 	for {
@@ -40,17 +38,15 @@ func (r *Runner) consume(ctx context.Context, q *buffer.Window[Frame],
 			}
 		}
 
-		// Mid-stream gaps are filled with deterministic PLC before the real
-		// fragment is converted, preserving sample continuity.
-		if haveSeq {
-			if gap := clock.Wrap16(expectedSeq, fr.Seq); gap > 1 {
-				if err := r.fillGap(loud, plc, committer, gap-1); err != nil {
-					return err
-				}
+		// A Lost frame occupies the exact sequence position of a dropped
+		// packet. Fill it with deterministic PLC at the target rate, then run
+		// the same loudness graph and commit boundary as genuine audio.
+		if fr.Lost {
+			if err := r.fillGap(loud, plc, committer, 1); err != nil {
+				return err
 			}
+			continue
 		}
-		expectedSeq = fr.Seq + 1
-		haveSeq = true
 
 		// Stage 1: resample/remix the real fragment.
 		converted, err := conv.Convert(fr.Payload)
