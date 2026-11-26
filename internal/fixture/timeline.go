@@ -97,8 +97,20 @@ func Build(opts Options) *manifest.Manifest {
 			},
 		}
 		if bp.kind == manifest.KindVideo {
+			// Scale the edit window to the actual run length: a 30-second
+			// head and 30-second tail on the full blueprint, proportionally
+			// smaller on short fixtures so edits stay in bounds.
+			margin := opts.DurationS / 60
+			if margin < 1 {
+				margin = 1
+			}
+			editStart := margin
+			editEnd := opts.DurationS - margin
+			if editEnd <= editStart {
+				editStart, editEnd = 0, opts.DurationS
+			}
 			s.EditList = []manifest.EditRange{
-				{StartPTS: bp.editStartS * bp.timebaseNum, EndPTS: bp.editEndS * bp.timebaseNum},
+				{StartPTS: editStart * bp.timebaseNum, EndPTS: editEnd * bp.timebaseNum},
 			}
 		}
 		m.Streams = append(m.Streams, s)
