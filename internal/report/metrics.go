@@ -10,26 +10,26 @@ import (
 
 // Field names printed in the terminal output; kept as constants for stability.
 const (
-	FieldCase          = "case"
-	FieldSyncMaxMS     = "sync_max_ms"
-	FieldLost          = "lost"
-	FieldRecovered     = "recovered"
-	FieldRecoveryRate  = "recovery_rate"
-	FieldP95MS         = "p95_ms"
-	FieldIndex         = "index"
+	FieldCase           = "case"
+	FieldSyncMaxMS      = "sync_max_ms"
+	FieldLost           = "lost"
+	FieldRecovered      = "recovered"
+	FieldRecoveryRate   = "recovery_rate"
+	FieldP95MS          = "p95_ms"
+	FieldIndex          = "index"
 	FieldOutputShaMatch = "output_sha_match"
 )
 
 // Metrics is the per-case acceptance record.
 type Metrics struct {
-	Case            string  `json:"case"`
-	SyncMaxMS       float64 `json:"sync_max_ms"`
-	Lost            int     `json:"lost"`
-	Recovered       int     `json:"recovered"`
-	RecoveryRate    float64 `json:"recovery_rate"`
-	P95MS           float64 `json:"p95_ms"`
-	Index           string  `json:"index"`
-	OutputShaMatch  bool    `json:"output_sha_match"`
+	Case           string  `json:"case"`
+	SyncMaxMS      float64 `json:"sync_max_ms"`
+	Lost           int     `json:"lost"`
+	Recovered      int     `json:"recovered"`
+	RecoveryRate   float64 `json:"recovery_rate"`
+	P95MS          float64 `json:"p95_ms"`
+	Index          string  `json:"index"`
+	OutputShaMatch bool    `json:"output_sha_match"`
 	// Supporting detail not part of the required headline fields.
 	Gaps          int `json:"gaps"`
 	Truncated     int `json:"truncated"`
@@ -40,9 +40,9 @@ type Metrics struct {
 
 // Thresholds encode the acceptance gates.
 type Thresholds struct {
-	SyncMaxMS       float64
-	RecoveryRate    float64
-	P95MS           float64
+	SyncMaxMS    float64
+	RecoveryRate float64
+	P95MS        float64
 }
 
 // DefaultThresholds matches the acceptance criteria: 20 ms sync, 99% recovery,

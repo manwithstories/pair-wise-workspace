@@ -22,7 +22,7 @@ func TestBuildRecoveryRate(t *testing.T) {
 	}
 
 	in2 := Inputs{
-		Case: "damage",
+		Case:      "damage",
 		Transport: transport.Stats{LostMedia: 100, Recovered: 99},
 		IndexHash: "idx", OutputShaMatch: true,
 	}

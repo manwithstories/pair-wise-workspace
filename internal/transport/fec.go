@@ -217,13 +217,13 @@ func (r *FECResolver) buildGap(g *groupState) *Gap {
 	seqFrom := uint32(g.group*fixture.FECGroupSize + first)
 	seqTo := uint32(g.group*fixture.FECGroupSize + last)
 	return &Gap{
-		Track:       g.track,
-		FECGroup:    g.group,
-		SeqFrom:     seqFrom,
-		SeqTo:       seqTo,
-		Count:       len(missing),
-		StartUS:     startUS,
-		EndUS:       endUS,
+		Track:    g.track,
+		FECGroup: g.group,
+		SeqFrom:  seqFrom,
+		SeqTo:    seqTo,
+		Count:    len(missing),
+		StartUS:  startUS,
+		EndUS:    endUS,
 		// A single-slot loss is the only case a parity packet could rebuild.
 		Recoverable: len(missing) == 1,
 	}

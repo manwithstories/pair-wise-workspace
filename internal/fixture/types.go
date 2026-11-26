@@ -84,14 +84,14 @@ type NumDen struct {
 
 // Packet is one generated transport packet with its native raw timestamp.
 type Packet struct {
-	Track    uint32
-	Seq      uint32 // RTP-style per-track sequence number
-	RawTS    int64  // native timebase ticks after wrap modulo (wire value)
+	Track uint32
+	Seq   uint32 // RTP-style per-track sequence number
+	RawTS int64  // native timebase ticks after wrap modulo (wire value)
 	// UnwrappedTS is the monotonic drift tick before the wrap modulo. It is
 	// the ground truth the transport timestamp-unwrapper must reconstruct.
 	UnwrappedTS int64
-	TrueUS      int64 // ground-truth normalized position in microseconds
-	Duration    int64 // frame duration in native ticks (VFR for video)
+	TrueUS      int64  // ground-truth normalized position in microseconds
+	Duration    int64  // frame duration in native ticks (VFR for video)
 	Payload     []byte // deterministic synthetic content
 	// FEC group index; parity packets share the group with 8 media packets.
 	FECGroup int
@@ -109,12 +109,12 @@ type Packet struct {
 
 // Event is a timed metadata / subtitle / chapter sample.
 type Event struct {
-	Track    uint32
-	Kind     EventKind
-	RawTS    int64
-	TrueUS   int64
-	Duration int64 // microseconds, zero for point events
-	Payload  []byte
+	Track     uint32
+	Kind      EventKind
+	RawTS     int64
+	TrueUS    int64
+	Duration  int64 // microseconds, zero for point events
+	Payload   []byte
 	Truncated bool // damage injector cuts the payload short
 }
 

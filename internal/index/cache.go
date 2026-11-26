@@ -13,7 +13,7 @@ import (
 
 // cacheFile is the on-disk envelope: validation metadata plus the index body.
 type cacheFile struct {
-	Version    int    `json:"version"`     // index schema version
+	Version    int    `json:"version"`      // index schema version
 	InputSHA   string `json:"input_sha256"` // hash the index was built from
 	ContentSHA string `json:"content_sha256"`
 	Index      *Index `json:"index"`

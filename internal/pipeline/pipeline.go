@@ -19,9 +19,9 @@ import (
 
 // Case names accepted by the demo command.
 const (
-	CaseClean   = "clean"
-	CaseDamage  = "damage"
-	CaseResume  = "resume"
+	CaseClean  = "clean"
+	CaseDamage = "damage"
+	CaseResume = "resume"
 )
 
 // Outcome bundles everything a case produced.
@@ -52,10 +52,10 @@ func damageSpecForCase(name string) fixture.DamageSpec {
 	case CaseDamage:
 		// Recoverable single losses plus deliberately unrecovered multi-loss.
 		return fixture.DamageSpec{
-			DropSingles:   []int{0, 2, 4, 6, 8},
-			DropMultiples: map[int]int{10: 3},
-			DuplicateSeq:  map[uint32][]uint32{1: {3, 7}, 2: {5}},
-			ReorderWindow: fixture.FECGroupSize,
+			DropSingles:    []int{0, 2, 4, 6, 8},
+			DropMultiples:  map[int]int{10: 3},
+			DuplicateSeq:   map[uint32][]uint32{1: {3, 7}, 2: {5}},
+			ReorderWindow:  fixture.FECGroupSize,
 			TruncateEvents: []int{1, 9},
 		}
 	case CaseResume:

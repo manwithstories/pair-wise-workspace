@@ -27,8 +27,8 @@ func DefaultRunConfig() RunConfig {
 type RunStats struct {
 	Segments        int
 	FramesWritten   int
-	ResumedFrom     int    // segment index resumed from (0 = fresh)
-	ResumeUsed      bool   // whether a valid checkpoint was consumed
+	ResumedFrom     int  // segment index resumed from (0 = fresh)
+	ResumeUsed      bool // whether a valid checkpoint was consumed
 	PerSegmentUS    []int64
 	P95US           int64
 	OutputSHA       string
@@ -154,7 +154,7 @@ func percentile(values []int64, p int) int64 {
 	}
 	cp := append([]int64(nil), values...)
 	sort.Slice(cp, func(i, j int) bool { return cp[i] < cp[j] })
-	rank := (p * len(cp) + 99) / 100 // nearest-rank, ceil
+	rank := (p*len(cp) + 99) / 100 // nearest-rank, ceil
 	if rank < 1 {
 		rank = 1
 	}

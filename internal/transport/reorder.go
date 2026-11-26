@@ -50,11 +50,11 @@ type trackReceiver struct {
 // so any backwards move relative to the previous in-range value is a wrap:
 // the accumulated modulus is increased by one boundary.
 type tsExpander struct {
-	modulus   int64
-	carry     int64
-	prev      int64
-	havePrev  bool
-	wraps     int
+	modulus  int64
+	carry    int64
+	prev     int64
+	havePrev bool
+	wraps    int
 }
 
 func newTSExpander(modulus int64) *tsExpander { return &tsExpander{modulus: modulus} }

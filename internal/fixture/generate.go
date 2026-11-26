@@ -56,7 +56,7 @@ func Generate(cfg Config) (*Clip, error) {
 		if cfg.VFR {
 			// +/-20% deterministic jitter, bounded to keep ordering monotonic.
 			r := newRand(cfg.Seed, int64(f)+777)
-			durUS = frameUS + int64(r.IntN(int(frameUS/5)))-frameUS/10
+			durUS = frameUS + int64(r.IntN(int(frameUS/5))) - frameUS/10
 			if durUS < frameUS/2 {
 				durUS = frameUS / 2
 			}

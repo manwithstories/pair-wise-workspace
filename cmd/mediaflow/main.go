@@ -17,9 +17,9 @@ import (
 
 // Exit codes per the acceptance contract.
 const (
-	exitOK       = 0
-	exitQuality  = 1
-	exitArgs     = 2
+	exitOK         = 0
+	exitQuality    = 1
+	exitArgs       = 2
 	exitIOOrCancel = 3
 )
 

@@ -36,13 +36,13 @@ var (
 // raw source timestamp, the normalized microsecond position and whether the
 // pipeline can safely resume past the fault without fabricating media data.
 type Error struct {
-	Op       string   // subsystem operation, e.g. "transport.reorder"
-	Track    uint32   // track / stream identifier, 0 when global
-	RawTS    int64    // timestamp in the track's native ticks, 0 when unknown
-	Timebase Rational // track timebase
-	AtMicros int64    // normalized position on the standard scale
-	Recoverable bool  // true when safe segments before/after remain usable
-	Err      error    // wrapped sentinel / underlying error
+	Op          string   // subsystem operation, e.g. "transport.reorder"
+	Track       uint32   // track / stream identifier, 0 when global
+	RawTS       int64    // timestamp in the track's native ticks, 0 when unknown
+	Timebase    Rational // track timebase
+	AtMicros    int64    // normalized position on the standard scale
+	Recoverable bool     // true when safe segments before/after remain usable
+	Err         error    // wrapped sentinel / underlying error
 }
 
 func (e *Error) Error() string {
