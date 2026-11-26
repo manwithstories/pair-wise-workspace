@@ -81,32 +81,60 @@ func applyDuplicates(clip *Clip) {
 	}
 }
 
-// applyReorder shuffles delivery positions inside a bounded sliding window.
-// Dropped packets are removed first so the stream models real delivery.
+// applyReorder shuffles delivery positions inside a bounded sliding window,
+// per track, so each track's own media sequence arrives out of order. Parity
+// packets keep their original position. Dropped packets are removed first.
 func applyReorder(seed int64, pkts []Packet, window int) []Packet {
-	var live []Packet
-	for _, p := range pkts {
-		if !p.Dropped {
-			live = append(live, p)
+	type entry struct {
+		p    Packet
+		orig int
+	}
+	var media []entry
+	var tail []Packet
+	for i, p := range pkts {
+		if p.Dropped {
+			continue
 		}
+		if p.IsParity {
+			tail = append(tail, p)
+			continue
+		}
+		media = append(media, entry{p: p, orig: i})
 	}
 	if window <= 1 {
-		return live
-	}
-	r := newRand(seed, 4242)
-	for start := 0; start < len(live); start += window {
-		end := start + window
-		if end > len(live) {
-			end = len(live)
+		out := make([]Packet, 0, len(media)+len(tail))
+		for _, e := range media {
+			out = append(out, e.p)
 		}
-		block := live[start:end]
-		// Deterministic Fisher-Yates within the window.
+		return append(out, tail...)
+	}
+	sort.SliceStable(media, func(i, j int) bool {
+		if media[i].p.Track != media[j].p.Track {
+			return media[i].p.Track < media[j].p.Track
+		}
+		return media[i].p.Seq < media[j].p.Seq
+	})
+	r := newRand(seed, 4242)
+	for start := 0; start < len(media); start += window {
+		end := start + window
+		if end > len(media) {
+			end = len(media)
+		}
+		// Only shuffle a window contained within one track.
+		if media[start].p.Track != media[end-1].p.Track {
+			continue
+		}
+		block := media[start:end]
 		for i := len(block) - 1; i > 0; i-- {
 			j := r.IntN(i + 1)
 			block[i], block[j] = block[j], block[i]
 		}
 	}
-	return live
+	out := make([]Packet, 0, len(media)+len(tail))
+	for _, e := range media {
+		out = append(out, e.p)
+	}
+	return append(out, tail...)
 }
 
 // applyTruncation cuts flagged event payloads to a fragment, preserving the
@@ -125,7 +153,8 @@ func applyTruncation(clip *Clip) {
 }
 
 // ExpandDuplicates returns a delivery-order slice in which flagged packets
-// appear twice, emulating duplicated RTP arrival before dedup.
+// appear twice, emulating duplicated RTP arrival before dedup. The relative
+// delivery order is preserved so out-of-order packets stay out of order.
 func ExpandDuplicates(pkts []Packet) []Packet {
 	var out []Packet
 	for _, p := range pkts {
@@ -134,11 +163,5 @@ func ExpandDuplicates(pkts []Packet) []Packet {
 			out = append(out, p)
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Track != out[j].Track {
-			return out[i].Track < out[j].Track
-		}
-		return out[i].Seq < out[j].Seq
-	})
 	return out
 }

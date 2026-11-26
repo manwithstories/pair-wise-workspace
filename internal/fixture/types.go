@@ -93,6 +93,9 @@ type Packet struct {
 	// FEC group index; parity packets share the group with 8 media packets.
 	FECGroup int
 	IsParity bool
+	// Recovered is set by the transport layer when a media packet is rebuilt
+	// from the group parity packet rather than received directly.
+	Recovered bool
 	// Marked by the damage injector.
 	Dropped     bool
 	Duplicated  bool
