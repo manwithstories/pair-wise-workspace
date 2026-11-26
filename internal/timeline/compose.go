@@ -48,11 +48,14 @@ type EditSegment struct {
 	InBounds    bool
 }
 
-// Compose normalizes recovered media packets. wrapEvents is the per-stream
-// expansion state already advanced by the transport/clock flow; callers may
-// pass a fresh manifest-driven expansion via NewWrapFromManifest.
+// Compose normalizes recovered media packets. The pipeline pre-expands every
+// media packet through the clock subsystem and passes the resulting unwrapped
+// source ticks in preExpanded (keyed by source offset); when that map is nil
+// (standalone usage), Compose drives the supplied expanders itself. Wrap
+// events still carry the per-packet wrap count for provenance.
 func Compose(m *manifest.Manifest, perStream map[int][]manifest.Packet,
-	expanders map[int]*clock.WrapExpander, wrapEvents map[int][]clock.WrapEvent) (*Timeline, []model.Error) {
+	expanders map[int]*clock.WrapExpander, wrapEvents map[int][]clock.WrapEvent,
+	preExpanded map[int]map[int64]int64) (*Timeline, []model.Error) {
 
 	tl := &Timeline{
 		MasterHz: clock.MasterHz,
@@ -72,6 +75,10 @@ func Compose(m *manifest.Manifest, perStream map[int][]manifest.Packet,
 		exp := expanders[s.ID]
 		streamEvents := wrapEvents[s.ID]
 		eventByOffset := indexWrapEvents(streamEvents)
+		var preMap map[int64]int64
+		if preExpanded != nil {
+			preMap = preExpanded[s.ID]
+		}
 
 		items := make([]Item, 0, len(perStream[s.ID]))
 		for _, p := range perStream[s.ID] {
@@ -80,9 +87,13 @@ func Compose(m *manifest.Manifest, perStream map[int][]manifest.Packet,
 			}
 			unwrapped := p.RawPTS
 			var wraps int
-			if exp != nil {
-				// Re-expansion is only used when the caller did not pre-expand;
-				// normally recovered packets arrive with expander state shared.
+			if preMap != nil {
+				// Pipeline path: reuse the already base-corrected expansion.
+				if v, ok := preMap[p.SourceOffset]; ok {
+					unwrapped = v
+				}
+			} else if exp != nil {
+				// Standalone path: drive a fresh expander over this stream.
 				full, _, err := exp.Expand(p.RawPTS, p.SourceOffset)
 				if err != nil {
 					errs = append(errs, model.NewError(model.StageClock, s.ID, model.ErrIntegerOverflow,
@@ -93,7 +104,9 @@ func Compose(m *manifest.Manifest, perStream map[int][]manifest.Packet,
 				wraps = exp.Wraps()
 			}
 			if ev, ok := eventByOffset[p.SourceOffset]; ok {
-				unwrapped = ev.UnwrappedPTS
+				if preMap == nil {
+					unwrapped = ev.UnwrappedPTS
+				}
 				wraps = ev.WrapCount
 			}
 			master, err := rate.ToMaster(unwrapped)

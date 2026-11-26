@@ -35,7 +35,7 @@ func TestComposeNormalizesTimebases(t *testing.T) {
 			{StreamID: 1, Seq: 1, Kind: manifest.KindMedia, GroupID: 1, SourceOffset: 5,
 			RawPTS: 48000, DurationTick: 48000}},
 	}
-	tl, errs := Compose(m, pkts, map[int]*clock.WrapExpander{}, map[int][]clock.WrapEvent{})
+	tl, errs := Compose(m, pkts, map[int]*clock.WrapExpander{}, map[int][]clock.WrapEvent{}, nil)
 	if len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
@@ -65,7 +65,7 @@ func TestComposeAppliesWrapEvents(t *testing.T) {
 		0: {{StreamID: 0, WrapCount: 1, RawPTS: 50, PrevRawPTS: 950,
 			UnwrappedPTS: 1050, SourceOffset: 10}},
 	}
-	tl, errs := Compose(m, pkts, map[int]*clock.WrapExpander{}, events)
+	tl, errs := Compose(m, pkts, map[int]*clock.WrapExpander{}, events, nil)
 	if len(errs) != 0 {
 		t.Fatal(errs)
 	}
@@ -106,7 +106,7 @@ func TestEstimateDriftRecoverable(t *testing.T) {
 		{StreamID: 0, AtSecond: 5, SourcePTS: 5 * 90000, MasterTicks: 5*90000 + 900},
 	}
 	tl, _ := Compose(m, map[int][]manifest.Packet{},
-		map[int]*clock.WrapExpander{}, map[int][]clock.WrapEvent{})
+		map[int]*clock.WrapExpander{}, map[int][]clock.WrapEvent{}, nil)
 	reports, errs := EstimateDrift(m, tl)
 	if len(errs) != 0 || len(reports[0].Unrecoverable) != 0 {
 		t.Fatalf("clean anchors must recover, errs=%v", errs)
@@ -128,7 +128,7 @@ func TestEstimateDriftAnchorConflict(t *testing.T) {
 		{StreamID: 0, AtSecond: 5, SourcePTS: 5 * 90000, MasterTicks: 5*90000 + 50*90, Conflicts: true},
 	}
 	tl, _ := Compose(m, map[int][]manifest.Packet{},
-		map[int]*clock.WrapExpander{}, map[int][]clock.WrapEvent{})
+		map[int]*clock.WrapExpander{}, map[int][]clock.WrapEvent{}, nil)
 	reports, errs := EstimateDrift(m, tl)
 	if len(errs) != 1 || errs[0].Code != model.ErrAnchorConflict {
 		t.Fatalf("want anchor conflict error, got %v", errs)
