@@ -49,11 +49,13 @@ type DamageRecord struct {
 // Checkpoint records how far a run got so an interrupted job can resume
 // without redoing verified work.
 type Checkpoint struct {
-	Version   int      `json:"version"`
-	PlanHash  string   `json:"plan_hash"`
-	Completed []string `json:"completed"`
-	Partial   string   `json:"partial_output,omitempty"`
-	Stats     *Stats   `json:"stats,omitempty"`
+	Version   int    `json:"version"`
+	PlanHash  string `json:"plan_hash"`
+	Segments  int    `json:"segments"`
+	Completed int    `json:"completed"`
+	Last      string `json:"last_segment,omitempty"`
+	Partial   string `json:"partial_output,omitempty"`
+	Stats     *Stats `json:"stats,omitempty"`
 }
 
 // SaveCheckpoint writes a checkpoint atomically.

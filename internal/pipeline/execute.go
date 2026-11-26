@@ -67,9 +67,10 @@ func RunPlan(opts Options, plan *Plan) (*Stats, error) {
 	damaged := 0
 	var damagedDetail []DamageRecord
 	var totalSamples int
+	completed := 0
 
 	render := func(apply func([]float32) error, collect bool) error {
-		for i, seg := range plan.Segments {
+		for _, seg := range plan.Segments {
 			streamIndex, err := resolveStreamIndex(seg)
 			if err != nil {
 				return err
@@ -114,11 +115,17 @@ func RunPlan(opts Options, plan *Plan) (*Stats, error) {
 				}
 			}
 			if collect {
-				if err := SaveCheckpoint(cpPath, Checkpoint{PlanHash: planHash, Completed: []string{segKey(seg)}, Partial: enc.TempPath()}); err != nil {
+				// Record progress after every rendered segment. The partial
+				// temp file is named so a later resume can discard it; only a
+				// verified delivery is ever reused.
+				completed++
+				if err := SaveCheckpoint(cpPath, Checkpoint{
+					PlanHash: planHash, Segments: len(plan.Segments), Completed: completed,
+					Last: segKey(seg), Partial: enc.TempPath(),
+				}); err != nil {
 					return err
 				}
 			}
-			_ = i
 		}
 		return nil
 	}
@@ -175,7 +182,10 @@ func RunPlan(opts Options, plan *Plan) (*Stats, error) {
 	if err := enc.Commit(); err != nil {
 		return nil, err
 	}
-	if err := SaveCheckpoint(cpPath, Checkpoint{PlanHash: planHash, Completed: []string{"all"}, Stats: stats}); err != nil {
+	if err := SaveCheckpoint(cpPath, Checkpoint{
+		PlanHash: planHash, Segments: len(plan.Segments), Completed: len(plan.Segments),
+		Last: "all", Stats: stats,
+	}); err != nil {
 		return nil, err
 	}
 	return stats, nil
