@@ -32,13 +32,14 @@ type Config struct {
 	MaxBitrateDelta float64
 	MaxAlignMs      int64
 	MinPsnrDb       float64
+	MaxConcurrency  int // 同时在途的解析/解码任务上限，默认 2
 }
 
 // DefaultConfig 返回演示用默认参数。
 func DefaultConfig(root string) Config {
 	return Config{
 		Root: root, SilenceDb: -45, SilenceWindow: 400, SilenceMinMs: 100,
-		MaxBitrateDelta: 8, MaxAlignMs: 1, MinPsnrDb: 32,
+		MaxBitrateDelta: 8, MaxAlignMs: 1, MinPsnrDb: 32, MaxConcurrency: 2,
 	}
 }
 
@@ -71,6 +72,7 @@ type Runner struct {
 	cfg  Config
 	jrnl *journal.Store
 	seq  int
+	sem  *Semaphore
 }
 
 // nextSegmentID 生成全局唯一、确定性的片段 ID。
@@ -88,8 +90,12 @@ func New(cfg Config) (*Runner, error) {
 	if _, err := manifest.EnsureDir(cfg.Root, "segments"); err != nil {
 		return nil, err
 	}
+	sem, err := NewSemaphore(cfg.MaxConcurrency)
+	if err != nil {
+		return nil, err
+	}
 	// 序号从全部已知记录之后继续（含中断遗留 pending），避免与待续片段 ID 碰撞。
-	r := &Runner{cfg: cfg, jrnl: j, seq: j.RecordCount()}
+	r := &Runner{cfg: cfg, jrnl: j, seq: j.RecordCount(), sem: sem}
 	// 续跑前清理中断遗留的未提交孤儿片段，使目录与清单严格一致。
 	if err := r.cleanupOrphans(); err != nil {
 		return nil, err
@@ -137,10 +143,14 @@ func (r *Runner) processSource(src fixture.Source, metrics *[]verify.SegmentMetr
 		return r.isolate(out, err)
 	}
 	opts := adapter.DefaultLimits()
+	opts.MaxConcurrency = r.sem.Cap()
 	if src.NoDurationLimit {
 		opts.MaxDurationUs = 0
 	}
+	// 解析/解码是最重的资源环节，受 MaxConcurrency 信号量约束。
+	r.sem.Acquire()
 	pm, perr := parser.Parse(src.Path, opts)
+	r.sem.Release()
 	if pm != nil && pm.Truncated {
 		// 损坏尾包：保留前缀，记录首个坏时间，继续用前缀产出片段。
 		out.FirstBadAtUs = pm.FirstBadAt.Microseconds()
