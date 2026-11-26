@@ -89,8 +89,9 @@ func BuildAllScenario() *Scenario {
 		audioDTS += 2048
 	}
 
-	// Remote dub: 6 healthy fragments, seq 2 delivered twice (duplicate).
-	dubSeqs := []uint32{1, 2, 3, 4, 5, 6}
+	// Remote dub: 5 healthy fragments (seq 2 redelivered once as a duplicate,
+	// seq 6 intentionally missing), so 5 unique + 1 redelivery + 1 truncation.
+	dubSeqs := []uint32{1, 2, 3, 4, 5}
 	dubDTS := uint64(0)
 	for i, seq := range dubSeqs {
 		raw := twoSampleFragment(spec[301], seq, dubDTS, i == 0)

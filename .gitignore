@@ -71,3 +71,8 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- relay pipeline 构建产物与本地运行输出 ----
+/relay-bin
+/relay-out/
+/relay-reference/

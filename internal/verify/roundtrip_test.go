@@ -70,8 +70,8 @@ func TestRoundTripAndHashes(t *testing.T) {
 	if fault != nil || matched != total {
 		t.Fatalf("hash mismatch: %d/%d %v", matched, total, fault)
 	}
-	if total != 24 {
-		t.Fatalf("expected 24 committed healthy fragments, got %d", total)
+	if total != 23 {
+		t.Fatalf("expected 23 committed healthy fragments, got %d", total)
 	}
 }
 
@@ -93,7 +93,7 @@ func TestKeyframeReachability(t *testing.T) {
 		t.Fatal(fault)
 	}
 	// Every healthy fragment contributes exactly one sync sample.
-	if hits != expected || hits != 24 {
+	if hits != expected || hits != 23 {
 		t.Fatalf("every accepted fragment has one keyframe: %d/%d", hits, expected)
 	}
 	// Persist and reload to prove the index survives an independent read.
@@ -148,7 +148,7 @@ func TestResumeMatchesReference(t *testing.T) {
 	if fault != nil {
 		t.Fatal(fault)
 	}
-	if match != total || total != 24 {
+	if match != total || total != 23 {
 		t.Fatalf("resume mismatch: %d/%d", match, total)
 	}
 	if ManifestHash(p2.Checkpoint()) != refHash {

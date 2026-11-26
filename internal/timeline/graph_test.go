@@ -58,8 +58,8 @@ func TestRepairDuplicateAndConflict(t *testing.T) {
 	if dub.Deduped != 1 {
 		t.Fatalf("expected one dedup, got %d", dub.Deduped)
 	}
-	if len(dub.Accepted) != 6 {
-		t.Fatalf("expected 6 accepted dub fragments, got %d", len(dub.Accepted))
+	if len(dub.Accepted) != 5 {
+		t.Fatalf("expected 5 accepted dub fragments, got %d", len(dub.Accepted))
 	}
 
 	// Same sequence, different bytes -> conflict isolates the track.
