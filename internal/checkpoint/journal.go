@@ -32,6 +32,8 @@ type SegmentRecord struct {
 	InputOffset int    `json:"input_offset"`
 	InputEnd    int    `json:"input_end"`
 	ClockEpoch  int    `json:"clock_epoch"`
+	Partial     bool   `json:"partial,omitempty"`
+	PartIndex   int    `json:"part_index,omitempty"`
 }
 
 // ChunkRecord is one atomic checkpoint unit (one aligned tactical slot).
