@@ -40,7 +40,7 @@ burst 路径额外打印 `propagated_gaps` 与 `av_gap_offset_ms`，并显示：
 - `blocked_dependency=audio.repair`
 - `retry_success`
 
-同一参数重复运行的 `output_sha256` 相同；`--fail-once audio.repair` 首次注入失败、第二次幂等重试成功，最终产物哈希与干净 burst 运行一致。
+同一参数重复运行的 `output_sha256` 相同；`--fail-once audio.repair` 首次注入失败、第二次幂等重试成功，最终产物哈希与干净 burst 运行一致。需要跨进程恢复时可附加 `--journal .qc-state/journal.json`；相同输入哈希的节点会显示 `dag cache_hit` 并直接复用 Journal 中的产物。
 
 ## 退出码
 
