@@ -57,6 +57,31 @@ func TestProveColdAndResumeAreByteIdentical(t *testing.T) {
 	}
 }
 
+func TestInputChangeInvalidatesCheckpoint(t *testing.T) {
+	dir := t.TempDir()
+	cfg := testConfig(dir)
+	ds, err := pipeline.Generate(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	work := filepath.Join(dir, "work")
+	if _, err := pipeline.Run(ds, pipeline.Options{Dir: work, CrashAfterRecords: 5}); !errors.Is(err, pipeline.ErrCrash) {
+		t.Fatalf("crash err=%v", err)
+	}
+	cfg.Seed++
+	changed, err := pipeline.Generate(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := pipeline.Run(changed, pipeline.Options{Dir: work, Resume: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StartRecord != 0 {
+		t.Fatalf("start=%d want 0 after input change", res.StartRecord)
+	}
+}
+
 func TestCorruptMainCheckpointFallsBackToStage(t *testing.T) {
 	dir := t.TempDir()
 	cfg := testConfig(dir)

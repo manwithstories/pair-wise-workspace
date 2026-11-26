@@ -217,6 +217,11 @@ func openOutputForRun(dir, outPath string, resume bool, inputDigest string) (int
 	}
 	stages := []string{"manifest", "transport", "sync", "records", "result"}
 	cp, _ := store.RecoverCheckpoint(dir, stages)
+	if cp != nil && cp.InputSHA256 != "" && inputDigest != "" && cp.InputSHA256 != inputDigest {
+		// The input has changed since this checkpoint. Do not append old output;
+		// restart from the earliest valid stage (record zero).
+		cp = nil
+	}
 	if cp == nil || cp.CompletedRecords <= 0 {
 		f, err := os.Create(outPath)
 		return 0, f, err
