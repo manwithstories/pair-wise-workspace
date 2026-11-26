@@ -54,6 +54,12 @@ func (rd *Reader) Next() (*ReadEvent, error) {
 						"trailing bytes do not form a box header"),
 				}, nil
 			}
+			if f, ok := err.(*media.Fault); ok {
+				// A malformed box gives no reliable boundary, so the remainder
+				// of the stream is quarantined and the reader drains to EOF.
+				rd.pos = rd.size
+				return &ReadEvent{Offset: rd.pos, Fault: f}, nil
+			}
 			return nil, err
 		}
 		if h.Size == 0 {

@@ -111,3 +111,50 @@ func binaryPut32(b []byte, v uint32) {
 	b[2] = byte(v >> 8)
 	b[3] = byte(v)
 }
+
+func TestTruncatedTrunBox(t *testing.T) {
+	raw := fixture.BuildFragment(fixture.FragmentSpec{
+		TrackID: 101, Sequence: 3, Tfdt: 12000,
+		Samples: []fixture.SampleSpec{
+			{Duration: 3000, Payload: fixture.SamplePayload(101, 3, 1, 64), Sync: true},
+			{Duration: 3000, Payload: fixture.SamplePayload(101, 3, 2, 48)},
+		},
+	})
+	// Locate the trun box header ("trun" begins at type word; size is 4
+	// bytes before) and inflate its declared size beyond the traf payload.
+	idx := bytes.Index(raw, []byte("trun"))
+	if idx < 0 {
+		t.Fatal("trun box not found")
+	}
+	sizePos := idx - 4
+	original := uint32(raw[sizePos])<<24 | uint32(raw[sizePos+1])<<16 |
+		uint32(raw[sizePos+2])<<8 | uint32(raw[sizePos+3])
+	binaryPut32(raw[sizePos:], original+200)
+
+	_, err := ParseFragment("mem", 0, raw)
+	var f *media.Fault
+	if !errors.As(err, &f) {
+		t.Fatalf("expected a media fault for over-long trun, got %v", err)
+	}
+	if f.Code != media.FaultTruncated {
+		t.Fatalf("expected truncated_box, got %s", f.Code)
+	}
+	if !f.Isolation() {
+		t.Fatal("a trun that overruns its traf must isolate the fragment")
+	}
+}
+
+func TestBadBoxLength(t *testing.T) {
+	// A top-level box whose size is smaller than its 8-byte header.
+	bad := make([]byte, 8)
+	binaryPut32(bad[:4], 3)
+	copy(bad[4:], "moof")
+	rd := NewReader(bytes.NewReader(bad), "bad", 8)
+	ev, err := rd.Next()
+	if err != nil {
+		t.Fatalf("reader should report fault via event, got %v", err)
+	}
+	if ev.Fault == nil || ev.Fault.Code != media.FaultBadLength {
+		t.Fatalf("expected invalid_box_length fault, got %v", ev.Fault)
+	}
+}
