@@ -134,3 +134,102 @@ func TestGoMP4CrossChecksGeneratedStructure(t *testing.T) {
 		t.Fatalf("go-mp4 rejected generated box structure: %v", err)
 	}
 }
+
+func TestFragmentedMoofTFDTAndTRUN(t *testing.T) {
+	entry := bmff.NewBox("avc1").WithPayload(make([]byte, 8))
+	entryBytes := entry.Build()
+	stsdPayload := make([]byte, 4+len(entryBytes))
+	binaryBigEndianPutU32(stsdPayload[0:4], 1)
+	copy(stsdPayload[4:], entryBytes)
+	stsd := bmff.NewFullBox("stsd", 0, 0, stsdPayload)
+	stbl := bmff.NewBox("stbl").Add(stsd)
+
+	tkhdPayload := make([]byte, 80)
+	binaryBigEndianPutU32(tkhdPayload[8:12], 7)
+	mdhdPayload := make([]byte, 20)
+	binaryBigEndianPutU32(mdhdPayload[8:12], 1000)
+	hdlrPayload := make([]byte, 21)
+	copy(hdlrPayload[4:8], "vide")
+	trak := bmff.NewBox("trak").Add(
+		bmff.NewFullBox("tkhd", 0, 7, tkhdPayload),
+		bmff.NewBox("mdia").Add(
+			bmff.NewFullBox("mdhd", 0, 0, mdhdPayload),
+			bmff.NewFullBox("hdlr", 0, 0, hdlrPayload),
+			bmff.NewBox("minf").Add(stbl),
+		),
+	)
+	trexPayload := make([]byte, 20)
+	binaryBigEndianPutU32(trexPayload[0:4], 7)
+	moov := bmff.NewBox("moov").Add(trak, bmff.NewBox("mvex").Add(bmff.NewFullBox("trex", 0, 0, trexPayload)))
+
+	sampleData := [][]byte{[]byte("aaaa"), []byte("bbbbbb"), []byte("cccccccc")}
+	trunPayload := make([]byte, 8+12*len(sampleData))
+	binaryBigEndianPutU32(trunPayload[0:4], uint32(len(sampleData)))
+	// data offset filled after measuring moof
+	pos := 8
+	for _, s := range []struct {
+		dur, size uint32
+		cts       int32
+	}{{100, 4, 0}, {200, 6, 10}, {300, 8, -5}} {
+		binaryBigEndianPutU32(trunPayload[pos:], s.dur)
+		binaryBigEndianPutU32(trunPayload[pos+4:], s.size)
+		binaryBigEndianPutU32(trunPayload[pos+8:], uint32(s.cts))
+		pos += 12
+	}
+	trun := bmff.NewFullBox("trun", 1, 0x000001|0x000100|0x000200|0x000800, trunPayload)
+	tfhdPayload := make([]byte, 4)
+	binaryBigEndianPutU32(tfhdPayload, 7)
+	tfdtPayload := make([]byte, 8)
+	binaryBigEndianPutU64(tfdtPayload, 100)
+	mfhd := bmff.NewFullBox("mfhd", 0, 0, []byte{0, 0, 0, 1})
+	traf := bmff.NewBox("traf").Add(
+		bmff.NewFullBox("tfhd", 0, 0x020000, tfhdPayload),
+		bmff.NewFullBox("tfdt", 1, 0, tfdtPayload),
+		trun,
+	)
+	moof := bmff.NewBox("moof").Add(mfhd, traf)
+	moofBytes := moof.Build()
+	binaryBigEndianPutU32(trunPayload[4:8], uint32(len(moofBytes)+8))
+	moofBytes = moof.Build()
+
+	var mdatPayload []byte
+	for _, b := range sampleData {
+		mdatPayload = append(mdatPayload, b...)
+	}
+	mdat := bmff.NewBox("mdat").WithPayload(mdatPayload).Build()
+	data := append(moov.Build(), moofBytes...)
+	data = append(data, mdat...)
+
+	idx := scanBytes(t, data, "fragmented")
+	if !idx.Fragmented || len(idx.Tracks) != 1 || idx.Tracks[0].ID != 7 {
+		t.Fatalf("bad fragmented index: %+v", idx)
+	}
+	got := idx.Tracks[0].Samples
+	if len(got) != 3 {
+		t.Fatalf("samples=%d want3", len(got))
+	}
+	wantDTS := []int64{100, 200, 400}
+	wantPTS := []int64{100, 210, 395}
+	for i := range got {
+		if got[i].DTS != wantDTS[i] || got[i].PTS != wantPTS[i] {
+			t.Fatalf("sample %d dts=%d pts=%d want %d/%d", i, got[i].DTS, got[i].PTS, wantDTS[i], wantPTS[i])
+		}
+	}
+	if got[0].Offset != int64(len(moov.Build())+len(moofBytes)+8) {
+		t.Fatalf("first offset=%d", got[0].Offset)
+	}
+}
+
+func binaryBigEndianPutU32(b []byte, v uint32) {
+	b[0] = byte(v >> 24)
+	b[1] = byte(v >> 16)
+	b[2] = byte(v >> 8)
+	b[3] = byte(v)
+}
+
+func binaryBigEndianPutU64(b []byte, v uint64) {
+	for i := 7; i >= 0; i-- {
+		b[i] = byte(v)
+		v >>= 8
+	}
+}
