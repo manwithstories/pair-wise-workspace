@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/Eyevinn/hls-m3u8/m3u8"
@@ -136,28 +137,24 @@ func generateMedia(r RenditionView, partCount int, diag map[string]string) ([]by
 				return nil, err
 			}
 			for j := 0; j < partCount; j++ {
-				_ = p.AppendPartialSegment(&m3u8.PartialSegment{
-					URI: s.File, Duration: dur / float64(partCount),
-					Independent: j == 0, Gap: true,
+				if s.Seq == 0 {
+					continue // Eyevinn requires an existing segment before decoding PART.
+				}
+				p.PartialSegments = append(p.PartialSegments, &m3u8.PartialSegment{
+					URI: partURIFromSegment(s.File, j), Duration: dur / float64(partCount),
+					Independent: j == 0, Gap: true, SeqID: uint64(s.Seq),
 				})
 			}
 			continue
 		}
-		partSize := s.Size / int64(partCount)
-		var offset int64
 		for j := 0; j < partCount; j++ {
-			limit := partSize
-			if j == partCount-1 {
-				limit = s.Size - offset
+			if s.Seq == 0 {
+				continue
 			}
-			ps := &m3u8.PartialSegment{
-				URI: s.File, Duration: dur / float64(partCount),
-				Independent: j == 0, Offset: offset, Limit: limit,
-			}
-			if err := p.AppendPartialSegment(ps); err != nil {
-				return nil, err
-			}
-			offset += limit
+			p.PartialSegments = append(p.PartialSegments, &m3u8.PartialSegment{
+				URI: partURIFromSegment(s.File, j), Duration: dur / float64(partCount),
+				Independent: j == 0, SeqID: uint64(s.Seq),
+			})
 		}
 	}
 	p.Close()
@@ -211,6 +208,10 @@ func mediaDiagnostics(diag map[string]string) string {
 		}
 	}
 	return strings.Join(parts, ";")
+}
+
+func partURIFromSegment(uri string, part int) string {
+	return strings.TrimSuffix(uri, ".ts") + "." + strconv.Itoa(part) + ".ts"
 }
 
 func SafeJoin(root, name string) (string, error) {
