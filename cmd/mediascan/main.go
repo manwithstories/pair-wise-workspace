@@ -24,6 +24,8 @@ func run(args []string) int {
 	switch args[0] {
 	case "demo":
 		return runDemoCommand(ctx, args[1:])
+	case "scan":
+		return runScanCommand(ctx, args[1:])
 	case "-h", "--help", "help":
 		printUsage(os.Stdout)
 		return 0
