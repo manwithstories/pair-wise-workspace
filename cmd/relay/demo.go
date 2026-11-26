@@ -49,8 +49,15 @@ func runDemo(ctx context.Context, args []string) int {
 	fmt.Printf("demo_start root=%s records=%d chunk_records=%d max_inflight_bytes=%d slow_every=%d interrupt_after=%d\n",
 		c.root, *segments, c.chunkRecords, c.maxInflightBytes, c.slowEvery, c.interruptAfter)
 
+	normalRoot := filepath.Join(c.root, "normal")
+	// Recreate the uninterrupted baseline so every demo report contains live
+	// backpressure metrics rather than a completed-checkpoint fast path.
+	if err := os.RemoveAll(normalRoot); err != nil {
+		fmt.Fprintf(os.Stderr, "cannot reset demo normal root: %v\n", err)
+		return 1
+	}
 	normalCfg := app.RunConfig{
-		Root: filepath.Join(c.root, "normal"), InputPath: set.NormalPath,
+		Root: normalRoot, InputPath: set.NormalPath,
 		ChunkRecords: c.chunkRecords, MaxInflightBytes: c.maxInflightBytes,
 		SlowEvery: c.slowEvery, SlowDelay: 2 * time.Millisecond,
 	}
