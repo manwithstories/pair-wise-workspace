@@ -234,6 +234,17 @@ func (s *Store) Pending() []string {
 	return out
 }
 
+// HasCommitted 只读判断幂等键是否已提交，不改变检查点状态。
+func (s *Store) HasCommitted(key string) (*SegmentRecord, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.cp.Segments[key]
+	if !ok || r.Status != StatusCommitted {
+		return nil, false
+	}
+	return r, true
+}
+
 // Checkpoint 导出当前快照（核验模块只读）。
 func (s *Store) Checkpoint() Checkpoint {
 	s.mu.Lock()
