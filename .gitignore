@@ -71,3 +71,11 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# Go build and local proof artifacts
+/mediasync
+/bin/
+/dist/
+*.test
+*.out
+proof/
