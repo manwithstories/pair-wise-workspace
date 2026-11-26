@@ -13,6 +13,8 @@ import (
 )
 
 const (
+	// MaxInputBytes is the accepted capture size: 2 GiB.
+	MaxInputBytes int64 = 2 << 30
 	// Magic marks an medcheck access unit.
 	Magic = "MCAU"
 	// HeaderSize is the fixed bounded header size.

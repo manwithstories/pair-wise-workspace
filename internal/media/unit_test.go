@@ -52,10 +52,10 @@ func TestTruncatedHeaderDoesNotSwallowFollowingUnit(t *testing.T) {
 }
 
 func TestSizeLimit(t *testing.T) {
-	if err := CheckSize(2<<30, 2<<30); err != nil {
+	if err := CheckSize(MaxInputBytes, MaxInputBytes); err != nil {
 		t.Fatal(err)
 	}
-	if err := CheckSize((2<<30)+1, 2<<30); err == nil {
+	if err := CheckSize(MaxInputBytes+1, MaxInputBytes); err == nil {
 		t.Fatal("expected input above 2 GiB to be rejected")
 	}
 }
