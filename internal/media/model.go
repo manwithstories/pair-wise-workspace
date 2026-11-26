@@ -59,17 +59,19 @@ type ColorMetadata struct {
 
 // Track is a normalized multitrack timeline.
 type Track struct {
-	ID          uint32         `json:"id"`
-	Kind        TrackKind      `json:"kind"`
-	Timescale   uint32         `json:"timescale"`
-	Width       uint16         `json:"width,omitempty"`
-	Height      uint16         `json:"height,omitempty"`
-	BitrateKbps int            `json:"bitrate_kbps,omitempty"`
-	Samples     []Sample       `json:"samples"`
-	Edits       []EditEntry    `json:"edits,omitempty"`
-	Audio       *AudioMetadata `json:"audio,omitempty"`
-	Color       *ColorMetadata `json:"color,omitempty"`
-	Faults      []*Fault       `json:"faults,omitempty"`
+	ID            uint32         `json:"id"`
+	Kind          TrackKind      `json:"kind"`
+	Timescale     uint32         `json:"timescale"`
+	Width         uint16         `json:"width,omitempty"`
+	Height        uint16         `json:"height,omitempty"`
+	BitrateKbps   int            `json:"bitrate_kbps,omitempty"`
+	Samples       []Sample       `json:"samples"`
+	Edits         []EditEntry    `json:"edits,omitempty"`
+	Audio         *AudioMetadata `json:"audio,omitempty"`
+	Color         *ColorMetadata `json:"color,omitempty"`
+	Failed        bool           `json:"failed,omitempty"`
+	FailureReason string         `json:"failure_reason,omitempty"`
+	Faults        []*Fault       `json:"faults,omitempty"`
 }
 
 // Project is the deterministic in-memory media processing document.
