@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	gomp4 "github.com/abema/go-mp4"
+
 	"mediad/internal/bmff"
 	"mediad/internal/fixture"
 	"mediad/internal/model"
@@ -116,5 +118,19 @@ func Test64BitBoxAndCO64(t *testing.T) {
 	}
 	if len(boxes) != 1 || boxes[0].HeaderSize != 16 || boxes[0].Size != int64(len(raw)) {
 		t.Fatalf("bad 64-bit header: %+v", boxes)
+	}
+}
+
+func TestGoMP4CrossChecksGeneratedStructure(t *testing.T) {
+	media, err := fixture.GenerateMedia(17, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := bytes.NewReader(media.Data)
+	_, err = gomp4.ReadBoxStructure(r, func(h *gomp4.ReadHandle) (interface{}, error) {
+		return nil, nil
+	})
+	if err != nil {
+		t.Fatalf("go-mp4 rejected generated box structure: %v", err)
 	}
 }
