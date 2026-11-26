@@ -39,7 +39,7 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage: mediapipe demo --work DIR [--seed N] [--seconds N] [--target-kbps N] [--fault-suite]")
-	fmt.Fprintln(os.Stderr, "       mediapipe verify-fixture --case truncated_moov|timestamp_rollback|unrecoverable_loss|digest_tampered|checkpoint_error|io_error --work DIR")
+	fmt.Fprintln(os.Stderr, "       mediapipe verify-fixture --case truncated_moov|timestamp_rollback|unrecoverable_loss|digest_tampered|checkpoint_corrupt|io_error --work DIR")
 }
 
 func runDemo(args []string) error {
@@ -87,9 +87,13 @@ func runVerifyFixture(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return media.WrapError(media.CodeInvalidInput, "parse verify flags", err)
 	}
+	wanted := *caseName
+	if wanted == "checkpoint_error" {
+		wanted = "checkpoint_corrupt"
+	}
 	lines := pipeline.RunFaultSuite(*work, nil)
 	for _, l := range lines {
-		if l.Case == *caseName {
+		if l.Case == wanted || l.ErrorCode == wanted {
 			_ = manifest.JSONLine(os.Stdout, "fault", l)
 			if !l.OK {
 				return media.NewError(media.CodeInvalidInput, "fixture did not reject as expected", nil)
