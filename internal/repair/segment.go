@@ -3,6 +3,8 @@
 package repair
 
 import (
+	"sort"
+
 	"archivectl/internal/core"
 )
 
@@ -31,7 +33,36 @@ func NewCoverage(spans []core.Span) (*Coverage, error) {
 				"invalid damage range [%d,%d)", s.StartFrame, s.EndFrame)
 		}
 	}
-	return &Coverage{spans: merged}, nil
+	union := unionFrames(merged)
+	for _, u := range union {
+		if u.Frames() > int64(core.MaxCachedFrames) {
+			return nil, core.Newf(core.KindDamageUnrecoverable, "repair.NewCoverage",
+				"continuous gap [%d,%d) is %d frames; limit is %d",
+				u.StartFrame, u.EndFrame, u.Frames(), core.MaxCachedFrames)
+		}
+	}
+	return &Coverage{spans: union}, nil
+}
+
+func unionFrames(spans []core.Span) []core.Span {
+	if len(spans) == 0 {
+		return nil
+	}
+	sorted := append([]core.Span(nil), spans...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].StartFrame < sorted[j].StartFrame })
+	out := []core.Span{sorted[0]}
+	for _, s := range sorted[1:] {
+		last := &out[len(out)-1]
+		if s.StartFrame <= last.EndFrame {
+			if s.EndFrame > last.EndFrame {
+				last.EndFrame = s.EndFrame
+			}
+			last.Kind = "zero_fill_union"
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 // Spans returns the canonical merged ranges.
