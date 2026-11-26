@@ -17,20 +17,20 @@ import (
 
 // NormalizedFrame 是统一时间轴上的一帧/一个采样块。
 type NormalizedFrame struct {
-	TrackIndex int
-	Start      model.MediaTime // 统一轴起点（微秒，可为负）
-	End        model.MediaTime
-	Duration   model.Duration
-	KeyFrame   bool
+	TrackIndex  int
+	Start       model.MediaTime // 统一轴起点（微秒，可为负）
+	End         model.MediaTime
+	Duration    model.Duration
+	KeyFrame    bool
 	ContentHash uint64
 	PayloadSize int
 }
 
 // NormalizedTrack 保留轨道元数据与其在统一轴上的全部帧。
 type NormalizedTrack struct {
-	Track   adapter.Track
-	Offset  model.MediaTime // 归一零点平移量
-	Frames  []NormalizedFrame
+	Track  adapter.Track
+	Offset model.MediaTime // 归一零点平移量
+	Frames []NormalizedFrame
 }
 
 // Timeline 是归一结果。

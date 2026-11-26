@@ -62,8 +62,8 @@ func TestCutFloorCeil(t *testing.T) {
 	e := NewEngine(buildTimeline(t))
 	segs, err := e.Cut([]Range{{
 		TrackIndex: 0,
-		Start: CutPoint{At: model.MediaTime(50_000), Mode: model.RoundFloor}, // ->40ms
-		End:   CutPoint{At: model.MediaTime(70_000), Mode: model.RoundCeil},  // ->80ms
+		Start:      CutPoint{At: model.MediaTime(50_000), Mode: model.RoundFloor}, // ->40ms
+		End:        CutPoint{At: model.MediaTime(70_000), Mode: model.RoundCeil},  // ->80ms
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -76,7 +76,7 @@ func TestCutFloorCeil(t *testing.T) {
 func TestCutIllegalPoints(t *testing.T) {
 	e := NewEngine(buildTimeline(t))
 	cases := []Range{
-		{TrackIndex: 9, Start: CutPoint{At: 0}, End: CutPoint{At: 100_000}}, // 越界轨
+		{TrackIndex: 9, Start: CutPoint{At: 0}, End: CutPoint{At: 100_000}},       // 越界轨
 		{TrackIndex: 0, Start: CutPoint{At: 200_000}, End: CutPoint{At: 100_000}}, // 倒置
 		{TrackIndex: 0, Start: CutPoint{At: -5_000_000}, End: CutPoint{At: 0}},    // 超出 span
 	}

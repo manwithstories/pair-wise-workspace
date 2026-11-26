@@ -24,8 +24,8 @@ type Window struct {
 
 // Input 是一个待指纹化的分段。
 type Input struct {
-	SegmentID  string
-	SourceID   string
+	SegmentID    string
+	SourceID     string
 	IsTransition bool
 	// 时间跨度（统一轴微秒），纳入指纹。
 	Start model.MediaTime

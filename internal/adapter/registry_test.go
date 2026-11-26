@@ -13,8 +13,8 @@ type fakeParser struct {
 	probe   bool
 }
 
-func (f *fakeParser) Name() string             { return f.name }
-func (f *fakeParser) Version() string          { return f.version }
+func (f *fakeParser) Name() string               { return f.name }
+func (f *fakeParser) Version() string            { return f.version }
 func (f *fakeParser) Capabilities() []Capability { return f.caps }
 func (f *fakeParser) Probe(string) (bool, error) { return f.probe, nil }
 func (f *fakeParser) Parse(string, ParseOptions) (*ParsedMedia, error) {

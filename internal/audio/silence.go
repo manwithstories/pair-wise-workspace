@@ -42,11 +42,11 @@ type Interval struct {
 
 // Detector 是有状态检测器，按块喂入并在 Finalize 输出合并后的区间。
 type Detector struct {
-	cfg        Config
-	open       *Interval // 当前尚未闭合的静音区间
-	results    []Interval
-	lastEnd    model.MediaTime
-	haveLast   bool
+	cfg      Config
+	open     *Interval // 当前尚未闭合的静音区间
+	results  []Interval
+	lastEnd  model.MediaTime
+	haveLast bool
 }
 
 // NewDetector 构造检测器并校验参数。
@@ -160,7 +160,7 @@ func rmsDb(samples []int16, channels, off, n int) float64 {
 	if rms == 0 {
 		return math.Inf(-1) // 纯静音
 	}
-	return 20 * math.Log10(rms / fullScale)
+	return 20 * math.Log10(rms/fullScale)
 }
 
 // Detect 是便捷入口：一次性处理多块并返回结果。

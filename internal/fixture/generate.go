@@ -36,33 +36,33 @@ type CutPlan struct {
 
 // PlanRange 是一条剪辑请求。
 type PlanRange struct {
-	TrackIndex             int
-	StartUs, EndUs         int64
-	Mode                   model.Rounding
-	ExpectInvalid          bool // 非法剪辑点样例：预期被切分引擎拒绝
+	TrackIndex     int
+	StartUs, EndUs int64
+	Mode           model.Rounding
+	ExpectInvalid  bool // 非法剪辑点样例：预期被切分引擎拒绝
 }
 
 // PlanTransition 是转场声明。
 type PlanTransition struct {
-	TrackA, TrackB        int
-	StartUs, EndUs        int64
-	Repeat                int // 重复声明次数（去重演示）
+	TrackA, TrackB int
+	StartUs, EndUs int64
+	Repeat         int // 重复声明次数（去重演示）
 }
 
 // Source 是一个生成好的样例及其处理计划。
 type Source struct {
-	Kind            string
-	Path            string
+	Kind             string
+	Path             string
 	TargetBitrateBps int64
-	Plan            CutPlan
+	Plan             CutPlan
 	// Parse 选项覆盖（回绕样例需要关闭时长上限）。
 	NoDurationLimit bool
 	ExpectCorrupt   bool
 }
 
 const (
-	videoTB = 25    // 25fps
-	audioSR = 8000  // 8kHz
+	videoTB      = 25   // 25fps
+	audioSR      = 8000 // 8kHz
 	framePayload = 4096
 )
 

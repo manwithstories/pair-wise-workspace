@@ -19,8 +19,8 @@ import (
 type Kind int
 
 const (
-	KindPlain Kind = iota
-	KindTransition // 转场复合段
+	KindPlain      Kind = iota
+	KindTransition      // 转场复合段
 )
 
 // CutPoint 是一个请求的剪辑边界（统一轴微秒时间）。
@@ -140,8 +140,8 @@ func (e *Engine) Cut(ranges []Range) ([]Segment, error) {
 // 重复声明（同两轨同区间）去重并在 TransitionDedup 记录出现次数。
 func (e *Engine) ComposeTransitions(specs []TransitionSpec) ([]Segment, error) {
 	type key struct {
-		a, b     int
-		s, e     int64
+		a, b int
+		s, e int64
 	}
 	seen := map[key]int{} // key -> 结果段在 ordered 中的下标
 	var out []Segment
@@ -168,11 +168,11 @@ func (e *Engine) ComposeTransitions(specs []TransitionSpec) ([]Segment, error) {
 		unionStart := model.MinTime(aStart, bStart)
 		unionEnd := model.MaxTime(aEnd, bEnd)
 		seg := Segment{
-			ID:         fmt.Sprintf("trans-%03d", len(out)+1),
-			Start:      unionStart,
-			End:        unionEnd,
-			Duration:   model.DurationOf(unionStart, unionEnd), // 并集仅计一次
-			Kind:       KindTransition,
+			ID:       fmt.Sprintf("trans-%03d", len(out)+1),
+			Start:    unionStart,
+			End:      unionEnd,
+			Duration: model.DurationOf(unionStart, unionEnd), // 并集仅计一次
+			Kind:     KindTransition,
 			Members: []SegmentMember{
 				{sp.TrackA, aStart, aEnd},
 				{sp.TrackB, bStart, bEnd},

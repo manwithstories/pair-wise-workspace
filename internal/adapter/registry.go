@@ -54,10 +54,10 @@ type Track struct {
 // 对 arc1 夹具容器即原始帧/采样块；对 astiav 适配器是解封装得到的
 // packet 元数据（内容指纹在适配器内按解码帧计算，见 Fingerprint 字段）。
 type FramePacket struct {
-	TrackIndex  int
-	StartTicks  int64          // 轨道时基刻度
+	TrackIndex    int
+	StartTicks    int64 // 轨道时基刻度
 	DurationTicks int64
-	KeyFrame    bool
+	KeyFrame      bool
 	// ContentHash 是该 packet 解码后内容的确定性短哈希（如 xxHash），
 	// 同内容不同封装应得到相同值；为空表示适配器未提供。
 	ContentHash uint64
@@ -119,11 +119,11 @@ type Parser interface {
 
 // ParseOptions 是资源限制与解析开关，所有字段必须有安全默认值。
 type ParseOptions struct {
-	MaxFileBytes  int64
-	MaxTracks     int
-	MaxDurationUs int64
+	MaxFileBytes   int64
+	MaxTracks      int
+	MaxDurationUs  int64
 	MaxConcurrency int
-	ComputeHash   bool
+	ComputeHash    bool
 }
 
 // DefaultLimits 返回归档流水线的保守默认限制。

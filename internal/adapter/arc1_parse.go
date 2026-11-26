@@ -93,7 +93,7 @@ func (p *Arc1Parser) Parse(path string, opts ParseOptions) (*ParsedMedia, error)
 
 func (p *Arc1Parser) readHeader(r *countingReader, pm *ParsedMedia, opts ParseOptions) error {
 	var head [8]byte
-	if err := r.readFull( head[:]); err != nil {
+	if err := r.readFull(head[:]); err != nil {
 		return model.NewError(model.KindUnsupportedFormat, "arc1: unreadable header: %v", err)
 	}
 	if string(head[0:4]) != ARCMagic {
@@ -121,17 +121,17 @@ func (p *Arc1Parser) readHeader(r *countingReader, pm *ParsedMedia, opts ParseOp
 
 func (p *Arc1Parser) readTrack(r *countingReader) (Track, error) {
 	var fixed [2]byte
-	if err := r.readFull( fixed[:]); err != nil {
+	if err := r.readFull(fixed[:]); err != nil {
 		return Track{}, model.Wrap(model.KindCorruptMedia, err, "arc1: track header truncated")
 	}
 	mt := MediaType(fixed[0])
 	codecLen := int(fixed[1])
 	codec := make([]byte, codecLen)
-	if err := r.readFull( codec); err != nil {
+	if err := r.readFull(codec); err != nil {
 		return Track{}, model.Wrap(model.KindCorruptMedia, err, "arc1: codec field truncated")
 	}
 	body := make([]byte, 8+8+4+4+4+2+1)
-	if err := r.readFull( body); err != nil {
+	if err := r.readFull(body); err != nil {
 		return Track{}, model.Wrap(model.KindCorruptMedia, err, "arc1: track body truncated")
 	}
 	o := 0
@@ -168,7 +168,7 @@ type wrapTracker struct {
 func (p *Arc1Parser) readPacket(r *countingReader, pm *ParsedMedia, st []wrapTracker,
 	opts ParseOptions) (*FramePacket, error) {
 	hdr := make([]byte, 2+8+8+4+1+8)
-	if err := r.readFull( hdr); err != nil {
+	if err := r.readFull(hdr); err != nil {
 		if err == io.EOF {
 			return nil, nil // 干净的文件结束
 		}
@@ -191,7 +191,7 @@ func (p *Arc1Parser) readPacket(r *countingReader, pm *ParsedMedia, st []wrapTra
 		return nil, model.NewError(model.KindCorruptMedia, "arc1: packet references unknown track %d", trackIdx)
 	}
 	payload := make([]byte, payloadLen)
-	if err := r.readFull( payload); err != nil {
+	if err := r.readFull(payload); err != nil {
 		// 尾包损坏：记录首个坏时间（按该轨时基尽力换算）。
 		bad := model.TicksToTime(st[trackIdx].cycles*st[trackIdx].modulo+start, pm.Tracks[trackIdx].TimeBase)
 		return nil, model.NewError(model.KindCorruptMedia,

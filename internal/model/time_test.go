@@ -21,13 +21,13 @@ func TestRationalAndTicks(t *testing.T) {
 	}
 	// 往返：微秒 -> 刻度 -> 微秒，量化误差不超过一个刻度
 	for _, tc := range []struct {
-		us   int64
-		tb   Rational
-		tol  int64
+		us  int64
+		tb  Rational
+		tol int64
 	}{
-		{33_333, MustRational(1, 30), 33_334},       // 30fps 一帧
-		{-123_456, MustRational(1, 48000), 21},      // 负起点音频
-		{12_345_678, MustRational(1, 90000), 12},    // 高频时基
+		{33_333, MustRational(1, 30), 33_334},    // 30fps 一帧
+		{-123_456, MustRational(1, 48000), 21},   // 负起点音频
+		{12_345_678, MustRational(1, 90000), 12}, // 高频时基
 	} {
 		ticks := TimeToTicks(MediaTime(tc.us), tc.tb)
 		back := TicksToTime(ticks, tc.tb).Microseconds()
@@ -45,13 +45,13 @@ func TestSnapToTicks(t *testing.T) {
 		mode     Rounding
 		wantTick int64 // 吸附后的微秒值
 	}{
-		{50_000, RoundNearest, 40_000},  // 距 40k=10k, 距 80k=30k
-		{60_000, RoundNearest, 80_000},  // 等距 -> 远离零点
+		{50_000, RoundNearest, 40_000}, // 距 40k=10k, 距 80k=30k
+		{60_000, RoundNearest, 80_000}, // 等距 -> 远离零点
 		{60_000, RoundFloor, 40_000},
 		{60_000, RoundCeil, 80_000},
-		{40_000, RoundFloor, 40_000},    // 已在刻度上
+		{40_000, RoundFloor, 40_000},     // 已在刻度上
 		{-60_000, RoundNearest, -80_000}, // 负时间等距远离零点
-		{-50_000, RoundFloor, -80_000},  // floor 向更小
+		{-50_000, RoundFloor, -80_000},   // floor 向更小
 		{-50_000, RoundCeil, -40_000},
 	}
 	for _, c := range cases {

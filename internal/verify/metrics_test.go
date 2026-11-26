@@ -83,7 +83,7 @@ func TestEvaluateBitrateThresholdFailure(t *testing.T) {
 	metrics := []SegmentMetric{{
 		SegmentID: "s1", Bytes: 120_000, Duration: model.Micros(1_000_000),
 		TargetBitrate: 800_000, // 实际 960kbps
-		OriginalY: []byte{1}, RecoveredY: []byte{1},
+		OriginalY:     []byte{1}, RecoveredY: []byte{1},
 	}}
 	_, err := Evaluate(metrics, 0, 0, "p", DefaultThresholds())
 	if model.KindOf(err) != model.KindThreshold {

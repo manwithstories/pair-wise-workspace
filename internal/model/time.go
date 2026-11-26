@@ -26,12 +26,12 @@ func (t MediaTime) Microseconds() int64 { return int64(t) }
 func (t MediaTime) Seconds() float64 { return float64(t) / float64(MicrosPerSecond) }
 
 // Add / Sub 是唯一允许的时间位移运算，集中在此处便于审计。
-func (t MediaTime) Add(d MediaTime) MediaTime   { return t + d }
-func (t MediaTime) Sub(o MediaTime) MediaTime   { return t - o }
-func (t MediaTime) Before(o MediaTime) bool     { return t < o }
-func (t MediaTime) After(o MediaTime) bool      { return t > o }
-func (t MediaTime) Equals(o MediaTime) bool     { return t == o }
-func (t MediaTime) IsZero() bool                { return t == 0 }
+func (t MediaTime) Add(d MediaTime) MediaTime { return t + d }
+func (t MediaTime) Sub(o MediaTime) MediaTime { return t - o }
+func (t MediaTime) Before(o MediaTime) bool   { return t < o }
+func (t MediaTime) After(o MediaTime) bool    { return t > o }
+func (t MediaTime) Equals(o MediaTime) bool   { return t == o }
+func (t MediaTime) IsZero() bool              { return t == 0 }
 
 // Duration 与 MediaTime 同构，语义上表示时间跨度，禁止为负。
 type Duration int64

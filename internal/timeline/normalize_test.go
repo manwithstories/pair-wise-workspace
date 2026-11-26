@@ -70,7 +70,7 @@ func TestNormalizeMultiTrackSingleAxis(t *testing.T) {
 			{Index: 1, Type: adapter.MediaAudio, TimeBase: tb(1, 8000)},
 		},
 		Packets: []adapter.FramePacket{
-			{TrackIndex: 0, StartTicks: 25, DurationTicks: 1}, // 1.000s
+			{TrackIndex: 0, StartTicks: 25, DurationTicks: 1},      // 1.000s
 			{TrackIndex: 1, StartTicks: 8000, DurationTicks: 8000}, // 1.000s
 		},
 	}
@@ -109,7 +109,7 @@ func TestNormalizeRejectsUnwrappedWrap(t *testing.T) {
 
 func TestNormalizeRejectsBadTrackRef(t *testing.T) {
 	pm := &adapter.ParsedMedia{
-		Tracks: []adapter.Track{{Index: 0, TimeBase: tb(1, 25)}},
+		Tracks:  []adapter.Track{{Index: 0, TimeBase: tb(1, 25)}},
 		Packets: []adapter.FramePacket{{TrackIndex: 9, StartTicks: 0}},
 	}
 	if _, err := Normalize(pm); model.KindOf(err) != model.KindCorruptMedia {
