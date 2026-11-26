@@ -59,3 +59,35 @@ func TestIntnPanic(t *testing.T) {
 	}()
 	NewPCG64(1).Intn(0)
 }
+
+func TestFloat64Uniform(t *testing.T) {
+	// A regression guard: an earlier hand-rolled output function put ~83% of
+	// draws in the lowest decile. The real PCG output must spread evenly.
+	p := NewPCG64(77)
+	const n = 100000
+	buckets := [10]int{}
+	low := 0
+	for i := 0; i < n; i++ {
+		f := p.Float64()
+		if f < 0 || f >= 1 {
+			t.Fatalf("out of range: %v", f)
+		}
+		if f < 0.02 {
+			low++
+		}
+		b := int(f * 10)
+		if b > 9 {
+			b = 9
+		}
+		buckets[b]++
+	}
+	// Expect ~2000 below 0.02; allow generous slack for CI stability.
+	if low < 1200 || low > 2800 {
+		t.Fatalf("low-tail biased: %d below 0.02", low)
+	}
+	for i, c := range buckets {
+		if c < 8000 || c > 12000 {
+			t.Fatalf("bucket %d biased: %d", i, c)
+		}
+	}
+}
