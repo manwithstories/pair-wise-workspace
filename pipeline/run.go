@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"medcheck/boundary"
+	"medcheck/clock"
 	"medcheck/fanout"
 	"medcheck/fault"
 	"medcheck/index"
@@ -24,7 +25,8 @@ func Run(cfg Config) (*Report, error) {
 	}
 	fm := fault.NewModel()
 	fx := BuildFixture(cfg.Case, cfg.Seed)
-	rep := &Report{Case: cfg.Case, Seed: cfg.Seed, Strict: cfg.Strict, HashOK: true}
+	rep := &Report{Case: cfg.Case, Seed: cfg.Seed, Strict: cfg.Strict, HashOK: true,
+		TimecodeBase: "25/1", TimecodeAligned: true}
 	rep.InvalidDF, rep.MidnightWrap = checkGeneratedTimecodes(fm)
 
 	reps := fanout.Standard(1_000_000)
@@ -165,6 +167,16 @@ func Run(cfg Config) (*Report, error) {
 		rep.CuesOK = rep.CuesTotal
 	}
 	rep.RoundtripPercent = float64(rep.CuesOK) / float64(rep.CuesTotal) * 100
+	for _, cue := range fx.CleanCues {
+		for _, ms := range []int64{cue.StartMS, cue.EndMS} {
+			frame := clock.Rate25.MillisToFrames(ms)
+			if clock.Rate25.FramesToMillis(frame) != ms {
+				rep.TimecodeAligned = false
+				fm.Add(fault.Fault{Kind: fault.InvalidTimecode, SourceLine: cue.SourceLine,
+					Span: fault.Span{StartMS: ms, EndMS: ms}, Message: "subtitle boundary is not on a 25 fps frame"})
+			}
+		}
+	}
 
 	cleanSRT, err := subtitle.Encode(fx.CleanCues, subtitle.FormatSRT)
 	if err != nil {

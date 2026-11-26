@@ -73,6 +73,28 @@ Text
 	}
 }
 
+func TestOversizedMultilineCueIsIsolated(t *testing.T) {
+	var input strings.Builder
+	input.WriteString("1\n00:00:00,000 --> 00:00:01,000\n")
+	line := strings.Repeat("x", 100) + "\n"
+	for i := 0; i < 12_000; i++ { // ~1.2 MiB across many short lines
+		input.WriteString(line)
+	}
+	doc, err := Parse(strings.NewReader(input.String()), FormatSRT)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, issue := range doc.Issues {
+		if issue.Kind == fault.MalformedCue && strings.Contains(issue.Message, "1 MiB") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected bounded oversized-cue issue, got %+v", doc.Issues)
+	}
+}
+
 func TestOverlapIsReportedBySourceLine(t *testing.T) {
 	input := `1
 00:00:00,000 --> 00:00:02,000

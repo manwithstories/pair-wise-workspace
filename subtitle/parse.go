@@ -70,16 +70,24 @@ func Parse(r io.Reader, format Format) (*Document, error) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 4096), int(MaxCueBytes)+4096)
 	var block []locatedLine
+	blockBytes := 0
+	oversized := false
+	overLine := 0
 	flush := func() {
-		if len(block) == 0 {
-			return
-		}
-		if cue, issue := processBlock(block); issue != nil {
-			doc.Issues = append(doc.Issues, *issue)
-		} else {
-			doc.Cues = append(doc.Cues, cue)
+		if oversized {
+			doc.Issues = append(doc.Issues, Issue{SourceLine: overLine, Kind: fault.MalformedCue,
+				Message: ErrCueTooLarge.Error()})
+		} else if len(block) != 0 {
+			if cue, issue := processBlock(block); issue != nil {
+				doc.Issues = append(doc.Issues, *issue)
+			} else {
+				doc.Cues = append(doc.Cues, cue)
+			}
 		}
 		block = nil
+		blockBytes = 0
+		oversized = false
+		overLine = 0
 	}
 
 	lineNo := 0
@@ -93,7 +101,17 @@ func Parse(r io.Reader, format Format) (*Document, error) {
 			flush()
 			continue
 		}
+		// Bound a multi-line cue before retaining all of its lines. The small
+		// overhead allowance covers its numeric id and timing line.
+		if !oversized && blockBytes+len(line)+1 > int(MaxCueBytes)+4096 {
+			oversized = true
+			overLine = lineNo
+		}
+		if oversized {
+			continue
+		}
 		block = append(block, locatedLine{num: lineNo, text: line})
+		blockBytes += len(line) + 1
 	}
 	if err := scanner.Err(); err != nil {
 		if errors.Is(err, bufio.ErrTooLong) {
