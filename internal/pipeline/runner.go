@@ -151,15 +151,18 @@ func (r *runner) processChunk(chunk int, first, last uint32, byPos map[uint32][]
 			continue
 		}
 		var prs []*parsedFile
-		for prs == nil {
+		for {
+			if p, ok := pending[pos]; ok && len(p) == len(fl) {
+				prs = p
+				delete(pending, pos)
+				break
+			}
 			pr, ok := <-p.res
 			if !ok {
 				return fmt.Errorf("parser closed before position %d", pos)
 			}
 			pending[pr.file.pos] = append(pending[pr.file.pos], pr)
-			prs = pending[pos]
 		}
-		delete(pending, pos)
 		trs, err := r.processPosition(pos, prs)
 		for _, pr := range prs {
 			p.release(pr)
@@ -172,6 +175,9 @@ func (r *runner) processChunk(chunk int, first, last uint32, byPos map[uint32][]
 		}
 	}
 	if err := trace.WriteChunk(chunk, traces); err != nil {
+		return err
+	}
+	if err := syncDir(r.cfg.Output); err != nil {
 		return err
 	}
 	next, dur := r.stateMaps()

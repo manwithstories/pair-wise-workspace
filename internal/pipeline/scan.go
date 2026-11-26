@@ -142,12 +142,16 @@ type parsedFile struct {
 	samples [][]demux.Sample
 	fault   *clock.Fault
 	sha     string
-	start   time.Time
+	parseMs float64
 }
 
 // parseOne reads and parses one segment file.
 func parseOne(dir string, f inputFile) *parsedFile {
-	pr := &parsedFile{file: f, start: time.Now()}
+	start := time.Now()
+	pr := &parsedFile{file: f}
+	defer func() {
+		pr.parseMs = float64(time.Since(start).Microseconds()) / 1000.0
+	}()
 	data, err := os.ReadFile(filepath.Join(dir, f.name))
 	if err != nil {
 		fault := clock.NewFault(clock.FaultTruncate, f.pos, 0, 0, err.Error())

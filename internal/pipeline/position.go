@@ -113,16 +113,22 @@ func (r *runner) skipTimelines(pos uint32, kind clock.FaultKind, tr *provenance.
 }
 
 func (r *runner) processPosition(pos uint32, prs []*parsedFile) ([]provenance.SegmentTrace, error) {
+	start := time.Now()
 	sort.Slice(prs, func(i, j int) bool { return prs[i].file.dup < prs[j].file.dup })
 	canonical := prs[0]
+	// Latency covers actual work on this position (parse + process), not
+	// the time spent queued behind earlier positions of the chunk.
+	latency := func() float64 {
+		return canonical.parseMs + float64(time.Since(start).Microseconds())/1000.0
+	}
 	tr := provenance.SegmentTrace{
 		Seq: pos, File: canonical.file.name, InputSHA: canonical.sha,
-		LatencyMs: float64(time.Since(canonical.start).Microseconds()) / 1000.0,
 	}
 	var traces []provenance.SegmentTrace
 	quarantine := func(reason string) ([]provenance.SegmentTrace, error) {
 		tr.Decision = provenance.Quarantined
 		tr.Repairs = append(tr.Repairs, reason)
+		tr.LatencyMs = latency()
 		r.skipTimelines(pos, clock.FaultTruncate, &tr)
 		return append(traces, tr), nil
 	}
@@ -189,6 +195,7 @@ func (r *runner) processPosition(pos uint32, prs []*parsedFile) ([]provenance.Se
 	}
 	tr.Decision = provenance.Accepted
 	tr.Tracks = tts
+	tr.LatencyMs = latency()
 	traces = append(traces, tr)
 	for _, pr := range prs[1:] {
 		dt := provenance.SegmentTrace{Seq: pos, File: pr.file.name, InputSHA: pr.sha}
@@ -204,15 +211,16 @@ func (r *runner) processPosition(pos uint32, prs []*parsedFile) ([]provenance.Se
 	return traces, nil
 }
 
+// writeSegment writes one output segment atomically. Durability is
+// established at chunk-commit time (provenance and index are fsynced and
+// the output directory is synced per chunk), so individual segments are
+// not fsynced here.
 func (r *runner) writeSegment(pos uint32, frags []remux.OutFrag) (map[uint32][32]byte, error) {
 	tmp, err := os.CreateTemp(r.cfg.Output, ".seg-*")
 	if err != nil {
 		return nil, err
 	}
 	hashes, err := remux.MarshalSegment(tmp, pos, frags)
-	if err == nil {
-		err = tmp.Sync()
-	}
 	if cerr := tmp.Close(); err == nil {
 		err = cerr
 	}
@@ -222,6 +230,16 @@ func (r *runner) writeSegment(pos uint32, frags []remux.OutFrag) (map[uint32][32
 	}
 	name := filepath.Join(r.cfg.Output, fmt.Sprintf("seg_%06d.m4s", pos))
 	return hashes, os.Rename(tmp.Name(), name)
+}
+
+// syncDir fsyncs a directory after a chunk's renames.
+func syncDir(path string) error {
+	d, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
 }
 
 func writeFileAtomic(path string, data []byte) error {
