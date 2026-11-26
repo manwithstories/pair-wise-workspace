@@ -29,6 +29,14 @@ type TrackReport struct {
 	FrameDurationNS int64  `json:"frame_duration_ns"`
 }
 
+// RepairSummary independently confirms repaired table properties.
+type RepairSummary struct {
+	TimestampsVerified bool `json:"timestamps_verified"`
+	OffsetsVerified    bool `json:"offsets_verified"`
+	EditListsVerified  bool `json:"edit_lists_verified"`
+	IndexVerified      bool `json:"index_verified"`
+}
+
 // Report is the independent verification summary.
 type Report struct {
 	Input            string         `json:"input"`
@@ -37,6 +45,7 @@ type Report struct {
 	Format           string         `json:"format"`
 	BoxCount         int            `json:"box_count"`
 	Tracks           []TrackReport  `json:"tracks"`
+	Repair           RepairSummary  `json:"repair"`
 	IndexComplete    bool           `json:"index_complete"`
 	IndexSeekMiss    int            `json:"index_seek_miss"`
 	BoundaryMismatch int            `json:"boundary_mismatch"`
@@ -79,6 +88,7 @@ func VerifyFile(path string) (*Report, error) {
 	rep := &Report{
 		Input: path, FileSize: st.Size(), OutputSHA256: sha, Format: p.SourceFormat,
 		BoxCount: len(boxes), Faults: parseFaults,
+		Repair: RepairSummary{TimestampsVerified: true, OffsetsVerified: true, EditListsVerified: true},
 	}
 	for _, b := range boxes {
 		rep.BoxCount += len(b.Children)
@@ -125,6 +135,12 @@ func VerifyFile(path string) (*Report, error) {
 		if ns, err := t.FrameDurationNS(); err == nil {
 			tr.FrameDurationNS = ns
 		}
+		if !tr.TimelineOrdered {
+			rep.Repair.TimestampsVerified = false
+		}
+		if !tr.OffsetsInBounds {
+			rep.Repair.OffsetsVerified = false
+		}
 		if !tr.TimelineOrdered || !tr.OffsetsInBounds || tr.VerifiedPoints != tr.SyncSamples {
 			rep.BoundaryMismatch++
 		}
@@ -167,6 +183,12 @@ func VerifyFile(path string) (*Report, error) {
 		}
 	}
 
+	rep.Repair.IndexVerified = rep.IndexComplete && rep.IndexSeekMiss == 0
+	for _, f := range rep.Faults {
+		if f != nil && f.Code == media.CodeEditListConflict {
+			rep.Repair.EditListsVerified = false
+		}
+	}
 	rep.OK = rep.IndexComplete && rep.IndexSeekMiss == 0 && rep.BoundaryMismatch == 0 && !hasFatalFault(rep.Faults)
 	return rep, nil
 }

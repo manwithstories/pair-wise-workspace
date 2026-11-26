@@ -132,6 +132,8 @@ func printVerify(r *verify.Report) {
 		fmt.Printf("track=%d kind=%s samples=%d sync=%d index_points=%d verified=%d ordered=%v offsets_in_bounds=%v\n",
 			t.TrackID, t.Kind, t.Samples, t.SyncSamples, t.IndexPoints, t.VerifiedPoints, t.TimelineOrdered, t.OffsetsInBounds)
 	}
+	fmt.Printf("repair_summary timestamps_verified=%v offsets_verified=%v edit_lists_verified=%v index_verified=%v\n",
+		r.Repair.TimestampsVerified, r.Repair.OffsetsVerified, r.Repair.EditListsVerified, r.Repair.IndexVerified)
 	fmt.Printf("sync_max_ms=%.3f\n", r.SyncMaxMS)
 	fmt.Printf("index_seek_miss=%d\n", r.IndexSeekMiss)
 	fmt.Printf("boundary_mismatch=%d\n", r.BoundaryMismatch)
