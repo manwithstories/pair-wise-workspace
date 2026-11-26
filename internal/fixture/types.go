@@ -99,6 +99,8 @@ type Packet struct {
 	// Recovered is set by the transport layer when a media packet is rebuilt
 	// from the group parity packet rather than received directly.
 	Recovered bool
+	// Silent marks an audio packet whose PCM is a deterministic silence span.
+	Silent bool
 	// Marked by the damage injector.
 	Dropped     bool
 	Duplicated  bool

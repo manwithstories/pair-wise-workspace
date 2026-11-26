@@ -35,6 +35,7 @@ type Normalized struct {
 	Duration  int64 // native frame duration converted to microseconds
 	NativeDur int64 // duration in native ticks (unchanged)
 	Recovered bool
+	Silent    bool
 	Payload   []byte
 }
 
@@ -187,7 +188,7 @@ func (n *Normalizer) Normalize(p fixture.Packet) (Normalized, error) {
 	return Normalized{
 		Track: p.Track, Seq: p.Seq, StartUS: corrected,
 		Duration: durUS, NativeDur: p.Duration,
-		Recovered: p.Recovered, Payload: p.Payload,
+		Recovered: p.Recovered, Silent: p.Silent, Payload: p.Payload,
 	}, nil
 }
 

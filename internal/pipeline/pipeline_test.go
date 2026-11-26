@@ -76,3 +76,26 @@ func TestDeterministicAcrossRuns(t *testing.T) {
 		t.Fatal("identical seed produced non-deterministic results")
 	}
 }
+
+func TestSilenceAndCutsDetectedEndToEnd(t *testing.T) {
+	out, err := Run(context.Background(), CaseClean, Config{
+		Seed: 41, Root: t.TempDir(), ReorderWindow: 16,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Two deterministic silence spans are injected into the audio fixture.
+	if len(out.Silence) < 2 {
+		t.Fatalf("expected >=2 silence ranges, got %d", len(out.Silence))
+	}
+	for _, s := range out.Silence {
+		if s.EndUS <= s.StartUS {
+			t.Fatalf("invalid silence range: %+v", s)
+		}
+	}
+	// Chapter hints produce at least one cut point and covering segments.
+	if len(out.CutPoints) == 0 || len(out.Segments) == 0 {
+		t.Fatalf("expected cuts and segments, got cuts=%d segs=%d",
+			len(out.CutPoints), len(out.Segments))
+	}
+}

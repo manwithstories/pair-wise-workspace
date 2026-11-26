@@ -85,6 +85,9 @@ func Generate(cfg Config) (*Clip, error) {
 		durTicks, _ := timeline.FromStandard(int64(audioFrameUS), audioTB)
 		p := newPacket(cfg.Seed, tracks[1], uint32(a), raw, curUS, durTicks)
 		p.UnwrappedTS = drifted
+		// Two deterministic silence spans (>=100 ms each) exercise RMS-based
+		// silence detection with hysteresis in the quality stage.
+		p.Silent = (a >= 120 && a <= 130) || (a >= 300 && a <= 312)
 		clip.Packets = append(clip.Packets, p)
 		curUS += int64(audioFrameUS)
 	}

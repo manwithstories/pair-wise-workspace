@@ -33,6 +33,10 @@ type Outcome struct {
 	TransportStats transport.Stats
 	Gaps           []transport.Gap
 	StreamStats    stream.RunStats
+	CutPoints      []quality.CutPoint
+	Segments       []quality.Segment
+	Silence        []quality.SilenceRange
+	Duplicates     []quality.Match
 }
 
 // Config controls one end-to-end run.
@@ -136,14 +140,16 @@ func Run(ctx context.Context, name string, cfg Config) (*Outcome, error) {
 	for _, ch := range meta.FindByKind(fixture.EventChapter) {
 		cutCfg.HintUS = append(cutCfg.HintUS, ch.StartUS)
 	}
-	if _, _, err := quality.DetectCuts(videoFrames, cutCfg); err != nil {
+	cutPoints, segments, err := quality.DetectCuts(videoFrames, cutCfg)
+	if err != nil {
 		return nil, err
 	}
 	audioFrames := toAudioFrames(filterTrack(normalized, 2))
-	if _, err := quality.DetectSilence(audioFrames, quality.DefaultSilenceConfig()); err != nil {
+	silence, err := quality.DetectSilence(audioFrames, quality.DefaultSilenceConfig())
+	if err != nil {
 		return nil, err
 	}
-	quality.FindDuplicates(videoFrames, quality.DefaultFingerprintConfig())
+	duplicates := quality.FindDuplicates(videoFrames, quality.DefaultFingerprintConfig())
 
 	// 7. Streaming remux with checkpoints and atomic output.
 	w, err := remux.NewWriter(cfg.Root + "/out")
@@ -175,6 +181,8 @@ func Run(ctx context.Context, name string, cfg Config) (*Outcome, error) {
 	return &Outcome{
 		Metrics: m, Index: idx, Normalized: normalized, MetaReport: meta,
 		TransportStats: tstats, Gaps: gaps, StreamStats: sstats,
+		CutPoints: cutPoints, Segments: segments,
+		Silence: silence, Duplicates: duplicates,
 	}, nil
 }
 
@@ -189,17 +197,20 @@ func filterTrack(frames []clock.Normalized, track uint32) []clock.Normalized {
 }
 
 // toAudioFrames wraps normalized audio frames with deterministic synthetic PCM
-// derived from their payload, keeping the demo dependency-free.
+// derived from their payload, keeping the demo dependency-free. Frames marked
+// silent produce all-zero samples so RMS silence detection has real input.
 func toAudioFrames(frames []clock.Normalized) []quality.AudioFrame {
 	out := make([]quality.AudioFrame, 0, len(frames))
 	for _, f := range frames {
 		samples := make([]float64, 32)
-		for i := range samples {
-			b := byte(0)
-			if i < len(f.Payload) {
-				b = f.Payload[i]
+		if !f.Silent {
+			for i := range samples {
+				b := byte(0)
+				if i < len(f.Payload) {
+					b = f.Payload[i]
+				}
+				samples[i] = float64(b)/255.0*2 - 1
 			}
-			samples[i] = float64(b)/255.0*2 - 1
 		}
 		out = append(out, quality.AudioFrame{Frame: f, Samples: samples})
 	}
