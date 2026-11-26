@@ -12,7 +12,7 @@ func TestTraceWriteLoad(t *testing.T) {
 	}
 	recs1 := []SegmentTrace{
 		{Seq: 1, File: "seg_000001.m4s", Decision: Accepted, InputSHA: "a",
-			Tracks: []TrackTrace{{TrackID: 1, Samples: 30, FirstDTS: 0, LastDTS: 87000, PayloadSHA: "p"}}},
+			Tracks: []TrackTrace{{TrackID: 1, Samples: 30, FirstDTS: 0, Duration: 90000, PayloadSHA: "p", OutputSHA: "p"}}},
 		{Seq: 2, Decision: Lost, Repairs: []string{"timeline skipped by estimate"}},
 	}
 	if err := tr.WriteChunk(1, recs1); err != nil {

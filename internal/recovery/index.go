@@ -32,6 +32,10 @@ type Record struct {
 	Segments      int    `json:"segments,omitempty"`
 	Run           int    `json:"run,omitempty"`
 	ResultsDigest string `json:"results_digest,omitempty"`
+	// Next and Dur checkpoint the per-track timeline state at chunk end so
+	// a resumed run restores the exact shared timebase.
+	Next map[string]int64 `json:"next,omitempty"`
+	Dur  map[string]int64 `json:"dur,omitempty"`
 }
 
 // ParamsDigest binds an index to the run parameters and input content.

@@ -21,14 +21,16 @@ const (
 	Lost        = "lost"
 )
 
-// TrackTrace records one track's sample range and payload hash within a
-// segment.
+// TrackTrace records one track's sample range and payload hashes within a
+// segment. PayloadSHA is the input-side hash, OutputSHA the written hash;
+// they must be equal for a lossless remux.
 type TrackTrace struct {
 	TrackID    uint32 `json:"track_id"`
 	Samples    int    `json:"samples"`
 	FirstDTS   int64  `json:"first_dts"`
-	LastDTS    int64  `json:"last_dts"`
+	Duration   int64  `json:"duration"` // total segment duration in timescale units
 	PayloadSHA string `json:"payload_sha256"`
+	OutputSHA  string `json:"output_sha256,omitempty"`
 }
 
 // SegmentTrace records the provenance of one input segment position.

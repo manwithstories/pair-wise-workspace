@@ -24,6 +24,12 @@ func (t *Timeline) Next() (int64, bool) {
 	return t.next, t.valid
 }
 
+// Restore sets the expected decode time directly; used when resuming from a
+// checkpoint.
+func (t *Timeline) Restore(next int64) {
+	t.next, t.valid = next, true
+}
+
 // Advance commits dur timescale units of accepted media.
 func (t *Timeline) Advance(dur int64) {
 	t.next += dur
