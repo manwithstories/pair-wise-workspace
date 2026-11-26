@@ -136,6 +136,11 @@ func BuildPlan(opts Options) (*Plan, error) {
 		if err != nil {
 			return nil, err
 		}
+		// The asset a cut points into must not exceed the 12 hour ceiling; a
+		// longer file is refused before any decoding starts.
+		if secs := timeSpanSeconds(entry.TimeBase(), unwrappedIn, unwrappedOut); secs > MaxAssetSeconds {
+			return nil, media.NewError(media.ErrUnsupported, "edit on %s spans %.0fs, over the 12h single-file limit", entry.Key(), secs)
+		}
 		seg := Segment{
 			Event: timeline.Event{
 				Time:   startTick,
@@ -182,6 +187,17 @@ func BuildPlan(opts Options) (*Plan, error) {
 	plan.Late = tl.LateEvents()
 	plan.Replayed = tl.ReplayedEvents()
 	return plan, nil
+}
+
+// MaxAssetSeconds is the 12 hour ceiling for a single listed asset.
+const MaxAssetSeconds = 12 * 60 * 60
+
+// timeSpanSeconds converts a raw tick span to seconds.
+func timeSpanSeconds(tb media.Rational, from, to int64) float64 {
+	if tb.Num <= 0 || tb.Den <= 0 {
+		return 0
+	}
+	return float64(to-from) * tb.Float64()
 }
 
 func eventKey(e timeline.Event) string {

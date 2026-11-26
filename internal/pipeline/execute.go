@@ -59,71 +59,90 @@ func RunPlan(opts Options, plan *Plan) (*Stats, error) {
 	}
 	defer enc.Abort()
 
-	var rendered []float32
+	// Pass one: render each segment in turn, feed a streaming loudness meter
+	// and keep only per-segment metadata. The programme is never materialised
+	// in full, so memory stays bounded by one segment (<=5 minutes).
+	meter := av.NewLoudnessMeter()
 	alignMax := 0.0
 	damaged := 0
 	var damagedDetail []DamageRecord
 	var totalSamples int
-	for _, seg := range plan.Segments {
-		streamIndex, err := resolveStreamIndex(seg)
-		if err != nil {
-			return nil, err
-		}
-		if seg.AlignmentUS > alignMax {
-			alignMax = seg.AlignmentUS
-		}
-		matrix := seg.Entry.MixMatrix
-		var mm av.MixMatrix
-		if len(matrix) == 2 {
-			mm = av.MixMatrix{matrix[0], matrix[1]}
-		}
-		res, err := av.ReadSegment(av.SegmentRequest{
-			Path:        seg.Path,
-			StreamIndex: streamIndex,
-			TimeBase:    seg.Entry.TimeBase(),
-			InRaw:       seg.Event.In,
-			OutRaw:      seg.Event.Out,
-			InLayout:    seg.Entry.Layout,
-			InChannels:  seg.Entry.Channels,
-			Matrix:      mm,
-		})
-		if err != nil {
-			return nil, err
-		}
-		damaged += len(res.Damaged)
-		for _, d := range res.Damaged {
-			damagedDetail = append(damagedDetail, DamageRecord{
-				Camera: seg.Event.Camera, Track: seg.Event.Track,
-				StartRaw: d.StartRaw, EndRaw: d.EndRaw, Reason: d.Reason,
+
+	render := func(apply func([]float32) error, collect bool) error {
+		for i, seg := range plan.Segments {
+			streamIndex, err := resolveStreamIndex(seg)
+			if err != nil {
+				return err
+			}
+			if seg.AlignmentUS > alignMax {
+				alignMax = seg.AlignmentUS
+			}
+			matrix := seg.Entry.MixMatrix
+			var mm av.MixMatrix
+			if len(matrix) == 2 {
+				mm = av.MixMatrix{matrix[0], matrix[1]}
+			}
+			res, err := av.ReadSegment(av.SegmentRequest{
+				Path:        seg.Path,
+				StreamIndex: streamIndex,
+				TimeBase:    seg.Entry.TimeBase(),
+				InRaw:       seg.Event.In,
+				OutRaw:      seg.Event.Out,
+				InLayout:    seg.Entry.Layout,
+				InChannels:  seg.Entry.Channels,
+				Matrix:      mm,
 			})
+			if err != nil {
+				return err
+			}
+			if collect {
+				damaged += len(res.Damaged)
+				for _, d := range res.Damaged {
+					damagedDetail = append(damagedDetail, DamageRecord{
+						Camera: seg.Event.Camera, Track: seg.Event.Track,
+						StartRaw: d.StartRaw, EndRaw: d.EndRaw, Reason: d.Reason,
+					})
+				}
+				if res.AlignmentUS > alignMax {
+					alignMax = res.AlignmentUS
+				}
+				totalSamples += res.LengthSamples
+			}
+			if apply != nil {
+				if err := apply(res.Samples); err != nil {
+					return err
+				}
+			}
+			if collect {
+				if err := SaveCheckpoint(cpPath, Checkpoint{PlanHash: planHash, Completed: []string{segKey(seg)}, Partial: enc.TempPath()}); err != nil {
+					return err
+				}
+			}
+			_ = i
 		}
-		if res.AlignmentUS > alignMax {
-			alignMax = res.AlignmentUS
-		}
-		rendered = append(rendered, res.Samples...)
-		totalSamples += res.LengthSamples
-		if err := SaveCheckpoint(cpPath, Checkpoint{PlanHash: planHash, Completed: []string{segKey(seg)}, Partial: enc.TempPath()}); err != nil {
-			return nil, err
-		}
+		return nil
 	}
-	if len(rendered) == 0 {
+
+	if err := render(func(s []float32) error { meter.Push(s); return nil }, true); err != nil {
+		return nil, err
+	}
+	if totalSamples == 0 {
 		return nil, media.NewError(media.ErrManifest, "plan produced no audio")
 	}
 
-	// Loudness normalisation: measure, compute a peak-safe gain, remeasure.
-	before := av.MeasureInterleaved(rendered)
-	gain := av.NormalizeGain(before)
-	av.ApplyGain(rendered, gain)
-	report := av.MeasureInterleaved(rendered)
-	if report.IntegratedLUFS > av.TargetLUFS+av.LoudnessTol || report.IntegratedLUFS < av.TargetLUFS-av.LoudnessTol {
-		// One corrective pass on the measured shortfall.
-		gain2 := av.NormalizeGain(report)
-		av.ApplyGain(rendered, gain2)
-		report = av.MeasureInterleaved(rendered)
-	}
-	if err := enc.WriteSamples(rendered); err != nil {
+	// Compute a peak-safe gain from the first-pass measurement, then render a
+	// second time applying it and writing straight to the encoder.
+	measured := meter.Report()
+	gain := av.NormalizeGain(measured)
+	finalMeter := av.NewLoudnessMeter()
+	if err := render(func(s []float32) error {
+		av.ApplyGain(s, gain)
+		finalMeter.Push(s)
+		return enc.WriteSamples(s)
+	}, false); err != nil {
 		return nil, err
 	}
+	report := finalMeter.Report()
 	if err := enc.Close(); err != nil {
 		return nil, err
 	}
