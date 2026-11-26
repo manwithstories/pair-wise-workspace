@@ -229,6 +229,12 @@ func parseRange(src *Source, start, limit int64, depth int, trackID uint32, idx 
 				trackID = id
 			}
 		}
+		if typ == "tfhd" {
+			if id, ok := readTFHDTrackID(src, b); ok {
+				b.TrackID = id
+				trackID = id
+			}
+		}
 		idx.All = append(idx.All, b)
 		if depth == 0 {
 			idx.Root = append(idx.Root, b)
@@ -267,6 +273,15 @@ func readTKHDTrackID(src *Source, b *Box) (uint32, bool) {
 	if ver[0] == 1 {
 		pos = b.PayloadOffset + 20
 	}
+	buf := make([]byte, 4)
+	if err := readExactAt(src.ReaderAt, buf, pos); err != nil {
+		return 0, false
+	}
+	return uint32(buf[0])<<24 | uint32(buf[1])<<16 | uint32(buf[2])<<8 | uint32(buf[3]), true
+}
+
+func readTFHDTrackID(src *Source, b *Box) (uint32, bool) {
+	pos := b.PayloadOffset + 4 // skip version+flags
 	buf := make([]byte, 4)
 	if err := readExactAt(src.ReaderAt, buf, pos); err != nil {
 		return 0, false
