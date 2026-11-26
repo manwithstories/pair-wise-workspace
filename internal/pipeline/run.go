@@ -55,7 +55,16 @@ func Run(cfg Config) (*Output, error) {
 	var repairReport *recovery.Report
 	var syncReport *sync.Report
 
-	sched := dag.NewScheduler(dag.NewJournal())
+	var journal *dag.Journal
+	if cfg.JournalPath != "" {
+		journal, err = dag.LoadJournal(cfg.JournalPath)
+		if err != nil {
+			return nil, media.Wrap(media.KindInternal, "pipeline.Run", "load journal", err)
+		}
+	} else {
+		journal = dag.NewJournal()
+	}
+	sched := dag.NewScheduler(journal)
 	mustAdd := func(n *dag.Node) {
 		if addErr := sched.Add(n); addErr != nil {
 			panic(addErr)
@@ -222,7 +231,15 @@ func Run(cfg Config) (*Output, error) {
 	dagReport, dagErr := sched.Run(context.Background())
 	out.DAG = dagReport
 	if dagReport != nil {
+		if out.Stats.OutputSHA256 == "" {
+			restoreCachedMetrics(out, dagReport)
+		}
 		out.Stats.FirstBlocked = dagReport.FirstBlocked
+	}
+	if cfg.JournalPath != "" && dagReport != nil {
+		if saveErr := sched.Journal.Save(cfg.JournalPath); saveErr != nil && dagErr == nil {
+			dagErr = media.Wrap(media.KindInternal, "pipeline.Run", "save journal", saveErr)
+		}
 	}
 	if dagErr != nil {
 		return out, dagErr
@@ -230,10 +247,32 @@ func Run(cfg Config) (*Output, error) {
 	if firstMalformed != nil {
 		return out, firstMalformed
 	}
+	if out.Stats.Malformed > 0 {
+		return out, media.New(media.KindMalformed, "pipeline.Run",
+			fmt.Sprintf("%d malformed RTP datagram(s) restored from journal", out.Stats.Malformed))
+	}
 	if firstConflict != nil {
 		return out, firstConflict
 	}
+	if out.Stats.Conflicts > 0 {
+		return out, media.New(media.KindConflict, "pipeline.Run",
+			fmt.Sprintf("%d conflicting RTP payload(s) restored from journal", out.Stats.Conflicts))
+	}
 	return out, nil
+}
+
+func restoreCachedMetrics(out *Output, rep *dag.Report) {
+	raw := rep.Outputs["metrics.report"]
+	if len(raw) == 0 {
+		return
+	}
+	var artifact metrics.Artifact
+	if err := json.Unmarshal(raw, &artifact); err != nil {
+		return
+	}
+	out.Stats = artifact.Stats
+	out.Stats.OutputSHA256 = dag.HashBytes(raw)
+	out.Artifact = raw
 }
 
 func networkWait(sc *scenario, nowMS int) int {

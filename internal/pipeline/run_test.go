@@ -1,8 +1,10 @@
 package pipeline
 
 import (
-	"mediaqc/internal/media"
+	"path/filepath"
 	"testing"
+
+	"mediaqc/internal/media"
 )
 
 func TestNormalDeterministicHashAndThresholds(t *testing.T) {
@@ -91,6 +93,30 @@ func TestCorruptProfileClassifiesMalformed(t *testing.T) {
 	}
 	if out.Stats.OutputSHA256 == "" {
 		t.Fatal("corrupt run should still seal diagnostic artifact")
+	}
+}
+
+func TestPersistentJournalRestoresMetricsOnRepeat(t *testing.T) {
+	cfg := Config{
+		Profile: "normal", Codec: "opus", Seed: 41,
+		JournalPath: filepath.Join(t.TempDir(), "qc-journal.json"),
+	}
+	first, err := Run(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Run(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Stats.OutputSHA256 != first.Stats.OutputSHA256 {
+		t.Fatalf("persisted resume hash mismatch: %s vs %s", second.Stats.OutputSHA256, first.Stats.OutputSHA256)
+	}
+	if second.DAG == nil || len(second.DAG.Cached) == 0 {
+		t.Fatalf("expected journal cache hits: %+v", second.DAG)
+	}
+	if second.Stats.Packets != first.Stats.Packets || second.Stats.E2EP95MS != first.Stats.E2EP95MS {
+		t.Fatalf("restored stats mismatch: first=%+v second=%+v", first.Stats, second.Stats)
 	}
 }
 

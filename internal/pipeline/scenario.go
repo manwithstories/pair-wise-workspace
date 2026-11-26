@@ -12,10 +12,11 @@ import (
 
 // Config configures one deterministic QC pipeline run.
 type Config struct {
-	Profile  string
-	Codec    string
-	Seed     int64
-	FailOnce string
+	Profile     string
+	Codec       string
+	Seed        int64
+	FailOnce    string
+	JournalPath string
 }
 
 type wireEvent struct {

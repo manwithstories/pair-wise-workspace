@@ -26,15 +26,17 @@ func run(args []string, stdout, stderr io.Writer) int {
 	codec := fs.String("codec", "opus", "audio codec")
 	seed := fs.Int64("seed", 41, "deterministic seed")
 	failOnce := fs.String("fail-once", "", "DAG node whose first attempt fails once")
+	journalPath := fs.String("journal", "", "optional JSON journal path for cross-process resume")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 1
 	}
 
 	out, err := pipeline.Run(pipeline.Config{
-		Profile:  *profile,
-		Codec:    *codec,
-		Seed:     *seed,
-		FailOnce: *failOnce,
+		Profile:     *profile,
+		Codec:       *codec,
+		Seed:        *seed,
+		FailOnce:    *failOnce,
+		JournalPath: *journalPath,
 	})
 	if out == nil {
 		kind := media.Classify(err)
@@ -85,5 +87,8 @@ func printDAGEvents(w io.Writer, out *pipeline.Output) {
 		case "retry_success":
 			fmt.Fprintf(w, "dag node=%s attempt=%d result=retry_success output_sha256=%s\n", e.NodeID, e.Attempt, e.OutputHash)
 		}
+	}
+	if len(out.DAG.Cached) > 0 {
+		fmt.Fprintf(w, "dag cache_hit nodes=%v\n", out.DAG.Cached)
 	}
 }
