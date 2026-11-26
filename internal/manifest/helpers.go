@@ -70,3 +70,22 @@ func (m *Manifest) StreamKind(id int) string {
 	}
 	return ""
 }
+
+// InjectionTruncation returns the tail-truncation descriptors.
+func (inj Injection) InjectionTruncation() []Trunc {
+	return inj.TruncateAfterSeq
+}
+
+// TruncAfter returns the last retained sequence for a truncated stream,
+// or -1 when the stream's tail is intact.
+func (m *Manifest) truncAfter(streamID int) int64 {
+	for _, tr := range m.Injection.TruncateAfterSeq {
+		if tr.StreamID == streamID {
+			return tr.AfterSeq
+		}
+	}
+	return -1
+}
+
+// TruncAfter is the exported form of truncAfter.
+func (m *Manifest) TruncAfter(streamID int) int64 { return m.truncAfter(streamID) }

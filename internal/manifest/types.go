@@ -91,6 +91,9 @@ type Packet struct {
 	Keyframe     bool   `json:"keyframe,omitempty"`
 	DurationTick int64  `json:"duration_tick"`  // VFR duration in source ticks
 	PayloadLen   int    `json:"payload_len"`
+	// XOR is the check byte. On a parity packet it equals the XOR of every
+	// media byte of GroupID; on media packets it is that packet's own byte.
+	XOR byte `json:"xor"`
 }
 
 // Injection records every anomaly the fixture generator introduced. The
