@@ -115,4 +115,15 @@ func TestCorruptMainCheckpointFallsBackToStage(t *testing.T) {
 	if !bytes.Equal(a, b) || cold.OutputSHA256 != resumed.OutputSHA256 {
 		t.Fatal("fallback resume output is not identical to cold run")
 	}
+	again, err := pipeline.Run(ds, pipeline.Options{Dir: crashDir, Resume: true})
+	if err != nil {
+		t.Fatalf("repeated resume: %v", err)
+	}
+	if again.StartRecord != len(ds.Frames) {
+		t.Fatalf("repeated resume start=%d want %d", again.StartRecord, len(ds.Frames))
+	}
+	b2, _ := os.ReadFile(filepath.Join(crashDir, "output.jsonl"))
+	if !bytes.Equal(a, b2) {
+		t.Fatal("repeated resume changed output")
+	}
 }
