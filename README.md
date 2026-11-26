@@ -33,6 +33,8 @@ demo_status=all_expected_paths_completed
 
 该脚本执行构建、测试、两次输出 diff、哈希比较、参数错误退出码 2 和截断 KLV 安全拒绝退出码 3 的检查。
 
+> 模块按规格显式声明 `toolchain go1.25.6`。Go 1.25.6 的 `go mod tidy` 可能把与 `go 1.25.6` 完全同版本的 toolchain 行视为冗余并归一化删除；这不会影响给出的 `go mod tidy && ...` 验收链。需要恢复显式声明时执行 `go mod edit -toolchain=go1.25.6`。
+
 ## 生成夹具
 
 ```bash
