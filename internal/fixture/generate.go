@@ -72,14 +72,18 @@ func PayloadFor(kind string, index, length int) []byte {
 
 // BuildTS constructs a transport-stream segment covering [frameStart,
 // frameStart+frames) video frames and [audioStart, audioStart+audioFrames)
-// audio frames. PTS/DTS are absolute 90 kHz values.
+// audio frames. PTS/DTS are absolute 90 kHz values. vbytes/abytes are the
+// synthetic payload sizes; use the ...Sized form to match CMAF sample bytes.
 func (s ClipSpec) BuildTS(frameStart, frames, audioStart, audioFrames int) []byte {
+	return s.BuildTSSized(frameStart, frames, audioStart, audioFrames, 700, 240)
+}
+
+// BuildTSSized is BuildTS with explicit per-unit payload sizes.
+func (s ClipSpec) BuildTSSized(frameStart, frames, audioStart, audioFrames, vbytes, abytes int) []byte {
 	w := NewTSWriter()
 	w.WritePAT()
 	w.WritePMT()
 	vDur := s.VideoTickDur()
-	abytes := 240 // bytes per synthetic audio frame
-	vbytes := 700 // bytes per synthetic video access unit
 
 	for i := 0; i < frames; i++ {
 		idx := frameStart + i
@@ -129,6 +133,13 @@ func makeAudioFrame(index, length int) []byte {
 	b = append(b, PayloadFor("audio", index, length-len(hdr))...)
 	return b
 }
+
+// VideoUnitSize and AudioUnitSize are the per-unit payload sizes shared by the
+// TS and CMAF writers, so a cross-container remux hashes identically.
+const (
+	VideoUnitSize = 700
+	AudioUnitSize = 240
+)
 
 // WriteTime is the reference epoch used for deterministic program date-time.
 var WriteTime = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
