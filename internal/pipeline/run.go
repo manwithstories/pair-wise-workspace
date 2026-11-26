@@ -37,6 +37,9 @@ func Run(cfg Config) (*Output, error) {
 	if cfg.Profile == "" {
 		cfg.Profile = "normal"
 	}
+	if cfg.Codec == "" {
+		cfg.Codec = "opus"
+	}
 	sc, err := generateScenario(cfg)
 	if err != nil {
 		return nil, err
