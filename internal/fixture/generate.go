@@ -80,8 +80,11 @@ func BaseProject(seed int64, duration time.Duration) *media.Project {
 func WithBackwardTimestamp(p *media.Project, sample int) *media.Project {
 	cp := cloneProject(p)
 	v := cp.Tracks[0]
-	if sample < 2 || sample >= len(v.Samples) {
-		sample = KeyframeEvery + 7
+	if sample < 2 || sample+6 >= len(v.Samples) {
+		sample = len(v.Samples) / 3
+	}
+	if sample < 2 {
+		sample = 2
 	}
 	v.Samples[sample].PTS = v.Samples[sample-1].PTS - 900
 	// Also create a missing stts delta later so repair demonstrates both fixes.

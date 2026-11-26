@@ -75,8 +75,14 @@ func GenerateSet(dir string, cfg Config) (*Set, error) {
 	if err := mp4.WriteFile(truncatedPath, base); err != nil {
 		return nil, err
 	}
-	if err := TruncateMDAT(truncatedPath, 4096); err != nil {
-		return nil, err
+	if st, err := os.Stat(truncatedPath); err == nil {
+		tail := int64(4096)
+		if adaptive := st.Size() / 5; adaptive > 0 && adaptive < tail {
+			tail = adaptive
+		}
+		if err := TruncateMDAT(truncatedPath, tail); err != nil {
+			return nil, err
+		}
 	}
 	s.FaultFiles["truncated_mdat"] = truncatedPath
 
@@ -121,6 +127,11 @@ func CorruptSTCOffset(path string, trackTableZero, entry int) (int64, error) {
 		return 0, fmt.Errorf("stco table %d not found", trackTableZero)
 	}
 	stco := stcos[trackTableZero]
+	countLocation := stco.Offset + stco.HeaderSize + 4
+	entryCount := int(binary.BigEndian.Uint32(data[countLocation : countLocation+4]))
+	if entry < 0 || entry >= entryCount {
+		entry = entryCount / 2
+	}
 	location := stco.Offset + stco.HeaderSize + 8 + int64(entry)*4
 	if location+4 > int64(len(data)) {
 		return 0, fmt.Errorf("stco entry %d is outside file", entry)
@@ -132,16 +143,36 @@ func CorruptSTCOffset(path string, trackTableZero, entry int) (int64, error) {
 	return location, nil
 }
 
-// TruncateMDAT removes tailBytes from the file, producing a truncated mdat.
+// TruncateMDAT removes tailBytes from the file while preserving ftyp/moov and
+// the mdat header plus a small payload prefix.
 func TruncateMDAT(path string, tailBytes int64) error {
-	st, err := os.Stat(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	if tailBytes <= 0 || st.Size() <= tailBytes+8192 {
-		return fmt.Errorf("refusing unsafe truncation size=%d tail=%d", st.Size(), tailBytes)
+	stSize := int64(len(data))
+	if tailBytes <= 0 || tailBytes >= stSize {
+		return fmt.Errorf("invalid truncation tail=%d size=%d", tailBytes, stSize)
 	}
-	return os.Truncate(path, st.Size()-tailBytes)
+	boxes, err := mp4.Scan(bytes.NewReader(data), stSize)
+	if err != nil {
+		return fmt.Errorf("scan before truncation: %w", err)
+	}
+	var mdat *mp4.Box
+	for _, b := range boxes {
+		if b.Type == "mdat" {
+			mdat = b
+		}
+	}
+	if mdat == nil {
+		return fmt.Errorf("mdat box not found")
+	}
+	newSize := stSize - tailBytes
+	minimum := mdat.Offset + mdat.HeaderSize + 64
+	if newSize < minimum {
+		return fmt.Errorf("refusing truncation below recoverable mdat prefix: new=%d min=%d", newSize, minimum)
+	}
+	return os.Truncate(path, newSize)
 }
 
 // CorruptSTSSType renames the sync sample box so the index must be rebuilt.
