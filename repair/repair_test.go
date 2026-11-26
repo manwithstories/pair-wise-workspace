@@ -3,6 +3,7 @@ package repair_test
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -118,6 +119,64 @@ func TestRepairInputRaceAbortsWithoutCommittedOutput(t *testing.T) {
 	}
 	if _, statErr := os.Stat(out); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("output must not be committed after race; stat err=%v", statErr)
+	}
+}
+
+func TestRepairAllSupportedBitDepths(t *testing.T) {
+	for _, bits := range []int{8, 16, 24, 32} {
+		t.Run(fmt.Sprintf("%d-bit", bits), func(t *testing.T) {
+			dir := t.TempDir()
+			m, err := fixture.Generate(fixture.Config{
+				Dir: dir, Seed: 23, Frames: 8192, Channels: 2, Bits: bits,
+				Injections: []string{"vfr", "bad-crc"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			rep, err := iwav.ScanPath(m.DamagedWAV)
+			if err != nil {
+				t.Fatal(err)
+			}
+			checks, err := fixture.LoadChecksFile(m.ChecksJSON)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, spans, err := verify.CheckBlocksPath(m.DamagedWAV, rep.DataOffset,
+				rep.Format.FrameBytes(), rep.AvailableFrames, checks.Blocks)
+			if err != nil {
+				t.Fatal(err)
+			}
+			idx, err := index.Build(index.BuildInput{
+				WAVPath: m.DamagedWAV, ChecksPath: m.ChecksJSON, Report: rep,
+				BlockChecks: checks.Blocks, Damage: spans,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			out := filepath.Join(dir, "out.wav")
+			if _, err := irepair.Run(irepair.Options{Index: idx, OutputPath: out}); err != nil {
+				t.Fatal(err)
+			}
+			outRep, err := iwav.ScanPath(out)
+			if err != nil {
+				t.Fatal(err)
+			}
+			actual, err := verify.HashWAVPath(out, outRep.DataOffset, outRep.Format.FrameBytes(), outRep.DeclaredFrames)
+			if err != nil {
+				t.Fatal(err)
+			}
+			baseRep, err := iwav.ScanPath(m.BaselineWAV)
+			if err != nil {
+				t.Fatal(err)
+			}
+			expected, err := verify.HashWAVPath(m.BaselineWAV, baseRep.DataOffset, baseRep.Format.FrameBytes(), baseRep.DeclaredFrames)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := verify.CompareSegments(actual, expected).AllMatch(); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 
