@@ -78,8 +78,12 @@ func Generate(cfg Config) (*Manifest, error) {
 	}
 	cues := keyframeCues(cfg.Frames, cfg.KeyframeInterval)
 	damagedCues := append([]Cue(nil), cues...)
-	if inj["missing-cue"] && len(damagedCues) > 8 {
-		damagedCues = append(damagedCues[:24], damagedCues[25:]...)
+	if inj["missing-cue"] && len(damagedCues) > 2 {
+		missingIdx := 24
+		if missingIdx >= len(damagedCues)-1 {
+			missingIdx = len(damagedCues) / 2
+		}
+		damagedCues = append(damagedCues[:missingIdx], damagedCues[missingIdx+1:]...)
 	}
 	if inj["duplicate-cue"] && len(damagedCues) > 2 {
 		damagedCues = append(damagedCues, damagedCues[2])
