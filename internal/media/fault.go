@@ -50,6 +50,10 @@ func (k FaultKind) String() string {
 	return fmt.Sprintf("kind(%d)", int(k))
 }
 
+// Error lets a FaultKind act as a sentinel: WrapFault("%w", kind) builds a
+// wrapping fault, and errors.Is(fault, media.FaultTruncated) matches by kind.
+func (k FaultKind) Error() string { return "media: " + k.String() }
+
 // Recoverable reports whether processing can continue past this fault. Truncated
 // segments, bad box lengths and continuity breaks are isolated and the remaining
 // segments still process; state invariant failures are not.
@@ -149,6 +153,21 @@ func (f *Fault) Error() string {
 
 // Unwrap exposes the underlying error to errors.Is/As.
 func (f *Fault) Unwrap() error { return f.Err }
+
+// Is matches the fault against a FaultKind sentinel or another *Fault of the
+// same kind, so errors.Is(err, media.FaultTruncated) works through wrappers.
+func (f *Fault) Is(target error) bool {
+	if k, ok := target.(FaultKind); ok {
+		return f.Kind == k
+	}
+	if g, ok := target.(*Fault); ok {
+		return f.Kind == g.Kind
+	}
+	if f.Err != nil {
+		return errors.Is(f.Err, target)
+	}
+	return false
+}
 
 // Recoverable reports the quarantine decision for this fault.
 func (f *Fault) Recoverable() bool { return f.Kind.Recoverable() }
