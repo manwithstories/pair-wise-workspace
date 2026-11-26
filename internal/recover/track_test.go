@@ -68,6 +68,26 @@ func TestCorruptOffsetWithoutVerifiedCheckpointIsLocatableFailure(t *testing.T) 
 	}
 }
 
+func TestPositiveOutOfBoundsOffsetBlocksRecovery(t *testing.T) {
+	tr := testTrack()
+	tr.Samples[3].Offset = 1 << 30
+	cfg := DefaultConfig(1, 1)
+	cfg.FileSize = 5000
+	rep := RunTrack(tr, &index.Index{Tracks: map[uint32]*index.TrackIndex{}}, rand.New(rand.NewSource(2)), cfg)
+	if rep.UnrecoveredPackets == 0 {
+		t.Fatal("expected out-of-bounds offset corruption to affect recovery")
+	}
+	var found bool
+	for _, f := range rep.Faults {
+		if f.ByteRange != nil && f.ByteRange.Offset == 1<<30 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("missing locatable offset fault: %#v", rep.Faults)
+	}
+}
+
 func TestEnginesAreIndependent(t *testing.T) {
 	tr := testTrack()
 	idx := verifiedIndex(tr)

@@ -14,6 +14,9 @@ type Config struct {
 	Burst             int     `json:"burst"`
 	MaxRetransmits    int     `json:"max_retransmits"`
 	RetransmitSuccess float64 `json:"retransmit_success"`
+	// FileSize, when positive, enables sample interval bounds checks. Offset
+	// corruption that points outside the file then blocks track recovery.
+	FileSize int64 `json:"file_size,omitempty"`
 }
 
 // DefaultConfig gives mobile recovery enough retransmissions before IDR fallback.
@@ -131,15 +134,23 @@ func RunTrack(t *media.Track, idx *index.Index, rng *rand.Rand, cfg Config) *Rep
 			}
 		}
 
-		if s.Offset < 0 {
+		offsetValid := s.Offset >= 0
+		if offsetValid && cfg.FileSize > 0 {
+			end, ok := media.ByteRange{Offset: s.Offset, Length: int64(s.Size)}.End()
+			offsetValid = ok && end <= cfg.FileSize
+		}
+		if !offsetValid {
 			// A retransmission can recover packet bytes, but a corrupt sample
 			// offset means the track cannot place and verify them. This makes
 			// offset-table corruption affect recovery explicitly.
 			recovered = false
 			stat.Unrecovered = true
 			rep.UnrecoveredPackets++
-			f := media.NewFault(media.CodeRecoveryFailed, "sample %d has no valid sample offset", s.Index).
+			f := media.NewFault(media.CodeRecoveryFailed, "sample %d has invalid sample offset %d", s.Index, s.Offset).
 				WithTrack(t.ID).WithBox("stco")
+			if s.Offset >= 0 {
+				f.WithByteRange(s.Offset, int64(s.Size))
+			}
 			if clock, err := t.Clock(); err == nil {
 				f.WithTimeSpan(s.DTS, s.PTS, clock)
 			}

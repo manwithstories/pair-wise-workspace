@@ -195,6 +195,7 @@ func simulateOutput(output string, opts Options) ([]*recover.Report, *index.Inde
 
 	rng := rand.New(rand.NewSource(opts.Seed))
 	cfg := recover.DefaultConfig(opts.Loss, opts.Burst)
+	cfg.FileSize = st.Size()
 	var reports []*recover.Report
 	for _, t := range p.Tracks {
 		reports = append(reports, recover.RunTrack(t, idx, rng, cfg))
