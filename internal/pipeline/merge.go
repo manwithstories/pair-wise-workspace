@@ -98,6 +98,7 @@ func OrderedMerge(ctx context.Context, outcomes []Outcome, cfg MergeConfig) (*re
 		streams := append([]analyze.Stream(nil), res.Streams...)
 		sort.SliceStable(streams, func(i, j int) bool { return streams[i].TrackID < streams[j].TrackID })
 		for _, st := range streams {
+			st.File = filepath.Base(st.File)
 			tr := report.TrackReport{Stream: st, Keyframes: []analyze.Keyframe{}, Intervals: []analyze.KeyframeInterval{}}
 			if kf, ok := kfByTrack[st.TrackID]; ok {
 				tr.Keyframes = append(tr.Keyframes, kf.Keyframes...)
