@@ -188,7 +188,9 @@ func RunDemo(opt Options) (*Result, error) {
 	}
 
 	mf.Stats.DecodeErrors = demux.DecodeErrors
+	mf.Stats.AudioPeak = audioReport.PeakDBFS
 	mf.Stats.AudioPeakDBFS = audioReport.PeakDBFS
+	mf.Stats.AudioPeakAmplitude = audioReport.PeakAmplitude
 	mf.Stats.SilenceRegions = len(audioReport.Regions)
 	mf.Stats.DuplicateSegments = duplicates
 	mf.SetBitrate(totalBytes, float64(opt.Seconds), opt.TargetKbps)

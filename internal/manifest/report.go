@@ -42,15 +42,17 @@ type Recovery struct {
 }
 
 type Stats struct {
-	Case              string  `json:"case,omitempty"`
-	TargetKbps        int     `json:"target_kbps"`
-	ActualKbps        int     `json:"actual_kbps"`
-	DeviationPct      float64 `json:"deviation_pct"`
-	DecodeErrors      int     `json:"decode_errors"`
-	AudioPeakDBFS     float64 `json:"audio_peak_dbfs"`
-	SilenceRegions    int     `json:"silence_regions"`
-	DuplicateSegments int     `json:"duplicate_segments"`
-	ManifestErrorMS   float64 `json:"manifest_error_ms"`
+	Case               string  `json:"case,omitempty"`
+	TargetKbps         int     `json:"target_kbps"`
+	ActualKbps         int     `json:"actual_kbps"`
+	DeviationPct       float64 `json:"deviation_pct"`
+	DecodeErrors       int     `json:"decode_errors"`
+	AudioPeak          float64 `json:"audio_peak"`
+	AudioPeakDBFS      float64 `json:"audio_peak_dbfs"`
+	AudioPeakAmplitude float64 `json:"audio_peak_amplitude,omitempty"`
+	SilenceRegions     int     `json:"silence_regions"`
+	DuplicateSegments  int     `json:"duplicate_segments"`
+	ManifestErrorMS    float64 `json:"manifest_error_ms"`
 }
 
 type Manifest struct {
