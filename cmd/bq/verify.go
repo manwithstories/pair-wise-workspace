@@ -77,11 +77,14 @@ func firstOffset(errs []model.Error) int64 {
 }
 
 func emitFatal(report verify.Report, asJSON bool) error {
-	data, err := report.JSON()
-	if err != nil {
-		return err
-	}
 	if asJSON {
+		// The acceptance contract for a corrupt sample is the top-level
+		// metrics block (error_count, first_source_offset, packet totals),
+		// the same shape the healthy path prints to stdout.
+		data, err := report.MetricsJSON()
+		if err != nil {
+			return err
+		}
 		fmt.Println(string(data))
 	} else {
 		fmt.Fprintf(os.Stderr, "不可恢复输入: %d 个致命错误\n", report.Metrics.ErrorCount)
