@@ -38,6 +38,7 @@ type Result struct {
 	PeakQueueBytes int
 	Ingest         rtp.Stats
 	Concealed      int64
+	RecoveredGaps  int64
 	TruncatedTails int64
 	RejectedSR     int
 	CalibrationOK  bool
@@ -169,6 +170,7 @@ func (r *Runner) runOnce(ctx context.Context, fx *rtp.Fixture, expectFault bool)
 	res.OutputSHA256 = sha256Hex(output)
 	res.Ingest = reorder.Stats()
 	res.Concealed = plc.ConcealedFrames()
+	res.RecoveredGaps = plc.ConcealedSpans()
 	res.TruncatedTails = plc.TruncatedTails()
 	res.RejectedSR = cal.Rejected
 	res.CalibrationOK = cal.Valid()

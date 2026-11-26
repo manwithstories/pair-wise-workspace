@@ -9,13 +9,14 @@ import (
 // exponentially decaying hold; every concealed frame is counted so the
 // metrics layer can compute an honest recovery rate.
 type PLC struct {
-	channels       int
-	lastGood       []float32
-	decay          float64
-	concealed      int64
-	tailTruncated  int64
-	spanLen        int // consecutive concealed frames in the current gap
-	maxSpan        int // concealment beyond this span is not attempted
+	channels        int
+	lastGood        []float32
+	decay           float64
+	concealed       int64 // target-rate frames synthesised
+	concealedSpans  int64 // successful concealment calls (recovered packets/gaps)
+	tailTruncated   int64
+	spanLen         int // consecutive concealed frames in the current gap
+	maxSpan         int // concealment beyond this span is not attempted
 }
 
 // PLCConfig tunes concealment.
@@ -97,11 +98,16 @@ func (p *PLC) Conceal(missingFrames int, truncatedTail bool) ([]float32, bool, e
 	}
 	p.spanLen += frames
 	p.concealed += int64(frames)
+	p.concealedSpans++
 	return out, true, nil
 }
 
-// ConcealedFrames returns the number of frames successfully synthesised.
+// ConcealedFrames returns the number of target-rate frames synthesised.
 func (p *PLC) ConcealedFrames() int64 { return p.concealed }
+
+// ConcealedSpans returns the number of gaps successfully recovered. Each
+// fillGap call that produces output counts as one recovered span.
+func (p *PLC) ConcealedSpans() int64 { return p.concealedSpans }
 
 // TruncatedTails counts gaps refused because they ran to the stream end.
 func (p *PLC) TruncatedTails() int64 { return p.tailTruncated }
