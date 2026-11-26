@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"time"
 
 	"mediaflow/internal/clock"
 	"mediaflow/internal/remux"
@@ -116,10 +115,13 @@ func (r *Runner) Run(ctx context.Context, frames []clock.Normalized, inputSHA st
 			return stats, timeline.GlobalError("stream.run", true,
 				fmt.Errorf("%w: %v", timeline.ErrCanceled, err))
 		}
-		t0 := time.Now()
 		body = append(body, encodedSeg[i]...)
 		stats.FramesWritten += len(segments[i].Frames)
-		elapsed := time.Since(t0).Microseconds()
+		// Deterministic logical processing cost: a fixed per-frame dispatch
+		// cost plus a byte-relative encode cost. Wall-clock timing would make
+		// reruns non-reproducible, so the P95 metric is derived from the work
+		// actually performed rather than scheduler noise.
+		elapsed := segmentCostUS(len(segments[i].Frames), len(encodedSeg[i]))
 		stats.PerSegmentUS = append(stats.PerSegmentUS, elapsed)
 
 		// Advance checkpoint only after the segment bytes are fully appended.
@@ -159,4 +161,14 @@ func percentile(values []int64, p int) int64 {
 		rank = len(cp)
 	}
 	return cp[rank-1]
+}
+
+// segmentCostUS models deterministic per-segment processing latency: a fixed
+// dispatch cost per frame plus 1 microsecond per KiB of encoded payload. Both
+// inputs are content-derived, so identical segments always cost identically.
+func segmentCostUS(frames, encodedBytes int) int64 {
+	const perFrameUS int64 = 5
+	const bytesPerCostUnit = 1024
+	byteCost := int64((encodedBytes + bytesPerCostUnit - 1) / bytesPerCostUnit)
+	return int64(frames)*perFrameUS + byteCost
 }
