@@ -31,7 +31,13 @@ func buildFragmented(quickTime bool, tracks []FragTrack) *normalBuilt {
 	var trex []*Builder
 	for _, t := range tracks {
 		spec := TrackSpec{ID: t.ID, Handler: t.Handler, Timescale: t.Timescale}
-		stbl := New("stbl", nil, stsdBox(t.Handler))
+		stbl := New("stbl", nil,
+			stsdBox(t.Handler),
+			Full("stts", 0, 0, u32(0)),
+			Full("stsc", 0, 0, u32(0)),
+			Full("stsz", 0, 0, appendBytes(u32(0), u32(0))),
+			Full("stco", 0, 0, u32(0)),
+		)
 		header := Full("smhd", 0, 0, appendBytes(u16(0), u16(0)))
 		if t.Handler != "soun" {
 			header = Full("vmhd", 0, 1, make([]byte, 8))
