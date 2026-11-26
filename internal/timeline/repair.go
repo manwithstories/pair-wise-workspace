@@ -17,7 +17,8 @@ type RepairedFragment struct {
 	*ingest.Fragment
 	NewSequence uint32
 	GlobalDTS   uint64
-	RawHash     string // sha256 of the fragment's source bytes
+	RepairedTfdt uint64 // monotonic baseMediaDecodeTime in track timescale
+	RawHash     string  // sha256 of the fragment's source bytes
 }
 
 // TrackReport summarizes one track's repair outcome.
@@ -115,7 +116,7 @@ func RepairTrack(trackID uint32, clock media.Clock, frags []*ingest.Fragment) *T
 		}
 		ordered = append(ordered, &RepairedFragment{
 			Fragment: f, NewSequence: nextSeq,
-			GlobalDTS: gdts, RawHash: hashes[seq],
+			GlobalDTS: gdts, RepairedTfdt: dts, RawHash: hashes[seq],
 		})
 		prevEnd = nextEnd
 		nextSeq++
@@ -134,6 +135,11 @@ func RepairTrack(trackID uint32, clock media.Clock, frags []*ingest.Fragment) *T
 	}
 	rep.Accepted = ordered
 	return rep
+}
+
+// Key is the stable fragment identifier used by checkpoints and outputs.
+func (r *RepairedFragment) Key() string {
+	return fmt.Sprintf("t%03d/f%05d.m4s", r.TrackID, r.NewSequence)
 }
 
 func hashOf(raw []byte) string {
