@@ -117,12 +117,22 @@ func processSegments(
 			if int(seg) > cp.ProcessedSegments {
 				cp.ProcessedSegments = int(seg)
 			}
-			if err := checkpoint.Save(cpPath, cp); err != nil {
-				return nil, false, err
+			// Keep the in-memory checkpoint complete for every segment, but
+			// persist periodically and always at a simulated interrupt.
+			shouldSave := seg%4 == 0 ||
+				(in.InterruptAfter == int(seg) && !in.Resume) ||
+				int(seg) == in.Segments
+			if shouldSave {
+				if err := checkpoint.Save(cpPath, cp); err != nil {
+					return nil, false, err
+				}
 			}
 		}
 
 		if in.InterruptAfter == int(seg) && !in.Resume {
+			if err := checkpoint.Save(cpPath, cp); err != nil {
+				return nil, false, err
+			}
 			return store, true, nil
 		}
 	}

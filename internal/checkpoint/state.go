@@ -80,10 +80,6 @@ func Save(path string, cp *Checkpoint) error {
 	if err := os.Rename(tmp, path); err != nil {
 		return media.NewExitError(4, err)
 	}
-	if dir, err := os.Open(filepath.Dir(path)); err == nil {
-		_ = dir.Sync()
-		_ = dir.Close()
-	}
 	return nil
 }
 

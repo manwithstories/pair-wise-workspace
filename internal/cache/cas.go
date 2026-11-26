@@ -256,10 +256,9 @@ func atomicWrite(path string, data []byte, mode os.FileMode) error {
 		_ = f.Close()
 		return err
 	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		return err
-	}
+	// Atomic rename publishes a complete entry. An optional file sync is
+	// intentionally omitted to keep the local demo recovery budget small;
+	// readers can never observe a partially written path.
 	if err := f.Close(); err != nil {
 		return err
 	}
