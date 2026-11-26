@@ -43,6 +43,12 @@ func CRC32MPEG2(b []byte) uint32 {
 	return crc32.Checksum(b, crcTable)
 }
 
+// ParseSection 校验并解析单个完整节的原始字节，CRC 错误包装为 ErrCRC。
+// 这是供 analyzer 等外部包使用的公开入口。
+func ParseSection(raw []byte) (*Section, error) {
+	return parseSection(raw)
+}
+
 // parseSection 校验并解析单个完整节，CRC 错误包装为 ErrCRC。
 func parseSection(raw []byte) (*Section, error) {
 	if len(raw) < psiHeaderLen+psiCRCLen {
@@ -112,12 +118,20 @@ func (a *SectionAssembler) Push(payload []byte) ([][]byte, error) {
 		a.Reset()
 		return nil, fmt.Errorf("%w: > %d bytes", ErrLength, MaxSectionBuffer)
 	}
+	// 节完成后，同一负载内剩余字节是 0xFF 填充（TS 包固定 184 字节负载），
+	// 不是新节，直接丢弃并复位，避免把填充误判为畸形节。
 	for len(a.pending) >= 3 {
-		need := 3 + int(a.pending[1]&0x0F)<<8 + int(a.pending[2])
-		if need > MaxSectionBuffer {
+		if isStuffing(a.pending) {
 			a.Reset()
-			return nil, fmt.Errorf("%w: declared %d", ErrLength, need)
+			return done, nil
 		}
+		sectionLen := int(a.pending[1]&0x0F)<<8 | int(a.pending[2])
+		need := 3 + sectionLen
+		if sectionLen < psiCRCLen+1 || need > MaxSectionBuffer {
+			a.Reset()
+			return nil, fmt.Errorf("%w: declared section %d", ErrLength, need)
+		}
+		// 负载尚未到齐：等待后续包，不得提前返回残片。
 		if len(a.pending) < need {
 			break
 		}
@@ -126,10 +140,20 @@ func (a *SectionAssembler) Push(payload []byte) ([][]byte, error) {
 		done = append(done, sec)
 		a.pending = a.pending[need:]
 	}
-	if len(a.pending) == 0 {
+	if len(a.pending) == 0 || isStuffing(a.pending) {
 		a.Reset()
 	}
 	return done, nil
+}
+
+// isStuffing 判断残余字节是否全为 0xFF 填充。
+func isStuffing(b []byte) bool {
+	for _, c := range b {
+		if c != 0xFF {
+			return false
+		}
+	}
+	return true
 }
 
 // Reset 清空装配状态。

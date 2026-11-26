@@ -134,6 +134,12 @@ func (c *CCTracker) Observe(p *Packet) CCEvent {
 			delta += 16
 		}
 		ev.Gap = delta - 1
+		// CC 倒退且不属于合法回绕（15→0，delta=1）：确定性乱序信号。
+		rawDelta := int(p.CC) - int(c.lastCC[p.PID])
+		if rawDelta < 0 && delta != 1 {
+			ev.Reversed = true
+			ev.Gap = 0
+		}
 	}
 	c.lastCC[p.PID] = p.CC
 	c.lastOrder[p.PID] = p.Order

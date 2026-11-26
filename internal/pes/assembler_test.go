@@ -125,9 +125,10 @@ func TestTruncatedFlush(t *testing.T) {
 
 func TestOversizedPESRejected(t *testing.T) {
 	a := NewAssembler()
+	// 声明一个较大但 16 位可表达的长度，实际送入字节先冲破 MaxPESLength。
 	huge := make([]byte, MaxPESLength+10)
 	huge[0], huge[1], huge[2] = 0, 0, 1
-	huge[4], huge[5] = 0xFF, 0xFF
+	huge[4], huge[5] = 0xFF, 0xFF // 声明 65535，缓冲实际更大
 	if _, err := a.Push(0x100, huge, true, 0, false); !errors.Is(err, ErrPESLength) {
 		t.Fatalf("want ErrPESLength, got %v", err)
 	}

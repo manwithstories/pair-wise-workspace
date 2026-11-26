@@ -53,9 +53,22 @@ func (a *Assembler) Push(pid uint16, payload []byte, pusi bool, gap int, duplica
 		}
 		st.buf = append(st.buf, payload...)
 	}
+	// 硬上限优先于一切：实际缓冲超限立即拒绝，禁止后续截断绕过。
 	if len(st.buf) > MaxPESLength {
 		st.buf = nil
 		return nil, ErrPESLength
+	}
+	// 再核对声明长度上限，避免畸形长度在数据到齐后放大占用。
+	if len(st.buf) >= MinHeaderLen {
+		declared := int(st.buf[4])<<8 | int(st.buf[5])
+		if declared > MaxPESLength {
+			st.buf = nil
+			return nil, ErrPESLength
+		}
+	}
+	// 达到声明长度后立即截断，丢弃同一 TS 包内的 0xFF 填充。
+	if st.complete() && len(st.buf) > st.need {
+		st.buf = st.buf[:st.need]
 	}
 	if !st.complete() {
 		return nil, nil
