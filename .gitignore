@@ -71,3 +71,12 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# Build products and local demo output
+/mediad
+/mediad.exe
+/bin/
+/dist/
+/mediad-run/
+*.test
+*.out

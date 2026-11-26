@@ -118,8 +118,9 @@ func readBoxPayload(rs io.ReadSeeker, b *Box) (*byteReader, error) {
 		return nil, err
 	}
 	size := b.Size - b.HeaderSize
-	if size > MaxFileSize {
-		return nil, fmt.Errorf("payload too large: %d", size)
+	const maxMetadataPayload = 1 << 20 // custom JSON audit boxes are tiny
+	if size > maxMetadataPayload {
+		return nil, fmt.Errorf("metadata payload too large: %d", size)
 	}
 	buf := make([]byte, size)
 	if _, err := io.ReadFull(rs, buf); err != nil {
