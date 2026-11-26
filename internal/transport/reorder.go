@@ -18,8 +18,12 @@ type PacketID struct {
 	Sequence  uint64 `json:"sequence"`
 }
 
+func TrackKey(stream, rendition string) string {
+	return stream + "\x00" + rendition
+}
+
 func (id PacketID) key() string {
-	return id.Stream + "\x00" + id.Rendition
+	return TrackKey(id.Stream, id.Rendition)
 }
 
 func (id PacketID) String() string {
