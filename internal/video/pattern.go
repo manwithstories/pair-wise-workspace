@@ -2,7 +2,6 @@ package video
 
 import (
 	"image"
-	"image/color"
 	"math"
 
 	"github.com/disintegration/imaging"
@@ -43,26 +42,52 @@ func ValidatePattern(pattern, tint, path, field string) *media.Error {
 
 // Pattern renders a 320x180 frame directly in the declared source encoding.
 // The pattern is defined in linear light and encoded with the source transfer
-// curve, so downstream Normalize() must undo exactly that curve.
+// curve, so downstream Normalize() must undo exactly that curve. Pixels are
+// written straight into the NRGBA buffer: the transfer curves are the dominant
+// cost and per-pixel method calls would dominate a 72-frame render.
 func Pattern(pattern, tint string, space Space, frame int) *image.NRGBA {
-	img := image.NewNRGBA(image.Rect(0, 0, 320, 180))
-	key, ok := tintLinear[tint]
-	if !ok {
+	const w, h = 320, 180
+	img := image.NewNRGBA(image.Rect(0, 0, w, h))
+	key := tintLinear[tint]
+	if key == [3]float64{} && tint != "neutral" {
 		key = tintLinear["neutral"]
 	}
 	bg := [3]float64{0.004, 0.005, 0.007}
-	for y := 0; y < 180; y++ {
-		for x := 0; x < 320; x++ {
+	// A 256-entry transfer lookup per source encoding avoids recomputing
+	// pow() three times for every pixel of every frame.
+	enc := spaceLookup(space)
+	for y := 0; y < h; y++ {
+		row := img.Pix[y*img.Stride : y*img.Stride+w*4]
+		for x := 0; x < w; x++ {
 			lin := patternLinear(pattern, x, y, frame, key, bg)
-			img.SetNRGBA(x, y, color.NRGBA{
-				R: encodeSpace(space, lin[0]),
-				G: encodeSpace(space, lin[1]),
-				B: encodeSpace(space, lin[2]),
-				A: 255,
-			})
+			row[x*4+0] = enc[linearToIndex(lin[0])]
+			row[x*4+1] = enc[linearToIndex(lin[1])]
+			row[x*4+2] = enc[linearToIndex(lin[2])]
+			row[x*4+3] = 255
 		}
 	}
 	return img
+}
+
+// spaceLookup builds a 256-step table of the source encoding applied to a
+// uniformly sampled linear ramp.
+func spaceLookup(s Space) [256]uint8 {
+	var tab [256]uint8
+	for i := 0; i < 256; i++ {
+		t := float64(i) / 255
+		tab[i] = encodeSpace(s, t*t) // square sampling keeps shadows accurate
+	}
+	return tab
+}
+
+// linearToIndex quantizes linear light into the lookup table's index space.
+func linearToIndex(v float64) int {
+	v = clamp01(v)
+	idx := int(math.Sqrt(v) * 255)
+	if idx > 255 {
+		idx = 255
+	}
+	return idx
 }
 
 // encodeSpace applies the source transfer curve and quantizes to 8 bit.
