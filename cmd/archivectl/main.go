@@ -24,6 +24,14 @@ func run(args []string) int {
 	switch args[0] {
 	case "demo":
 		return runDemo(args[1:])
+	case "scan":
+		return runScan(args[1:])
+	case "index":
+		return runIndex(args[1:])
+	case "repair":
+		return runRepair(args[1:])
+	case "verify":
+		return runVerify(args[1:])
 	case "-h", "--help", "help":
 		usage(os.Stdout)
 		return 0
@@ -96,5 +104,10 @@ func splitCSV(s string) []string {
 
 func usage(w *os.File) {
 	fmt.Fprintln(w, "usage: archivectl <command> [flags]")
-	fmt.Fprintln(w, "commands: demo [--seed N] [--frames N] [--channels N] [--inject list] [--workdir DIR]")
+	fmt.Fprintln(w, "commands:")
+	fmt.Fprintln(w, "  demo [--seed N] [--frames N] [--channels N] [--inject list] [--workdir DIR]")
+	fmt.Fprintln(w, "  scan --wav F [--clock F] [--checks F] [--index-out F]")
+	fmt.Fprintln(w, "  index --wav F [--clock F] [--checks F] --out F")
+	fmt.Fprintln(w, "  repair --index F [--wav F] [--clock F] --out F")
+	fmt.Fprintln(w, "  verify --repaired F --baseline F")
 }
