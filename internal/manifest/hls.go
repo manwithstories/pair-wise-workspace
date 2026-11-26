@@ -168,8 +168,9 @@ func EncodeHLSMaster(m *HLSMaster) ([]byte, error) {
 	return p.Encode().Bytes(), nil
 }
 
-// diffMedia returns the first differing field, or "" when equal.
-func diffMedia(a, b *HLSMedia) string {
+// DiffMedia returns the first differing field between two normalized
+// media playlists, or "" when they are semantically equal.
+func DiffMedia(a, b *HLSMedia) string {
 	if a.TargetDuration != b.TargetDuration {
 		return "target-duration"
 	}
@@ -198,8 +199,9 @@ func diffMedia(a, b *HLSMedia) string {
 	return ""
 }
 
-// diffMaster returns the first differing field, or "" when equal.
-func diffMaster(a, b *HLSMaster) string {
+// DiffMaster returns the first differing field between two normalized
+// master playlists, or "" when equal.
+func DiffMaster(a, b *HLSMaster) string {
 	if len(a.Variants) != len(b.Variants) {
 		return "variants.count"
 	}
@@ -235,7 +237,7 @@ func RoundTripHLSMedia(name string, data []byte) (*HLSMedia, error) {
 	if err != nil {
 		return nil, fmt.Errorf("hls media: re-parse after encode: %w", err)
 	}
-	if f := diffMedia(a, b); f != "" {
+	if f := DiffMedia(a, b); f != "" {
 		return nil, &MismatchError{Manifest: name, Field: f}
 	}
 	return a, nil
@@ -255,7 +257,7 @@ func RoundTripHLSMaster(name string, data []byte) (*HLSMaster, error) {
 	if err != nil {
 		return nil, fmt.Errorf("hls master: re-parse after encode: %w", err)
 	}
-	if f := diffMaster(a, b); f != "" {
+	if f := DiffMaster(a, b); f != "" {
 		return nil, &MismatchError{Manifest: name, Field: f}
 	}
 	return a, nil

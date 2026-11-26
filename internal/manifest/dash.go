@@ -185,8 +185,9 @@ func EncodeDASH(m *MPD) ([]byte, error) {
 	return append([]byte(xml.Header), out...), nil
 }
 
-// diffDASH returns the first differing field, or "" when equal.
-func diffDASH(a, b *MPD) string {
+// DiffDASH returns the first differing field between two normalized
+// MPDs, or "" when equal.
+func DiffDASH(a, b *MPD) string {
 	if a.Type != b.Type {
 		return "type"
 	}
@@ -245,7 +246,7 @@ func RoundTripDASH(name string, data []byte) (*MPD, error) {
 	if err != nil {
 		return nil, fmt.Errorf("dash: re-parse after encode: %w", err)
 	}
-	if f := diffDASH(a, b); f != "" {
+	if f := DiffDASH(a, b); f != "" {
 		return nil, &MismatchError{Manifest: name, Field: f}
 	}
 	return a, nil
