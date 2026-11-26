@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 
 	"mediaflow/internal/clock"
-	"mediaflow/internal/remux"
 	"mediaflow/internal/timeline"
 )
 
@@ -124,6 +123,3 @@ type Segment struct {
 	Index  int
 	Frames []clock.Normalized
 }
-
-// ensure remux stays referenced for the writer-driven run in runner.go.
-var _ = remux.MaxOutputBytes
