@@ -71,3 +71,9 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- archivectl local demo / build outputs ----
+/demo-work/
+/demo-work-*/
+/archivectl
+*.wav.tmp
