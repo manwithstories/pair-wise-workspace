@@ -241,7 +241,7 @@ func Build(root string, cfg Config) (*Index, error) {
 
 func (idx *Index) addHLS(root, mpath string, mp *manifest.HLSMedia) error {
 	dir := filepath.ToSlash(filepath.Dir(mpath))
-	cursor := core.Rat{}
+	cursor := core.NewRat(0, 1)
 	disc := 0
 	var prevPDT int64
 	var prevDur core.Rat
