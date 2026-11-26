@@ -118,6 +118,10 @@ func (r *Reassembler) Push(e Event) []Event {
 		r.Dups++
 		return nil
 	}
+	if _, ok := r.buf[e.Seq]; ok { // duplicate inside the reorder window
+		r.Dups++
+		return nil
+	}
 	r.buf[e.Seq] = e
 	for len(r.buf) > r.window { // gap outlived the window
 		if _, ok := r.buf[r.next]; !ok {
