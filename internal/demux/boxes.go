@@ -40,14 +40,18 @@ type InitInfo struct {
 
 // TrackFrag is one parsed traf of a media segment.
 type TrackFrag struct {
-	TrackID       uint32
-	HasTFDT       bool
-	TFDT          uint64
-	Entries       []mp4.TrunEntry
-	TrunFlags     uint32
-	DataOffset    int32
-	HasDataOffset bool
-	MoofOffset    int64
+	TrackID         uint32
+	HasTFDT         bool
+	TFDT            uint64
+	DefaultDuration uint32
+	DefaultSize     uint32
+	DefaultFlags    uint32
+	Entries         []mp4.TrunEntry
+	TrunFlags       uint32
+	TrunVersion     uint8
+	DataOffset      int32
+	HasDataOffset   bool
+	MoofOffset      int64
 }
 
 // Segment is a parsed media segment.
@@ -181,7 +185,11 @@ func ParseSegment(data []byte, seq uint32) (*Segment, *clock.Fault) {
 			if err != nil {
 				return nil, err
 			}
-			cur.TrackID = box.(*mp4.Tfhd).TrackID
+			tfhd := box.(*mp4.Tfhd)
+			cur.TrackID = tfhd.TrackID
+			cur.DefaultDuration = tfhd.DefaultSampleDuration
+			cur.DefaultSize = tfhd.DefaultSampleSize
+			cur.DefaultFlags = tfhd.DefaultSampleFlags
 		case mp4.BoxTypeTfdt():
 			box, _, err := h.ReadPayload()
 			if err != nil {
@@ -206,6 +214,7 @@ func ParseSegment(data []byte, seq uint32) (*Segment, *clock.Fault) {
 			trun := box.(*mp4.Trun)
 			cur.Entries = trun.Entries
 			cur.TrunFlags = trun.GetFlags()
+			cur.TrunVersion = trun.GetVersion()
 			cur.DataOffset = trun.DataOffset
 			cur.HasDataOffset = trun.GetFlags()&0x1 != 0
 		case mp4.BoxTypeMdat():
@@ -227,4 +236,103 @@ func ParseSegment(data []byte, seq uint32) (*Segment, *clock.Fault) {
 		return nil, &f
 	}
 	return seg, nil
+}
+
+// visualEntries and audioEntries are the sample-entry box types this
+// demuxer classifies; anything else under stsd is kept by its 4CC.
+var visualEntries = map[mp4.BoxType]bool{}
+var audioEntries = map[mp4.BoxType]bool{}
+
+func init() {
+	for _, s := range []string{"avc1", "avc3", "hev1", "hvc1", "av01", "vp08", "vp09", "mp4v", "encv"} {
+		visualEntries[mp4.StrToBoxType(s)] = true
+	}
+	for _, s := range []string{"mp4a", "ac-3", "ec-3", "Opus", "enca"} {
+		audioEntries[mp4.StrToBoxType(s)] = true
+	}
+}
+
+// ParseInit parses an init segment into per-track information. A non-nil
+// fault describes the first structural error; init faults are
+// unrecoverable for the whole run.
+func ParseInit(data []byte) (*InitInfo, *clock.Fault) {
+	if len(data) > MaxSegmentSize {
+		f := clock.NewFault(clock.FaultBoxBound, 0, 0, 0, "init exceeds size limit")
+		return nil, &f
+	}
+	if off, bad := firstBoxError(data); bad {
+		f := clock.NewFault(clock.FaultTruncate, 0, 0, off, "init box truncated or out of bounds")
+		return nil, &f
+	}
+	info := &InitInfo{}
+	var cur *TrackInfo
+	_, err := mp4.ReadBoxStructure(bytes.NewReader(data), func(h *mp4.ReadHandle) (interface{}, error) {
+		t := h.BoxInfo.Type
+		switch t {
+		case mp4.BoxTypeMoov(), mp4.BoxTypeMdia(), mp4.BoxTypeMinf(),
+			mp4.BoxTypeStbl(), mp4.BoxTypeStsd():
+			return h.Expand()
+		case mp4.BoxTypeTrak():
+			info.Tracks = append(info.Tracks, TrackInfo{})
+			cur = &info.Tracks[len(info.Tracks)-1]
+			return h.Expand()
+		case mp4.BoxTypeTkhd():
+			box, _, err := h.ReadPayload()
+			if err != nil {
+				return nil, err
+			}
+			cur.ID = box.(*mp4.Tkhd).TrackID
+		case mp4.BoxTypeMdhd():
+			box, _, err := h.ReadPayload()
+			if err != nil {
+				return nil, err
+			}
+			mdhd := box.(*mp4.Mdhd)
+			cur.Timescale = mdhd.Timescale
+			cur.Language = DecodeLanguage(mdhd.Language)
+		case mp4.BoxTypeHdlr():
+			box, _, err := h.ReadPayload()
+			if err != nil {
+				return nil, err
+			}
+			cur.Handler = string(box.(*mp4.Hdlr).HandlerType[:])
+		default:
+			if len(h.Path) < 2 || h.Path[len(h.Path)-2] != mp4.BoxTypeStsd() {
+				return nil, nil
+			}
+			switch {
+			case visualEntries[t]:
+				box, _, err := h.ReadPayload()
+				if err != nil {
+					return nil, err
+				}
+				e := box.(*mp4.VisualSampleEntry)
+				cur.Codec = t.String()
+				cur.Width = e.Width
+				cur.Height = e.Height
+			case audioEntries[t]:
+				box, _, err := h.ReadPayload()
+				if err != nil {
+					return nil, err
+				}
+				e := box.(*mp4.AudioSampleEntry)
+				cur.Codec = t.String()
+				cur.Channels = e.ChannelCount
+			case t == mp4.BoxTypeWvtt():
+				cur.Codec = t.String()
+			default:
+				cur.Codec = t.String()
+			}
+		}
+		return nil, nil
+	})
+	if err != nil {
+		f := clock.NewFault(clock.FaultTruncate, 0, 0, -1, err.Error())
+		return nil, &f
+	}
+	if len(info.Tracks) == 0 {
+		f := clock.NewFault(clock.FaultTruncate, 0, 0, 0, "init contains no tracks")
+		return nil, &f
+	}
+	return info, nil
 }
