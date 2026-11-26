@@ -2,6 +2,8 @@ module medcheck
 
 go 1.25.6
 
+toolchain go1.25.6
+
 require github.com/asticode/go-astisub v0.45.0
 
 require (
