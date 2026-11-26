@@ -1,6 +1,10 @@
 package timeline
 
-import "testing"
+import (
+	"testing"
+
+	"mediad/internal/media"
+)
 
 func TestAddOnTimeOrderingStable(t *testing.T) {
 	tl := NewDefault()
@@ -94,5 +98,46 @@ func TestReplayDeterministicAgainstCleanRun(t *testing.T) {
 		if Compare(a[i], b[i]) != 0 {
 			t.Fatalf("event %d differs: %+v vs %+v", i, a[i], b[i])
 		}
+	}
+}
+
+// TestDeepReplayAcrossManySnapshots ensures a late event that sorts before
+// several snapshots still yields the clean-run order.
+func TestDeepReplayAcrossManySnapshots(t *testing.T) {
+	tl := New(LatenessWindow, 2)
+	var onTime []Event
+	for i := 0; i < 40; i++ {
+		e := Event{Time: media.MediaTick((i + 5) * 48000), Camera: "a", Track: "t", Seq: int64(i)}
+		onTime = append(onTime, e)
+		tl.Add(e)
+	}
+	late := Event{Time: 1 * 48000, Camera: "b", Track: "t", Seq: 999}
+	if r := tl.Add(late); r == 0 {
+		t.Fatal("expected replay")
+	}
+	clean := New(LatenessWindow, 2)
+	clean.Add(late)
+	for _, e := range onTime {
+		clean.Add(e)
+	}
+	a, b := tl.Events(), clean.Events()
+	if len(a) != len(b) {
+		t.Fatalf("len %d vs %d", len(a), len(b))
+	}
+	for i := range a {
+		if Compare(a[i], b[i]) != 0 {
+			t.Fatalf("diff at %d: %+v vs %+v", i, a[i], b[i])
+		}
+	}
+}
+
+// TestWatermarkNeverRewinds confirms replays keep event time monotonic.
+func TestWatermarkNeverRewinds(t *testing.T) {
+	tl := New(LatenessWindow, 1)
+	tl.Add(Event{Time: 100 * 48000, Camera: "a", Track: "t", Seq: 1})
+	mark := tl.Watermark()
+	tl.Add(Event{Time: 1 * 48000, Camera: "b", Track: "t", Seq: 2}) // very late
+	if tl.Watermark() < mark {
+		t.Fatalf("watermark rewound: %d < %d", tl.Watermark(), mark)
 	}
 }
