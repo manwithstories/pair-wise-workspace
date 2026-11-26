@@ -92,35 +92,37 @@ func (w *WAL) scan() (validEnd int64, dropped int64, err error) {
 	for {
 		n, rerr := io.ReadFull(w.f, buf)
 		if rerr == io.EOF {
-			break
+			// Clean end at a record boundary: nothing to drop.
+			return off, 0, nil
 		}
 		if rerr == io.ErrUnexpectedEOF {
-			return off, dropped + int64(n), nil
+			// Partial header at the tail: every unconsumed byte is invalid.
+			return off, int64(n), nil
 		}
 		if rerr != nil {
 			return 0, 0, walError(clock.ErrWALCorrupt, "read header", rerr)
 		}
 		if string(buf[:len(magic)]) != magic {
-			return off, dropped + countRemaining(w.f), nil
+			// Bad magic: this byte and everything after it is a corrupt tail.
+			return off, countRemaining(w.f) + int64(headerLen), nil
 		}
 		kind := buf[7]
 		dlen := int(binary.BigEndian.Uint32(buf[16:20]))
 		wantCRC := binary.BigEndian.Uint32(buf[20:24])
 		if kind < KindData || kind > KindAbort || dlen < 0 {
-			return off, dropped + countRemaining(w.f), nil
+			return off, countRemaining(w.f) + int64(headerLen), nil
 		}
 		data := make([]byte, dlen)
 		dn, derr := io.ReadFull(w.f, data)
 		if derr != nil {
-			return off, dropped + int64(dn), nil
+			// Partial data block: the header plus partial payload are dropped.
+			return off, int64(headerLen + dn), nil
 		}
 		if crc32.ChecksumIEEE(append(buf[:20], data...)) != wantCRC {
-			return off, dropped + countRemaining(w.f), nil
+			return off, countRemaining(w.f) + int64(headerLen+dlen), nil
 		}
 		off += int64(headerLen + dlen)
-		dropped = 0
 	}
-	return off, 0, nil
 }
 
 func countRemaining(f *os.File) int64 {

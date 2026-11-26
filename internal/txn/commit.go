@@ -157,6 +157,34 @@ func (c *Commit) Replay() ([]CommitManifest, error) {
 		return nil, clock.NewError(clock.StageCommit, clock.ErrReplay, 0, false,
 			"manifest count disagrees with WAL commit markers")
 	}
+	// Independently re-verify every on-disk manifest against the WAL data.
+	// A manifest tampered after the last run (or a partial write) fails here
+	// instead of being trusted as a complete delivery.
+	walCommits := make(map[uint64]CommitManifest, lastCommitSeen)
+	for _, r := range records {
+		if r.Kind == KindCommit {
+			var m CommitManifest
+			if err := json.Unmarshal(r.Data, &m); err != nil {
+				return nil, clock.WrapError(clock.StageCommit, clock.ErrReplay, 0, false,
+					"decode commit marker", err)
+			}
+			walCommits[m.Seq] = m
+		}
+	}
+	for _, disk := range c.committed {
+		walM, ok := walCommits[disk.Seq]
+		if !ok {
+			return nil, clock.NewError(clock.StageCommit, clock.ErrReplay, 0, false,
+				"on-disk manifest has no WAL commit marker: seq "+itoa(disk.Seq))
+		}
+		if disk.SHA256 != walM.SHA256 || disk.Bytes != walM.Bytes {
+			return nil, clock.NewError(clock.StageCommit, clock.ErrReplay, 0, false,
+				"on-disk manifest disagrees with WAL: seq "+itoa(disk.Seq))
+		}
+		if err := c.verifyManifest(disk, dataByID); err != nil {
+			return nil, err
+		}
+	}
 	return append([]CommitManifest(nil), c.committed...), nil
 }
 
