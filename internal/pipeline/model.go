@@ -62,8 +62,28 @@ type Report struct {
 	OrphansRemoved   []string                        `json:"orphans_removed,omitempty"`
 	ClockEpochs      map[string][]media.Epoch        `json:"clock_epochs"`
 	Ladder           *align.Ladder                   `json:"ladder,omitempty"`
+	Recovery         *RecoveryRecord                 `json:"recovery,omitempty"`
 	Analyses         []Analysis                      `json:"-"`
 	Chunks           map[int]*checkpoint.ChunkRecord `json:"chunks,omitempty"`
+}
+
+type MissingIDRSlot struct {
+	Rendition string `json:"rendition"`
+	Seq       int    `json:"seq"`
+	Detail    string `json:"detail"`
+}
+
+// RecoveryRecord is the explicit crash/media recovery artifact. It preserves
+// rejected PSI versions, missing IDR slots, gaps and orphan reconciliation.
+type RecoveryRecord struct {
+	PSIRejections    []ts.PSIRejection `json:"psi_rejections"`
+	CCGaps           []ts.CCGap        `json:"cc_gaps"`
+	MissingIDRSlots  []MissingIDRSlot  `json:"missing_idr_slots"`
+	GapSlots         []int             `json:"gap_slots"`
+	OrphansRemoved   []string          `json:"orphans_removed,omitempty"`
+	CheckpointReused int               `json:"checkpoint_reused,omitempty"`
+	Rebuilt          int               `json:"rebuilt,omitempty"`
+	Idempotent       int               `json:"idempotent,omitempty"`
 }
 
 func (r Report) RoundTripPercent() float64 {

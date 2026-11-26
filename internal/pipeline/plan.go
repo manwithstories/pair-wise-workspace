@@ -58,9 +58,16 @@ func BuildPlan(opt Options) (*Report, []fixture.Source, error) {
 			rep.FirstDesync = a.Stats.FirstDesyncOffset
 		}
 	}
+	rep.Recovery = &RecoveryRecord{}
 	for i := range rep.Analyses {
-		missing := rep.Analyses[i].Index.MarkMissingSlots()
-		_ = missing
+		a := &rep.Analyses[i]
+		for _, seq := range a.Index.MarkMissingSlots() {
+			rep.Recovery.MissingIDRSlots = append(rep.Recovery.MissingIDRSlots, MissingIDRSlot{
+				Rendition: a.Source.Rendition, Seq: seq, Detail: "expected AVC IDR anchor absent",
+			})
+		}
+		rep.Recovery.PSIRejections = append(rep.Recovery.PSIRejections, a.PSI.Rejections...)
+		rep.Recovery.CCGaps = append(rep.Recovery.CCGaps, a.Index.CCGaps...)
 	}
 	found, expected := index.ExpectedHits(indexes)
 	rep.KeyframeFound = found
@@ -72,6 +79,11 @@ func BuildPlan(opt Options) (*Report, []fixture.Source, error) {
 	rep.Ladder = ladder
 	rep.AlignedSlots = ladder.AlignedSlots
 	rep.GapSlots = ladder.GapSlots
+	for _, s := range ladder.Slots {
+		if s.Gap {
+			rep.Recovery.GapSlots = append(rep.Recovery.GapSlots, s.Seq)
+		}
+	}
 	return rep, sources, nil
 }
 

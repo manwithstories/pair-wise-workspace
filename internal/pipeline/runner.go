@@ -70,8 +70,7 @@ func RunDemo(opt Options) (*Report, error) {
 		if opt.InterruptAfter > 0 && slot.Seq+1 == opt.InterruptAfter {
 			rep.Chunks = idx.Chunks
 			_, _ = WriteManifests(opt.Out, rep, idx)
-			_ = WriteJSON(filepath.Join(opt.Out, ReportFile), rep)
-			_ = WriteJSON(filepath.Join(opt.Out, ProvenanceFile), rep)
+			_ = WriteReports(opt.Out, rep)
 			return rep, ErrInterrupt
 		}
 	}
@@ -90,10 +89,7 @@ func RunDemo(opt Options) (*Report, error) {
 		return rep, err
 	}
 	rep.Chunks = idx.Chunks
-	if err := WriteJSON(filepath.Join(opt.Out, ReportFile), rep); err != nil {
-		return rep, err
-	}
-	if err := WriteJSON(filepath.Join(opt.Out, ProvenanceFile), rep); err != nil {
+	if err := WriteReports(opt.Out, rep); err != nil {
 		return rep, err
 	}
 	return rep, nil
@@ -106,7 +102,8 @@ func buildChunk(opt Options, rep *Report, store *checkpoint.Store, seq int) (*ch
 		ClockEpochs: rep.ClockEpochs,
 		Diagnostics: map[string]int{
 			"cc_gap": rep.CCGap, "psi_crc_reject": rep.PSICRCReject,
-			"gap_slots": rep.GapSlots,
+			"gap_slots":   rep.GapSlots,
+			"missing_idr": rep.KeyframeExpected - rep.KeyframeFound,
 		},
 	}
 	slot := rep.Ladder.Slots[seq]
@@ -206,7 +203,7 @@ func resetOutput(out string) error {
 			return err
 		}
 	}
-	for _, name := range []string{checkpoint.IndexName, checkpoint.JournalName, ConfigFile, ReportFile, ProvenanceFile, "master.m3u8"} {
+	for _, name := range []string{checkpoint.IndexName, checkpoint.JournalName, ConfigFile, ReportFile, ProvenanceFile, RecoveryFile, "master.m3u8"} {
 		_ = os.Remove(filepath.Join(out, name))
 	}
 	entries, err := os.ReadDir(out)

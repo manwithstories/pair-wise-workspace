@@ -14,6 +14,7 @@ import (
 const ConfigFile = "pipeline-config.json"
 const ReportFile = "report.json"
 const ProvenanceFile = "provenance.json"
+const RecoveryFile = "recovery.json"
 
 func segmentRelPath(rendition string, seq int) string {
 	return filepath.ToSlash(filepath.Join("segments", rendition, fmtSegName(seq)))
@@ -132,4 +133,22 @@ func WriteJSON(path string, v any) error {
 		return err
 	}
 	return os.WriteFile(path, b, 0o644)
+}
+
+// WriteReports persists the full report/provenance view and the focused
+// recovery record containing PSI, missing-frame, gap and orphan state.
+func WriteReports(out string, rep *Report) error {
+	if rep.Recovery != nil {
+		rep.Recovery.OrphansRemoved = rep.OrphansRemoved
+		rep.Recovery.CheckpointReused = rep.CheckpointReused
+		rep.Recovery.Rebuilt = rep.Rebuilt
+		rep.Recovery.Idempotent = rep.Idempotent
+		if err := WriteJSON(filepath.Join(out, RecoveryFile), rep.Recovery); err != nil {
+			return err
+		}
+	}
+	if err := WriteJSON(filepath.Join(out, ReportFile), rep); err != nil {
+		return err
+	}
+	return WriteJSON(filepath.Join(out, ProvenanceFile), rep)
 }

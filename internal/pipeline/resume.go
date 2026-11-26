@@ -70,8 +70,7 @@ func RunResume(cli Options) (*Report, error) {
 		return rep, err
 	}
 	rep.Chunks = idx.Chunks
-	_ = WriteJSON(filepath.Join(opt.Out, ReportFile), rep)
-	_ = WriteJSON(filepath.Join(opt.Out, ProvenanceFile), rep)
+	_ = WriteReports(opt.Out, rep)
 	return rep, nil
 }
 
@@ -151,6 +150,6 @@ func RunVerify(opt Options) (*Report, error) {
 	rep.RoundTripMatched = rt.Matched
 	rep.Idempotent = idempotenceCheck(rep, idx)
 	rep.Chunks = idx.Chunks
-	_ = WriteJSON(filepath.Join(opt.Out, ReportFile), rep)
+	_ = WriteReports(opt.Out, rep)
 	return rep, nil
 }
