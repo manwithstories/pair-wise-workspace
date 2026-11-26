@@ -137,7 +137,18 @@ func Run(cfg Config) (*Report, error) {
 		}
 	}
 
-	units, auBad := media.ScanHeaders(fx.AUBytes)
+	var units []media.AccessUnit
+	var auBad []media.HeaderError
+	if err := media.ScanReader(bytes.NewReader(fx.AUBytes), func(u media.AccessUnit, he *media.HeaderError) error {
+		if he != nil {
+			auBad = append(auBad, *he)
+		} else {
+			units = append(units, u)
+		}
+		return nil
+	}); err != nil {
+		return rep, err
+	}
 	for _, bad := range auBad {
 		fm.Add(fault.Fault{Kind: bad.Kind, Message: bad.Error()})
 	}
