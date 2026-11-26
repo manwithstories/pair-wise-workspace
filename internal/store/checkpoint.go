@@ -17,6 +17,7 @@ type Checkpoint struct {
 	Stage            string `json:"stage"`
 	CompletedRecords int    `json:"completed_records"`
 	OutputPath       string `json:"output_path"`
+	OutputBytes      int64  `json:"output_bytes"`
 	OutputSHA256     string `json:"output_sha256"`
 	InputSHA256      string `json:"input_sha256"`
 	ColdEqualToken   string `json:"cold_equal_token,omitempty"`
@@ -88,15 +89,26 @@ func LoadCheckpoint(dir string) (*Checkpoint, *model.MediaError) {
 		return nil, &model.MediaError{Code: model.CodeCheckpointCorrupt, Message: err.Error()}
 	}
 	if cp.OutputPath != "" && cp.OutputSHA256 != "" {
-		out, err := os.ReadFile(cp.OutputPath)
-		if err != nil {
-			return nil, &model.MediaError{Code: model.CodeCheckpointCorrupt, Message: "checkpoint output unavailable: " + err.Error()}
-		}
-		if got := ingest.Sum256(out); got != cp.OutputSHA256 {
-			return nil, &model.MediaError{Code: model.CodeCheckpointCorrupt, ExpectedDigest: cp.OutputSHA256, ActualDigest: got, Message: "checkpoint output digest mismatch"}
+		if merr := verifyCheckpointOutput(&cp); merr != nil {
+			return nil, merr
 		}
 	}
 	return &cp, nil
+}
+
+func verifyCheckpointOutput(cp *Checkpoint) *model.MediaError {
+	out, err := os.ReadFile(cp.OutputPath)
+	if err != nil {
+		return &model.MediaError{Code: model.CodeCheckpointCorrupt, Message: "checkpoint output unavailable: " + err.Error()}
+	}
+	length := int64(len(out))
+	if cp.OutputBytes > 0 && cp.OutputBytes <= length {
+		length = cp.OutputBytes
+	}
+	if got := ingest.Sum256(out[:length]); got != cp.OutputSHA256 {
+		return &model.MediaError{Code: model.CodeCheckpointCorrupt, ExpectedDigest: cp.OutputSHA256, ActualDigest: got, Message: "checkpoint output prefix digest mismatch"}
+	}
+	return nil
 }
 
 // RecoverCheckpoint returns the newest valid stage checkpoint if the main
@@ -117,8 +129,7 @@ func RecoverCheckpoint(dir string, stages []string) (*Checkpoint, *model.MediaEr
 			continue
 		}
 		if candidate.OutputPath != "" && candidate.OutputSHA256 != "" {
-			out, err := os.ReadFile(candidate.OutputPath)
-			if err != nil || ingest.Sum256(out) != candidate.OutputSHA256 {
+			if merr := verifyCheckpointOutput(&candidate); merr != nil {
 				continue
 			}
 		}
