@@ -29,6 +29,7 @@ const (
 	CodeDiscontinuity    Code = "common_discontinuity"
 	CodeCacheOrigin      Code = "cache_origin_mismatch"
 	CodeCacheDigest      Code = "cache_digest_mismatch"
+	CodeCacheMiss        Code = "cache_miss"
 	CodeCheckpoint       Code = "checkpoint_invalid"
 	CodeArtifactMismatch Code = "artifact_mismatch"
 	CodeUnrecoverable    Code = "unrecoverable_input"

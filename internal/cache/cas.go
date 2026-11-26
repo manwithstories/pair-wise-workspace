@@ -120,7 +120,7 @@ func (c *Cache) Get(want Key) ([]byte, Meta, error) {
 	raw, err := os.ReadFile(refPath)
 	if errors.Is(err, os.ErrNotExist) {
 		c.misses++
-		return nil, Meta{}, media.NewFault(media.CodeCacheDigest, fragmentID(want), -1, true, "cache miss")
+		return nil, Meta{}, media.NewFault(media.CodeCacheMiss, fragmentID(want), -1, true, "cache miss")
 	}
 	if err != nil {
 		return nil, Meta{}, media.NewExitError(4, err)
