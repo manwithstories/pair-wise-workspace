@@ -12,6 +12,7 @@ import (
 
 	"medialab/internal/demo"
 	"medialab/internal/format"
+	"medialab/internal/metadata"
 	"medialab/internal/model"
 	"medialab/internal/sample"
 )
@@ -147,9 +148,23 @@ func runInspect(args []string, stdout, stderr io.Writer) int {
 		}
 		return exitRejected
 	}
-	fmt.Fprintf(stdout, "accepted format=%s tracks=%d\n", c.Format, len(c.Tracks))
-	for _, t := range c.Tracks {
-		fmt.Fprintf(stdout, "track id=%d kind=%s %dx%d rotation=%d keyframes=%d\n", t.ID, t.Kind, t.Width, t.Height, t.Rotation, len(t.Keyframes))
+	resolved := metadata.Resolve(c)
+	fmt.Fprintf(stdout, "accepted format=%s tracks=%d metadata_faults=%d\n", c.Format, len(c.Tracks), len(resolved.Faults))
+	for _, rt := range resolved.Tracks {
+		t := rt.Track
+		status := "valid"
+		if !rt.Valid {
+			status = "isolated"
+		}
+		fmt.Fprintf(stdout, "track id=%d kind=%s %dx%d rotation=%d keyframes=%d metadata=%s color_priority=%s\n",
+			t.ID, t.Kind, t.Width, t.Height, rt.Rotation, len(t.Keyframes), status, rt.Color.Priority)
+		if rt.Fault != nil {
+			fmt.Fprintf(stdout, "track_rejected stage=%s code=%s track=%d first_error_offset=%d\n",
+				rt.Fault.Stage, rt.Fault.Code, rt.Fault.TrackID, rt.Fault.Offset)
+		}
+	}
+	if len(resolved.Faults) > 0 {
+		return exitRejected
 	}
 	return exitOK
 }

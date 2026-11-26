@@ -74,15 +74,16 @@ func parseMP4Children(data []byte, start, end int64, c *Container, track *Track)
 			return err
 		}
 		next := h.End
+		childTrack := track
 		if h.Type == "trak" {
-			track = &Track{ID: uint32(len(c.Tracks) + 1), DataOffset: h.Start}
-			c.Tracks = append(c.Tracks, track)
+			childTrack = &Track{ID: uint32(len(c.Tracks) + 1), DataOffset: h.Start}
+			c.Tracks = append(c.Tracks, childTrack)
 		}
 		if mp4Containers[h.Type] {
-			if err := parseMP4Children(data, h.Content, h.End, c, track); err != nil {
+			if err := parseMP4Children(data, h.Content, h.End, c, childTrack); err != nil {
 				return err
 			}
-		} else if err := parseMP4Leaf(data, h, c, track); err != nil {
+		} else if err := parseMP4Leaf(data, h, c, childTrack); err != nil {
 			return err
 		}
 		pos = next
