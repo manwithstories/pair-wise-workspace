@@ -62,10 +62,16 @@ func TestBuildSpansThirtyMinutes(t *testing.T) {
 	}
 	for _, s := range m.Streams {
 		pkts := mediaOf(m, s.ID)
-		last := pkts[len(pkts)-1]
-		// Final packet should sit near the end of the run.
-		if last.RawPTS < s.TimebaseNum*(m.DurationS-2) {
-			t.Fatalf("stream %d does not span full duration, last raw pts %d", s.ID, last.RawPTS)
+		// With one packet per second, a full-duration run must carry roughly
+		// one media packet per declared second even though RawPTS wraps.
+		if int64(len(pkts)) < m.DurationS-1 {
+			t.Fatalf("stream %d only has %d packets for %ds run",
+				s.ID, len(pkts), m.DurationS)
+		}
+		// The last packets' sequence numbers must still reach the tail.
+		if pkts[len(pkts)-1].Seq < m.DurationS-2 {
+			t.Fatalf("stream %d sequence does not reach tail: %d",
+				s.ID, pkts[len(pkts)-1].Seq)
 		}
 	}
 }
@@ -176,8 +182,8 @@ func TestSparseKeyframes(t *testing.T) {
 
 func TestDriftModelMovesSourcePTS(t *testing.T) {
 	bp := blueprints()[0]
-	base := sourcePTSAt(bp, 0)
-	later := sourcePTSAt(bp, 600)
+	base := sourcePTSAt(bp, 0, 0)
+	later := sourcePTSAt(bp, 600, 0)
 	// Non-zero drift offset/segments must make later differ from plain linear.
 	plain := bp.startPTS + 600*bp.timebaseNum
 	if later == plain {

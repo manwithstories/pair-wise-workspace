@@ -119,7 +119,7 @@ func Build(opts Options) *manifest.Manifest {
 		}
 		m.Streams = append(m.Streams, s)
 		m.Anchors = append(m.Anchors, buildAnchors(bp, opts)...)
-		m.Packets = append(m.Packets, buildPackets(bp, opts, rng)...)
+		m.Packets = append(m.Packets, buildPackets(bp, opts, wrap, rng)...)
 	}
 
 	planInjection(m, opts)
@@ -135,16 +135,18 @@ func fileName(bp streamBlueprint) string {
 
 // scaledWrapPeriod shrinks the blueprint wrap period for short fixtures so
 // every run observes several wraps: the full 30-minute blueprint keeps its
-// declared period (480-900s), while a shorter run wraps roughly every eighth
-// of its duration, never more often than every 3 seconds.
+// declared period (480-900s), while a shorter run wraps roughly every quarter
+// of its duration. The period is kept longer than the non-zero start PTS so
+// the first packet is never mistaken for an already-wrapped counter, and
+// never more often than every 4 seconds.
 func scaledWrapPeriod(bp streamBlueprint, durationS int64) int64 {
 	const fullRunS int64 = 1800
 	if durationS >= fullRunS {
 		return bp.wrapPeriod
 	}
-	periodS := durationS / 8
-	if periodS < 3 {
-		periodS = 3
+	periodS := durationS / 4
+	if periodS < 4 {
+		periodS = 4
 	}
 	return periodS * bp.timebaseNum
 }
@@ -155,12 +157,18 @@ func driftSeconds(bp streamBlueprint, atS int64) float64 {
 	return bp.driftOffsetS + bp.driftSlopeS*float64(seg)
 }
 
-// sourcePTSAt maps a master second to the raw (pre-wrap) source PTS,
-// incorporating start PTS and the piecewise drift model.
-func sourcePTSAt(bp streamBlueprint, atS int64) int64 {
+// sourcePTSAt maps a master second to the raw, pre-unwrapped source PTS. The
+// linear clock (start PTS + elapsed + drift) is reduced modulo the wrap
+// period so the supplier counter genuinely wraps; the clock subsystem's
+// expander reconstructs the monotonic value. periodTicks<=0 disables wrapping.
+func sourcePTSAt(bp streamBlueprint, atS, periodTicks int64) int64 {
 	drift := driftSeconds(bp, atS)
 	driftTicks := int64(drift * float64(bp.timebaseNum))
-	return bp.startPTS + atS*bp.timebaseNum + driftTicks
+	linear := bp.startPTS + atS*bp.timebaseNum + driftTicks
+	if periodTicks > 0 {
+		linear = linear % periodTicks
+	}
+	return linear
 }
 
 func buildAnchors(bp streamBlueprint, opts Options) []manifest.Anchor {
@@ -176,14 +184,16 @@ func buildAnchors(bp streamBlueprint, opts Options) []manifest.Anchor {
 		master := at * 90000
 		out = append(out, manifest.Anchor{
 			StreamID: bp.id, AtSecond: at,
-			SourcePTS:   sourcePTSAt(bp, at),
+			// Anchors carry the unwrapped linear source PTS (period 0) so the
+			// drift fit sees a continuous clock; packet RawPTS is wrapped.
+			SourcePTS:   sourcePTSAt(bp, at, 0),
 			MasterTicks: master,
 		})
 	}
 	return out
 }
 
-func buildPackets(bp streamBlueprint, opts Options, rng *randx.PCG64) []manifest.Packet {
+func buildPackets(bp streamBlueprint, opts Options, wrapTicks int64, rng *randx.PCG64) []manifest.Packet {
 	var out []manifest.Packet
 	step := opts.PacketCadenceS
 	if step <= 0 {
@@ -201,7 +211,7 @@ func buildPackets(bp streamBlueprint, opts Options, rng *randx.PCG64) []manifest
 	for at := int64(0); at < opts.DurationS; at += step {
 		localGroup := seq / (groupSize - 1)
 		group := groupBase + localGroup
-		pts := sourcePTSAt(bp, at)
+		pts := sourcePTSAt(bp, at, wrapTicks)
 		// VFR: jitter each frame duration deterministically within +/-8%.
 		jitter := 1.0 + (float64(rng.Intn(17)-8))/100.0
 		duration := int64(jitter * float64(step*bp.timebaseNum))
