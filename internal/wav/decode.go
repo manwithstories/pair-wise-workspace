@@ -25,7 +25,7 @@ func DecodeBlock(b FrameBlock, f Format) ([][]int, error) {
 		return nil, fmt.Errorf("block %d: data shorter than declared frames", b.Index)
 	}
 	for frame := 0; frame < b.Frames; frame++ {
-		base := frame*stride
+		base := frame * stride
 		for c := 0; c < chans; c++ {
 			off := base + c*bytesPerSample
 			v, err := decodeSample(b.Data[off:off+bytesPerSample], f.BitDepth)

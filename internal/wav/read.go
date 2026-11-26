@@ -215,14 +215,15 @@ func parseManifest(raw []byte) (*Manifest, error) {
 		m.Missing[i] = int(binary.LittleEndian.Uint32(raw[pos : pos+4]))
 		pos += 4
 	}
-	nCRC := (len(raw) - pos) / 4
+	nCRC := int(binary.LittleEndian.Uint32(raw[pos : pos+4]))
+	pos += 4
 	m.CRC = make([]uint32, nCRC)
 	for i := range m.CRC {
 		m.CRC[i] = binary.LittleEndian.Uint32(raw[pos : pos+4])
 		pos += 4
 	}
 	// Optional parity trailer: data-block count then parity indices.
-	if len(raw)-pos >= 4 {
+	if pos+4 <= len(raw) {
 		m.DataBlocks = int(binary.LittleEndian.Uint32(raw[pos : pos+4]))
 		pos += 4
 		for pos+4 <= len(raw) {

@@ -22,6 +22,9 @@ func encodeManifest(cfg GenerateConfig, crcs []uint32, extra ...uint32) []byte {
 	for _, idx := range drop {
 		buf = binary.LittleEndian.AppendUint32(buf, uint32(idx))
 	}
+	// Explicit CRC count so the parser can tell CRC words apart from the
+	// optional parity trailer that follows.
+	buf = binary.LittleEndian.AppendUint32(buf, uint32(len(crcs)))
 	for _, c := range crcs {
 		buf = binary.LittleEndian.AppendUint32(buf, c)
 	}

@@ -96,6 +96,15 @@ func (l *ErrorLog) All() []TrackedError {
 	return append([]TrackedError(nil), l.items...)
 }
 
+// Remove drops the entry at position i (used when parity repair retracts
+// a defect it has fully resolved).
+func (l *ErrorLog) Remove(i int) {
+	if i < 0 || i >= len(l.items) {
+		return
+	}
+	l.items = append(l.items[:i], l.items[i+1:]...)
+}
+
 // Count returns how many defects of the given kind were recorded.
 func (l *ErrorLog) Count(kind ErrorKind) int {
 	n := 0

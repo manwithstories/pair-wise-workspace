@@ -8,9 +8,9 @@ import (
 
 // TrackPTS is one sample's exact presentation time on the shared clock.
 type TrackPTS struct {
-	Track   string
-	Frame   int64
-	PTS     model.Rational // seconds
+	Track string
+	Frame int64
+	PTS   model.Rational // seconds
 }
 
 // PTSAt converts a frame position on a track's own clock into an exact
@@ -59,6 +59,21 @@ func SyncErrorUS(t *Track, frame int64, a Anchor) (int64, error) {
 	}
 	refPTS := model.SampleToPTS(refFrame, t.Rate)
 	return audioPTS.Sub(refPTS).Abs().Microseconds(), nil
+}
+
+// MappingResidualUS measures the cross-sample-rate conversion error of one
+// video anchor against a track's integer sample grid: the anchor's exact
+// PTS versus the PTS of its nearest integer frame on the track clock.
+// It isolates integer-conversion rounding (no float accumulation can
+// occur) and is bounded by half a sample period on the target clock.
+func MappingResidualUS(t *Track, a Anchor) (int64, error) {
+	exactPTS := model.SampleToPTS(a.RefSample, a.RefRate)
+	mapped, err := model.ConvertSample(a.RefSample, a.RefRate, t.Rate)
+	if err != nil {
+		return 0, err
+	}
+	gridPTS := model.SampleToPTS(mapped, t.Rate)
+	return exactPTS.Sub(gridPTS).Abs().Microseconds(), nil
 }
 
 // CheckLayout flags tracks whose channel layout is missing or conflicts

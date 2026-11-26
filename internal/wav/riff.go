@@ -15,7 +15,7 @@ func writeHeader(out *bytes.Buffer, cfg GenerateConfig, dataLen int, rsid []byte
 	fmtSize := 16
 	rsidLen := len(rsid) + len(rsid)%2 // word-aligned side chunk
 	pcmLen := dataLen + dataLen%2
-	riffLen := 4 + (8+fmtSize) + (8+rsidLen) + (8+pcmLen)
+	riffLen := 4 + (8 + fmtSize) + (8 + rsidLen) + (8 + pcmLen)
 	binary.Write(out, binary.LittleEndian, [4]byte{'R', 'I', 'F', 'F'})
 	binary.Write(out, binary.LittleEndian, uint32(riffLen))
 	binary.Write(out, binary.LittleEndian, [4]byte{'W', 'A', 'V', 'E'})

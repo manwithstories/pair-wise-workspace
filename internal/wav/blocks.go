@@ -61,6 +61,21 @@ func (r *Reader) ReadBlocks(log *model.ErrorLog) ([]FrameBlock, error) {
 		buf := make([]byte, want)
 		n, err := io.ReadFull(r.data, buf)
 		if n < want {
+			if b.Parity {
+				// A short parity read is a lost parity block, not a
+				// truncated audio tail: no PCM frame position is claimed.
+				b.Truncated = false
+				b.Missing = true
+				b.Frames = 0
+				b.Data = nil
+				blocks = append(blocks, b)
+				log.Addf(model.ErrBlockMissing, "wav", idx, b.StartFrame,
+					"parity block absent from carrier")
+				if err == io.ErrUnexpectedEOF || err == io.EOF {
+					return blocks, nil
+				}
+				return blocks, err
+			}
 			b.Truncated = true
 			b.Frames = n / r.format.BlockAlign
 			b.Data = nil

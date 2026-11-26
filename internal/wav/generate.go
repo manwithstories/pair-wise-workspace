@@ -11,13 +11,13 @@ import (
 // synthesized deterministically from Seed: the same seed and config always
 // yield the same bytes, CRC table and fingerprints.
 type GenerateConfig struct {
-	SampleRate uint32
-	Channels   int
-	BitDepth   uint16
-	Frames     int
+	SampleRate  uint32
+	Channels    int
+	BitDepth    uint16
+	Frames      int
 	BlockFrames int
-	Layout     string
-	Color      string
+	Layout      string
+	Color       string
 	// DropBlocks are removed from the payload entirely and listed in the
 	// manifest as missing.
 	DropBlocks []int

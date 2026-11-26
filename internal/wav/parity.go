@@ -36,12 +36,31 @@ func GenerateParity(cfg GenerateConfig, dataPerGroup int) ([]byte, int, error) {
 	total := dataBlocks + len(groups)
 	crcs := make([]uint32, total)
 
-	// PCM data block CRCs at their original indices.
+	// CRCs and parity are both computed from pristine PCM, so a later
+	// corruption can actually be reconstructed: parity must encode the
+	// original bytes, never the damaged payload.
 	for i := 0; i < dataBlocks; i++ {
 		start := i * blockBytes
 		end := min((i+1)*blockBytes, len(pcm))
 		crcs[i] = crc32Of(pcm[start:end])
 	}
+	parityBlocks := make([][]byte, len(groups))
+	for gi, g := range groups {
+		parity := make([]byte, blockBytes)
+		for _, mi := range g.Members {
+			start := mi * blockBytes
+			end := min((mi+1)*blockBytes, len(pcm))
+			for j := start; j < end; j++ {
+				parity[j-start] ^= pcm[j]
+			}
+		}
+		parityBlocks[gi] = parity
+		crcs[g.Parity] = crc32Of(parity)
+	}
+
+	// Apply corruption only after parity is captured. The stored CRC
+	// table still references the pristine block, so reading flags a
+	// mismatch and recovery can restore the original bytes.
 	for _, idx := range cfg.CorruptBlocks {
 		if idx >= 0 && idx < dataBlocks {
 			start := idx * blockBytes
@@ -61,19 +80,10 @@ func GenerateParity(cfg GenerateConfig, dataPerGroup int) ([]byte, int, error) {
 		end := min((i+1)*blockBytes, len(pcm))
 		data.Write(pcm[start:end])
 	}
-	for _, g := range groups {
-		parity := make([]byte, blockBytes)
-		for _, mi := range g.Members {
-			start := mi * blockBytes
-			end := min((mi+1)*blockBytes, len(pcm))
-			for j := start; j < end; j++ {
-				parity[j-start] ^= pcm[j]
-			}
-		}
+	for gi, g := range groups {
 		pIdx := g.Parity
-		crcs[pIdx] = crc32Of(parity)
 		if !drop[pIdx] {
-			data.Write(parity)
+			data.Write(parityBlocks[gi])
 		}
 	}
 

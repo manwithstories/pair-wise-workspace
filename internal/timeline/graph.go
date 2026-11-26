@@ -13,10 +13,10 @@ import (
 
 // Anchor is a video reference point the audio timeline must align to.
 type Anchor struct {
-	ID         string
-	AtPTS      model.Rational // seconds on the reference clock
-	RefRate    model.SampleRate
-	RefSample  int64 // equivalent sample index at RefRate
+	ID        string
+	AtPTS     model.Rational // seconds on the reference clock
+	RefRate   model.SampleRate
+	RefSample int64 // equivalent sample index at RefRate
 }
 
 // Track is one recovered audio carrier placed on the shared timeline.
@@ -32,7 +32,7 @@ type Track struct {
 	DependsOn  []string
 	// Degraded records layout/color problems without rewriting source
 	// channel ordering.
-	Degraded  []string
+	Degraded []string
 }
 
 // Edge is one dependency relation in the track graph.
@@ -40,9 +40,9 @@ type Edge struct{ From, To string }
 
 // Graph is the validated, topologically ordered track timeline.
 type Graph struct {
-	Tracks []*Track
-	order  []string
-	edges  []Edge
+	Tracks  []*Track
+	order   []string
+	edges   []Edge
 	anchors []Anchor
 	refRate model.SampleRate
 }

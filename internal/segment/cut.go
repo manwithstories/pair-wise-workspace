@@ -51,6 +51,8 @@ func Cut(trackID string, rate model.SampleRate, blocks []wav.FrameBlock, cfg Con
 	runs := collectRuns(blocks)
 	var segs []Segment
 	for _, rn := range runs {
+		var prev model.Rational
+		hasPrev := false
 		for s := rn.start; s < rn.end; s += cfg.WindowFrames {
 			e := s + cfg.WindowFrames
 			if e > rn.end {
@@ -59,26 +61,23 @@ func Cut(trackID string, rate model.SampleRate, blocks []wav.FrameBlock, cfg Con
 			if e-s < cfg.WindowFrames && !cfg.KeepPartial {
 				break
 			}
+			startPTS := model.SampleToPTS(s, rate)
+			if hasPrev && startPTS.Cmp(prev) < 0 {
+				return nil, model.TrackedError{Kind: model.ErrPTSNotMonotonic, Track: trackID,
+					Sample: s, Msg: "segment PTS went backwards inside a run"}
+			}
 			segs = append(segs, Segment{
 				ID:           fmt.Sprintf("%s/seg%04d", trackID, len(segs)),
 				Track:        trackID,
 				StartFrame:   s,
 				EndFrame:     e,
-				StartPTS:     model.SampleToPTS(s, rate),
+				StartPTS:     startPTS,
 				EndPTS:       model.SampleToPTS(e, rate),
 				SourceBlocks: coveringBlocks(rn.blocks, blocks, s, e),
 			})
+			prev = model.SampleToPTS(e, rate)
+			hasPrev = true
 		}
-	}
-
-	// Enforce monotonic PTS as a cut invariant.
-	var prev model.Rational
-	for _, s := range segs {
-		if !prev.IsZero() && s.StartPTS.Cmp(prev) < 0 {
-			return nil, model.TrackedError{Kind: model.ErrPTSNotMonotonic, Track: trackID,
-				Sample: s.StartFrame, Msg: "segment PTS went backwards"}
-		}
-		prev = s.EndPTS
 	}
 	return segs, nil
 }

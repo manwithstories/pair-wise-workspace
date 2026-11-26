@@ -24,13 +24,16 @@ type Outcome struct {
 	Recovered   []int // block indices repaired from parity
 	Unrecovered []int // block indices still missing/corrupt afterwards
 	Groups      int
+	// LogIndices are error-log positions (into log.All()) whose defects
+	// were repaired and must be retracted from the degradation record.
+	LogIndices []int
 }
 
 // Recoverer repairs a block stream against its group plan.
 type Recoverer struct {
-	Groups      []Group
-	Log         *model.ErrorLog
-	Track       string
+	Groups []Group
+	Log    *model.ErrorLog
+	Track  string
 }
 
 func bad(b wav.FrameBlock) bool { return b.Missing || b.Corrupt || b.Truncated }
@@ -72,8 +75,26 @@ func (r *Recoverer) Repair(blocks []wav.FrameBlock) Outcome {
 		b.CRC = crc32.ChecksumIEEE(repaired)
 		b.Missing, b.Corrupt, b.Truncated = false, false, false
 		out.Recovered = append(out.Recovered, idx)
+		out.LogIndices = append(out.LogIndices, r.retractLog(idx))
 	}
 	return out
+}
+
+// retractLog removes the defect entry that repair just resolved, so a
+// fully recovered run reports no degradation. It returns the removed
+// position or -1 when no matching entry exists.
+func (r *Recoverer) retractLog(block int) int {
+	all := r.Log.All()
+	for i := len(all) - 1; i >= 0; i-- {
+		if all[i].Block == block &&
+			(all[i].Kind == model.ErrBlockMissing ||
+				all[i].Kind == model.ErrBlockCRC ||
+				all[i].Kind == model.ErrTruncated) {
+			r.Log.Remove(i)
+			return i
+		}
+	}
+	return -1
 }
 
 func (r *Recoverer) badMembers(blocks []wav.FrameBlock, g Group) []int {
