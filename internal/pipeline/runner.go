@@ -151,12 +151,6 @@ func Run(ds *Dataset, opts Options) (*Result, error) {
 	}
 	result.OutputSHA256 = ingest.Sum256(outputBytes)
 	result.ResultPath = filepath.Join(opts.Dir, "result.json")
-	if err := writeJSONAtomic(result.ResultPath, result); err != nil {
-		return nil, err
-	}
-	if _, err := store.SaveCheckpoint(opts.Dir, store.Checkpoint{Stage: "result", CompletedRecords: len(ds.Frames), OutputPath: outPath, OutputBytes: int64(len(outputBytes)), OutputSHA256: result.OutputSHA256, InputSHA256: inputDigest}); err != nil {
-		return nil, err
-	}
 	keyInputs := store.CacheKeyInputs{SourceFingerprint: ds.SourceFingerprint, InputDigest: inputDigest, NormalizedMeta: metaDigest, Stage: "result"}
 	key := store.CacheKey(keyInputs)
 	blobDigest, err := cas.PutBlob(outputBytes)
@@ -172,6 +166,12 @@ func Run(ds *Dataset, opts Options) (*Result, error) {
 		return nil, &model.MediaError{Code: model.CodeCacheMismatch, Message: "cache round-trip digest mismatch"}
 	}
 	result.CacheKey = key
+	if err := writeJSONAtomic(result.ResultPath, result); err != nil {
+		return nil, err
+	}
+	if _, err := store.SaveCheckpoint(opts.Dir, store.Checkpoint{Stage: "result", CompletedRecords: len(ds.Frames), OutputPath: outPath, OutputBytes: int64(len(outputBytes)), OutputSHA256: result.OutputSHA256, InputSHA256: inputDigest}); err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 
