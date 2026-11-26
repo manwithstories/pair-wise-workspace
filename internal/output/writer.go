@@ -29,7 +29,14 @@ func (w *Writer) Write(rf *timeline.RepairedFragment, outDir string) (int64, str
 	if err != nil {
 		return 0, "", err
 	}
-	path := filepath.Join(outDir, "frags", filepath.Base(rf.Key()))
+	// Preserve the per-track sub-directory (t###/f#####.m4s) so fragments
+	// from different tracks never overwrite one another.
+	relPath := filepath.Clean(rf.Key())
+	path := filepath.Join(outDir, "frags", relPath)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return 0, "", media.NewFault(media.FaultCheckpoint, rf.TrackID,
+			rf.NewSequence, rf.MoofOffset, "create fragment dir: "+err.Error())
+	}
 	if err := os.WriteFile(path, raw, 0o644); err != nil {
 		return 0, "", media.NewFault(media.FaultCheckpoint, rf.TrackID,
 			rf.NewSequence, rf.MoofOffset, "write fragment: "+err.Error())

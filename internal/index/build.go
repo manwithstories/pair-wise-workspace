@@ -39,7 +39,7 @@ type Builder struct {
 // AddFragment re-parses the on-disk output fragment (never trusting in-memory
 // pipeline counters) and records every sync sample it contains.
 func (b *Builder) AddFragment(rf *timeline.RepairedFragment, outDir string) error {
-	path := filepath.Join(outDir, "frags", filepath.Base(rf.Key()))
+	path := filepath.Join(outDir, "frags", filepath.Clean(rf.Key()))
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return media.NewFault(media.FaultCheckpoint, rf.TrackID, rf.NewSequence,
@@ -59,7 +59,7 @@ func (b *Builder) AddFragment(rf *timeline.RepairedFragment, outDir string) erro
 			Sequence:     rf.NewSequence,
 			SampleIndex:  s.Index,
 			GlobalDTS:    rf.GlobalDTS,
-			FragmentPath: filepath.ToSlash(filepath.Join("frags", filepath.Base(rf.Key()))),
+			FragmentPath: filepath.ToSlash(filepath.Clean(rf.Key())),
 			SampleOffset: s.DataOffset,
 			Sync:         true,
 		})
