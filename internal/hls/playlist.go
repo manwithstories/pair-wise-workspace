@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/Eyevinn/hls-m3u8/m3u8"
@@ -73,9 +74,7 @@ func Generate(in BuildInput) (*Files, error) {
 	master := m3u8.NewMasterPlaylist()
 	master.SetVersion(Version)
 	master.SetIndependentSegments(true)
-	for k, v := range in.Diagnostics {
-		master.SetCustomTag(DiagTag{Key: strings.ToUpper(k), Value: v})
-	}
+	master.SetCustomTag(DiagTag{Key: "DIAG", Value: canonicalDiagnostics(in.Diagnostics)})
 
 	for _, r := range in.Renditions {
 		mediaBytes, err := generateMedia(r, partCount, in.Diagnostics)
@@ -120,13 +119,8 @@ func generateMedia(r RenditionView, partCount int, diag map[string]string) ([]by
 	}); err != nil {
 		return nil, err
 	}
-	for k, v := range diag {
-		if k == "psi_crc_reject" && v != "0" {
-			p.SetCustomTag(DiagTag{Key: "PSI-REJECT", Value: "COUNT=" + v})
-		}
-		if k == "missing_idr" && v != "0" {
-			p.SetCustomTag(DiagTag{Key: "MISSING-IDR", Value: "COUNT=" + v})
-		}
+	if diagValue := mediaDiagnostics(diag); diagValue != "" {
+		p.SetCustomTag(DiagTag{Key: "DIAG", Value: diagValue})
 	}
 
 	for _, s := range r.Segments {
@@ -193,6 +187,30 @@ func WriteFiles(out string, files *Files) error {
 		}
 	}
 	return nil
+}
+
+func canonicalDiagnostics(diag map[string]string) string {
+	keys := make([]string, 0, len(diag))
+	for k := range diag {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, k+"="+diag[k])
+	}
+	return strings.Join(parts, ";")
+}
+
+func mediaDiagnostics(diag map[string]string) string {
+	keys := []string{"psi_crc_reject", "missing_idr", "gap_slots", "cc_gap"}
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		if v := diag[k]; v != "" && v != "0" {
+			parts = append(parts, k+"="+v)
+		}
+	}
+	return strings.Join(parts, ";")
 }
 
 func SafeJoin(root, name string) (string, error) {
