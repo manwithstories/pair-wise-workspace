@@ -124,13 +124,17 @@ func recoverCase(o demoOptions, rng *rand.Rand) []pipeline.Carrier {
 	}}
 }
 
-// anchorsFor builds video reference points on the 48 kHz reference
-// clock; audio alignment error is bounded by integer sample rounding.
+// anchorsFor builds video reference points on several reference clocks so
+// the sync P95 exercises real cross-rate integer mapping; every residual
+// is bounded by half a target sample period (well under the 1000 us cap).
 func anchorsFor(o demoOptions) []timeline.Anchor {
 	return []timeline.Anchor{
 		{ID: "vid-0", RefRate: model.SampleRate(48000), RefSample: 0},
-		{ID: "vid-1", RefRate: model.SampleRate(48000), RefSample: 4800},
-		{ID: "vid-2", RefRate: model.SampleRate(48000), RefSample: 9600},
+		{ID: "vid-1", RefRate: model.SampleRate(48000), RefSample: 4801},
+		// Non-integer positions relative to other clocks force a real
+		// integer-rounding residual rather than an exact grid hit.
+		{ID: "vid-2", RefRate: model.SampleRate(44100), RefSample: 4411},
+		{ID: "vid-3", RefRate: model.SampleRate(96000), RefSample: 9603},
 	}
 }
 
