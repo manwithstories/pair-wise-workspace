@@ -27,14 +27,23 @@ func RunDemo(opt Options) (*Report, error) {
 	if opt.Case == "" {
 		opt.Case = string(fixture.CaseClean)
 	}
+	switch fixture.Case(opt.Case) {
+	case fixture.CaseClean, fixture.CaseDamaged, fixture.CaseTruncated,
+		fixture.CasePCRWrap, fixture.CaseCCJump, fixture.CasePSIBad, fixture.CaseMissingIDR:
+	default:
+		return nil, media.NewError(media.CodeConfig, -1, "unknown fixture case %q", opt.Case)
+	}
 	if opt.Segments == 0 {
 		opt.Segments = fixture.Slots
+	}
+	if opt.Segments < 0 {
+		return nil, media.NewError(media.CodeConfig, -1, "--segments must be positive")
 	}
 	if len(opt.Bitrates) < 2 {
 		return nil, media.NewError(media.CodeConfig, -1, "at least two --bitrates values are required")
 	}
-	if opt.InterruptAfter > opt.Segments {
-		return nil, media.NewError(media.CodeConfig, -1, "--interrupt-after cannot exceed --segments")
+	if opt.InterruptAfter < 0 || opt.InterruptAfter > opt.Segments {
+		return nil, media.NewError(media.CodeConfig, -1, "--interrupt-after must be between 0 and --segments")
 	}
 	if err := resetOutput(opt.Out); err != nil {
 		return nil, media.WrapError(media.CodePath, -1, err, "reset output")
