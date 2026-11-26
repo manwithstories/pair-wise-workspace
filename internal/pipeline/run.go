@@ -76,7 +76,7 @@ func RunDemo(opt Options) (*Result, error) {
 		return nil, err
 	}
 
-	ordered, rb, err := restoreTransport(opt.Seed, demux.Packets)
+	ordered, sim, rb, err := restoreTransport(opt.Seed, demux.Packets)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +183,7 @@ func RunDemo(opt Options) (*Result, error) {
 	mf.Stats.DuplicateSegments = duplicates
 	mf.SetBitrate(totalBytes, float64(opt.Seconds), opt.TargetKbps)
 	mf.Recovery = &manifest.Recovery{
-		DuplicatePackets: rb.Stats.DuplicatePackets, ReorderedPackets: rb.Stats.ReorderedPackets,
+		DuplicatePackets: rb.Stats.DuplicatePackets, ReorderedPackets: sim.Stats.ReorderedPackets,
 		RecoveredPackets: rb.Stats.RecoveredPackets, LostPackets: rb.Stats.LostPackets,
 		CacheHit: verification.Hit, SourceOK: verification.SourceOK, SHA256OK: verification.SHA256OK,
 		CheckpointSeq: journal.Snapshot().NextSeq,
@@ -202,7 +202,7 @@ func RunDemo(opt Options) (*Result, error) {
 	return &Result{Manifest: &mf, Cache: verification}, nil
 }
 
-func restoreTransport(seed int64, in []media.Packet) ([]media.Packet, *transport.ReorderBuffer, error) {
+func restoreTransport(seed int64, in []media.Packet) ([]media.Packet, *transport.Simulator, *transport.ReorderBuffer, error) {
 	cfg := transport.DefaultConfig(seed, len(in))
 	sim := transport.NewSimulator(cfg, len(in))
 	arrivals := sim.Transmit(in)
@@ -224,10 +224,10 @@ func restoreTransport(seed int64, in []media.Packet) ([]media.Packet, *transport
 		return p, ok, nil
 	})
 	if err != nil {
-		return nil, rb, err
+		return nil, sim, rb, err
 	}
 	ordered = append(ordered, recovered...)
-	return ordered, rb, nil
+	return ordered, sim, rb, nil
 }
 
 func analyzeContent(opt Options, plans []cut.Plan) (audio.Report, []fingerprint.Signature, int, error) {
