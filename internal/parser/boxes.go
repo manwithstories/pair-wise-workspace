@@ -189,7 +189,7 @@ func parseRange(src *Source, start, limit int64, depth int, trackID uint32, idx 
 					"declared size %d < header %d", declared, headerSize))
 				return *faults
 			}
-			if uint64(off) > math.MaxInt64-declared {
+			if declared > math.MaxInt64 || uint64(off) > math.MaxInt64-declared {
 				*faults = append(*faults, faultAt(src, media.CodeIntegerOverflow, media.SeverityError, trackID, off, media.Time{},
 					"box end overflows int64: offset=%d size=%d", off, declared))
 				return *faults
