@@ -45,26 +45,26 @@ func (c Config) Digest() string {
 
 // SegmentRef is one indexed segment on the unified timeline.
 type SegmentRef struct {
-	ID          string   `json:"id"`
-	Path        string   `json:"path"` // slash-separated, relative to input root
-	Source      string   `json:"source"`
-	RepID       string   `json:"rep_id,omitempty"`
-	Start       core.Rat `json:"start"`
-	End         core.Rat `json:"end"`
-	DiscSeq     int      `json:"disc_seq"`
-	Timescale   int64    `json:"timescale"`
-	CheckTfdt   bool     `json:"check_tfdt"`
-	ExpectedTfdt uint64  `json:"expected_tfdt"`
+	ID           string   `json:"id"`
+	Path         string   `json:"path"` // slash-separated, relative to input root
+	Source       string   `json:"source"`
+	RepID        string   `json:"rep_id,omitempty"`
+	Start        core.Rat `json:"start"`
+	End          core.Rat `json:"end"`
+	DiscSeq      int      `json:"disc_seq"`
+	Timescale    int64    `json:"timescale"`
+	CheckTfdt    bool     `json:"check_tfdt"`
+	ExpectedTfdt uint64   `json:"expected_tfdt"`
 }
 
 // Index is the scan-phase artifact.
 type Index struct {
-	InputDigest    string        `json:"input_digest"`
-	ConfigDigest   string        `json:"config_digest"`
-	RoundTripOK    int           `json:"roundtrip_ok"`
-	RoundTripTotal int           `json:"roundtrip_total"`
-	Segments       []SegmentRef  `json:"segments"`
-	TimelineErrors []core.Range  `json:"timeline_errors"`
+	InputDigest    string       `json:"input_digest"`
+	ConfigDigest   string       `json:"config_digest"`
+	RoundTripOK    int          `json:"roundtrip_ok"`
+	RoundTripTotal int          `json:"roundtrip_total"`
+	Segments       []SegmentRef `json:"segments"`
+	TimelineErrors []core.Range `json:"timeline_errors"`
 }
 
 // ReadLimited reads a file, rejecting inputs above the size cap.

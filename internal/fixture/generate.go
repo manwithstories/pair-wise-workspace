@@ -111,7 +111,7 @@ func buildSegment(p segParams) []byte {
 	mfhd := fullBox("mfhd", 0, 0, mfhdPayload)
 
 	tfhdPayload := make([]byte, 4)
-	binary.BigEndian.PutUint32(tfhdPayload, 1) // track_ID
+	binary.BigEndian.PutUint32(tfhdPayload, 1)        // track_ID
 	tfhd := fullBox("tfhd", 0, 0x020000, tfhdPayload) // default-base-is-moof
 
 	tfdtPayload := make([]byte, 8)

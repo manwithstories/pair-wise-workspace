@@ -43,8 +43,8 @@ func TestBuildClean(t *testing.T) {
 	// Unified timeline: HLS covers 0..5s in 0.5s steps; both DASH reps
 	// cover 0..2.5s.
 	wantTime := map[string][2]core.Rat{
-		"hls/seg0.m4s":   {core.NewRat(0, 1), core.NewRat(1, 2)},
-		"hls/seg9.m4s":   {core.NewRat(9, 2), core.NewRat(5, 1)},
+		"hls/seg0.m4s":    {core.NewRat(0, 1), core.NewRat(1, 2)},
+		"hls/seg9.m4s":    {core.NewRat(9, 2), core.NewRat(5, 1)},
 		"dash/a/seg4.m4s": {core.NewRat(2, 1), core.NewRat(5, 2)},
 		"dash/b/seg0.m4s": {core.NewRat(0, 1), core.NewRat(1, 2)},
 	}

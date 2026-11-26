@@ -69,9 +69,9 @@ type xmlPeriod struct {
 }
 
 type xmlMPD struct {
-	XMLName                   xml.Name   `xml:"MPD"`
-	Type                      string     `xml:"type,attr"`
-	MediaPresentationDuration string     `xml:"mediaPresentationDuration,attr"`
+	XMLName                   xml.Name    `xml:"MPD"`
+	Type                      string      `xml:"type,attr"`
+	MediaPresentationDuration string      `xml:"mediaPresentationDuration,attr"`
 	Periods                   []xmlPeriod `xml:"Period"`
 }
 
