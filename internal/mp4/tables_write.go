@@ -42,11 +42,14 @@ func buildStbl(t *media.Track) ([]byte, error) {
 	offsets := make([]uint32, len(t.Samples))
 	for i, s := range t.Samples {
 		sizes[i] = s.Size
-		if s.Offset < 0 || s.Offset > int64(^uint32(0)) {
+		if s.Offset < 0 {
+			offsets[i] = 0 // length-calculation placeholder; Build assigns real offsets
+		} else if s.Offset > int64(^uint32(0)) {
 			return nil, media.NewFault(media.CodeBadSampleOffset, "offset %d cannot fit stco", s.Offset).
 				WithTrack(t.ID).WithBox("stco").Fatal()
+		} else {
+			offsets[i] = uint32(s.Offset)
 		}
-		offsets[i] = uint32(s.Offset)
 	}
 	stsz, err := marshalTypedBox(&gomp4.Stsz{SampleSize: 0, SampleCount: uint32(len(sizes)), EntrySize: sizes})
 	if err != nil {
