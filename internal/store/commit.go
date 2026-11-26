@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"pairflow/internal/media"
 )
@@ -41,6 +42,7 @@ type StageStager struct {
 	jail  *Jail
 	stage string
 	arts  []Artifact
+	rels  []string // stage-relative paths parallel to arts
 }
 
 // NewStageStager clears any leftover staging directory for the stage.
@@ -50,18 +52,13 @@ func NewStageStager(j *Jail, stage string) (*StageStager, *media.Error) {
 	if err != nil {
 		return nil, err
 	}
-	// Remove any partial leftovers from an earlier interrupted attempt.
-	entries, derr := os.ReadDir(abs)
-	if derr != nil {
-		return nil, media.Wrap(derr, media.ClassInternal, "store.stage_list", "cannot list staging area")
+	// Remove any partial leftovers, including nested frame directories, from
+	// an earlier interrupted attempt.
+	if rerr := os.RemoveAll(abs); rerr != nil {
+		return nil, media.Wrap(rerr, media.ClassInternal, "store.stage_clear", "cannot clear stale staging area")
 	}
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		if rerr := os.Remove(filepath.Join(abs, e.Name())); rerr != nil {
-			return nil, media.Wrap(rerr, media.ClassInternal, "store.stage_clear", "cannot clear stale staging file")
-		}
+	if _, err := j.EnsureDir(dir); err != nil {
+		return nil, err
 	}
 	return &StageStager{jail: j, stage: stage}, nil
 }
@@ -71,8 +68,14 @@ func NewStageStager(j *Jail, stage string) (*StageStager, *media.Error) {
 func (s *StageStager) WriteStaged(name string, data []byte, kind string) (Artifact, *media.Error) {
 	dir := filepath.Join(StagingDir, s.stage)
 	rel := filepath.Join(dir, name)
+	if strings.HasPrefix(filepath.Clean(name), "..") || filepath.IsAbs(name) {
+		return Artifact{}, media.Input("store.stage_path", "staged artifact name must stay inside the stage").WithPath(name)
+	}
 	abs, err := s.jail.Resolve(rel)
 	if err != nil {
+		return Artifact{}, err
+	}
+	if _, err := s.jail.EnsureDir(filepath.Dir(rel)); err != nil {
 		return Artifact{}, err
 	}
 	if werr := os.WriteFile(abs, data, 0o644); werr != nil {
@@ -83,6 +86,7 @@ func (s *StageStager) WriteStaged(name string, data []byte, kind string) (Artifa
 	}
 	a := Artifact{Path: filepath.Join(OutDir, s.stage, name), Size: int64(len(data)), SHA: HashBytes(data), Kind: kind}
 	s.arts = append(s.arts, a)
+	s.rels = append(s.rels, filepath.Clean(name))
 	return a, nil
 }
 
@@ -100,15 +104,20 @@ func (s *StageStager) Commit() ([]Artifact, *media.Error) {
 	if _, err := s.jail.EnsureDir(dstDir); err != nil {
 		return nil, err
 	}
+	if len(s.rels) != len(s.arts) {
+		return nil, media.E(media.ClassInternal, "store.artifact_bookkeeping", "staged path bookkeeping is inconsistent")
+	}
 	for i := range s.arts {
 		a := &s.arts[i]
-		name := filepath.Base(a.Path)
-		src, err := s.jail.Resolve(filepath.Join(StagingDir, s.stage, name))
+		src, err := s.jail.Resolve(filepath.Join(StagingDir, s.stage, s.rels[i]))
 		if err != nil {
 			return nil, err
 		}
 		dst, err := s.jail.Resolve(a.Path)
 		if err != nil {
+			return nil, err
+		}
+		if _, err := s.jail.EnsureDir(filepath.Dir(a.Path)); err != nil {
 			return nil, err
 		}
 		if rerr := os.Rename(src, dst); rerr != nil {
@@ -217,4 +226,59 @@ func SortedStages(stages []StageDoc) []StageDoc {
 	out := append([]StageDoc(nil), stages...)
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+// ReadStaged reads a staged artifact by its committed-relative path so the
+// pipeline can validate bytes before they are renamed into out/.
+func (s *StageStager) ReadStaged(committedRel string) ([]byte, *media.Error) {
+	stageRel, ok := s.stagedName(committedRel)
+	if !ok {
+		return nil, media.Input("store.not_staged", "artifact %s was not staged by %s", committedRel, s.stage)
+	}
+	return s.jail.ReadFile(filepath.Join(StagingDir, s.stage, stageRel))
+}
+
+// CorruptStaged overwrites a staged artifact after recording its intended hash
+// but before commit, emulating a damaged write. The recorded artifact entry is
+// deliberately left untouched so the commit-time validation must notice.
+func (s *StageStager) CorruptStaged(committedRel string) (Artifact, *media.Error) {
+	stageRel, ok := s.stagedName(committedRel)
+	if !ok {
+		return Artifact{}, media.Input("store.not_staged", "artifact %s was not staged by %s", committedRel, s.stage)
+	}
+	rel := filepath.Join(StagingDir, s.stage, stageRel)
+	abs, err := s.jail.Resolve(rel)
+	if err != nil {
+		return Artifact{}, err
+	}
+	data, rerr := os.ReadFile(abs)
+	if rerr != nil {
+		return Artifact{}, media.Wrap(rerr, media.ClassInternal, "store.corrupt_read", "cannot read staged artifact").WithPath(rel)
+	}
+	if len(data) < 48 {
+		return Artifact{}, media.E(media.ClassInternal, "store.corrupt_short", "artifact too short to corrupt")
+	}
+	// Flip a byte inside the first IDAT payload region (past IHDR and the
+	// color chunks) so the PNG CRC check will fail.
+	off := len(data)/2 + 1
+	data[off] ^= 0xFF
+	if werr := os.WriteFile(abs, data, 0o644); werr != nil {
+		return Artifact{}, media.Wrap(werr, media.ClassInternal, "store.corrupt_write", "cannot rewrite staged artifact").WithPath(rel)
+	}
+	for i := range s.arts {
+		if filepath.Join(OutDir, s.stage, stageRel) == s.arts[i].Path {
+			return s.arts[i], nil
+		}
+	}
+	return Artifact{}, media.E(media.ClassInternal, "store.bookkeeping", "staged artifact bookkeeping missing")
+}
+
+// stagedName maps a committed-relative path back to its stage-relative name.
+func (s *StageStager) stagedName(committedRel string) (string, bool) {
+	want := filepath.Join(OutDir, s.stage)
+	prefix := want + string(filepath.Separator)
+	if len(committedRel) <= len(prefix) || committedRel[:len(prefix)] != prefix {
+		return "", false
+	}
+	return committedRel[len(prefix):], true
 }
