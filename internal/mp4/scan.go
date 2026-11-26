@@ -27,6 +27,7 @@ type RawTrack struct {
 	HasStss      bool
 	Elst         []gomp4.ElstEntry
 	HasElst      bool
+	ElstVersion  uint8
 	MdatOffset   uint64 // absolute offset of mdat payload
 	MdatBytes    uint64 // payload bytes actually present on disk
 	FileSize     uint64
@@ -155,6 +156,7 @@ func (rt *RawTrack) scanMoov(r io.ReadSeeker, bi *gomp4.BoxInfo) error {
 			case *gomp4.Elst:
 				rt.HasElst = true
 				rt.Elst = b.Entries
+				rt.ElstVersion = b.Version
 			}
 			return nil, nil
 		})
