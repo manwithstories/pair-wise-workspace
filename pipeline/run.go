@@ -61,7 +61,9 @@ func Run(cfg Config) (*Report, error) {
 	for _, frame := range fx.Frames {
 		raw := ingest.EncodePacket(frame.Packet)
 		if frame.CorruptCRC {
-			raw[10] ^= 0xff
+			// Byte 6 is a reserved header byte covered by CRC. Flipping it
+			// invalidates CRC without changing camera/stream/sequence fields.
+			raw[6] ^= 0x01
 		}
 		pkt, parseErr := ingest.ParsePacket(raw)
 		if parseErr != nil {
@@ -168,7 +170,11 @@ func Run(cfg Config) (*Report, error) {
 	if err != nil {
 		return rep, err
 	}
-	doc, err := subtitle.Parse(bytes.NewReader(append(cleanSRT, []byte(fx.MalformedSRT)...)), subtitle.FormatSRT)
+	subtitleInput := cleanSRT
+	if cfg.Case == "damaged" {
+		subtitleInput = append(append([]byte{}, cleanSRT...), []byte(fx.MalformedSRT)...)
+	}
+	doc, err := subtitle.Parse(bytes.NewReader(subtitleInput), subtitle.FormatSRT)
 	if err != nil {
 		return rep, err
 	}
