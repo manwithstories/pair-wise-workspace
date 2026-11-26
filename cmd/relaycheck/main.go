@@ -106,6 +106,9 @@ func cmdRun(args []string) int {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 4
 	}
+	if rep.CorruptIndexTail {
+		fmt.Fprintln(os.Stderr, "warning: corrupt index tail detected and truncated; the torn final record was not treated as committed and its chunk was redone")
+	}
 	rep.Print(os.Stdout)
 	return 0
 }
