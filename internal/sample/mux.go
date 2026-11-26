@@ -119,3 +119,16 @@ func psPacket(cc *ccState) [][]byte {
 	cc.pmt = (cc.pmt + 1) & 0x0F
 	return out
 }
+
+// FrameCC is the exported continuity-counter state used by external tests that
+// drive the muxer frame by frame.
+type FrameCC struct{ Video uint8 }
+
+// BuildTestFrame constructs one frame's video TS packets for tests outside the
+// sample package. It mirrors buildFrame without touching PAT/PMT counters.
+func BuildTestFrame(fi, tspf int, cc *FrameCC) Frame {
+	internal := &ccState{video: cc.Video}
+	fr := buildFrame(fi, internal, tspf)
+	cc.Video = internal.video
+	return fr
+}

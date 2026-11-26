@@ -101,9 +101,13 @@ func (b *Builder) Push(p *rtp.Packet) ([]*Segment, error) {
 	return out, nil
 }
 
+// alignmentBudgetTicks is the 45 ms boundary tolerance on the 90 kHz clock.
+const alignmentBudgetTicks = uint64(45 * timeline.RTPClockRate / 1000) // 4050 ticks
+
 // maybeCut closes the current segment when an IDR reaches the six-second grid.
-// If the grid boundary has been passed without an available IDR, it marks a
-// discontinuity and cuts at the next safe IDR instead.
+// When an IDR overshoots the ideal grid point by more than the 45 ms budget
+// (because the neighboring IDR was lost), the cut still happens at the next
+// safe IDR but the segment is flagged with a discontinuity.
 func (b *Builder) maybeCut(tick uint64) *Segment {
 	if len(b.frames) == 0 {
 		return nil
@@ -116,10 +120,16 @@ func (b *Builder) maybeCut(tick uint64) *Segment {
 	if elapsed < b.target {
 		return nil
 	}
-	// This IDR is at or beyond the target. If it overshoots the ideal grid
-	// point by more than the alignment budget, the cut is still made here (the
-	// only safe IDR) but flagged so consumers know timing is not exact.
+	// Ideal grid point relative to the segment start; overshoot is how far
+	// this safe IDR sits beyond that ideal point.
+	ideal := b.target
+	overshoot := int64(elapsed) - int64(ideal)
 	disc := b.pendingDisc
+	if overshoot > int64(alignmentBudgetTicks) {
+		// The expected neighboring IDR was unavailable: cut here at the next
+		// safe IDR and signal the imperfect boundary to consumers.
+		disc = true
+	}
 	b.pendingDisc = false
 	return b.cut(last, disc)
 }
