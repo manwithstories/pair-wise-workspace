@@ -112,12 +112,14 @@ func generateMedia(r RenditionView, partCount int, diag map[string]string) ([]by
 	}
 	p.TargetDuration = 1
 	p.PartTargetDuration = segDuration / float64(partCount)
-	_ = p.SetServerControl(&m3u8.ServerControl{
-		CanSkipUntil:   6.0,
+	if err := p.SetServerControl(&m3u8.ServerControl{
+		CanSkipUntil:   0,
 		HoldBack:       3.0,
 		PartHoldBack:   p.PartTargetDuration * 2,
 		CanBlockReload: true,
-	})
+	}); err != nil {
+		return nil, err
+	}
 	for k, v := range diag {
 		if k == "psi_crc_reject" && v != "0" {
 			p.SetCustomTag(DiagTag{Key: "PSI-REJECT", Value: "COUNT=" + v})
