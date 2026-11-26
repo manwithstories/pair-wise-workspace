@@ -68,11 +68,11 @@ func (e *Exporter) Export(reqs []FrameRequest) ([]FrameResult, []model.Error) {
 	var errs []model.Error
 
 	for _, req := range reqs {
-		kf, ok := timeline.NextKeyframeAtOrAfter(e.items, req.AtMaster)
+		kf, ok := timeline.LocateKeyframe(e.items, req.AtMaster)
 		if !ok {
 			errs = append(errs, model.NewError(model.StageRender, e.stream.ID,
 				model.ErrKeyframeSeek, model.SeverityError,
-				fmt.Sprintf("no keyframe at or before tick %d", req.AtMaster),
+				fmt.Sprintf("no keyframe available for target tick %d", req.AtMaster),
 				-1, req.AtMaster, true))
 			continue
 		}

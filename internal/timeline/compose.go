@@ -201,3 +201,21 @@ func NextKeyframeAtOrAfter(items []Item, masterPTS int64) (Item, bool) {
 	}
 	return kf, found
 }
+
+// LocateKeyframe returns the keyframe a decoder must seek from to render at
+// masterPTS. Normally this is the last keyframe at or before the target; but
+// when the target falls in the lead-in region (before the stream's very first
+// keyframe, which a small drift offset can produce), the only decodable
+// choice is that first keyframe. The returned bool is false only when the
+// whole stream contains no keyframe at all, which is a genuine seek failure.
+func LocateKeyframe(items []Item, masterPTS int64) (Item, bool) {
+	if kf, ok := NextKeyframeAtOrAfter(items, masterPTS); ok {
+		return kf, true
+	}
+	for _, it := range items {
+		if it.Keyframe {
+			return it, true // lead-in fallback: first keyframe in stream
+		}
+	}
+	return Item{}, false
+}

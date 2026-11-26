@@ -119,10 +119,25 @@ func TestExportSparseKeyframeSeekAndLanding(t *testing.T) {
 	}
 }
 
+func TestExportLeadInFallsBackToFirstKeyframe(t *testing.T) {
+	dir := t.TempDir()
+	// First keyframe sits at 10s (small drift lead-in); a request at 5s must
+	// fall back to that first keyframe rather than failing.
+	items := []timeline.Item{{MasterPTS: 10 * clock.MasterHz, Keyframe: true, Seq: 10}}
+	exp := NewExporter(sampleStream(), items, nil, dir, 1)
+	res, errs := exp.Export([]FrameRequest{{AtMaster: 5 * clock.MasterHz, Label: "early"}})
+	if len(errs) != 0 || len(res) != 1 {
+		t.Fatalf("lead-in must fall back, got res=%v errs=%v", res, errs)
+	}
+	if res[0].KeyframeSeq != 10 {
+		t.Fatalf("did not land on first keyframe: %+v", res[0])
+	}
+}
+
 func TestExportKeyframeSeekFailureRecorded(t *testing.T) {
 	dir := t.TempDir()
-	// Items start at tick 10s, so a request at 5s has no preceding keyframe.
-	items := []timeline.Item{{MasterPTS: 10 * clock.MasterHz, Keyframe: true, Seq: 10}}
+	// A stream with no keyframe at all is a genuine, unrecoverable seek.
+	items := []timeline.Item{{MasterPTS: 10 * clock.MasterHz, Keyframe: false, Seq: 10}}
 	exp := NewExporter(sampleStream(), items, nil, dir, 1)
 	_, errs := exp.Export([]FrameRequest{{AtMaster: 5 * clock.MasterHz, Label: "early"}})
 	if len(errs) != 1 || errs[0].Code != model.ErrKeyframeSeek {
