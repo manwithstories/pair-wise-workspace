@@ -110,11 +110,6 @@ func (r *Runner) Run(ctx context.Context, frames []clock.Normalized, inputSHA st
 	}
 
 	for i := startSeg; i < len(segments); i++ {
-		if err := ctx.Err(); err != nil {
-			_ = r.checkpointer.Save(cp)
-			return stats, timeline.GlobalError("stream.run", true,
-				fmt.Errorf("%w: %v", timeline.ErrCanceled, err))
-		}
 		body = append(body, encodedSeg[i]...)
 		stats.FramesWritten += len(segments[i].Frames)
 		// Deterministic logical processing cost: a fixed per-frame dispatch
@@ -130,6 +125,12 @@ func (r *Runner) Run(ctx context.Context, frames []clock.Normalized, inputSHA st
 		cp.WrittenUS = segments[i].Frames[len(segments[i].Frames)-1].StartUS
 		if err := r.checkpointer.Save(cp); err != nil {
 			return stats, err
+		}
+		// Cancellation is honored only after a complete segment boundary is
+		// durable, so a resume always starts from a fully written segment.
+		if err := ctx.Err(); err != nil {
+			return stats, timeline.GlobalError("stream.run", true,
+				fmt.Errorf("%w: %v", timeline.ErrCanceled, err))
 		}
 	}
 
