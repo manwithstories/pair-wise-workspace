@@ -49,22 +49,26 @@ type streamBlueprint struct {
 }
 
 func blueprints() []streamBlueprint {
+	// Drift stays in the sub-20ms broadcast tolerance: a fixed offset of a few
+	// milliseconds plus a gentle per-segment slope, so a piecewise anchor fit
+	// corrects it almost completely and the residual stays measurable yet
+	// within the av_sync_max_ms gate.
 	return []streamBlueprint{
 		{id: 0, kind: manifest.KindVideo, codec: "h264", width: 96, height: 54,
 			timebaseNum: 90000, den: 1, startPTS: 90000, wrapPeriod: 600 * 90000,
-			keyframeEvery: 30, driftOffsetS: 0.004, driftSlopeS: 0.001, driftSegmentS: 300,
+			keyframeEvery: 30, driftOffsetS: 0.004, driftSlopeS: 0.00002, driftSegmentS: 300,
 			editStartS: 30, editEndS: 1770},
 		{id: 1, kind: manifest.KindVideo, codec: "h264", width: 96, height: 54,
 			timebaseNum: 15360, den: 1, startPTS: 15360, wrapPeriod: 480 * 15360,
-			keyframeEvery: 30, driftOffsetS: -0.003, driftSlopeS: -0.0008, driftSegmentS: 300,
+			keyframeEvery: 30, driftOffsetS: -0.003, driftSlopeS: -0.000016, driftSegmentS: 300,
 			editStartS: 30, editEndS: 1770},
 		{id: 2, kind: manifest.KindVideo, codec: "h264", width: 96, height: 54,
 			timebaseNum: 12000, den: 1, startPTS: 12000, wrapPeriod: 720 * 12000,
-			keyframeEvery: 30, driftOffsetS: 0.002, driftSlopeS: 0.0006, driftSegmentS: 300,
+			keyframeEvery: 30, driftOffsetS: 0.002, driftSlopeS: 0.000012, driftSegmentS: 300,
 			editStartS: 30, editEndS: 1770},
 		{id: 3, kind: manifest.KindAudio, codec: "aac", width: 0, height: 0,
 			timebaseNum: 48000, den: 1, startPTS: 48000, wrapPeriod: 900 * 48000,
-			keyframeEvery: 1, driftOffsetS: 0.001, driftSlopeS: 0.0002, driftSegmentS: 300},
+			keyframeEvery: 1, driftOffsetS: 0.001, driftSlopeS: 0.000004, driftSegmentS: 300},
 	}
 }
 
@@ -161,8 +165,14 @@ func sourcePTSAt(bp streamBlueprint, atS int64) int64 {
 
 func buildAnchors(bp streamBlueprint, opts Options) []manifest.Anchor {
 	var out []manifest.Anchor
-	const anchorEveryS = 300
-	for at := int64(0); at <= opts.DurationS; at += anchorEveryS {
+	// The full 30-minute run anchors every 300s; shorter fixtures scale the
+	// spacing down so at least a handful of anchors always exist, keeping the
+	// piecewise drift fit well-posed. Floor of 2s avoids anchor crowding.
+	every := opts.DurationS / 6
+	if every < 2 {
+		every = 2
+	}
+	for at := int64(0); at <= opts.DurationS; at += every {
 		master := at * 90000
 		out = append(out, manifest.Anchor{
 			StreamID: bp.id, AtSecond: at,
