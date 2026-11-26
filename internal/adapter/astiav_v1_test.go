@@ -22,50 +22,85 @@ func makeMKV(t *testing.T, path string, videoFrames int) {
 	ac := astiav.FindEncoder(astiav.CodecIDPcmS16Le)
 	vcc := astiav.AllocCodecContext(vc)
 	defer vcc.Free()
-	vcc.SetWidth(32); vcc.SetHeight(24); vcc.SetPixelFormat(astiav.PixelFormatYuv420P)
+	vcc.SetWidth(32)
+	vcc.SetHeight(24)
+	vcc.SetPixelFormat(astiav.PixelFormatYuv420P)
 	vcc.SetTimeBase(astiav.NewRational(1, 25))
-	if err := vcc.Open(vc, nil); err != nil { t.Fatal(err) }
+	if err := vcc.Open(vc, nil); err != nil {
+		t.Fatal(err)
+	}
 	acc := astiav.AllocCodecContext(ac)
 	defer acc.Free()
-	acc.SetSampleFormat(astiav.SampleFormatS16); acc.SetSampleRate(8000)
+	acc.SetSampleFormat(astiav.SampleFormatS16)
+	acc.SetSampleRate(8000)
 	acc.SetChannelLayout(astiav.ChannelLayoutMono)
 	acc.SetTimeBase(astiav.NewRational(1, 8000))
-	if err := acc.Open(ac, nil); err != nil { t.Fatal(err) }
+	if err := acc.Open(ac, nil); err != nil {
+		t.Fatal(err)
+	}
 	vs, as := fc.NewStream(vc), fc.NewStream(ac)
-	if err := vcc.ToCodecParameters(vs.CodecParameters()); err != nil { t.Fatal(err) }
-	if err := acc.ToCodecParameters(as.CodecParameters()); err != nil { t.Fatal(err) }
-	vs.SetTimeBase(vcc.TimeBase()); as.SetTimeBase(acc.TimeBase())
+	if err := vcc.ToCodecParameters(vs.CodecParameters()); err != nil {
+		t.Fatal(err)
+	}
+	if err := acc.ToCodecParameters(as.CodecParameters()); err != nil {
+		t.Fatal(err)
+	}
+	vs.SetTimeBase(vcc.TimeBase())
+	as.SetTimeBase(acc.TimeBase())
 	io, err := astiav.OpenIOContext(path, astiav.NewIOContextFlags(astiav.IOContextFlagWrite), nil, nil)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	fc.SetPb(io)
-	if err := fc.WriteHeader(nil); err != nil { t.Fatal(err) }
+	if err := fc.WriteHeader(nil); err != nil {
+		t.Fatal(err)
+	}
 
 	for i := 0; i < videoFrames; i++ {
 		f := astiav.AllocFrame()
-		f.SetWidth(32); f.SetHeight(24); f.SetPixelFormat(astiav.PixelFormatYuv420P)
-		if err := f.AllocBuffer(1); err != nil { t.Fatal(err) }
+		f.SetWidth(32)
+		f.SetHeight(24)
+		f.SetPixelFormat(astiav.PixelFormatYuv420P)
+		if err := f.AllocBuffer(1); err != nil {
+			t.Fatal(err)
+		}
 		f.SetPts(int64(i))
 		f.ImageFillBlack()
-		if err := vcc.SendFrame(f); err != nil { t.Fatal(err) }
+		if err := vcc.SendFrame(f); err != nil {
+			t.Fatal(err)
+		}
 		drainEnc(t, vcc, fc, vs)
 		f.Free()
 	}
 	for total := 0; total < 4000; {
 		n := 1000
-		if total+n > 4000 { n = 4000 - total }
+		if total+n > 4000 {
+			n = 4000 - total
+		}
 		f := astiav.AllocFrame()
-		f.SetNbSamples(n); f.SetSampleFormat(astiav.SampleFormatS16)
-		f.SetChannelLayout(astiav.ChannelLayoutMono); f.SetSampleRate(8000)
-		if err := f.AllocBuffer(0); err != nil { t.Fatal(err) }
+		f.SetNbSamples(n)
+		f.SetSampleFormat(astiav.SampleFormatS16)
+		f.SetChannelLayout(astiav.ChannelLayoutMono)
+		f.SetSampleRate(8000)
+		if err := f.AllocBuffer(0); err != nil {
+			t.Fatal(err)
+		}
 		f.SetPts(int64(total))
 		f.SamplesFillSilence()
-		if err := acc.SendFrame(f); err != nil { t.Fatal(err) }
+		if err := acc.SendFrame(f); err != nil {
+			t.Fatal(err)
+		}
 		drainEnc(t, acc, fc, as)
-		f.Free(); total += n
+		f.Free()
+		total += n
 	}
-	vcc.SendFrame(nil); drainEnc(t, vcc, fc, vs)
-	acc.SendFrame(nil); drainEnc(t, acc, fc, as)
-	if err := fc.WriteTrailer(); err != nil { t.Fatal(err) }
+	vcc.SendFrame(nil)
+	drainEnc(t, vcc, fc, vs)
+	acc.SendFrame(nil)
+	drainEnc(t, acc, fc, as)
+	if err := fc.WriteTrailer(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func drainEnc(t *testing.T, cc *astiav.CodecContext, fc *astiav.FormatContext, st *astiav.Stream) {
@@ -78,7 +113,9 @@ func drainEnc(t *testing.T, cc *astiav.CodecContext, fc *astiav.FormatContext, s
 		}
 		p.RescaleTs(cc.TimeBase(), st.TimeBase())
 		p.SetStreamIndex(st.Index())
-		if err := fc.WriteInterleavedFrame(p); err != nil { t.Fatal(err) }
+		if err := fc.WriteInterleavedFrame(p); err != nil {
+			t.Fatal(err)
+		}
 		p.Free()
 	}
 }

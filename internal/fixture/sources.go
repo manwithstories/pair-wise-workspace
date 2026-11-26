@@ -75,11 +75,15 @@ func genWrap(dir string) (Source, error) {
 		[]adapter.ARCTrackSpec{videoTrackSpec(32)}, pkts, false); err != nil {
 		return Source{}, err
 	}
+	// 剪辑点必须用“展开后”的真实统一轴时间（首帧在 mod-3 刻度处），
+	// 取展开后的前两帧 mod-3 .. mod-1。
+	tb := model.MustRational(1, videoTB)
+	first := model.TicksToTime(mod-3, tb)
+	second := model.TicksToTime(mod-1, tb)
 	return Source{
 		Kind: KindWrap, Path: path, NoDurationLimit: true,
-		// 回绕展开后的相对剪辑：用前两帧（mod-3..mod-1）。
 		Plan: CutPlan{PlanRanges: []PlanRange{
-			{0, frameUs(0), frameUs(2), model.RoundNearest, false},
+			{0, first.Microseconds(), second.Microseconds(), model.RoundNearest, false},
 		}},
 	}, nil
 }
@@ -96,7 +100,7 @@ func genIllegalCut(dir string) (Source, error) {
 		Kind: KindIllegalCut, Path: path,
 		Plan: CutPlan{PlanRanges: []PlanRange{
 			{0, frameUs(0), frameUs(5), model.RoundNearest, false}, // 合法对照
-			{0, frameUs(0), 5_000_000, model.RoundNearest, true},    // 越界（素材仅 400ms）
+			{0, frameUs(0), 5_000_000, model.RoundNearest, true},   // 越界（素材仅 400ms）
 			{7, 0, frameUs(2), model.RoundNearest, true},           // 未知轨
 		}},
 	}, nil

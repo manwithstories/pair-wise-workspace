@@ -38,14 +38,17 @@ func muxMKV(path string, frames int) error {
 	vc, ac := astiav.FindEncoder(astiav.CodecIDFfv1), astiav.FindEncoder(astiav.CodecIDPcmS16Le)
 	vcc := astiav.AllocCodecContext(vc)
 	defer vcc.Free()
-	vcc.SetWidth(64); vcc.SetHeight(48); vcc.SetPixelFormat(astiav.PixelFormatYuv420P)
+	vcc.SetWidth(64)
+	vcc.SetHeight(48)
+	vcc.SetPixelFormat(astiav.PixelFormatYuv420P)
 	vcc.SetTimeBase(astiav.NewRational(1, videoTB))
 	if err := vcc.Open(vc, nil); err != nil {
 		return model.Wrap(model.KindUnsupportedFormat, err, "fixture: open video enc")
 	}
 	acc := astiav.AllocCodecContext(ac)
 	defer acc.Free()
-	acc.SetSampleFormat(astiav.SampleFormatS16); acc.SetSampleRate(audioSR)
+	acc.SetSampleFormat(astiav.SampleFormatS16)
+	acc.SetSampleRate(audioSR)
 	acc.SetChannelLayout(astiav.ChannelLayoutMono)
 	acc.SetTimeBase(astiav.NewRational(1, audioSR))
 	if err := acc.Open(ac, nil); err != nil {
@@ -58,7 +61,8 @@ func muxMKV(path string, frames int) error {
 	if err := acc.ToCodecParameters(as.CodecParameters()); err != nil {
 		return err
 	}
-	vs.SetTimeBase(vcc.TimeBase()); as.SetTimeBase(acc.TimeBase())
+	vs.SetTimeBase(vcc.TimeBase())
+	as.SetTimeBase(acc.TimeBase())
 	io, err := astiav.OpenIOContext(path, astiav.NewIOContextFlags(astiav.IOContextFlagWrite), nil, nil)
 	if err != nil {
 		return model.Wrap(model.KindCorruptMedia, err, "fixture: open io")
@@ -69,7 +73,9 @@ func muxMKV(path string, frames int) error {
 	}
 	for i := 0; i < frames; i++ {
 		f := astiav.AllocFrame()
-		f.SetWidth(64); f.SetHeight(48); f.SetPixelFormat(astiav.PixelFormatYuv420P)
+		f.SetWidth(64)
+		f.SetHeight(48)
+		f.SetPixelFormat(astiav.PixelFormatYuv420P)
 		if err := f.AllocBuffer(1); err != nil {
 			return err
 		}
@@ -87,8 +93,10 @@ func muxMKV(path string, frames int) error {
 			n = audioSR/2 - total
 		}
 		f := astiav.AllocFrame()
-		f.SetNbSamples(n); f.SetSampleFormat(astiav.SampleFormatS16)
-		f.SetChannelLayout(astiav.ChannelLayoutMono); f.SetSampleRate(audioSR)
+		f.SetNbSamples(n)
+		f.SetSampleFormat(astiav.SampleFormatS16)
+		f.SetChannelLayout(astiav.ChannelLayoutMono)
+		f.SetSampleRate(audioSR)
 		if err := f.AllocBuffer(0); err != nil {
 			return err
 		}
@@ -98,10 +106,13 @@ func muxMKV(path string, frames int) error {
 			return err
 		}
 		drain(acc, fc, as)
-		f.Free(); total += n
+		f.Free()
+		total += n
 	}
-	vcc.SendFrame(nil); drain(vcc, fc, vs)
-	acc.SendFrame(nil); drain(acc, fc, as)
+	vcc.SendFrame(nil)
+	drain(vcc, fc, vs)
+	acc.SendFrame(nil)
+	drain(acc, fc, as)
 	return model.Wrap(model.KindCorruptMedia, fc.WriteTrailer(), "fixture: trailer")
 }
 
