@@ -94,6 +94,9 @@ func Scan(r io.ReaderAt, size int64) (*Report, error) {
 			info.Truncated = true
 			if id != IDData {
 				rep.Chunks = append(rep.Chunks, info)
+				if err := core.CheckAllocation(op, chunkSize); err != nil {
+					return nil, err
+				}
 				available := size - dataOff
 				if available < 0 {
 					available = 0
