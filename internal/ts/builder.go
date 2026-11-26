@@ -111,10 +111,13 @@ func BuildMediaPacket(pid uint16, cc byte, pusi bool, payload []byte, pcr27 *uin
 	return pkt
 }
 
-// EncodePTS stores a 33-bit PTS in the five-byte MPEG timestamp layout.
+// EncodePTS stores a 33-bit PTS in the five-byte MPEG timestamp layout. Values
+// at or beyond the wrap modulus are encoded as their wrapped raw value; the
+// media clock/index expander restores monotonic time.
 func EncodePTS(pts90k uint64) []byte {
+	pts90k &= (1 << 33) - 1
 	var b [5]byte
-	b[0] = 0x21 | byte((pts90k>>30)&0x0e)
+	b[0] = 0x21 | byte((pts90k>>29)&0x0e)
 	b[1] = byte((pts90k >> 22) & 0xff)
 	b[2] = byte((pts90k>>14)&0xfe) | 0x01
 	b[3] = byte((pts90k >> 7) & 0xff)
