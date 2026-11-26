@@ -63,7 +63,6 @@ type Task struct {
 }
 
 type taskIdentity struct {
-	JobID             string `json:"job_id"`
 	AssetSHA256       string `json:"asset_sha256"`
 	AnalyzerVersion   string `json:"analyzer_version"`
 	ParamsFingerprint string `json:"params_fingerprint"`
@@ -86,7 +85,6 @@ func NewTask(jobID, assetName, assetSHA256 string, p Params) (Task, error) {
 		ParamsFingerprint: fp,
 	}
 	id := taskIdentity{
-		JobID:             jobID,
 		AssetSHA256:       t.AssetSHA256,
 		AnalyzerVersion:   t.AnalyzerVersion,
 		ParamsFingerprint: fp,
