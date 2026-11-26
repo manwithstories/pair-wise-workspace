@@ -114,7 +114,9 @@ func TestWrapExpanderMonotonic(t *testing.T) {
 		}
 		expanded = append(expanded, full)
 	}
-	want := []int64{900, 950, 990, 1010, 1060, 1995, 2005, 2050}
+	// Zero-baseline expander: the first raw value (900) becomes the origin,
+	// so every expanded value is reduced by 900 while wraps stay identical.
+	want := []int64{0, 50, 90, 110, 160, 1095, 1105, 1150}
 	for i := range want {
 		if expanded[i] != want[i] {
 			t.Fatalf("idx %d got %d want %d (series %v)", i, expanded[i], want[i], expanded)
@@ -132,28 +134,47 @@ func TestWrapExpanderMonotonic(t *testing.T) {
 
 func TestWrapExpanderDuplicateAndJitter(t *testing.T) {
 	w, _ := NewWrapExpander(0, 1000)
+	// Zero-baseline: the first sample (500) becomes the origin, so it
+	// expands to 0.
 	full, ev, _ := w.Expand(500, 0)
-	if ev != nil || full != 500 {
+	if ev != nil || full != 0 {
 		t.Fatal("first sample wrong")
 	}
 	// Exact duplicate: no wrap, same expanded value.
 	full, ev, _ = w.Expand(500, 1)
-	if ev != nil || full != 500 {
+	if ev != nil || full != 0 {
 		t.Fatalf("duplicate mishandled: full=%d ev=%v", full, ev)
 	}
 	// Small backward jitter inside half-period: no wrap, monotonic hold.
 	full, ev, _ = w.Expand(495, 2)
-	if ev != nil || full != 500 {
+	if ev != nil || full != 0 {
 		t.Fatalf("jitter mishandled: full=%d ev=%v", full, ev)
 	}
 	// Real wrap: forward first, then a backward jump beyond half the period.
-	// Axis was held at 500 through the 495 jitter, so wrap lands at 1015.
+	// Raw axis reaches 800 then wraps to 10; with base 500 that lands at 515.
 	if _, _, err := w.Expand(800, 3); err != nil {
 		t.Fatal(err)
 	}
 	full, ev, _ = w.Expand(10, 4)
-	if ev == nil || full != 1015 {
+	if ev == nil || full != 515 {
 		t.Fatalf("wrap missed: full=%d ev=%v", full, ev)
+	}
+}
+
+func TestWrapExpanderWithExplicitBase(t *testing.T) {
+	// A supplier counter starting at 90000 (one second) with a known base
+	// must expand onto a zero-phase axis beginning near zero.
+	w, err := NewWrapExpanderWithBase(0, 1_000_000, 90000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	full, ev, _ := w.Expand(90360, 0)
+	if ev != nil || full != 360 {
+		t.Fatalf("base expansion wrong: full=%d ev=%v", full, ev)
+	}
+	full, _, _ = w.Expand(180360, 1)
+	if full != 90360 {
+		t.Fatalf("second sample wrong: %d", full)
 	}
 }
 

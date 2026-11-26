@@ -34,9 +34,15 @@ type WrapExpander struct {
 	prevRaw    int64
 	lastFull   int64
 	started    bool
+	// base is the counter's value at the stream's zero-phase origin. Every
+	// expanded value is reduced by it so the unified timeline starts near
+	// zero even when the supplier counter begins at a non-zero PTS.
+	base       int64
+	baseSet    bool
 }
 
-// NewWrapExpander validates the period and builds an expander.
+// NewWrapExpander validates the period and builds an expander with a zero
+// baseline (the first observed raw value becomes the origin).
 func NewWrapExpander(streamID int, period int64) (*WrapExpander, error) {
 	if period <= 0 {
 		return nil, fmt.Errorf("%w: period=%d", ErrBadPeriod, period)
@@ -44,10 +50,25 @@ func NewWrapExpander(streamID int, period int64) (*WrapExpander, error) {
 	return &WrapExpander{streamID: streamID, period: period, half: period / 2}, nil
 }
 
+// NewWrapExpanderWithBase builds an expander whose unwrapped axis is reduced
+// by baseTicks, anchoring a counter with a known non-zero origin (the stream's
+// start PTS) onto the zero-phase master timeline.
+func NewWrapExpanderWithBase(streamID int, period, baseTicks int64) (*WrapExpander, error) {
+	w, err := NewWrapExpander(streamID, period)
+	if err != nil {
+		return nil, err
+	}
+	w.base = baseTicks
+	w.baseSet = true
+	return w, nil
+}
+
 // Expand maps one raw PTS onto the unwrapped axis. Equal raw values map to
 // the same expanded value (duplicates stay visible to the transport layer).
-// A backward step bigger than half the period adds exactly one period.
-// The returned WrapEvent is non-nil whenever a wrap was detected.
+// A backward step bigger than half the period adds exactly one period. When
+// the expander carries a base, the returned axis is reduced by that base so
+// it begins at the zero-phase origin. The returned WrapEvent is non-nil
+// whenever a wrap was detected.
 func (w *WrapExpander) Expand(rawPTS, sourceOffset int64) (int64, *WrapEvent, error) {
 	if rawPTS < 0 {
 		return 0, nil, fmt.Errorf("negative raw PTS %d on stream %d", rawPTS, w.streamID)
@@ -56,7 +77,10 @@ func (w *WrapExpander) Expand(rawPTS, sourceOffset int64) (int64, *WrapEvent, er
 		w.started = true
 		w.prevRaw = rawPTS
 		w.lastFull = rawPTS
-		return rawPTS, nil, nil
+		if !w.baseSet {
+			w.base = rawPTS // zero-baseline expander: first sample is origin
+		}
+		return rawPTS - w.base, nil, nil
 	}
 
 	var event *WrapEvent
@@ -64,22 +88,22 @@ func (w *WrapExpander) Expand(rawPTS, sourceOffset int64) (int64, *WrapEvent, er
 	if rawPTS+w.half < w.prevRaw {
 		// Backward jump across more than half the counter range: wrap.
 		w.wraps++
-		full, err := add64(w.lastFull, w.period)
+		next, err := add64(w.lastFull, w.period)
 		if err != nil {
 			return 0, nil, err
 		}
-		full = full - w.prevRaw + rawPTS
+		full = next - w.prevRaw + rawPTS
 		event = &WrapEvent{
 			StreamID:     w.streamID,
 			WrapCount:    w.wraps,
 			RawPTS:       rawPTS,
 			PrevRawPTS:   w.prevRaw,
-			UnwrappedPTS: full,
+			UnwrappedPTS: full - w.base,
 			SourceOffset: sourceOffset,
 		}
 		w.lastFull = full
 		w.prevRaw = rawPTS
-		return full, event, nil
+		return full - w.base, event, nil
 	}
 
 	// Forward step, duplicate, or small jitter: preserve monotonicity.
@@ -93,7 +117,7 @@ func (w *WrapExpander) Expand(rawPTS, sourceOffset int64) (int64, *WrapEvent, er
 	}
 	w.lastFull = full
 	w.prevRaw = rawPTS
-	return full, event, nil
+	return full - w.base, event, nil
 }
 
 // Wraps reports how many wraparounds have been expanded so far.
