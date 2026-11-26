@@ -62,4 +62,15 @@ if [[ "$reject_code" -ne 3 ]]; then
 fi
 grep -q '^safe_reject' "$inspect_out"
 
+set +e
+"$bin" inspect --file fixtures/generated/crop_out_of_bounds.mp4 >"$inspect_out" 2>&1
+crop_code=$?
+set -e
+if [[ "$crop_code" -ne 3 ]]; then
+  echo "expected exit 3 for out-of-bounds crop, got $crop_code" >&2
+  cat "$inspect_out" >&2
+  exit 1
+fi
+grep -q 'code=crop_out_of_bounds' "$inspect_out"
+
 echo "verify_demo: OK"
