@@ -11,8 +11,8 @@ const (
 	TSPacketSize = 188
 	SyncByte     = 0x47
 
-	PIDPAT = 0x0000
-	PIDPMT = 0x1000
+	PIDPAT   = 0x0000
+	PIDPMT   = 0x1000
 	PIDVideo = 0x0100
 
 	// StreamPSIInterval inserts a PAT/PMT pair roughly this often (in TS
@@ -94,9 +94,9 @@ func patPacket(cc uint8) []byte {
 	binary.BigEndian.PutUint16(b[6:8], uint16(0xB000|(length&0x0FFF)))
 	b[8] = 0x01 // transport_stream_id high
 	b[9] = 0x01
-	b[10] = 0x01 // version/version/current-next
-	b[11] = 0x00 // section_number
-	b[12] = 0x00 // last_section_number
+	b[10] = 0x01                                 // version/version/current-next
+	b[11] = 0x00                                 // section_number
+	b[12] = 0x00                                 // last_section_number
 	binary.BigEndian.PutUint16(b[13:15], 0x0001) // program number 1
 	binary.BigEndian.PutUint16(b[15:17], 0xE000|PIDPMT)
 	b[17] = 0x00 // CRC placeholder region; fixtures do not require a valid CRC

@@ -56,8 +56,8 @@ func digest(data []byte) string {
 // derived from the source hash so different source content never collides.
 func (s *Store) paths(k Key) (payload, meta string) {
 	name := k.Rendition + "-" + k.SegmentID + "-" + shortName(k.SourceHash)
-	return filepath.Join(s.root, name + ".ts"),
-		filepath.Join(s.root, name + ".json")
+	return filepath.Join(s.root, name+".ts"),
+		filepath.Join(s.root, name+".json")
 }
 
 func shortName(hash string) string {

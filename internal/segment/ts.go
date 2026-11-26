@@ -47,10 +47,10 @@ type Segment struct {
 
 // ResyncStats counts recovery events while scanning one rendition.
 type ResyncStats struct {
-	SyncLoss     int // times a sync byte was missing at an expected boundary
-	Resynced     int // successful recoveries via sync-byte scanning
-	Frames       int
-	IDRFrames    int
+	SyncLoss        int // times a sync byte was missing at an expected boundary
+	Resynced        int // successful recoveries via sync-byte scanning
+	Frames          int
+	IDRFrames       int
 	Discontinuities int
 }
 

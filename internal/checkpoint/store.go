@@ -32,9 +32,9 @@ type RenditionProgress struct {
 
 // Document is the full checkpoint payload (checksum excluded).
 type Document struct {
-	Seed        int64                          `json:"seed"`
-	ProgramSecs int                            `json:"program_seconds"`
-	Renditions  map[string]*RenditionProgress  `json:"renditions"`
+	Seed        int64                         `json:"seed"`
+	ProgramSecs int                           `json:"program_seconds"`
+	Renditions  map[string]*RenditionProgress `json:"renditions"`
 }
 
 // envelope wraps the document with its integrity checksum.

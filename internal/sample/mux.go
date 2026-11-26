@@ -40,8 +40,8 @@ func buildFrame(fi int, cc *ccState, tspf int) Frame {
 		if pusi {
 			// Adaptation field carrying a PCR, then a minimal PES packet.
 			b[3] = 0x30 | (cc.video & 0x0F) // adaptation + payload
-			b[4] = 7                         // adaptation field length
-			b[5] = 0x10                      // PCR flag
+			b[4] = 7                        // adaptation field length
+			b[5] = 0x10                     // PCR flag
 			putPCR(b[6:12], pcrBase(fi))
 			putPES(b[12:], fi, nalType)
 		} else {
@@ -77,9 +77,9 @@ func putPES(b []byte, fi int, nalType byte) {
 	// PES start code 0x000001E0, streaming-id 0xE0.
 	b[0], b[1], b[2], b[3] = 0x00, 0x00, 0x01, 0xE0
 	binary.BigEndian.PutUint16(b[4:6], 0x0010) // PES packet length (placeholder)
-	b[6] = 0x80                                 // marker bits
-	b[7] = 0x00                                 // no PES header flags beyond PTS
-	b[8] = 0x05                                 // PES header data length
+	b[6] = 0x80                                // marker bits
+	b[7] = 0x00                                // no PES header flags beyond PTS
+	b[8] = 0x05                                // PES header data length
 	putPTS(b[9:15], uint64(fi)*TicksPerFrame*300)
 	// Annex-B start code then a one-byte NAL header (forbidden=0, nal_ref_idc,
 	// type). nal_ref_idc is set high for IDR as real encoders do.

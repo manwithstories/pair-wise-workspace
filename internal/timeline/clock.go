@@ -13,14 +13,14 @@ type SRAnchor struct {
 // wall-clock NTP time. It is safe for single-goroutine use, which matches the
 // pipeline: one clock per rendition, driven from one reorder reader.
 type Clock struct {
-	rate     uint64
-	anchor   *SRAnchor
-	baseRTP  uint64 // extended RTP value of the first observed packet
-	baseSet  bool
-	lastExt  uint64 // most recent extended RTP timestamp
-	lastSet  bool
-	anchors  int
-	jumps    int
+	rate    uint64
+	anchor  *SRAnchor
+	baseRTP uint64 // extended RTP value of the first observed packet
+	baseSet bool
+	lastExt uint64 // most recent extended RTP timestamp
+	lastSet bool
+	anchors int
+	jumps   int
 }
 
 // NewClock returns a clock for the given RTP clock rate (90000 for video).

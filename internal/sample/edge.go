@@ -24,9 +24,9 @@ const (
 // pipeline as a normal fixture, exercising the corresponding handler.
 //
 //   - truncated:    the final datagram's length prefix promises more bytes
-//                   than remain, forcing a Corrupt framing error.
+//     than remain, forcing a Corrupt framing error.
 //   - bad-rtcp:     a syntactically broken RTCP compound packet is inserted,
-//                   which must be counted (BadRTCP) and skipped, not fatal.
+//     which must be counted (BadRTCP) and skipped, not fatal.
 func BuildEdgeFixture(kind EdgeKind, seed int64, seconds int) ([]byte, error) {
 	r := DefaultRenditions()[0]
 	stream, _, err := BuildRendition(r, ProgramDuration(seconds), seed, DamageConfig{})
@@ -47,7 +47,7 @@ func BuildEdgeFixture(kind EdgeKind, seed int64, seconds int) ([]byte, error) {
 		// two valid framed datagrams. It must be detected and skipped.
 		bad := make([]byte, 8)
 		bad[0] = 0x80
-		bad[1] = 200 // SR type
+		bad[1] = 200                              // SR type
 		binary.BigEndian.PutUint16(bad[2:4], 999) // length runs past datagram
 		bad[4], bad[5], bad[6], bad[7] = 0, 0, 0, 1
 		framed := lengthPrefix(bad)

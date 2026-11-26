@@ -147,7 +147,7 @@ func (b *Builder) cut(boundary Frame, disc bool) *Segment {
 	seg := &Segment{
 		ID:            fmt.Sprintf("%s-%06d", b.rendition, b.segIndex),
 		Index:         b.segIndex,
-		Rendition:    b.rendition,
+		Rendition:     b.rendition,
 		Data:          data,
 		StartTick:     b.segStartTick,
 		EndTick:       boundary.Tick,
@@ -185,7 +185,7 @@ func (b *Builder) Flush() *Segment {
 	seg := &Segment{
 		ID:            fmt.Sprintf("%s-%06d", b.rendition, b.segIndex),
 		Index:         b.segIndex,
-		Rendition:    b.rendition,
+		Rendition:     b.rendition,
 		Data:          data,
 		StartTick:     b.segStartTick,
 		EndTick:       endTick,

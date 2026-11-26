@@ -28,15 +28,15 @@ const (
 
 // Packet is one parsed RTP datagram in receive order.
 type Packet struct {
-	Version    uint8
-	Padding    bool
-	Extension  bool
-	Marker     bool
+	Version     uint8
+	Padding     bool
+	Extension   bool
+	Marker      bool
 	PayloadType uint8
-	Sequence   uint16
-	Timestamp  uint32
-	SSRC       uint32
-	Payload    []byte
+	Sequence    uint16
+	Timestamp   uint32
+	SSRC        uint32
+	Payload     []byte
 }
 
 // IsRTP reports whether a raw datagram begins with an RTP header (V2, no RTCP

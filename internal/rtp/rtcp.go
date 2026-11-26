@@ -9,9 +9,9 @@ import (
 // SenderReport is the subset of an RTCP SR (RFC 3550 section 6.4.1) the
 // restoration pipeline consumes.
 type SenderReport struct {
-	SSRC       uint32
-	NTPTime    uint64 // 64-bit NTP fixed-point timestamp
-	RTPTime    uint32 // RTP timestamp paired with NTPTime
+	SSRC        uint32
+	NTPTime     uint64 // 64-bit NTP fixed-point timestamp
+	RTPTime     uint32 // RTP timestamp paired with NTPTime
 	PacketCount uint32
 }
 

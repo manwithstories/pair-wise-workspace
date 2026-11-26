@@ -25,8 +25,8 @@ type phaseMetrics struct {
 	alignedPct     float64 // segments within the 45 ms boundary budget
 	hashMatchPct   float64
 	peakBuffer     int64
-	isolated       int     // isolated (non-cascading) gap events
-	recovered      string  // "ok" when TS resync recovered every loss event
+	isolated       int    // isolated (non-cascading) gap events
+	recovered      string // "ok" when TS resync recovered every loss event
 	cacheReject    int
 	cacheHit       int
 	disc           int
@@ -74,9 +74,9 @@ func runNormalAndDamage(ctx context.Context, v *verifyFlags) (*normalSummary, *p
 	segMap := map[string][]*segment.Segment{}
 	for _, rr := range res.Renditions {
 		variants = append(variants, hls.Variant{
-			Name: rr.Name,
+			Name:      rr.Name,
 			Bandwidth: bandwidthFor(rr.Name),
-			Width: widthFor(rr.Name), Height: heightFor(rr.Name),
+			Width:     widthFor(rr.Name), Height: heightFor(rr.Name),
 		})
 		segMap[rr.Name] = rr.Segments
 	}

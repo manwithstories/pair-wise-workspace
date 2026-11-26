@@ -19,20 +19,20 @@ import (
 
 // RenditionInput is one bitrate rung's framed datagram stream plus its labels.
 type RenditionInput struct {
-	Name       string
-	SSRC       uint32
-	Bandwidth  uint32
-	Width      int
-	Height     int
-	Datagrams  []byte
+	Name      string
+	SSRC      uint32
+	Bandwidth uint32
+	Width     int
+	Height    int
+	Datagrams []byte
 }
 
 // Config controls a pipeline run.
 type Config struct {
-	OutDir       string
-	Seed         int64
-	ProgramSecs  int
-	Resume       bool
+	OutDir      string
+	Seed        int64
+	ProgramSecs int
+	Resume      bool
 	// TolerateIntegrity, when true, treats cache integrity failures as
 	// expected self-healing events (counted as CacheRejects and rebuilt)
 	// rather than aborting the run. Used by the resume demonstration.
@@ -44,13 +44,13 @@ type Config struct {
 
 // RenditionResult summarizes one rendition's restoration.
 type RenditionResult struct {
-	Name            string
-	Segments        []*segment.Segment
-	CacheHits       int
-	CacheRejects    int
-	Reorder         rtp.ReorderStats
-	Resync          segment.ResyncStats
-	Backpressured   int64
+	Name          string
+	Segments      []*segment.Segment
+	CacheHits     int
+	CacheRejects  int
+	Reorder       rtp.ReorderStats
+	Resync        segment.ResyncStats
+	Backpressured int64
 }
 
 // Result is the aggregate outcome across renditions.
