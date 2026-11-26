@@ -40,6 +40,14 @@ type Config struct {
 	// SlowConsumer, when > 0, is an artificial per-segment sink delay used to
 	// demonstrate backpressure. Production callers pass zero.
 	SlowConsumerDelay func()
+	// InterruptAfter, when > 0, cancels the run deterministically once this
+	// many segments have been durably committed across all renditions. It
+	// models an operator halt at a clean boundary for resume testing.
+	InterruptAfter int
+	// interruptCancel is invoked the moment InterruptAfter is reached.
+	interruptCancel context.CancelFunc
+	// committed counts durable commits during this run for the interrupt gate.
+	committed int
 }
 
 // RenditionResult summarizes one rendition's restoration.
@@ -71,6 +79,12 @@ func hashBytes(b []byte) string {
 func Run(ctx context.Context, in []*RenditionInput, ckpt *checkpoint.Store, cas *cache.Store, cfg Config) (*Result, error) {
 	sem := newMemSemaphore(MaxInFlightBytes)
 	res := &Result{}
+
+	if cfg.InterruptAfter > 0 && cfg.interruptCancel == nil {
+		inner, cancel := context.WithCancel(ctx)
+		ctx = inner
+		cfg.interruptCancel = cancel
+	}
 
 	for _, ri := range in {
 		if err := ctx.Err(); err != nil {
@@ -167,6 +181,12 @@ func runRendition(ctx context.Context, sem *memSemaphore, ri *RenditionInput,
 		if !alreadyCommitted {
 			if err := ckpt.CommitSegment(ri.Name, seg.Index, got, seg.EndTick, 0); err != nil {
 				return err
+			}
+			cfg.committed++
+			// Deterministic interrupt at a clean, durably committed boundary.
+			if cfg.InterruptAfter > 0 && cfg.committed >= cfg.InterruptAfter &&
+				cfg.interruptCancel != nil {
+				cfg.interruptCancel()
 			}
 		}
 		rr.Segments = append(rr.Segments, seg)
