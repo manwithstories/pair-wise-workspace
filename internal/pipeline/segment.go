@@ -42,10 +42,10 @@ func (r *Runner) commitSegment(src fixture.Source, pm *adapter.ParsedMedia,
 
 	// 3) 幂等键：输入摘要（源路径+指纹）+参数+适配器版本。
 	params := map[string]string{
-		"start_us":  itoa64(seg.Start.Microseconds()),
-		"end_us":    itoa64(seg.End.Microseconds()),
-		"kind":      segKind(seg),
-		"rounding":  itoa64(int64(seg.Roundings[0].Mode)),
+		"start_us": itoa64(seg.Start.Microseconds()),
+		"end_us":   itoa64(seg.End.Microseconds()),
+		"kind":     segKind(seg),
+		"rounding": itoa64(int64(seg.Roundings[0].Mode)),
 	}
 	inputDigest := fp.ContentKeyHex()
 	key := journal.IdempotencyKey(inputDigest, params, parser.Name(), parser.Version())
@@ -57,17 +57,24 @@ func (r *Runner) commitSegment(src fixture.Source, pm *adapter.ParsedMedia,
 		return nil
 	}
 
-	// 仅新片段分配全局唯一 ID 与文件名，避免跨源 seg-001 互相覆盖。
-	seg.ID = r.nextSegmentID(src.Kind)
-	relPath := "segments/" + seg.ID + ".arc"
-	rec := &journal.SegmentRecord{
-		SegmentID: seg.ID, SourceID: src.Path, IdempotencyKey: key,
-		AdapterName: parser.Name(), AdapterVersion: parser.Version(),
-		FilePath: relPath, StartUs: seg.Start.Microseconds(), EndUs: seg.End.Microseconds(),
-		Params: params,
-	}
-	if _, _, err := r.jrnl.Prepare(rec); err != nil {
-		return err
+	// 中断遗留的 pending 记录：复用其既有 ID 与文件路径，不另起新片段。
+	var relPath string
+	if pending, ok := r.jrnl.Get(key); ok {
+		seg.ID = pending.SegmentID
+		relPath = pending.FilePath
+	} else {
+		// 仅全新片段分配全局唯一 ID 与文件名，避免跨源 seg-001 互相覆盖。
+		seg.ID = r.nextSegmentID(src.Kind)
+		relPath = "segments/" + seg.ID + ".arc"
+		rec := &journal.SegmentRecord{
+			SegmentID: seg.ID, SourceID: src.Path, IdempotencyKey: key,
+			AdapterName: parser.Name(), AdapterVersion: parser.Version(),
+			FilePath: relPath, StartUs: seg.Start.Microseconds(), EndUs: seg.End.Microseconds(),
+			Params: params,
+		}
+		if _, _, err := r.jrnl.Prepare(rec); err != nil {
+			return err
+		}
 	}
 
 	// 4) 物化片段文件（arc1 无损切片），临时文件 + 原子替换。
@@ -94,7 +101,11 @@ func (r *Runner) commitSegment(src fixture.Source, pm *adapter.ParsedMedia,
 		return err
 	}
 	*committed++
-	r.appendMetric(metrics, rec, origY, recY, samples, seg)
+	committedRec, ok := r.jrnl.Get(key)
+	if !ok {
+		return model.NewError(model.KindCheckpoint, "pipeline: committed record vanished: %s", key)
+	}
+	r.appendMetric(metrics, committedRec, origY, recY, samples, seg)
 	return nil
 }
 
@@ -148,8 +159,8 @@ func (r *Runner) materializeARC(absPath string, pm *adapter.ParsedMedia,
 	for _, ti := range trackIdxs {
 		for _, fr := range tl.FramesInWindow(ti, seg.Start, seg.End) {
 			pkts = append(pkts, adapter.ARCPacket{
-				TrackIndex:    idxMap[ti],
-				StartTicks:    model.TimeToTicks(fr.Start, pm.Tracks[ti].TimeBase),
+				TrackIndex: idxMap[ti],
+				StartTicks: model.TimeToTicks(fr.Start, pm.Tracks[ti].TimeBase),
 				DurationTicks: model.TimeToTicks(fr.End, pm.Tracks[ti].TimeBase) -
 					model.TimeToTicks(fr.Start, pm.Tracks[ti].TimeBase),
 				KeyFrame: fr.KeyFrame,

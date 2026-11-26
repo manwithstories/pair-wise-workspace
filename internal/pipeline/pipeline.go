@@ -10,7 +10,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"sort"
 
 	"archivemedia/internal/adapter"
 	"archivemedia/internal/cut"
@@ -45,26 +44,26 @@ func DefaultConfig(root string) Config {
 
 // SourceOutcome 记录单个素材的处理结果与故障。
 type SourceOutcome struct {
-	Kind           string `json:"kind"`
-	Path           string `json:"path"`
-	Status         string `json:"status"` // ok / isolated / interrupted
-	Segments       int    `json:"segments"`
-	Recovered      int    `json:"recovered"`
-	FirstBadAtUs   int64  `json:"first_bad_at_us,omitempty"`
-	ErrorKind      string `json:"error_kind,omitempty"`
-	ErrorMessage   string `json:"error_message,omitempty"`
-	SilenceCount   int    `json:"silence_intervals"`
-	TransitionDedup int   `json:"transition_dedup"`
+	Kind            string `json:"kind"`
+	Path            string `json:"path"`
+	Status          string `json:"status"` // ok / isolated / interrupted
+	Segments        int    `json:"segments"`
+	Recovered       int    `json:"recovered"`
+	FirstBadAtUs    int64  `json:"first_bad_at_us,omitempty"`
+	ErrorKind       string `json:"error_kind,omitempty"`
+	ErrorMessage    string `json:"error_message,omitempty"`
+	SilenceCount    int    `json:"silence_intervals"`
+	TransitionDedup int    `json:"transition_dedup"`
 }
 
 // Result 是一次流水线运行的完整结果。
 type Result struct {
-	Outcomes       []SourceOutcome
-	Report         *verify.Report
-	Manifest       manifest.Manifest
-	ManifestSha    string
-	Interrupted    bool
-	Isolated       []SourceOutcome
+	Outcomes    []SourceOutcome
+	Report      *verify.Report
+	Manifest    manifest.Manifest
+	ManifestSha string
+	Interrupted bool
+	Isolated    []SourceOutcome
 }
 
 // Runner 持有日志存储与运行状态。
@@ -89,8 +88,13 @@ func New(cfg Config) (*Runner, error) {
 	if _, err := manifest.EnsureDir(cfg.Root, "segments"); err != nil {
 		return nil, err
 	}
-	// 续跑时序号从已提交片段之后继续，避免与既有文件碰撞。
-	return &Runner{cfg: cfg, jrnl: j, seq: len(j.Committed())}, nil
+	// 序号从全部已知记录之后继续（含中断遗留 pending），避免与待续片段 ID 碰撞。
+	r := &Runner{cfg: cfg, jrnl: j, seq: j.RecordCount()}
+	// 续跑前清理中断遗留的未提交孤儿片段，使目录与清单严格一致。
+	if err := r.cleanupOrphans(); err != nil {
+		return nil, err
+	}
+	return r, nil
 }
 
 // Run 处理全部素材。
@@ -107,7 +111,8 @@ func (r *Runner) Run(sources []fixture.Source) (*Result, error) {
 		res.Outcomes = append(res.Outcomes, out)
 		if out.Status == "interrupted" {
 			res.Interrupted = true
-			// 中断：先持久化已完成工作，再返回可续跑错误。
+			// 中断：先持久化中断点与已完成工作，再返回可续跑错误。
+			_ = r.jrnl.MarkInterrupted(committedCount)
 			r.finishManifest(res, metrics, silenceTotal, dedupTotal)
 			return res, model.NewError(model.KindInterrupted,
 				"pipeline: simulated interrupt after %d segments", committedCount)
@@ -238,7 +243,9 @@ func (r *Runner) isolate(o SourceOutcome, err error) SourceOutcome {
 func (r *Runner) finishManifest(res *Result, metrics []verify.SegmentMetric,
 	silence, dupGroups int) {
 	committed := r.jrnl.Committed()
-	m := manifest.Build(committed, runID(r.cfg.Root), fixedTime)
+	m := manifest.Build(committed, runID(r.cfg.Root), fixedTime, manifest.RunStats{
+		SilenceIntervals: silence, DuplicateGroups: dupGroups,
+	})
 	sha, err := manifest.WriteAtomically(r.cfg.Root, m)
 	if err != nil {
 		return
@@ -264,16 +271,11 @@ const fixedTime = "2026-11-27T00:00:00Z"
 
 // aggregateProvenance 把全部片段溯源哈希再聚合为运行级 provenance。
 func aggregateProvenance(recs []*journal.SegmentRecord) string {
-	keys := make([]string, 0, len(recs))
+	provs := make([]string, 0, len(recs))
 	for _, rec := range recs {
-		keys = append(keys, rec.Provenance)
+		provs = append(provs, rec.Provenance)
 	}
-	sort.Strings(keys)
-	h := sha256.New()
-	for _, k := range keys {
-		h.Write([]byte(k))
-	}
-	return hex.EncodeToString(h.Sum(nil))
+	return journal.AggregateProvenance(provs)
 }
 
 // writeJSONLine 供 CLI 输出结构化行。

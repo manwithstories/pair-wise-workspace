@@ -85,15 +85,29 @@ func TestInterruptAndResume(t *testing.T) {
 	if committedAfterInterrupt != 2 {
 		t.Fatalf("中断时应恰好提交 2 个片段, got %d", committedAfterInterrupt)
 	}
+	// 中断点必须持久化
+	if cp := r1.jrnl.Checkpoint(); cp.InterruptAt != 2 {
+		t.Fatalf("中断点未持久化: %d", cp.InterruptAt)
+	}
+	// 中断后磁盘上应有一个未提交孤儿片段（已物化但未进检查点）
+	segEntries, _ := os.ReadDir(filepath.Join(dir, "segments"))
+	if len(segEntries) <= committedAfterInterrupt {
+		t.Fatal("应存在中断遗留的孤儿片段文件")
+	}
 	manifestBefore, err := os.ReadFile(filepath.Join(dir, manifest.ManifestFileName))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// 续跑：不带中断点，复用已提交片段并补齐其余
+	// 续跑：New 清理孤儿，复用已提交片段并补齐其余
 	r2, err := New(DefaultConfig(dir))
 	if err != nil {
 		t.Fatal(err)
+	}
+	// 孤儿已被清理：磁盘文件数回到已提交数
+	segEntries2, _ := os.ReadDir(filepath.Join(dir, "segments"))
+	if len(segEntries2) != committedAfterInterrupt {
+		t.Fatalf("孤儿未清理: 磁盘=%d 已提交=%d", len(segEntries2), committedAfterInterrupt)
 	}
 	res2, err := r2.Run(srcs)
 	if err != nil {
@@ -151,7 +165,7 @@ func TestThresholdFailureReported(t *testing.T) {
 	dir := t.TempDir()
 	srcs := generateSources(t, dir)
 	cfg := DefaultConfig(dir)
-	cfg.MinPsnrDb = 80 // 极高门限，无损哨兵 99 仍过；改为测对齐不可达
+	cfg.MinPsnrDb = 80  // 极高门限，无损哨兵 99 仍过；改为测对齐不可达
 	cfg.MaxAlignMs = -1 // 任何对齐误差都失败
 	r, err := New(cfg)
 	if err != nil {
