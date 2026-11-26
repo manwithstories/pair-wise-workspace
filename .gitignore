@@ -71,3 +71,15 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Go 构建产物（不纳入交付）----
+/archive
+/cmd/archive/archive
+*.test
+*.out
+coverage.txt
+
+# ---- 归档运行时工作目录（demo/resume/verify 的数据根目录）----
+# 仅忽略仓库内可能产生的默认运行目录；用户显式 --dir 指定的路径不受影响。
+/archive-demo/
+/run-output/
