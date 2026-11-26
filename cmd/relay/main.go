@@ -118,8 +118,3 @@ func emptyDigest(s string) string {
 	}
 	return strings.Repeat("0", 64)
 }
-
-func runDemo(ctx context.Context, args []string) int {
-	fmt.Println("demo skeleton")
-	return 0
-}
