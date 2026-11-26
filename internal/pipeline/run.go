@@ -117,13 +117,11 @@ func RunDemo(opt Options) (*Result, error) {
 			StartSec: r.StartSec, EndSec: r.EndSec, DurationSec: r.DurationSec, Boundary: r.Boundary,
 		})
 	}
-	var totalBytes int64
-	var verification cache.Verification
 	snap := journal.Snapshot()
-	for _, sp := range cutRes.Segments {
+	outputs, err := processSegmentsBounded(limits.MaxConcurrency, cutRes.Segments, func(sp cut.Plan) (segmentOutput, error) {
 		finalPath, err := media.SafeJoin(opt.Work, filepath.Join("segments", sp.Output))
 		if err != nil {
-			return nil, err
+			return segmentOutput{}, err
 		}
 		var art checkpoint.Artifact
 		if old, ok := snap.Artifacts[sp.Output]; ok {
@@ -139,42 +137,54 @@ func RunDemo(opt Options) (*Result, error) {
 			budget := encode.NewController(cfg, duration).TargetBytes
 			n, sum, err := encode.RemuxSegmentAtomic(sourcePath, finalPath, sp.TargetStartSec, sp.TargetEndSec, budget)
 			if err != nil {
-				return nil, err
+				return segmentOutput{}, err
 			}
 			art, err = journal.RecordProduct(sp.Output, finalPath, sp.EndSequence)
 			if err != nil {
-				return nil, err
+				return segmentOutput{}, err
 			}
 			art.SizeBytes, art.SHA256 = n, sum
 		}
 		data, err := os.ReadFile(finalPath)
 		if err != nil {
-			return nil, media.WrapError(media.CodeIO, "read segment for cache", err)
+			return segmentOutput{}, media.WrapError(media.CodeIO, "read segment for cache", err)
 		}
 		key, err := cache.Key(sourceSHA, map[string]any{
 			"config": configSHA, "segment": sp.Index, "start": sp.TargetStartSec, "end": sp.TargetEndSec,
 		})
 		if err != nil {
-			return nil, err
+			return segmentOutput{}, err
 		}
 		if _, err := store.Put(key, sourceSHA, configSHA, sp.Output, data); err != nil {
-			return nil, err
+			return segmentOutput{}, err
 		}
-		verification, err = store.VerifyHit(key, sourcePath)
+		verification, err := store.VerifyHit(key, sourcePath)
 		if err != nil {
-			return nil, err
+			return segmentOutput{}, err
 		}
 		if !verification.Hit || !verification.SourceOK || !verification.SHA256OK {
-			return nil, media.NewError(media.CodeChecksumMismatch, "fresh cache entry failed verification", nil)
+			return segmentOutput{}, media.NewError(media.CodeChecksumMismatch, "fresh cache entry failed verification", nil)
 		}
-		totalBytes += art.SizeBytes
-		mf.AddSegment(manifest.Segment{
-			Index: sp.Index, Name: sp.Output, Path: filepath.Join("segments", sp.Output),
-			SHA256: art.SHA256, SizeBytes: art.SizeBytes,
-			TargetStartSec: sp.TargetStartSec, ActualStartSec: sp.ActualStartSec,
-			TargetEndSec: sp.TargetEndSec, ActualEndSec: sp.ActualEndSec,
-			AlignmentErrorMS: sp.AudioVideoErrorMS,
-		})
+		return segmentOutput{
+			Bytes: art.SizeBytes, Verification: verification,
+			Segment: manifest.Segment{
+				Index: sp.Index, Name: sp.Output, Path: filepath.Join("segments", sp.Output),
+				SHA256: art.SHA256, SizeBytes: art.SizeBytes,
+				TargetStartSec: sp.TargetStartSec, ActualStartSec: sp.ActualStartSec,
+				TargetEndSec: sp.TargetEndSec, ActualEndSec: sp.ActualEndSec,
+				AlignmentErrorMS: sp.AudioVideoErrorMS,
+			},
+		}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	var totalBytes int64
+	var verification cache.Verification
+	for _, out := range outputs {
+		totalBytes += out.Bytes
+		verification = out.Verification
+		mf.AddSegment(out.Segment)
 	}
 
 	mf.Stats.DecodeErrors = demux.DecodeErrors
