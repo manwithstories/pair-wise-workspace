@@ -92,27 +92,30 @@ func TestParseSenderReport(t *testing.T) {
 }
 
 func TestReorderWraparoundDuplicateLate(t *testing.T) {
-	rb := NewReorderBuffer()
-	// Start near the 16-bit ceiling.
+	rb := NewReorderBufferWindow(16)
+	// Start near the 16-bit ceiling so the sequence counter wraps.
 	first := rb.Push(mustParse(t, rtpDatagram(0xFFFE, 100, []byte("a"))))
 	if len(first) != 1 || first[0].Sequence != 0xFFFE {
 		t.Fatalf("first packet anchoring wrong: %d", len(first))
 	}
-	// Out of order: 0x0001 then 0x0000 (wrap), then a duplicate of 0x0001.
+	// 0x0001 (post-wrap) arrives before its predecessors; it must be held.
 	if out := rb.Push(mustParse(t, rtpDatagram(0x0001, 300, []byte("c")))); len(out) != 0 {
-		t.Fatal("0x0001 must wait for 0x0000")
+		t.Fatal("0x0001 must wait inside the window")
 	}
-	out := rb.Push(mustParse(t, rtpDatagram(0x0000, 200, []byte("b"))))
-	if len(out) != 2 || out[0].Sequence != 0xFFFF || out[1].Sequence != 0x0000 {
+	// A re-arrival while still held is a true duplicate, not a late packet.
+	if out := rb.Push(mustParse(t, rtpDatagram(0x0001, 300, []byte("dup-held")))); len(out) != 0 {
+		t.Fatal("held duplicate must not release")
+	}
+	// Fill the missing wrap packet 0x0000 first; 0xFFFF still missing.
+	if out := rb.Push(mustParse(t, rtpDatagram(0x0000, 250, []byte("b0")))); len(out) != 0 {
+		t.Fatalf("0x0000 cannot release while 0xFFFF is missing: %v", seqs(out))
+	}
+	// 0xFFFF completes the run: all three release in wrap order.
+	out := rb.Push(mustParse(t, rtpDatagram(0xFFFF, 200, []byte("b"))))
+	if len(out) != 3 || seqs(out)[0] != 0xFFFF || seqs(out)[1] != 0x0000 || seqs(out)[2] != 0x0001 {
 		t.Fatalf("wrap ordering wrong: %+v", seqs(out))
 	}
-	if out := rb.Push(mustParse(t, rtpDatagram(0x0001, 300, []byte("c2")))); len(out) != 1 {
-		t.Fatal("held 0x0001 should now release")
-	}
-	if out := rb.Push(mustParse(t, rtpDatagram(0x0001, 300, []byte("dup")))); len(out) != 0 {
-		t.Fatal("duplicate must not release")
-	}
-	// An ancient late packet (0xFFFE again) is dropped.
+	// An already-released sequence is a late packet, dropped.
 	if out := rb.Push(mustParse(t, rtpDatagram(0xFFFE, 100, []byte("late")))); len(out) != 0 {
 		t.Fatal("late packet must be dropped")
 	}
@@ -131,14 +134,23 @@ func TestReorderGapDeclaredAtWindowBoundary(t *testing.T) {
 	if rb.Stats().Gaps != 0 || rb.Pending() != 2 {
 		t.Fatalf("gap should stay open inside window: %+v", rb.Stats())
 	}
-	// seq 14 is windowSize+1 beyond the missing 11: the window is exhausted,
-	// gap 11 is declared and surviving packets 12..14 release in order.
-	out := rb.Push(mustParse(t, rtpDatagram(14, 0, nil)))
-	if len(out) != 3 || seqs(out)[0] != 12 || seqs(out)[2] != 14 {
+	// seq 15 pushes the high-water mark past the window around hole 11: gap 11
+	// is declared and the contiguous run 12,13 releases. seq 14 is also lost
+	// and becomes the new open hole, so 15 stays held until flush.
+	out := rb.Push(mustParse(t, rtpDatagram(15, 0, nil)))
+	if len(out) != 2 || seqs(out)[0] != 12 || seqs(out)[1] != 13 {
 		t.Fatalf("release after gap wrong: %v", seqs(out))
 	}
 	if rb.Stats().Gaps != 1 {
 		t.Fatalf("gaps = %d, want 1", rb.Stats().Gaps)
+	}
+	// Flush releases the held 15 and accounts for the still-open hole 14.
+	flushed := rb.Flush()
+	if len(flushed) != 1 || flushed[0].Sequence != 15 {
+		t.Fatalf("flush wrong: %v", seqs(flushed))
+	}
+	if rb.Stats().Gaps != 2 {
+		t.Fatalf("gaps after flush = %d, want 2 (11 and 14)", rb.Stats().Gaps)
 	}
 }
 
