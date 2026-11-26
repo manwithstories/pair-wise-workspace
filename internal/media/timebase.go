@@ -26,32 +26,36 @@ func TicksToMS(ticks uint64) float64 {
 
 // TimestampExtender turns wrapping 32-bit RTP timestamps into monotonic values.
 type TimestampExtender struct {
-	base     uint32
-	extended uint64
-	started  bool
+	base    uint32
+	highest uint64
+	started bool
 }
 
-// Extend maps ts to the nearest monotonic timestamp after the previous value.
+// Extend maps ts to the nearest value around the high-water mark. Late
+// reordering near a wrap returns the nearby lower cycle without moving that
+// high-water mark backwards.
 func (e *TimestampExtender) Extend(ts uint32) uint64 {
 	if !e.started {
 		e.base = ts
-		e.extended = uint64(ts)
+		e.highest = uint64(ts)
 		e.started = true
-		return e.extended
+		return e.highest
 	}
 
-	candidate := (e.extended &^ 0xffff_ffff) + uint64(ts)
+	candidate := (e.highest &^ 0xffff_ffff) + uint64(ts)
 	best := candidate
-	bestDist := absDiff(candidate, e.extended)
+	bestDist := absDiff(candidate, e.highest)
 	if candidate >= 1<<32 {
-		if lower := candidate - 1<<32; absDiff(lower, e.extended) < bestDist {
-			best, bestDist = lower, absDiff(lower, e.extended)
+		if lower := candidate - 1<<32; absDiff(lower, e.highest) < bestDist {
+			best, bestDist = lower, absDiff(lower, e.highest)
 		}
 	}
-	if upper := candidate + 1<<32; absDiff(upper, e.extended) < bestDist {
+	if upper := candidate + 1<<32; absDiff(upper, e.highest) < bestDist {
 		best = upper
 	}
-	e.extended = best
+	if best > e.highest {
+		e.highest = best
+	}
 	return best
 }
 

@@ -45,6 +45,10 @@ func TestTimestampExtenderAcceptsNearWrapReordering(t *testing.T) {
 	if got := x.Extend(0xffff_ffff); got != 0xffff_ffff {
 		t.Fatalf("late pre-wrap ts = %d", got)
 	}
+	// The high-water mark did not move backwards, so post-wrap extension is stable.
+	if got := x.Extend(3); got != 1<<32+3 {
+		t.Fatalf("post-late reorder ts = %d want %d", got, 1<<32+3)
+	}
 }
 
 func TestParseOpusTOCDurations(t *testing.T) {
