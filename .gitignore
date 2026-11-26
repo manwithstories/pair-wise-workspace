@@ -71,3 +71,12 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Go 构建产物与本地演示输出 ----
+/avpipe
+*.test
+*.out
+# 演示运行生成的工作区目录（demo --out 指向的临时目录在 /tmp，不会入库；
+# 此规则兜底项目内可能产生的输出根目录）
+/output/
+/dist/
