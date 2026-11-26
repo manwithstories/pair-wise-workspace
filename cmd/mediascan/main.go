@@ -177,7 +177,7 @@ func cmdScan(args []string) int {
 	fmt.Printf("new_processed=%d\n", out.NewProcessed)
 
 	if out.Interrupted {
-		fmt.Println("interrupted: checkpoint saved; resume with --resume")
+		fmt.Println("interrupted: checkpoint saved; resume with --resume (exit_code=75)")
 		return exitInterrupt
 	}
 
