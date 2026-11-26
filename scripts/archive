@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+#
+# scripts/archive — 归档媒体处理内核的透传启动器。
+#
+# 为什么需要它：`go run ./cmd/archive ...` 在子进程以非零码退出时，go 命令
+# 自身固定返回 1（打印 "exit status N"），不会透传应用的语义退出码
+# （3 中断 / 4 不可恢复 / 5 门限失败）。本脚本先显式构建二进制，再直接执行，
+# 使退出码与应用约定完全一致，便于在归档流水线与 shell 编排中判断。
+#
+# 用法与 CLI 完全相同，例如：
+#   scripts/archive demo   --dir "$TMPDIR/archive-demo" --preset all --interrupt-after 2
+#   scripts/archive resume --dir "$TMPDIR/archive-demo"
+#   scripts/archive verify --dir "$TMPDIR/archive-demo" --max-bitrate-delta 8 --max-align-ms 1
+set -euo pipefail
+
+# 定位仓库根目录（本脚本位于 <root>/scripts/）。
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "${ROOT_DIR}"
+
+# 复用调用方的 Go 与 PKG_CONFIG_PATH；未设置时给出 Homebrew 兜底。
+export PATH="${PATH}"
+if [[ -z "${PKG_CONFIG_PATH:-}" ]] && command -v brew >/dev/null 2>&1; then
+  export PKG_CONFIG_PATH="$(brew --prefix ffmpeg)/lib/pkgconfig"
+fi
+
+BIN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/archive-binary.XXXXXX")"
+trap 'rm -rf "${BIN_DIR}"' EXIT
+BIN="${BIN_DIR}/archive"
+
+go build -o "${BIN}" ./cmd/archive
+
+# 直接执行二进制，$? 原样透传应用语义退出码。
+"${BIN}" "$@"
