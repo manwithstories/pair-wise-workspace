@@ -94,7 +94,7 @@ func buildRendition(cfg Config, ri int, bitrate int64) ([]byte, error) {
 			put(1, pmtPkts[0])
 			pmtCC++
 		}
-		if seq == 4 && (applyDamage || psiCase) {
+		if seq == 4 && ri == 0 && (applyDamage || psiCase) {
 			bad := ts.BuildPMT(2, VideoPID, VideoPID, AudioPID)
 			bad[len(bad)-1] ^= 0xff
 			pkts := ts.PacketizeSection(PMTPID, bad, pmtCC)
