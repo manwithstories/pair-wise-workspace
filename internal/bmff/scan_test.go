@@ -135,6 +135,25 @@ func TestGoMP4CrossChecksGeneratedStructure(t *testing.T) {
 	}
 }
 
+func TestEditListParsed(t *testing.T) {
+	spec := fixture.DefaultTrackSpecs()[0]
+	spec.Samples = 2
+	spec.SampleSize = 32
+	spec.EditList = true
+	media, err := fixture.GenerateMedia(11, []fixture.TrackSpec{spec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx := scanBytes(t, media.Data, media.SHA256)
+	edits := idx.Tracks[0].Edits
+	if len(edits) != 1 {
+		t.Fatalf("edits=%d want 1", len(edits))
+	}
+	if edits[0].MediaTime != 0 || edits[0].MediaRateInt != 1 {
+		t.Fatalf("bad edit: %+v", edits[0])
+	}
+}
+
 func TestFragmentedMoofTFDTAndTRUN(t *testing.T) {
 	entry := bmff.NewBox("avc1").WithPayload(make([]byte, 8))
 	entryBytes := entry.Build()

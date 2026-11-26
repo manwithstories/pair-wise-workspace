@@ -138,6 +138,13 @@ func TestIndexCacheInvalidatedByVersionAndInput(t *testing.T) {
 	if err != nil || moved.State != "invalidated" {
 		t.Fatalf("input change state=%+v err=%v", moved, err)
 	}
+	if err := os.WriteFile(cache, []byte(`{"version":1,"index":`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	truncated, err := pipeline.LoadOrBuildIndex(input, cache)
+	if err != nil || truncated.State != "invalidated" || truncated.Index == nil {
+		t.Fatalf("truncated cache state=%+v err=%v", truncated, err)
+	}
 }
 
 func TestCorruptCheckpointFailsIntegrityContract(t *testing.T) {
