@@ -43,11 +43,15 @@ func LoadJournal(path string) (*Journal, error) {
 	if len(raw) == 0 {
 		return j, nil
 	}
-	if err := json.Unmarshal(raw, j); err != nil {
+	var doc struct {
+		Records []Record `json:"records"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
 		return nil, err
 	}
-	if j.Records == nil {
-		j.Records = make(map[string]Record)
+	j.Records = make(map[string]Record, len(doc.Records))
+	for _, rec := range doc.Records {
+		j.Records[rec.NodeID] = rec
 	}
 	return j, nil
 }
