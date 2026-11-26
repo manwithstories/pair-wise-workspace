@@ -217,9 +217,17 @@ func (s *Scheduler) transitiveDependents(root string) []string {
 		queue = append(queue, reverse[id]...)
 	}
 	out := make([]string, 0, len(seen))
-	for id := range seen {
-		out = append(out, id)
+	if order, err := s.topologicalOrder(); err == nil {
+		for _, id := range order {
+			if seen[id] {
+				out = append(out, id)
+			}
+		}
+	} else {
+		for id := range seen {
+			out = append(out, id)
+		}
+		sort.Strings(out)
 	}
-	sort.Strings(out)
 	return out
 }
