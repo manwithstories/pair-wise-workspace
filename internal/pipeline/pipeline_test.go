@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"fastpost/internal/hls"
 	"fastpost/internal/model"
 )
 
@@ -120,6 +121,32 @@ func TestRunRejectsBadFaultSpec(t *testing.T) {
 	_, err := Run(Config{Seed: 1, Segments: 4, Fault: "nonsense", OutDir: t.TempDir()})
 	if err == nil {
 		t.Fatal("invalid fault spec must fail")
+	}
+}
+
+func TestVerifyPublishedDetectsTampering(t *testing.T) {
+	dir := t.TempDir()
+	files := []hls.File{{RelPath: "master.m3u8", Content: []byte("#EXTM3U\n")}}
+	want := hls.ManifestChecksum(files)
+	if err := hls.Publish(dir, files); err != nil {
+		t.Fatal(err)
+	}
+	// An intact publication verifies cleanly.
+	if err := verifyPublished(dir, files, want); err != nil {
+		t.Fatalf("intact publish should verify: %v", err)
+	}
+	// Tamper with the on-disk bytes after publication.
+	if err := os.WriteFile(filepath.Join(dir, "master.m3u8"),
+		[]byte("#EXTM3U\ntampered"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := verifyPublished(dir, files, want)
+	if err == nil {
+		t.Fatal("tampered manifest must fail verification")
+	}
+	in, ok := err.(*model.InputError)
+	if !ok || in.Faults[0].Kind != model.FaultChecksum {
+		t.Fatalf("want checksum-mismatch fault, got %v", err)
 	}
 }
 
