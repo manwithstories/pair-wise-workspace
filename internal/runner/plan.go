@@ -263,7 +263,11 @@ func (a *analysis) sessionRecovery() error {
 	return nil
 }
 
-// probeAudio measures the calibration pulse offset against frame 0.
+// probeAudio measures the calibration pulse grid against the exported
+// timeline. The audio buffer and frame 0 both start at wall time zero, so the
+// measured offset is the frame-0 alignment error; the grid residual shows
+// whether the pulse cadence itself is intact. sync_max_ms is the larger of
+// the drift-fit residual, the absolute offset and the cadence residual.
 func (a *analysis) probeAudio() error {
 	data, err := os.ReadFile(filepath.Join(a.inDir, "audio.pcm"))
 	if err != nil {
@@ -273,7 +277,9 @@ func (a *analysis) probeAudio() error {
 	if err != nil {
 		return err
 	}
-	p, err := audio.ProbeAlignment(samples, media.AudioRate, a.origin, 0.3, 64)
+	// Expected pulse start is the measured cadence's own onset: the first
+	// pulse edge lands at t=0 of the exported timeline.
+	p, err := audio.ProbeAlignment(samples, media.AudioRate, 0, 0.3, 64)
 	if err != nil {
 		return err
 	}

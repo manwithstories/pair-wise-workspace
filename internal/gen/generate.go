@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -15,6 +16,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"fieldcut/internal/audio"
 	"fieldcut/internal/ingest"
@@ -44,6 +46,7 @@ type TrackPlan struct {
 	Mask       ingest.Mask
 	Deps       []string
 	OffsetTick int64
+	JitterUs   int
 	Frames     int
 }
 
@@ -51,12 +54,14 @@ type TrackPlan struct {
 func DefaultTracks(width, height int) []TrackPlan {
 	w, h := width, height
 	return []TrackPlan{
-		{Name: "cam_a", RateNum: 25, RateDen: 1, Priority: 10, Frames: 0,
+		{Name: "cam_a", RateNum: 25, RateDen: 1, Priority: 10, JitterUs: 1000,
 			Mask: ingest.Mask{}},
-		{Name: "cam_b", RateNum: 25, RateDen: 1, Priority: 50, Frames: 0, Deps: []string{"cam_a"},
-			Mask: ingest.Mask{X: w / 4, Y: h / 4, W: w / 2, H: h / 2}},
-		{Name: "cam_c", RateNum: 30, RateDen: 1, Priority: 80, Frames: 0, Deps: []string{"cam_b"},
-			Mask: ingest.Mask{X: 0, Y: 0, W: w / 3, H: h / 3}, OffsetTick: 40_000},
+		{Name: "cam_b", RateNum: 25, RateDen: 1, Priority: 50, Deps: []string{"cam_a"},
+			Mask: ingest.Mask{X: w / 4, Y: h / 4, W: w / 2, H: h / 2}, OffsetTick: 2000,
+			JitterUs: 1000},
+		{Name: "cam_c", RateNum: 25, RateDen: 1, Priority: 80, Deps: []string{"cam_b"},
+			Mask: ingest.Mask{X: 0, Y: 0, W: w / 3, H: h / 3}, OffsetTick: 4000,
+			JitterUs: 1000},
 	}
 }
 
@@ -118,22 +123,23 @@ func Generate(dir string, cfg Config) (*Result, error) {
 	period := media.AudioRate * 2 / 5
 	samples := period * (1 + cfg.Frames/media.FrameRate + 1)
 	var err error
-	res.AudioPCM, err = audio.SyntheticPCM(samples, media.AudioRate, 0, period, 96, 0.8)
+	// Pulse 0 sits 1 ms late: a deliberate, measurable alignment offset the
+	// pipeline must report rather than assume away.
+	res.AudioPCM, err = audio.SyntheticPCM(samples, media.AudioRate, 48, period, 96, 0.8)
 	if err != nil {
 		return nil, err
 	}
 	if err := os.WriteFile(filepath.Join(dir, "audio.pcm"), res.AudioPCM, 0o644); err != nil {
 		return nil, media.New(media.KindConflict, "gen.audio", "", -1, err)
 	}
-	startTick := cfg.WrapAt - int64(cfg.Frames)*40_000
-	if cfg.Tracks == 3 {
-		startTick = cfg.WrapAt - int64(cfg.Frames)*40_000
-	}
+	// Start half a timeline before the modulus so a real 32-bit wrap
+	// happens mid-sequence rather than at the very end.
+	startTick := cfg.WrapAt - int64(cfg.Frames/2)*40_000
 	for ti, tr := range tracks {
 		tr.Frames = cfg.Frames
 		// Each camera starts at a slightly different wall time, so the shared
-		// origin lands on the earliest camera.
-		baseNanos := int64(ti) * 20_000_000
+		// origin lands on the earliest camera and its offset is visible.
+		baseNanos := int64(ti) * 5_000_000
 		man.Tracks = append(man.Tracks, ingest.Track{
 			Name: tr.Name, OffsetTick: tr.OffsetTick, Frames: cfg.Frames,
 			Priority: tr.Priority, Mask: tr.Mask, Deps: tr.Deps,
@@ -144,17 +150,33 @@ func Generate(dir string, cfg Config) (*Result, error) {
 				res.Cameras = append(res.Cameras, Camera{Track: tr.Name, Seq: seq, Missing: true})
 				continue
 			}
+			// One deliberately long gap on the last track stays unrecoverable
+			// and must surface as explicit missing records, never as success.
+			if ti == len(tracks)-1 && seq == int64(cfg.Frames*3/5) {
+				for k := int64(0); k < 3; k++ {
+					res.Cameras = append(res.Cameras, Camera{Track: tr.Name, Seq: seq + k, Missing: true})
+				}
+				seq += 3
+				continue
+			}
 			c := Camera{Track: tr.Name, Seq: seq}
 			// Variable frame rate: 25 fps tracks jitter ±4 ms; the 30 fps
 			// track keeps a tighter cadence, then all map onto 25 fps.
 			var interval int64
-			switch {
-			case tr.RateDen == 1 && tr.RateNum == 30:
-				interval = int64((seq * 1e9) / 30)
-			case seq == 0:
+			if seq == 0 {
 				interval = 0 // frame 0 defines the shared origin exactly
-			default:
-				interval = seq*40_000_000 + int64(rng.Intn(8_000)-4_000)
+			} else if seq == int64(cfg.Frames-1) {
+				// The last capture stays on the nominal cadence so every
+				// frame maps inside the declared output timeline.
+				interval = seq * 40_000_000
+			} else {
+				// Variable frame rate: nominal 25 fps with per-camera jitter,
+				// bounded to ±1 ms so cumulative delivery stays in range.
+				j := 0
+				if tr.JitterUs > 0 {
+					j = rng.Intn(2*tr.JitterUs+1) - tr.JitterUs
+				}
+				interval = seq*40_000_000 + int64(j)*1000
 			}
 			tick := startTick + interval/1000
 			tick %= cfg.WrapAt
@@ -162,6 +184,11 @@ func Generate(dir string, cfg Config) (*Result, error) {
 			c.Nanos = baseNanos + int64(float64(interval)*drift)
 			c.Tick = tick
 			c.Corrupt = seq > 0 && seq%int64(cfg.CorruptEvery) == 0
+			// One corrupt frame sits directly next to an injected hole so
+			// recovery must bridge a corrupt+missing run.
+			if ti == 1 && seq == int64(cfg.DropEvery)*2-1 {
+				c.Corrupt = true
+			}
 			c.Path = fmt.Sprintf("frames/%s/%05d.png", tr.Name, seq)
 			if c.Corrupt {
 				writeCorrupt(filepath.Join(dir, c.Path), int(seq))
@@ -248,4 +275,56 @@ func (c Config) ManifestHash() string {
 	data, _ := json.Marshal(c)
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
+}
+
+// Mutators are test/demo hooks that rewrite one manifest row after
+// generation to exercise every rejection path without external files.
+//
+// They operate on manifest.json only; frame bytes are untouched.
+func readManifest(dir string) (*ingest.Manifest, error) {
+	data, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
+	if err != nil {
+		return nil, media.New(media.KindInput, "gen.manifest.read", "", -1, err)
+	}
+	var m ingest.Manifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, media.New(media.KindInput, "gen.manifest.read", "", -1, err)
+	}
+	return &m, nil
+}
+
+func writeManifest(dir string, m *ingest.Manifest) error {
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return media.New(media.KindConflict, "gen.manifest.write", "", -1, err)
+	}
+	return os.WriteFile(filepath.Join(dir, "manifest.json"), append(data, '\n'), 0o644)
+}
+
+// Mutate applies a named corruption to the generated manifest so the demo
+// can show the corresponding rejection exit code.
+func Mutate(dir, kind string) error {
+	m, err := readManifest(dir)
+	if err != nil {
+		return err
+	}
+	if len(m.Entries) == 0 {
+		return media.New(media.KindInput, "gen.mutate", "", -1, errors.New("empty manifest"))
+	}
+	e := &m.Entries[0]
+	switch kind {
+	case "bad-hash":
+		e.SHA256 = strings.Repeat("0", 64)
+	case "traversal":
+		e.Path = "../escape.png"
+	case "oversize":
+		e.Width = media.MaxWidth + 1
+	case "cycle":
+		m.Tracks[0].Deps = []string{m.Tracks[len(m.Tracks)-1].Name}
+	case "fps":
+		m.OutputFPS = 30
+	default:
+		return media.Newf(media.KindInput, "gen.mutate", "", -1, "unknown mutation %q", kind)
+	}
+	return writeManifest(dir, m)
 }
