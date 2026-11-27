@@ -57,11 +57,11 @@ type mpdXML struct {
 func Resolve(baseDir, template, repID string, number int64) (string, *fault.Error) {
 	s := strings.ReplaceAll(template, "$RepresentationID$", repID)
 	if idx := strings.Index(s, "$Number"); idx >= 0 {
-		end := strings.Index(s[idx:], "$")
-		if end <= 0 {
+		end := strings.Index(s[idx+1:], "$")
+		if end < 0 {
 			return "", fault.New(fault.KindLimit, template, 0, false, "unterminated $Number")
 		}
-		spec := s[idx : idx+end+1]
+		spec := s[idx : idx+1+end+1]
 		width := 1
 		if strings.HasPrefix(spec, "$Number%0") && strings.HasSuffix(spec, "d$") {
 			fmt.Sscanf(spec, "$Number%%0%dd$", &width)
@@ -70,6 +70,9 @@ func Resolve(baseDir, template, repID string, number int64) (string, *fault.Erro
 	}
 	if strings.Contains(s, "$") {
 		return "", fault.Newf(fault.KindLimit, template, 0, false, "unsupported template %q", s)
+	}
+	if filepath.IsAbs(s) || strings.HasPrefix(s, "/") {
+		return "", fault.Newf(fault.KindPathEscape, s, 0, false, "absolute path rejected")
 	}
 	full := filepath.Join(baseDir, filepath.FromSlash(s))
 	base, err1 := filepath.Abs(baseDir)
