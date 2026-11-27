@@ -21,10 +21,11 @@ func segRec(cut int, bytes int64, bps int, psnr, ssim float64) state.SegmentReco
 }
 
 func TestComputeVariant(t *testing.T) {
-	// Two 1-second segments, 200000 bytes each => 1.6 Mbps actual per second.
+	// ActualBPS is the measured elementary-stream rate; Bytes now only
+	// reflects container size and must not enter the bitrate calculation.
 	recs := []state.SegmentRecord{
-		segRec(0, 200000, 1, 30.0, 0.95),
-		segRec(1, 200000, 1, 32.0, 0.97),
+		segRec(0, 200000, 1_600_000, 30.0, 0.95),
+		segRec(1, 205000, 1_600_000, 32.0, 0.97),
 	}
 	m := ComputeVariant("low", 1_600_000, recs)
 	if m.SegmentCount != 2 || m.ActualBPS != 1_600_000 {
@@ -45,7 +46,7 @@ func TestComputeVariant(t *testing.T) {
 }
 
 func TestBitrateDeltaSignAndClamp(t *testing.T) {
-	recs := []state.SegmentRecord{segRec(0, 115000, 1, 40, 0.99)} // 0.92 Mbps
+	recs := []state.SegmentRecord{segRec(0, 100, 920000, 40, 0.99)}
 	m := ComputeVariant("v", 1_000_000, recs)
 	// 920000 vs 1000000 => -8%
 	if m.BitrateDeltaPct < -8.1 || m.BitrateDeltaPct > -7.9 {

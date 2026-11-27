@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 
 	"avcore/internal/clock"
 )
@@ -51,10 +52,16 @@ func (e *FFmpegV1) Encode(ctx context.Context, req EncodeRequest) (*EncodeResult
 		"-map_metadata", "-1",
 		"-c:v", "libx264", "-preset", "veryfast", "-threads", "1",
 		"-b:v", strconv.Itoa(req.TargetBPS),
-		"-maxrate", strconv.Itoa(int(float64(req.TargetBPS)*1.2)),
-		"-bufsize", strconv.Itoa(req.TargetBPS*2),
+		// Tight VBV with CBR NAL HRD keeps short one-second segments
+		// close to the target even when their duration is small.
+		"-maxrate", strconv.Itoa(req.TargetBPS),
+		"-bufsize", strconv.Itoa(req.TargetBPS/2),
+		"-x264-params", "nal-hrd=cbr",
 		"-pix_fmt", "yuv420p",
-		"-g", gop, "-keyint_min", gop, "-force_key_frames", "expr:gte(t,0)",
+		// Fixed GOP aligns every rendition to the same cut grid. No explicit
+		// force_key_frames: re-forcing an IDR at t=0 inflates the first
+		// segment and defeats the tight VBV rate control.
+		"-g", gop, "-keyint_min", gop,
 		"-s", strconv.Itoa(req.Width) + "x" + strconv.Itoa(req.Height),
 		"-an",
 		"-f", "mp4",
@@ -71,8 +78,12 @@ func (e *FFmpegV1) Encode(ctx context.Context, req EncodeRequest) (*EncodeResult
 	if info.Size() == 0 {
 		return nil, NewError(CodeEncodeFailed, "encoder produced an empty segment", Source{File: req.Output})
 	}
-	secs := float64(req.DurationTicks) / float64(clock.TicksPerSecond)
-	actual := int(float64(info.Size()*8) / secs)
+	// Actual bitrate is the encoded video stream rate (the conformance
+	// target), excluding fragmented-MP4 container overhead.
+	actual, err := streamBitrate(e, req.Output)
+	if err != nil {
+		return nil, err
+	}
 	return &EncodeResult{
 		Output:         req.Output,
 		Bytes:          info.Size(),
@@ -92,4 +103,47 @@ func (e *FFmpegV1) run(ctx context.Context, src string, args ...string) error {
 		return NewError(code, "ffmpeg failed: "+err.Error(), Source{File: src})
 	}
 	return nil
+}
+
+// streamBitrate derives the encoded elementary-stream bitrate by summing the
+// video packet sizes with ffprobe and dividing by the stream duration. This
+// excludes fragmented-MP4 muxer overhead, matching the meaning of -b:v.
+func streamBitrate(e *FFmpegV1, path string) (int, error) {
+	probe := strings.TrimSuffix(e.binary, "ffmpeg") + "ffprobe"
+	if _, err := exec.LookPath(probe); err != nil {
+		probe = "ffprobe"
+	}
+	cmd := exec.Command(probe, "-v", "error", "-select_streams", "v:0",
+		"-show_entries", "packet=size", "-of", "csv=p=0", path)
+	out, err := cmd.Output()
+	if err != nil {
+		return 0, NewError(CodeProbeFailed, "bitrate probe failed: "+err.Error(), Source{File: path})
+	}
+	var streamBytes int64
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		n, perr := strconv.ParseInt(line, 10, 64)
+		if perr != nil {
+			return 0, NewError(CodeProbeFailed, "bad packet size "+line, Source{File: path})
+		}
+		streamBytes += n
+	}
+	dur, derr := probeDuration(probe, path)
+	if derr != nil || dur <= 0 {
+		return 0, NewError(CodeProbeFailed, "cannot determine stream duration", Source{File: path})
+	}
+	return int(float64(streamBytes*8) / dur), nil
+}
+
+func probeDuration(probe, path string) (float64, error) {
+	cmd := exec.Command(probe, "-v", "error", "-select_streams", "v:0",
+		"-show_entries", "stream=duration", "-of", "csv=p=0", path)
+	out, err := cmd.Output()
+	if err != nil {
+		return 0, err
+	}
+	return strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
 }

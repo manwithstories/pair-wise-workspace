@@ -26,7 +26,10 @@ func (e *FFmpegV1) Measure(ctx context.Context, input string, seg EncodeRequest)
 	}
 	start := clock.Seconds(seg.StartTicks)
 	dur := clock.Seconds(seg.DurationTicks)
-	filter := "[0:v]split=2[a][b];[1:v]split=2[c][d];" +
+	size := strconv.Itoa(seg.Width) + "x" + strconv.Itoa(seg.Height)
+	// Scale the pristine reference window to the segment's own resolution
+	// before comparison; PSNR/SSIM require identical frame dimensions.
+	filter := "[0:v]scale=" + size + ",split=2[a][b];[1:v]split=2[c][d];" +
 		"[a][c]ssim=stats_file=-[x];[b][d]psnr=stats_file=-[y]"
 	args := []string{
 		"-hide_banner",
@@ -45,7 +48,9 @@ func (e *FFmpegV1) Measure(ctx context.Context, input string, seg EncodeRequest)
 		if ctx.Err() != nil {
 			code = CodeInterrupted
 		}
-		return QualityMetrics{}, NewError(code, "quality measure failed: "+err.Error(), Source{File: input})
+		return QualityMetrics{}, NewError(code,
+			"quality measure failed: "+err.Error()+" | "+combined.String(),
+			Source{File: input})
 	}
 	log := combined.String()
 	ssim, ok1 := extractSSIM(log)

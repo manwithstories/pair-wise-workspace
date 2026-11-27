@@ -42,20 +42,20 @@ type Summary struct {
 }
 
 // ComputeVariant aggregates committed segment records into one variant's
-// metrics. Actual bitrate is total bits over the summed segment duration.
+// metrics. Actual bitrate is the duration-weighted mean of each segment's
+// measured elementary-stream bitrate (already excluding container overhead).
 func ComputeVariant(name string, targetBPS int, recs []state.SegmentRecord) VariantMetrics {
 	m := VariantMetrics{Name: name, TargetBPS: targetBPS, SegmentCount: len(recs)}
 	if len(recs) == 0 {
 		return m
 	}
-	var totalBytes int64
 	var totalTicks int64
+	var weightedBPS float64
 	var psnrSum, ssimSum float64
-	m.StartTicks = recs[0].StartTicks
-	m.EndTicks = recs[len(recs)-1].EndTicks
 	for _, r := range recs {
-		totalBytes += r.Bytes
-		totalTicks += r.EndTicks - r.StartTicks
+		dur := r.EndTicks - r.StartTicks
+		totalTicks += dur
+		weightedBPS += float64(r.ActualBPS) * float64(dur)
 		psnrSum += r.PSNRMeanDB
 		ssimSum += r.SSIMMean
 	}
@@ -63,8 +63,7 @@ func ComputeVariant(name string, targetBPS int, recs []state.SegmentRecord) Vari
 	m.PSNRMeanDB = round(psnrSum/n, 4)
 	m.SSIMMean = round(ssimSum/n, 6)
 	if totalTicks > 0 {
-		secs := float64(totalTicks) / float64(clock.TicksPerSecond)
-		m.ActualBPS = int(float64(totalBytes*8) / secs)
+		m.ActualBPS = int(weightedBPS / float64(totalTicks))
 	}
 	if targetBPS > 0 {
 		m.BitrateDeltaPct = round(float64(m.ActualBPS-targetBPS)/float64(targetBPS)*100, 3)
