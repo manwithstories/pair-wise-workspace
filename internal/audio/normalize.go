@@ -33,6 +33,14 @@ func Normalize(mono []float32, missing [][2]int) *Result {
 		}
 	}
 	out := resample(in)
+	missingOut := mapMissing(missing, len(in))
+	// Force exact silence over the missing ranges: interpolation at
+	// the boundaries would otherwise blend in neighboring samples.
+	for _, iv := range missingOut {
+		for i := iv[0] * 2; i < iv[1]*2 && i < len(out); i++ {
+			out[i] = 0
+		}
+	}
 	loud := integratedLUFS(out)
 	gain := 1.0
 	if loud > -70 { // silence is left untouched
@@ -46,7 +54,7 @@ func Normalize(mono []float32, missing [][2]int) *Result {
 		Samples:        out,
 		IntegratedLUFS: integratedLUFS(out),
 		TruePeakDBTP:   truePeakDBTP(out),
-		Missing:        mapMissing(missing, len(in)),
+		Missing:        missingOut,
 	}
 }
 
