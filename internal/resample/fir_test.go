@@ -245,6 +245,45 @@ func TestInvalidInputs(t *testing.T) {
 	}
 }
 
+// TestRetainedHistoryIsBounded proves the streaming buffer does not grow with
+// input length: only the kernel history and one partial output block stay.
+func TestRetainedHistoryIsBounded(t *testing.T) {
+	src := media.Rate{Num: 44100, Den: 1}
+	dst := media.Rate{Num: 48000, Den: 1}
+	r, err := New(Config{Src: src, Dst: dst, MaxBlockFrames: 256})
+	if err != nil {
+		t.Fatal(err)
+	}
+	maxBuf := 0
+	maxPending := 0
+	start := int64(0)
+	for i := 0; i < 4000; i++ {
+		frames := 441
+		blk := media.Block{
+			Track: "t", Start: start, Rate: src, Channels: 2,
+			Samples: make([]float64, frames*2),
+		}
+		if _, err := r.Process(blk); err != nil {
+			t.Fatal(err)
+		}
+		start += int64(frames)
+		if len(r.buf) > maxBuf {
+			maxBuf = len(r.buf)
+		}
+		if len(r.pending) > maxPending {
+			maxPending = len(r.pending)
+		}
+	}
+	// A 32-tap kernel at 2 channels plus a block of headroom must fit in a
+	// few hundred frames, far below the millions of frames processed.
+	if maxBuf > (Taps+64)*2*4 {
+		t.Fatalf("retained input history grew to %d samples", maxBuf)
+	}
+	if maxPending > 256*2*2 {
+		t.Fatalf("pending output grew to %d samples", maxPending)
+	}
+}
+
 func TestEmptyFlush(t *testing.T) {
 	rate := media.Rate{Num: 48000, Den: 1}
 	r, _ := New(Config{Src: rate, Dst: rate})
