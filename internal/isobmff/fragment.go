@@ -275,6 +275,9 @@ func parseFragment(box Box, data []byte, movie Movie) (Fragment, int64) {
 			}
 			continue
 		}
+		for si := range tr.Samples {
+			tr.Samples[si].Segment = frag.Sequence
+		}
 		frag.Tracks = append(frag.Tracks, tr)
 	}
 

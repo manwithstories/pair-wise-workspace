@@ -232,6 +232,23 @@ type Timeline struct {
 	Conflicts []Conflict `json:"conflicts"`
 	// Representations lists the source representations in fan-in order.
 	Representations []string `json:"representations"`
+	// Alignments is the per-representation fragment boundary comparison.
+	Alignments []Alignment `json:"alignments,omitempty"`
+	// Alignment is reserved for a single alignment summary.
+	Alignment *Alignment `json:"-"`
+}
+
+// Alignment summarises fragment-boundary alignment between two representations.
+type Alignment struct {
+	Kind          TrackKind `json:"kind"`
+	RepA          string    `json:"rep_a"`
+	RepB          string    `json:"rep_b"`
+	Matched       int       `json:"matched"`
+	UnmatchedA    int       `json:"unmatched_a"`
+	UnmatchedB    int       `json:"unmatched_b"`
+	MaxDeltaUS    int64     `json:"max_delta_us"`
+	OuterDeltaUS  int64     `json:"outer_delta_us"`
+	MedianDeltaUS int64     `json:"median_delta_us"`
 }
 
 // Boundary is one track's first and last sample in shared time.
@@ -239,6 +256,7 @@ type Boundary struct {
 	Representation string    `json:"representation"`
 	TrackID        uint32    `json:"track_id"`
 	Kind           TrackKind `json:"kind"`
+	Sequence       uint32    `json:"sequence"`
 	StartUS        int64     `json:"start_us"`
 	EndUS          int64     `json:"end_us"`
 	SampleCount    int       `json:"sample_count"`

@@ -164,15 +164,15 @@ func ParseMvhd(b Box) (Mvhd, error) {
 		return Mvhd{}, err
 	}
 	if v == 1 {
-		if err := need(b, rest, 4+8+8+4+8); err != nil {
+		if err := need(b, rest, 8+8+4+8); err != nil {
 			return Mvhd{}, err
 		}
-		return Mvhd{Timescale: media.TimeScale(binary.BigEndian.Uint32(rest[20:24])), Duration: binary.BigEndian.Uint64(rest[24:32])}, nil
+		return Mvhd{Timescale: media.TimeScale(binary.BigEndian.Uint32(rest[16:20])), Duration: binary.BigEndian.Uint64(rest[20:28])}, nil
 	}
-	if err := need(b, rest, 4+4+4+4+4); err != nil {
+	if err := need(b, rest, 4+4+4+4); err != nil {
 		return Mvhd{}, err
 	}
-	return Mvhd{Timescale: media.TimeScale(binary.BigEndian.Uint32(rest[12:16])), Duration: uint64(binary.BigEndian.Uint32(rest[16:20]))}, nil
+	return Mvhd{Timescale: media.TimeScale(binary.BigEndian.Uint32(rest[8:12])), Duration: uint64(binary.BigEndian.Uint32(rest[12:16]))}, nil
 }
 
 // Tkhd is the subset of track header fields used for identity and sanity.
@@ -187,15 +187,15 @@ func ParseTkhd(b Box) (Tkhd, error) {
 		return Tkhd{}, err
 	}
 	if v == 1 {
-		if err := need(b, rest, 4+8+8+4+4+8); err != nil {
+		if err := need(b, rest, 16+4+4); err != nil {
 			return Tkhd{}, err
 		}
-		return Tkhd{TrackID: binary.BigEndian.Uint32(rest[20:24])}, nil
+		return Tkhd{TrackID: binary.BigEndian.Uint32(rest[16:20])}, nil
 	}
-	if err := need(b, rest, 4+4+4+4+4); err != nil {
+	if err := need(b, rest, 8+4+4); err != nil {
 		return Tkhd{}, err
 	}
-	return Tkhd{TrackID: binary.BigEndian.Uint32(rest[12:16])}, nil
+	return Tkhd{TrackID: binary.BigEndian.Uint32(rest[8:12])}, nil
 }
 
 // Mdhd is the subset of media header fields the parser needs.
@@ -212,22 +212,22 @@ func ParseMdhd(b Box) (Mdhd, error) {
 		return Mdhd{}, err
 	}
 	if v == 1 {
-		if err := need(b, rest, 4+8+8+4+4+4); err != nil {
+		if err := need(b, rest, 16+4+8+4); err != nil {
 			return Mdhd{}, err
 		}
 		return Mdhd{
-			Timescale: media.TimeScale(binary.BigEndian.Uint32(rest[20:24])),
-			Duration:  binary.BigEndian.Uint64(rest[24:32]),
-			Language:  binary.BigEndian.Uint16(rest[36:38]),
+			Timescale: media.TimeScale(binary.BigEndian.Uint32(rest[16:20])),
+			Duration:  binary.BigEndian.Uint64(rest[20:28]),
+			Language:  binary.BigEndian.Uint16(rest[28:30]),
 		}, nil
 	}
-	if err := need(b, rest, 4+4+4+4+4); err != nil {
+	if err := need(b, rest, 8+4+4+4); err != nil {
 		return Mdhd{}, err
 	}
 	return Mdhd{
-		Timescale: media.TimeScale(binary.BigEndian.Uint32(rest[12:16])),
-		Duration:  uint64(binary.BigEndian.Uint32(rest[16:20])),
-		Language:  binary.BigEndian.Uint16(rest[20:22]),
+		Timescale: media.TimeScale(binary.BigEndian.Uint32(rest[8:12])),
+		Duration:  uint64(binary.BigEndian.Uint32(rest[12:16])),
+		Language:  binary.BigEndian.Uint16(rest[16:18]),
 	}, nil
 }
 

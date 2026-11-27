@@ -215,23 +215,41 @@ func recoverTrack(id uint32, kind media.TrackKind, ts media.TimeScale, samples [
 		return nil, fmt.Errorf("%w: track %d has no samples", media.ErrUnrecoverable, id)
 	}
 	rt := &RecoveredTrack{TrackID: id, Kind: kind, Timescale: ts}
+	// One cursor spans the whole track: wraps accumulate monotonically across
+	// fragments, and the sequence number tells the cursor when an expected
+	// step is a gap left by a dropped fragment rather than a corrupt jump.
 	cur := clock.NewTrackCursor(ts, 0)
+	var lastSeq uint32
+	var haveSeq bool
+	isolatedSeg := map[uint32]bool{}
 	unwrapped := make([]media.Sample, 0, len(samples))
+	var resync bool
 	for _, s := range samples {
-		next, err := cur.StepUnwrapped(s.DTS)
+		gapBefore := haveSeq && s.Segment != lastSeq && s.Segment > lastSeq+1
+		lastSeq = s.Segment
+		haveSeq = true
+		if resync {
+			// The fragment after an isolated one restarts continuity: its raw
+			// tfdt is trustworthy, and only the dropped fragment is missing.
+			cur = clock.NewTrackCursor(ts, 0)
+			resync = false
+		}
+		next, err := cur.StepUnwrapped(s.DTS, gapBefore)
 		if err != nil {
 			if errors.Is(err, clock.ErrRegression) {
 				rt.Regressed++
+				isolatedSeg[s.Segment] = true
 				rt.Decisions = append(rt.Decisions, Decision{
 					Segment: s.Segment,
 					Action:  ActRegressed,
 					Detail:  fmt.Sprintf("track %d: %v", id, err),
 				})
+				resync = true
 				continue
 			}
 			return nil, fmt.Errorf("%w: track %d: %v", media.ErrUnrecoverable, id, err)
 		}
-		cur.Accept(next)
+		cur.Accept(next, s.DTS)
 		s.DTS = next
 		if s.CTS < next {
 			s.CTS = next
@@ -243,9 +261,21 @@ func recoverTrack(id uint32, kind media.TrackKind, ts media.TimeScale, samples [
 		}
 		unwrapped = append(unwrapped, s)
 	}
+	// Drop isolated fragments; the next fragment's cursor was re-anchored, so
+	// the timeline keeps its true absolute position and the hole is explicit.
+	var final []media.Sample
+	for _, s := range unwrapped {
+		if isolatedSeg[s.Segment] {
+			continue
+		}
+		final = append(final, s)
+	}
+	unwrapped = final
 	if len(unwrapped) == 0 {
 		return nil, fmt.Errorf("%w: track %d: all samples regressed", media.ErrUnrecoverable, id)
 	}
+	// Correct drift against the nominal cadence only; the resulting
+	// per-fragment anchor deltas are what the fan-in compares across layers.
 	est := fitDrift(unwrapped, ts, opts)
 	rt.Drift = est
 	rt.Wraps = cur.WrapCount
@@ -265,10 +295,29 @@ func recoverTrack(id uint32, kind media.TrackKind, ts media.TimeScale, samples [
 	return rt, nil
 }
 
-// fitDrift compares the container's CTS progression to a nominal cumulative
-// stride derived from the median sample duration. For CFR this is exact; for
-// VFR it stays near zero because the median stride tracks the actual average
-// cadence. Only a systematic slope is reported as drift.
+// countSamplesBefore counts samples strictly before s in original order.
+// countSamplesBefore counts samples strictly before target by (DTS, Segment).
+// Fragment anchors have distinct keys, so the result is their sample ordinal.
+func countSamplesBefore(target media.Sample, all []media.Sample) int {
+	c := 0
+	for _, s := range all {
+		if s.DTS < target.DTS || (s.DTS == target.DTS && s.Segment < target.Segment) {
+			c++
+		}
+	}
+	return c
+}
+
+// fitDrift estimates a clock slope from the container's own decode times.
+//
+// Estimating from every sample makes VFR look like drift (each frame's
+// cadence deviates), and estimating from a global ordinal reference makes a
+// dropped fragment look like drift (the ordinal/time relation shifts). The
+// robust estimator here uses only *consecutive accepted fragments*: for each
+// adjacent pair it compares the actual tick delta to the nominal delta (kept
+// sample count x median duration) and takes the median of those ratios. Both
+// VFR and gaps average out, while a genuine clock slope shows up in every
+// pair.
 func fitDrift(samples []media.Sample, ts media.TimeScale, opts Options) media.DriftEstimate {
 	est := media.DriftEstimate{Samples: len(samples)}
 	if len(samples) == 0 {
@@ -276,7 +325,7 @@ func fitDrift(samples []media.Sample, ts media.TimeScale, opts Options) media.Dr
 	}
 	est.OriginMicros = ts.ToMicros(samples[0].DTS)
 	est.OriginTick = samples[0].DTS
-	if len(samples) < 4 {
+	if len(samples) < 8 {
 		return est
 	}
 	durs := make([]int64, 0, len(samples))
@@ -288,17 +337,65 @@ func fitDrift(samples []media.Sample, ts media.TimeScale, opts Options) media.Dr
 	if median <= 0 {
 		return est
 	}
-	var fit clock.DriftEstimator
-	for i, s := range samples {
-		refUs := ts.ToMicros(samples[0].DTS + int64(i)*median)
-		observed := ts.ToMicros(s.CTS)
-		fit.Add(refUs, observed)
+
+	// Collect one observation per adjacent fragment pair.
+	type anchor struct {
+		seg   uint32
+		first int64
+		last  int64
+		count int64
 	}
-	est = fit.Fit()
-	est.OriginMicros = ts.ToMicros(samples[0].DTS)
-	est.OriginTick = samples[0].DTS
+	var anchors []anchor
+	for _, s := range samples {
+		if n := len(anchors); n > 0 && anchors[n-1].seg == s.Segment {
+			anchors[n-1].last = s.DTS
+			anchors[n-1].count++
+			continue
+		}
+		anchors = append(anchors, anchor{seg: s.Segment, first: s.DTS, count: 1})
+	}
+	var ppms []float64
+	for i := 1; i < len(anchors); i++ {
+		// Only pairs that are adjacent in the original sequence; a gap means
+		// an unknown number of frames is missing, so the comparison is invalid.
+		if anchors[i].seg != anchors[i-1].seg+1 {
+			continue
+		}
+		prev := anchors[i-1]
+		expected := float64(prev.count) * float64(median)
+		actual := float64(anchors[i].first - prev.first)
+		if expected <= 0 || actual <= 0 {
+			continue
+		}
+		ppms = append(ppms, (actual/expected-1)*1e6)
+	}
+	if len(ppms) < 3 {
+		return est
+	}
+	sort.Float64s(ppms)
+	est.SlopePPM = ppms[len(ppms)/2]
 	if est.SlopePPM > -opts.DriftTolerancePPM && est.SlopePPM < opts.DriftTolerancePPM {
 		est.SlopePPM = 0
+		return est
 	}
+	// Residual after correction: worst per-anchor deviation from the fit.
+	var maxRes float64
+	for i := 1; i < len(anchors); i++ {
+		if anchors[i].seg != anchors[i-1].seg+1 {
+			continue
+		}
+		prev := anchors[i-1]
+		expected := float64(prev.count) * float64(median)
+		actual := float64(anchors[i].first - prev.first)
+		res := actual - expected*(1+est.SlopePPM/1e6)
+		if res < 0 {
+			res = -res
+		}
+		if res > maxRes {
+			maxRes = res
+		}
+	}
+	est.ResidualMicros = int64(maxRes)
+	_ = opts
 	return est
 }

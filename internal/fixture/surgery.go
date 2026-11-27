@@ -118,9 +118,41 @@ func findBox(data []byte, base int64, typ string) (int64, int64, bool) {
 }
 
 // RewriteTFDT adds delta (in track ticks, possibly negative) to the tfdt
-// baseDecodeTime of every traf in the listed segment spans. It rewrites the
-// field in place using its existing version width, so a v0 field stays v0.
+// baseDecodeTime of every traf in the listed segment spans.
 func RewriteTFDT(data []byte, spans []SegmentSpan, delta int64) error {
+	return RewriteTFDTFunc(data, spans, func(old int64) int64 { return old + delta })
+}
+
+// RewriteTFDTFunc rewrites each listed traf's tfdt through fn, preserving the
+// field's existing version width (v0 stays v0). It is used for drift and wrap
+// injections that depend on the current value.
+func RewriteTFDTFunc(data []byte, spans []SegmentSpan, fn func(old int64) int64) error {
+	return RewriteTFDTTrack(data, spans, 0, fn)
+}
+
+// RewriteTFDTTrack rewrites only the traf whose tfhd track id matches trackID.
+func RewriteTFDTTrack(data []byte, spans []SegmentSpan, trackID uint32, fn func(old int64) int64) error {
+	return rewriteTFDT(data, spans, func(tid uint32, old int64) (int64, bool) {
+		if trackID != 0 && tid != trackID {
+			return 0, false
+		}
+		return fn(old), true
+	})
+}
+
+// ShiftTFDTTracks adds per-track delta ticks so a whole representation moves
+// by the same wall-clock amount even when its tracks use different timescales.
+func ShiftTFDTTracks(data []byte, spans []SegmentSpan, deltaByTrack map[uint32]int64) error {
+	return rewriteTFDT(data, spans, func(tid uint32, old int64) (int64, bool) {
+		d, ok := deltaByTrack[tid]
+		if !ok {
+			return 0, false
+		}
+		return old + d, true
+	})
+}
+
+func rewriteTFDT(data []byte, spans []SegmentSpan, fn func(tid uint32, old int64) (int64, bool)) error {
 	for _, sp := range spans {
 		moof := data[sp.MoofOffset : sp.MoofOffset+sizeOf(data, sp.MoofOffset)]
 		if err := walkMoofChildren(moof, func(typ string, rel int) error {
@@ -128,6 +160,7 @@ func RewriteTFDT(data []byte, spans []SegmentSpan, delta int64) error {
 				return nil
 			}
 			traf := moof[rel:]
+			tid := trafTrackID(traf)
 			return walkChildren(traf, func(t string, off int, sz int) error {
 				if t != "tfdt" {
 					return nil
@@ -139,7 +172,10 @@ func RewriteTFDT(data []byte, spans []SegmentSpan, delta int64) error {
 				field := off + 12
 				if version == 1 {
 					old := int64(binary.BigEndian.Uint64(traf[field : field+8]))
-					next := old + delta
+					next, ok := fn(tid, old)
+					if !ok {
+						return nil
+					}
 					if next < 0 {
 						return fmt.Errorf("tfdt v1 rewrite negative: %d -> %d", old, next)
 					}
@@ -147,7 +183,10 @@ func RewriteTFDT(data []byte, spans []SegmentSpan, delta int64) error {
 					return nil
 				}
 				old := int64(binary.BigEndian.Uint32(traf[field : field+4]))
-				next := old + delta
+				next, ok := fn(tid, old)
+				if !ok {
+					return nil
+				}
 				if next < 0 || next >= 1<<32 {
 					return fmt.Errorf("tfdt v0 rewrite out of range: %d -> %d", old, next)
 				}
@@ -159,6 +198,18 @@ func RewriteTFDT(data []byte, spans []SegmentSpan, delta int64) error {
 		}
 	}
 	return nil
+}
+
+// trafTrackID reads the tfhd track_ID of a traf box slice.
+func trafTrackID(traf []byte) uint32 {
+	var id uint32
+	_ = walkChildren(traf, func(t string, off, sz int) error {
+		if t == "tfhd" && off+8+8 <= len(traf) {
+			id = binary.BigEndian.Uint32(traf[off+12 : off+16])
+		}
+		return nil
+	})
+	return id
 }
 
 func sizeOf(data []byte, off int64) int64 {
@@ -228,27 +279,35 @@ func ReverseSegmentSwaps(data []byte, spans []SegmentSpan, i, j int) ([]byte, er
 	return out, nil
 }
 
-// AppendDuplicate appends a byte-identical copy of a span at end of file with
-// a rewritten mfhd sequence equal to the last sequence plus one. The duplicate
-// payload is byte-identical, which is how the checker detects a repeated
-// fragment.
-func AppendDuplicate(data []byte, span SegmentSpan, newSequence uint32) []byte {
-	out := make([]byte, 0, len(data)+int(span.End-span.Start))
-	out = append(out, data...)
-	dup := make([]byte, span.End-span.Start)
-	copy(dup, data[span.Start:span.End])
-	// Rewrite the mfhd sequence in the copy.
-	if p, size, ok := findBox(dup, 0, "moof"); ok {
-		_ = size
-		_ = walkMoofChildren(dup[p:], func(typ string, rel int) error {
-			if typ == "mfhd" && rel+16 <= len(dup) {
-				binary.BigEndian.PutUint32(dup[rel+12:rel+16], newSequence)
-			}
-			return nil
-		})
+// AppendDuplicate appends a byte-identical copy of a span inside the file but
+// before any trailing index (mfra), keeping the original mfhd sequence. The
+// recovery stage detects the repeated sequence number and skips the copy,
+// preserving the original fragment. Placement matters: the copy must not
+// directly abut an mdat, or the scanner would pair it with the preceding
+// fragment's payload.
+func AppendDuplicate(data []byte, span SegmentSpan) []byte {
+	tailAt := int64(len(data))
+	if p, _, ok := findBox(data, 0, "mfra"); ok {
+		tailAt = p
 	}
-	out = append(out, dup...)
-	return out
+	head := append([]byte(nil), data[:tailAt]...)
+	body := append([]byte(nil), data[span.Start:span.End]...)
+	// A small free box separates the copy from the preceding mdat.
+	head = append(head, freeBox(8)...)
+	head = append(head, body...)
+	head = append(head, data[tailAt:]...)
+	return head
+}
+
+// freeBox returns a minimal "free" box of the requested total size.
+func freeBox(total int) []byte {
+	if total < 8 {
+		total = 8
+	}
+	b := make([]byte, total)
+	binary.BigEndian.PutUint32(b[0:4], uint32(total))
+	copy(b[4:8], "free")
+	return b
 }
 
 // DropSpans removes the given spans from the file image.

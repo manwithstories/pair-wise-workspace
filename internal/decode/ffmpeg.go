@@ -133,7 +133,7 @@ func DecodeVideo(ctx context.Context, req Request) (*Result, error) {
 		"-hide_banner",
 		"-f", "h264",
 		"-i", streamPath,
-		"-vsync", "passthrough",
+		"-fps_mode", "passthrough",
 		"-f", "image2pipe",
 		"-vcodec", "png",
 		"-",
