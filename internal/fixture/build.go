@@ -164,8 +164,14 @@ func Build(opt Options) (Manifest, error) {
 			return Manifest{}, err
 		}
 	case FaultTruncate:
-		if err := truncateFile(opt.Path(), 0.85); err != nil {
-			return Manifest{}, err
+		// Only streamable containers survive a raw tail cut. MP4 keeps its
+		// index in a trailing moov atom, so cutting it yields an unopenable
+		// file that demonstrates nothing about record isolation. MP4 already
+		// carries deliberately truncated subtitle/audio payloads above.
+		if opt.Format == FormatTS {
+			if err := truncateFile(opt.Path(), 0.85); err != nil {
+				return Manifest{}, err
+			}
 		}
 	}
 

@@ -216,6 +216,44 @@ func TestAtomicSaveLeavesNoTempFiles(t *testing.T) {
 	}
 }
 
+func TestInvalidateStaleSamePathDifferentDigest(t *testing.T) {
+	dir := t.TempDir()
+	st, _ := NewStore(dir)
+	oldDigest := testDigest(11)
+	freshDigest := testDigest(12)
+	sc := sampleScan()
+	sc.Path = "/media/edge.mp4"
+
+	old, _ := Build(sc, oldDigest, 1)
+	if err := st.Save(old); err != nil {
+		t.Fatal(err)
+	}
+	removed, err := st.InvalidateStale("/media/edge.mp4", freshDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 1 {
+		t.Fatalf("removed %d stale entries, want 1", removed)
+	}
+	if _, err := st.Load(oldDigest); !errors.Is(err, ErrMissing) {
+		t.Fatalf("stale index still readable: %v", err)
+	}
+	// An entry for a different path must be left alone.
+	other := sampleScan()
+	other.Path = "/media/other.mp4"
+	oix, _ := Build(other, testDigest(13), 1)
+	if err := st.Save(oix); err != nil {
+		t.Fatal(err)
+	}
+	removed, err = st.InvalidateStale("/media/edge.mp4", freshDigest)
+	if err != nil || removed != 0 {
+		t.Fatalf("unrelated path removed: %d %v", removed, err)
+	}
+	if _, err := st.Load(testDigest(13)); err != nil {
+		t.Fatalf("unrelated index lost: %v", err)
+	}
+}
+
 func TestInvalidateAndList(t *testing.T) {
 	dir := t.TempDir()
 	st, _ := NewStore(dir)

@@ -39,6 +39,9 @@ type Job struct {
 	// Acknowledged marks a job whose output has been flushed and whose
 	// checkpoint may safely advance.
 	Acknowledged bool
+	// Data carries the prepared payload for the consumer. Cost must cover
+	// everything Data keeps alive so the queue budget stays honest.
+	Data any
 }
 
 // Queue is a byte-bounded FIFO with explicit, fail-fast close and a peak usage
@@ -234,6 +237,10 @@ type RunOptions struct {
 	// StopAfter cancels the run after this many delivered jobs, simulating a
 	// crash; zero means run to completion.
 	StopAfter int
+	// Prepare runs in the producer goroutine immediately before a job is
+	// enqueued. It lets the executor decode one segment at a time, so memory
+	// is bounded by the queue budget rather than the program duration.
+	Prepare func(context.Context, *Job) error
 }
 
 // Outcome summarises a run.
@@ -311,8 +318,17 @@ func Run(ctx context.Context, q *Queue, jobs []Job, consume func(context.Context
 	go func() {
 		defer q.Close()
 		for i := range jobs {
-			job := &jobs[i]
-			if err := q.Push(ctx, job); err != nil {
+			// Copy the job so a retried or concurrent run cannot observe a
+			// previous phase's Data/Cost through a shared slice element.
+			job := jobs[i]
+			job.Data = nil
+			if opt.Prepare != nil {
+				if err := opt.Prepare(ctx, &job); err != nil {
+					producerErr <- err
+					return
+				}
+			}
+			if err := q.Push(ctx, &job); err != nil {
 				producerErr <- err
 				return
 			}

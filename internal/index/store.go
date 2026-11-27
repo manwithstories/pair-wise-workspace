@@ -360,6 +360,43 @@ func (s *Store) Invalidate(digest string) error {
 	return nil
 }
 
+// InvalidateStale removes cached indexes for inputPath whose recorded digest
+// differs from digest, and reports how many were removed. This is the atomic
+// response to "the input changed": old entries must never steer a new run.
+func (s *Store) InvalidateStale(inputPath, digest string) (int, error) {
+	entries, err := os.ReadDir(s.Dir)
+	if err != nil {
+		return 0, fmt.Errorf("index: list for invalidation: %w", err)
+	}
+	removed := 0
+	for _, e := range entries {
+		name := e.Name()
+		if len(name) != 64+len(".idx.json") || filepath.Ext(name) != ".json" {
+			continue
+		}
+		cached := name[:64]
+		if cached == digest {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(s.Dir, name))
+		if err != nil {
+			continue
+		}
+		var ix Index
+		if err := json.Unmarshal(b, &ix); err != nil {
+			continue
+		}
+		if ix.InputPath != inputPath {
+			continue
+		}
+		if err := os.Remove(filepath.Join(s.Dir, name)); err != nil && !os.IsNotExist(err) {
+			return removed, fmt.Errorf("index: invalidate stale: %w", err)
+		}
+		removed++
+	}
+	return removed, nil
+}
+
 // List returns the digests currently cached.
 func (s *Store) List() ([]string, error) {
 	entries, err := os.ReadDir(s.Dir)
