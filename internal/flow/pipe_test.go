@@ -9,6 +9,10 @@ import (
 	"relay/internal/media"
 )
 
+func newTestPipe(cap int64) *Pipe[*media.Frame] {
+	return NewPipe[*media.Frame](cap, FrameCost)
+}
+
 func sizedFrame(seq uint64, payload int) *media.Frame {
 	return &media.Frame{
 		Version: media.WireVersion1, Sequence: seq,
@@ -17,14 +21,14 @@ func sizedFrame(seq uint64, payload int) *media.Frame {
 }
 
 func TestSendRecvAck(t *testing.T) {
-	p := NewPipe(1 << 20)
+	p := newTestPipe(1 << 20)
 	ctx := context.Background()
 	if err := p.Send(ctx, sizedFrame(1, 100)); err != nil {
 		t.Fatal(err)
 	}
-	f, err := p.Recv(ctx)
-	if err != nil || f == nil || f.Sequence != 1 {
-		t.Fatalf("recv: %v %v", err, f)
+	f, ok, err := p.Recv(ctx)
+	if err != nil || !ok || f.Sequence != 1 {
+		t.Fatalf("recv: %v ok=%v %v", err, ok, f)
 	}
 	if p.UsedBytes() == 0 {
 		t.Fatal("recv must not release credits before ack")
@@ -37,7 +41,7 @@ func TestSendRecvAck(t *testing.T) {
 
 func TestPeakNeverExceedsCapacity(t *testing.T) {
 	const cap = 4096
-	p := NewPipe(cap)
+	p := newTestPipe(cap)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
@@ -52,8 +56,8 @@ func TestPeakNeverExceedsCapacity(t *testing.T) {
 	}()
 	// 慢消费者：逐帧处理并确认。
 	for n := 0; n < 200; n++ {
-		f, err := p.Recv(ctx)
-		if err != nil {
+		f, ok, err := p.Recv(ctx)
+		if err != nil || !ok {
 			t.Fatal(err)
 		}
 		time.Sleep(time.Millisecond)
@@ -69,7 +73,7 @@ func TestPeakNeverExceedsCapacity(t *testing.T) {
 
 func TestSlowConsumerBackpressuresProducer(t *testing.T) {
 	// 容量仅够容纳两帧，第三帧必须阻塞直到消费者确认。
-	p := NewPipe(2 * (100 + media.HeaderLen + media.TailLen))
+	p := newTestPipe(2 * (100 + media.HeaderLen + media.TailLen))
 	ctx := context.Background()
 	if err := p.Send(ctx, sizedFrame(1, 100)); err != nil {
 		t.Fatal(err)
@@ -86,7 +90,7 @@ func TestSlowConsumerBackpressuresProducer(t *testing.T) {
 		t.Fatalf("expected backpressure, send returned early: %v", err)
 	case <-time.After(20 * time.Millisecond):
 	}
-	f, _ := p.Recv(ctx)
+	f, _, _ := p.Recv(ctx)
 	p.Ack(f)
 	select {
 	case err := <-blocked:
@@ -99,7 +103,7 @@ func TestSlowConsumerBackpressuresProducer(t *testing.T) {
 }
 
 func TestCancelReleasesBlockedSend(t *testing.T) {
-	p := NewPipe(100 + media.HeaderLen + media.TailLen)
+	p := newTestPipe(100 + media.HeaderLen + media.TailLen)
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := p.Send(ctx, sizedFrame(1, 100)); err != nil {
 		t.Fatal(err)
@@ -119,7 +123,7 @@ func TestCancelReleasesBlockedSend(t *testing.T) {
 }
 
 func TestCloseDrainsAndResetsCredits(t *testing.T) {
-	p := NewPipe(1 << 20)
+	p := newTestPipe(1 << 20)
 	ctx := context.Background()
 	_ = p.Send(ctx, sizedFrame(1, 10))
 	_ = p.Send(ctx, sizedFrame(2, 10))
@@ -127,16 +131,17 @@ func TestCloseDrainsAndResetsCredits(t *testing.T) {
 	if p.UsedBytes() != 0 {
 		t.Fatalf("close must release all credits, used=%d", p.UsedBytes())
 	}
-	// 关闭后已排队帧仍可被排空，排空后 Recv 返回 nil,nil。
+	// 关闭后已排队帧仍可被排空，排空后 Recv 返回 ok=false。
 	seen := 0
 	for {
-		f, err := p.Recv(ctx)
+		f, ok, err := p.Recv(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if f == nil {
+		if !ok {
 			break
 		}
+		_ = f
 		seen++
 	}
 	if seen != 2 {
