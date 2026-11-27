@@ -18,6 +18,7 @@ type JitterBuffer struct {
 	floor     int64 // explicit retention floor set by AdvanceFloor
 	haveFloor bool
 	primed    bool
+	peakBytes int64 // deterministic high-water mark over retained packets
 }
 
 // NewJitterBuffer builds a buffer retaining at most window sequence numbers
@@ -63,7 +64,22 @@ func (j *JitterBuffer) Push(p *MediaPacket) bool {
 		return false
 	}
 	j.packets[seq] = p
+	j.observePeak()
 	return true
+}
+
+// observePeak recomputes the high-water mark from the packets currently
+// retained. Because retention is a pure function of the input sequence and
+// the fixed window, this peak is deterministic across runs and goroutine
+// scheduling, unlike a queue's instantaneous occupancy.
+func (j *JitterBuffer) observePeak() {
+	var total int64
+	for _, p := range j.packets {
+		total += int64(p.Size)
+	}
+	if total > j.peakBytes {
+		j.peakBytes = total
+	}
 }
 
 // Drain returns retained packets in sequence order up to and including the
@@ -114,7 +130,11 @@ func (j *JitterBuffer) Put(p *MediaPacket) {
 		j.primed = true
 		j.latest = p.ExtSeq
 	}
+	j.observePeak()
 }
+
+// PeakBytes returns the deterministic high-water mark of retained payload.
+func (j *JitterBuffer) PeakBytes() int64 { return j.peakBytes }
 
 // AdvanceFloor moves the retention floor to floor, evicting older entries.
 func (j *JitterBuffer) AdvanceFloor(floor int64) {
