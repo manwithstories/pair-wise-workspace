@@ -209,9 +209,14 @@ func runOnce(ctx context.Context, fx Fixtures, opts Options, tl *timeline.Timeli
 		clock, _ := media.NewClock(outRate)
 		sink.index.AddKeyframe(clock.Frames(a.At), a.Label)
 	}
-	slow := stream.StallSink{
-		Inner: sink,
-		Delay: time.Duration(opts.ConsumerStallMS) * time.Millisecond,
+	// The value engineer is a genuinely slow consumer: it holds its first
+	// block until the bounded queue is full, then stalls per block. The
+	// producer therefore blocks on the queue rather than growing memory.
+	gate := newStartGate(2 * time.Second)
+	slow := &gatedSink{
+		inner: sink,
+		gate:  gate,
+		delay: time.Duration(opts.ConsumerStallMS) * time.Millisecond,
 	}
 	runner, err := stream.NewRunner(stream.RunnerOptions{
 		Capacity:     opts.Queue,
@@ -220,6 +225,7 @@ func runOnce(ctx context.Context, fx Fixtures, opts Options, tl *timeline.Timeli
 		Track:        "program",
 		Strict:       true,
 		Timeline:     tl,
+		OnQueue:      gate.Bind,
 	})
 	if err != nil {
 		sink.Close()
@@ -241,6 +247,7 @@ func runOnce(ctx context.Context, fx Fixtures, opts Options, tl *timeline.Timeli
 		loudnessDBFS: sink.loudnessDBFS(len(layout.Stereo.Labels)),
 		peakDBFS:     sink.peakDBFS(),
 		gainDB:       lc.Stats().GainDB,
+		gateSat:      gate.Sat(),
 	}
 	return stats, nil
 }
@@ -254,6 +261,7 @@ type runStats struct {
 	loudnessDBFS float64
 	peakDBFS     float64
 	gainDB       float64
+	gateSat      bool
 }
 
 // segmentHashes renders the per-segment 64-bit hashes.

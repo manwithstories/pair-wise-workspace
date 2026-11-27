@@ -42,6 +42,11 @@ type Sink interface {
 
 // RunnerOptions configures the scheduler.
 type RunnerOptions struct {
+	// OnQueue, if set, is called with the queue's full and blocked signals
+	// just after the bounded queue is created. Consumers use them to lag
+	// behind on purpose so backpressure is deterministic rather than timing
+	// dependent.
+	OnQueue      func(full, blocked <-chan struct{})
 	Capacity     int
 	MaxGapFrames int64
 	MaxBlock     int
@@ -97,6 +102,9 @@ func (r *Runner) Run(ctx context.Context, src Source, proc Processor, sink Sink)
 	q, err := NewQueue[media.Block](r.opts.Capacity)
 	if err != nil {
 		return Result{}, err
+	}
+	if r.opts.OnQueue != nil {
+		r.opts.OnQueue(q.FullSignal(), q.BlockedSignal())
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -341,16 +349,21 @@ func hashBlock(b media.Block) uint64 {
 type StallSink struct {
 	Inner Sink
 	Delay time.Duration
+	// Extra yields to the scheduler on every block. It keeps the consumer
+	// slower than the producer even when Delay is zero, so the bounded queue
+	// is exercised deterministically in tests.
+	Extra time.Duration
 	Sleep func(time.Duration)
 }
 
 // Consume forwards the block after the configured delay.
 func (s StallSink) Consume(b media.Block) error {
-	if s.Delay > 0 {
+	d := s.Delay + s.Extra
+	if d > 0 {
 		if s.Sleep != nil {
-			s.Sleep(s.Delay)
+			s.Sleep(d)
 		} else {
-			time.Sleep(s.Delay)
+			time.Sleep(d)
 		}
 	}
 	return s.Inner.Consume(b)

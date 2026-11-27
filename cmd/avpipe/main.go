@@ -6,13 +6,16 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"runtime"
 
 	"avpipe/internal/demo"
 	"avpipe/internal/media"
+	"avpipe/internal/wav"
 )
 
 func main() {
@@ -27,6 +30,8 @@ func run(args []string) int {
 	switch args[0] {
 	case "demo":
 		return runDemo(args[1:])
+	case "check":
+		return runCheck(args[1:])
 	case "version", "--version", "-v":
 		fmt.Printf("avpipe %s %s/%s\n", version, runtime.GOOS, runtime.GOARCH)
 		return int(media.ExitOK)
@@ -79,6 +84,53 @@ func runDemo(args []string) int {
 	return int(media.ExitOK)
 }
 
+// runCheck validates a WAV file in strict mode without rendering. It is the
+// terminal entry point for the "strict mode rejects corrupt input" contract:
+// any truncated frame exits 3 and no output is produced.
+func runCheck(args []string) int {
+	fs := flag.NewFlagSet("check", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	block := fs.Int("block", 1024, "block size in frames")
+	fs.Usage = func() {
+		fmt.Fprintln(os.Stderr, "usage: avpipe check [--block N] <file.wav>")
+		fmt.Fprintln(os.Stderr, "validates a WAV in strict mode; truncated input exits 3.")
+	}
+	if err := fs.Parse(args); err != nil {
+		return int(media.ExitUsage)
+	}
+	if fs.NArg() != 1 {
+		fmt.Fprintln(os.Stderr, "avpipe check: exactly one WAV path is required")
+		return int(media.ExitUsage)
+	}
+	if *block <= 0 {
+		fmt.Fprintln(os.Stderr, "avpipe check: --block must be positive")
+		return int(media.ExitUsage)
+	}
+	path := fs.Arg(0)
+	reader, err := wav.Open(path, wav.DefaultLimits())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "avpipe check: %v\n", err)
+		return int(media.ExitFor(err))
+	}
+	defer reader.Close()
+	info := reader.Info()
+	var frames int64
+	for {
+		chunk, err := reader.ReadBlock("check", *block, true)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "avpipe check: %v\n", err)
+			return int(media.ExitFor(err))
+		}
+		frames += int64(chunk.Block.Frames())
+	}
+	fmt.Printf("check_ok frames=%d channels=%d bit_depth=%d rate=%s\n",
+		frames, info.Channels, info.BitDepth, info.Rate.String())
+	return int(media.ExitOK)
+}
+
 func usage(w *os.File) {
 	fmt.Fprintln(w, "avpipe - interactive audio pipeline demo")
 	fmt.Fprintln(w)
@@ -86,6 +138,7 @@ func usage(w *os.File) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "commands:")
 	fmt.Fprintln(w, "  demo     run the end-to-end pipeline and the acceptance checks")
+	fmt.Fprintln(w, "  check    strictly validate a WAV file (exit 3 on truncation)")
 	fmt.Fprintln(w, "  version  print the build version")
 	fmt.Fprintln(w, "  help     print this message")
 	fmt.Fprintln(w)

@@ -23,6 +23,12 @@ type Options struct {
 	VerifyRepeat     bool
 	Out              string
 	Frames           int
+
+	// nodeOverride is an in-package test seam: it replaces the stage graph
+	// with an arbitrary one so negative controls (cycles, missing tracks,
+	// out-of-range spans) can prove that validation fails before any output
+	// file exists. External callers never set it.
+	nodeOverride func(anchors int) []graph.Node
 }
 
 // DefaultOptions mirror the acceptance command line.
@@ -74,6 +80,7 @@ type Report struct {
 	SegmentSHA     []uint64
 	QueueCapacity  int
 	QueueHighWater int
+	QueueFullSeen  bool
 	Backpressure   uint64
 	RecoveredBytes int64
 	RepeatMatch    float64
@@ -102,7 +109,7 @@ func (r Report) Passed() bool {
 	if r.QueueHighWater > r.QueueCapacity || r.QueueCapacity <= 0 {
 		return false
 	}
-	if r.Backpressure == 0 {
+	if r.Backpressure == 0 || !r.QueueFullSeen {
 		return false
 	}
 	if r.RecoveredBytes <= 0 || !r.StrictRejected {
@@ -146,7 +153,7 @@ func Run(ctx context.Context, opts Options, stdout, stderr *os.File) (Report, er
 	if err != nil {
 		return Report{}, err
 	}
-	if err := validateGraph(tl, len(fx.Anchors)); err != nil {
+	if err := validateGraphWith(tl, opts, len(fx.Anchors)); err != nil {
 		return Report{}, err
 	}
 
@@ -174,6 +181,7 @@ func Run(ctx context.Context, opts Options, stdout, stderr *os.File) (Report, er
 		SegmentSHA:     stats.segmentHashes(),
 		QueueCapacity:  stats.result.Queue.Capacity,
 		QueueHighWater: stats.result.Queue.HighWater,
+		QueueFullSeen:  stats.gateSat,
 		Backpressure:   stats.result.Queue.Backpressure,
 		LoudnessDBFS:   stats.loudnessDBFS,
 		PeakDBFS:       stats.peakDBFS,
@@ -248,10 +256,27 @@ func buildTimeline(fx Fixtures) (*timeline.Timeline, error) {
 	return tl, nil
 }
 
-// validateGraph proves the stage dependency graph is acyclic and its keyframe
-// span is in range before any audio is written.
+// validateGraph proves the default stage dependency graph is acyclic and its
+// keyframe span is in range before any audio is written.
 func validateGraph(tl *timeline.Timeline, anchors int) error {
-	nodes := []graph.Node{
+	return validateGraphWith(tl, Options{}, anchors)
+}
+
+// validateGraphWith validates the graph selected by opts, including the
+// in-package test override.
+func validateGraphWith(tl *timeline.Timeline, opts Options, anchors int) error {
+	nodes := planNodes(anchors)
+	if opts.nodeOverride != nil {
+		nodes = opts.nodeOverride(anchors)
+	}
+	_, err := graph.Build(nodes, tl.IDs(), anchors)
+	return err
+}
+
+// planNodes is the production stage graph: source, resample, layout,
+// loudness, sink and the audit consumer of the video anchors.
+func planNodes(anchors int) []graph.Node {
+	return []graph.Node{
 		{ID: "program.source", Stage: graph.StageSource, Track: "program"},
 		{ID: "program.resample", Stage: graph.StageResample, Track: "program", Deps: []string{"program.source"}},
 		{ID: "program.layout", Stage: graph.StageLayout, Track: "program", Deps: []string{"program.resample"}},
@@ -260,8 +285,6 @@ func validateGraph(tl *timeline.Timeline, anchors int) error {
 		{ID: "cam.audit", Stage: graph.StageAudit, Track: "cam", Deps: []string{"program.sink"},
 			Anchors: &graph.Span{Lo: 0, Hi: anchors}},
 	}
-	_, err := graph.Build(nodes, tl.IDs(), anchors)
-	return err
 }
 
 // recoveryPass reads the truncated fixture non-strictly and returns the bytes
@@ -313,6 +336,7 @@ func printReport(w *os.File, r Report) {
 	}
 	fmt.Fprintf(w, "queue_capacity=%d\n", r.QueueCapacity)
 	fmt.Fprintf(w, "queue_high_water=%d\n", r.QueueHighWater)
+	fmt.Fprintf(w, "queue_full_seen=%v\n", r.QueueFullSeen)
 	fmt.Fprintf(w, "backpressure_waits=%d\n", r.Backpressure)
 	fmt.Fprintf(w, "recovered_dropped_bytes=%d\n", r.RecoveredBytes)
 	fmt.Fprintf(w, "repeat_sha_match=%.2f%%\n", r.RepeatMatch)

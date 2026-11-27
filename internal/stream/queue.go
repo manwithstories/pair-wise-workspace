@@ -14,12 +14,16 @@ import (
 
 // Queue is a bounded multi-producer, multi-consumer queue.
 type Queue[T any] struct {
-	mu       sync.Mutex
-	notEmpty *sync.Cond
-	notFull  *sync.Cond
-	items    []T
-	capacity int
-	closed   bool
+	mu        sync.Mutex
+	notEmpty  *sync.Cond
+	notFull   *sync.Cond
+	items     []T
+	capacity  int
+	closed    bool
+	full      chan struct{}
+	fullOnce  sync.Once
+	blocked   chan struct{}
+	blockOnce sync.Once
 	// stats
 	highWater      int
 	enqueued       uint64
@@ -34,7 +38,12 @@ func NewQueue[T any](capacity int) (*Queue[T], error) {
 		return nil, media.NewError(media.PhaseConfig, media.ExitUsage, "", 0, false, "queue",
 			fmt.Errorf("queue capacity must be positive, got %d", capacity))
 	}
-	q := &Queue[T]{items: make([]T, 0, capacity), capacity: capacity}
+	q := &Queue[T]{
+		items:    make([]T, 0, capacity),
+		capacity: capacity,
+		full:     make(chan struct{}),
+		blocked:  make(chan struct{}),
+	}
 	q.notEmpty = sync.NewCond(&q.mu)
 	q.notFull = sync.NewCond(&q.mu)
 	return q, nil
@@ -51,6 +60,7 @@ func (q *Queue[T]) Push(ctx context.Context, v T) error {
 			return err
 		}
 		q.backpressureWA++
+		q.blockOnce.Do(func() { close(q.blocked) })
 		// A context-aware wait: the stop goroutine broadcasts on both conds,
 		// so a cancelled context wakes this loop at the next check.
 		stop := q.watch(ctx)
@@ -69,9 +79,21 @@ func (q *Queue[T]) Push(ctx context.Context, v T) error {
 	if len(q.items) > q.highWater {
 		q.highWater = len(q.items)
 	}
+	if len(q.items) == q.capacity {
+		q.fullOnce.Do(func() { close(q.full) })
+	}
 	q.notEmpty.Signal()
 	return nil
 }
+
+// FullSignal is closed the first time the queue reaches capacity. It lets a
+// consumer intentionally lag behind the producer and still observe genuine
+// backpressure rather than guessing at timing.
+func (q *Queue[T]) FullSignal() <-chan struct{} { return q.full }
+
+// BlockedSignal is closed the first time a producer actually blocks on a full
+// queue. A consumer can wait on it instead of sleeping for a guessed duration.
+func (q *Queue[T]) BlockedSignal() <-chan struct{} { return q.blocked }
 
 // Pop removes the oldest item, blocking while the queue is empty. It returns
 // io.EOF-like ErrClosed once the queue is drained and closed.
