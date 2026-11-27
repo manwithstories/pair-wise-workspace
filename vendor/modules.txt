@@ -1,0 +1,6 @@
+# github.com/asticode/go-astiav v0.43.0
+## explicit; go 1.21
+github.com/asticode/go-astiav
+# github.com/asticode/go-astikit v0.42.0
+## explicit; go 1.13
+github.com/asticode/go-astikit
