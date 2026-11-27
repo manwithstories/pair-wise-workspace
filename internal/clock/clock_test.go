@@ -104,3 +104,28 @@ func TestFitDriftNeedsTwoAnchors(t *testing.T) {
 		t.Fatal("expected error for one anchor")
 	}
 }
+
+func TestFitDriftStableNearWrap(t *testing.T) {
+	// Anchors close to 2^32 must still fit a 120 ppm slope accurately:
+	// uncentered sums would lose precision at this magnitude.
+	nominal := media.TickBase
+	const ppm = 120.0
+	slope := nominal.Float() * (1 + ppm*1e-6)
+	start := int64(1<<32) - 240*40000
+	var anchors []Marker
+	for i := 0; i < 240; i++ {
+		tick := start + int64(i)*40000
+		nanos := int64(math.Round(float64(int64(i)*40000) * slope))
+		anchors = append(anchors, Marker{Track: "A", Seq: int64(i), Tick: tick, Nanos: nanos})
+	}
+	f, err := FitDrift(anchors, nominal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if math.Abs(f.PPM-ppm) > 0.01 {
+		t.Fatalf("ppm = %.5f, want %.1f", f.PPM, ppm)
+	}
+	if f.MaxErrorMs > 0.001 {
+		t.Fatalf("max error %.4f ms", f.MaxErrorMs)
+	}
+}

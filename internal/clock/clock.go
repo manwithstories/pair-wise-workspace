@@ -119,22 +119,29 @@ func FitDrift(anchors []Marker, nominal media.Rational) (Fit, error) {
 		}
 		return sorted[a].Seq < sorted[b].Seq
 	})
-	var sx, sy, sxx, sxy float64
-	n := float64(len(sorted))
+	// Center the regressors before accumulating. A 32-bit counter shifted
+	// near 2^32 otherwise makes x*x sums lose most of their significant
+	// digits in float64; centering keeps the fit stable to sub-microsecond.
+	var mx, my float64
 	for _, a := range sorted {
-		x := float64(a.Tick)
-		y := float64(a.Nanos)
-		sx += x
-		sy += y
-		sxx += x * x
-		sxy += x * y
+		mx += float64(a.Tick)
+		my += float64(a.Nanos)
 	}
-	den := n*sxx - sx*sx
-	if den == 0 {
+	n := float64(len(sorted))
+	mx /= n
+	my /= n
+	var cov, variance float64
+	for _, a := range sorted {
+		dx := float64(a.Tick) - mx
+		dy := float64(a.Nanos) - my
+		cov += dx * dy
+		variance += dx * dx
+	}
+	if variance == 0 {
 		return Fit{}, media.New(media.KindClock, "clock.fit", "", -1, errors.New("anchors share one tick; cannot fit slope"))
 	}
-	slope := (n*sxy - sx*sy) / den
-	intercept := (sy - slope*sx) / n
+	slope := cov / variance
+	intercept := my - slope*mx
 	if slope <= 0 || math.IsNaN(slope) || math.IsInf(slope, 0) {
 		return Fit{}, media.Newf(media.KindClock, "clock.fit", "", -1, "non-physical slope %v", slope)
 	}

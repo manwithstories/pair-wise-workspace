@@ -45,6 +45,26 @@ func ParsePCM(data []byte, channels int) ([]float64, error) {
 	return out, nil
 }
 
+// ParsePCMChannels parses interleaved PCM and returns per-channel series.
+func ParsePCMChannels(data []byte, channels int) ([][]float64, error) {
+	frames, err := ParsePCM(data, channels)
+	if err != nil {
+		return nil, err
+	}
+	if len(frames)%channels != 0 {
+		return nil, media.Newf(media.KindInput, "audio.pcm", "", -1,
+			"sample count %d is not a multiple of %d channels", len(frames), channels)
+	}
+	out := make([][]float64, channels)
+	for c := range out {
+		out[c] = make([]float64, len(frames)/channels)
+	}
+	for i, v := range frames {
+		out[i%channels][i/channels] = v
+	}
+	return out, nil
+}
+
 // DetectPulses finds separated bursts above the threshold (absolute loudness)
 // and returns them in sample order. A burst closer than minGap samples to the
 // previous one is merged so a noisy pulse cannot split in two.
