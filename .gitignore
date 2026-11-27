@@ -71,3 +71,12 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Go 构建产物与本地运行工作目录（交付只含源码）----
+/relay
+/cmd/relay/relay
+*.test
+*.out
+/work/
+*.pcm
+*.f32
