@@ -145,23 +145,27 @@ func Generate(dir string, cfg Config) (*Result, error) {
 			Priority: tr.Priority, Mask: tr.Mask, Deps: tr.Deps,
 			RateNum: tr.RateNum, RateDen: tr.RateDen,
 		})
+		skip := map[int64]bool{}
+		if ti == len(tracks)-1 {
+			// One deliberately long gap on the last track stays unrecoverable
+			// and must surface as explicit missing records, never as success.
+			base := int64(cfg.Frames * 3 / 5)
+			for k := int64(0); k < 3; k++ {
+				skip[base+k] = true
+			}
+		}
 		for seq := int64(0); seq < int64(cfg.Frames); seq++ {
+			if skip[seq] {
+				res.Cameras = append(res.Cameras, Camera{Track: tr.Name, Seq: seq, Missing: true})
+				continue
+			}
 			if seq%int64(cfg.DropEvery) == 0 && seq > 0 {
 				res.Cameras = append(res.Cameras, Camera{Track: tr.Name, Seq: seq, Missing: true})
 				continue
 			}
-			// One deliberately long gap on the last track stays unrecoverable
-			// and must surface as explicit missing records, never as success.
-			if ti == len(tracks)-1 && seq == int64(cfg.Frames*3/5) {
-				for k := int64(0); k < 3; k++ {
-					res.Cameras = append(res.Cameras, Camera{Track: tr.Name, Seq: seq + k, Missing: true})
-				}
-				seq += 3
-				continue
-			}
 			c := Camera{Track: tr.Name, Seq: seq}
-			// Variable frame rate: 25 fps tracks jitter ±4 ms; the 30 fps
-			// track keeps a tighter cadence, then all map onto 25 fps.
+			// Variable frame rate: nominal 25 fps with small per-camera jitter,
+			// so no two intervals are identical but all map onto the grid.
 			var interval int64
 			if seq == 0 {
 				interval = 0 // frame 0 defines the shared origin exactly
