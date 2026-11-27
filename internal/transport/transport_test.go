@@ -12,8 +12,8 @@ func makePackets(n int) []*Packet {
 	for i := range samples {
 		samples[i] = index.Sample{
 			Index: uint32(i), Size: 100,
-			PTS: model.Timestamp(i) * model.Millisecond,
-			DTS: model.Timestamp(i) * model.Millisecond,
+			PTS:        model.Timestamp(i) * model.Millisecond,
+			DTS:        model.Timestamp(i) * model.Millisecond,
 			IsKeyframe: i%5 == 0,
 		}
 	}
@@ -23,7 +23,7 @@ func makePackets(n int) []*Packet {
 
 func TestCleanStreamDeliversAll(t *testing.T) {
 	pkts := makePackets(20)
-	got, gaps, stats := Run(pkts, pkts, DefaultJitterConfig())
+	got, gaps, stats, _ := Run(pkts, pkts, DefaultJitterConfig())
 	if len(got) != len(pkts) {
 		t.Fatalf("delivered %d of %d", len(got), len(pkts))
 	}
@@ -57,7 +57,7 @@ func TestXORRecoversSingleDroppedPacket(t *testing.T) {
 	pkts := makePackets(12)
 	// drop exactly seq 4: block (4,5) still holds survivor 5 + parity
 	impaired := NewInjector(&FaultProfile{DropSeqs: []uint16{4}}).Inject(pkts)
-	got, gaps, stats := Run(pkts, impaired, DefaultJitterConfig())
+	got, gaps, stats, _ := Run(pkts, impaired, DefaultJitterConfig())
 	if stats.RecoveredPackets < 1 {
 		t.Fatalf("expected >=1 recovered packet, got %+v", stats)
 	}
@@ -87,7 +87,7 @@ func TestDoubleLossBecomesTimelineGap(t *testing.T) {
 	pkts := makePackets(12)
 	// drop both members of one block: XOR impossible, gap must be recorded
 	impaired := NewInjector(&FaultProfile{DropSeqs: []uint16{6, 7}}).Inject(pkts)
-	got, gaps, stats := Run(pkts, impaired, DefaultJitterConfig())
+	got, gaps, stats, _ := Run(pkts, impaired, DefaultJitterConfig())
 	if stats.UnrecoveredPackets != 2 {
 		t.Fatalf("unrecovered = %d, want 2", stats.UnrecoveredPackets)
 	}
@@ -104,7 +104,7 @@ func TestNACKRecoversReorderedPacket(t *testing.T) {
 	// reorder but do not lose: every packet is observable and NACK-satisfiable
 	inj := NewInjector(&FaultProfile{Seed: 3, ReorderRate: 0.6})
 	impaired := inj.Inject(pkts)
-	got, gaps, stats := Run(pkts, impaired, DefaultJitterConfig())
+	got, gaps, stats, _ := Run(pkts, impaired, DefaultJitterConfig())
 	if len(gaps) != 0 || stats.UnrecoveredPackets != 0 {
 		t.Fatalf("reordering alone must not cause loss: gaps=%v stats=%+v", gaps, stats)
 	}
@@ -120,7 +120,7 @@ func TestDuplicatesAreDeduplicated(t *testing.T) {
 	if len(impaired) <= len(pkts) {
 		t.Fatal("injector should have produced duplicates")
 	}
-	got, _, stats := Run(pkts, impaired, DefaultJitterConfig())
+	got, _, stats, _ := Run(pkts, impaired, DefaultJitterConfig())
 	if len(got) != len(pkts) {
 		t.Fatalf("duplicates inflated delivery: %d vs %d", len(got), len(pkts))
 	}
@@ -152,7 +152,7 @@ func TestNACKCacheSatisfiesRetransmission(t *testing.T) {
 		eng.Receive(p)
 	}
 	eng.Receive(pkts[2]) // late arrival before Finalize
-	got, gaps, stats := eng.Finalize()
+	got, gaps, stats, _ := eng.Finalize()
 	if len(gaps) != 0 || len(got) != len(pkts) {
 		t.Fatalf("late packet must complete delivery: %+v", gaps)
 	}

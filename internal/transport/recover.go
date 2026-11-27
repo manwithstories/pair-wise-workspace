@@ -27,7 +27,9 @@ type nackCache struct {
 	full  bool
 }
 
-func newNACKCache(depth int) *nackCache { return &nackCache{depth: depth, ring: make([]*Packet, depth)} }
+func newNACKCache(depth int) *nackCache {
+	return &nackCache{depth: depth, ring: make([]*Packet, depth)}
+}
 
 func (c *nackCache) add(p *Packet) {
 	c.ring[c.pos] = p

@@ -51,6 +51,9 @@ func (j *JitterBuffer) Push(p *Packet) bool {
 	return true
 }
 
+// Has reports whether a sequence number has ever been observed on the wire.
+func (j *JitterBuffer) Has(seq uint16) bool { return j.received[seq] }
+
 // seqDist returns the signed forward distance from a to b in 16-bit space.
 func seqDist(a, b uint16) int {
 	return int(int16(b - a))

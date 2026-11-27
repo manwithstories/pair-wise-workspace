@@ -18,6 +18,7 @@ type Engine struct {
 	parity    map[uint16][]byte // block base -> parity payload
 
 	recovered map[uint16]bool // idempotency guard across resume
+	mechanism map[uint16]string
 	delivered map[uint16]*Packet
 	gaps      []Gap
 	stats     RecoveryStats
@@ -32,6 +33,7 @@ func NewEngine(cfg JitterConfig) *Engine {
 		originals: make(map[uint16]*Packet),
 		parity:    make(map[uint16][]byte),
 		recovered: make(map[uint16]bool),
+		mechanism: make(map[uint16]string),
 		delivered: make(map[uint16]*Packet),
 	}
 }
@@ -72,6 +74,7 @@ func (e *Engine) tryRecover(seq uint16) bool {
 	if p := e.nack.lookup(seq); p != nil {
 		e.jb.Push(p)
 		e.recovered[seq] = true
+		e.mechanism[seq] = "nack"
 		e.stats.NACKRecovered++
 		return true
 	}
@@ -87,28 +90,34 @@ func (e *Engine) tryRecover(seq uint16) bool {
 	} else {
 		survivorSeq = blk.seqA
 	}
-	survivor := e.nack.lookup(survivorSeq)
-	if survivor == nil {
-		if sp, ok := e.delivered[survivorSeq]; ok {
-			survivor = sp
-		}
+	// XOR needs exactly one surviving member. The survivor must have been
+	// observed on the wire; if both members were dropped, recovery is
+	// impossible and the hole stays an unrecoverable timeline gap.
+	if !e.jb.Has(survivorSeq) {
+		return false
 	}
-	if survivor == nil {
-		return false // both members missing: XOR cannot help
+	survivor, ok := e.originals[survivorSeq]
+	if !ok {
+		return false
 	}
 	rec := reconstruct(seq, survivor, parity)
 	e.jb.Push(rec)
 	e.recovered[seq] = true
+	e.mechanism[seq] = "xor"
 	e.stats.XORRecovered++
 	return true
 }
+
+// Mechanism reports how a recovered sequence was repaired ("nack" or "xor"),
+// or an empty string when no recovery was needed for it.
+func (e *Engine) Mechanism(seq uint16) string { return e.mechanism[seq] }
 
 // Finalize flushes the buffer once the full impaired stream has been
 // observed. It walks every sequence number from the first up to the
 // high-water mark exactly once: present packets drain directly, missing
 // ones go through NACK then XOR recovery, and holes that cannot be repaired
 // become timeline gaps. Bounded iteration rules out any livelock.
-func (e *Engine) Finalize() ([]*Packet, []Gap, RecoveryStats) {
+func (e *Engine) Finalize() ([]*Packet, []Gap, RecoveryStats, map[uint16]string) {
 	var maxSeq uint16
 	hasMax := false
 	for seq := range e.originals {
@@ -117,7 +126,7 @@ func (e *Engine) Finalize() ([]*Packet, []Gap, RecoveryStats) {
 		}
 	}
 	if !hasMax {
-		return nil, nil, e.stats
+		return nil, nil, e.stats, e.mechanism
 	}
 	first := e.originalFirstSeq()
 	// unsigned forward span inclusive of both ends
@@ -154,7 +163,7 @@ func (e *Engine) Finalize() ([]*Packet, []Gap, RecoveryStats) {
 	sort.Slice(ordered, func(i, k int) bool {
 		return seqDist(ordered[i].RTP.SequenceNumber, ordered[k].RTP.SequenceNumber) > 0
 	})
-	return ordered, e.gaps, e.stats
+	return ordered, e.gaps, e.stats, e.mechanism
 }
 
 // originalFirstSeq returns the smallest original sequence number.
@@ -182,8 +191,10 @@ func (e *Engine) recordGap(seq uint16) {
 	e.gaps = append(e.gaps, Gap{StartSeq: seq, EndSeq: seq, PTS: pts, Count: 1})
 }
 
-// Run is the one-call convenience wrapper over the full recovery path.
-func Run(originals, impaired []*Packet, cfg JitterConfig) ([]*Packet, []Gap, RecoveryStats) {
+// Run is the one-call convenience wrapper over the full recovery path. It
+// returns delivered packets, aged gaps, stats and the per-seq mechanism map.
+func Run(originals, impaired []*Packet, cfg JitterConfig) (
+	[]*Packet, []Gap, RecoveryStats, map[uint16]string) {
 	eng := NewEngine(cfg)
 	eng.Ingest(originals)
 	for _, p := range impaired {
