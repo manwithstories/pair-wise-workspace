@@ -45,6 +45,8 @@ type Index struct {
 	keys         []int64
 	roundTripOK  int64
 	roundTripBad int64
+	diskMatched  int64
+	diskChecked  int64
 	finalized    bool
 }
 
@@ -212,13 +214,33 @@ func (x *Index) KeyframeHitPercent() float64 {
 	return 100 * float64(x.KeyframeHits()) / float64(len(x.anchors))
 }
 
-// RoundTripPercent is the percentage of samples that quantize idempotently.
+// RoundTripPercent is the percentage of frame-exact round trips. When the
+// renderer supplies a disk read-back count (via RecordRoundTrip) that figure is
+// authoritative because it compares the bytes actually in the file; otherwise
+// the in-memory quantization check is used.
 func (x *Index) RoundTripPercent() float64 {
 	total := x.roundTripOK + x.roundTripBad
+	if x.diskChecked > 0 {
+		total = x.diskChecked
+	}
 	if total == 0 {
 		return 100
 	}
-	return 100 * float64(x.roundTripOK) / float64(total)
+	good := x.roundTripOK
+	if x.diskChecked > 0 {
+		good = x.diskMatched
+	}
+	return 100 * float64(good) / float64(total)
+}
+
+// RecordRoundTrip replaces the in-memory quantization counts with the exact
+// figure obtained by reading the written file back from disk.
+func (x *Index) RecordRoundTrip(matched, mismatch int64) {
+	if matched+mismatch == 0 {
+		return
+	}
+	x.diskMatched = matched
+	x.diskChecked = matched + mismatch
 }
 
 // Summary is the quantized digest of the whole render.
@@ -252,6 +274,10 @@ func (x *Index) Summarize() Summary {
 	for i := 0; i < 32; i++ {
 		quant[i] = x.quantCounts[i]
 	}
+	rtOK, rtBad := x.roundTripOK, x.roundTripBad
+	if x.diskChecked > 0 {
+		rtOK, rtBad = x.diskMatched, x.diskChecked-x.diskMatched
+	}
 	return Summary{
 		Frames:        x.totalFrames,
 		Samples:       x.totalFrames * int64(x.channels),
@@ -259,8 +285,8 @@ func (x *Index) Summarize() Summary {
 		PeakDBFS:      peakDB,
 		MeanAbs:       mean,
 		Quantized:     quant,
-		RoundTripOK:   x.roundTripOK,
-		RoundTripBad:  x.roundTripBad,
+		RoundTripOK:   rtOK,
+		RoundTripBad:  rtBad,
 		RoundTripPct:  x.RoundTripPercent(),
 		KeyframeHits:  x.KeyframeHits(),
 		KeyframeTotal: len(x.anchors),

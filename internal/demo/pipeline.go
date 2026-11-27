@@ -146,6 +146,11 @@ func (s *renderSink) Close() error {
 			s.file.Close()
 			return err
 		}
+		if err := s.rec.VerifyError(); err != nil {
+			s.file.Close()
+			return media.NewError(media.PhaseIO, media.ExitInternal, "", 0, false, "verify", err)
+		}
+		s.index.RecordRoundTrip(s.rec.RoundTrip())
 		s.rec = nil
 	}
 	s.index.Finalize()
