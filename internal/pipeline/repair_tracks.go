@@ -36,10 +36,12 @@ func (c *runContext) repairTracks() (string, error) {
 	for _, track := range tl.Tracks {
 		c.dedupeTrack(track)
 	}
-	c.collectQuarantine(tl)
+	// Outputs are written before quarantine records are collected so a
+	// segment that fails during materialization also produces a reason.
 	if err := c.writeOutputs(tl); err != nil {
 		return "", err
 	}
+	c.collectQuarantine(tl)
 	c.report.AVSyncMaxMS = avSyncMax(tl).Millis()
 	c.report.Segments = countSegments(tl, nil)
 	c.report.SegmentsValid = countSegments(tl, func(s *media.Segment) bool { return s.Valid() })
