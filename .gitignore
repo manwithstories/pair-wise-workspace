@@ -74,6 +74,7 @@ AGENTS.md.local
 
 # ---- 本项目运行期产物（素材、封装、帧序列、演示工作区）----
 .demo/
+.demo*/
 .smoke*/
 master.bin
 *.mpk
