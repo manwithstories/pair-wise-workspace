@@ -11,6 +11,7 @@ import (
 	"os"
 
 	"relay/internal/media"
+	"relay/internal/remux"
 	"relay/internal/timeline"
 )
 
@@ -50,6 +51,7 @@ type Data struct {
 	Watermarks map[uint32]int64             `json:"watermarks"`
 	Dedup      map[uint32]map[uint64]string `json:"dedup"`
 	Quarantine []QuarantineRec              `json:"quarantine"`
+	Entries    []remux.ManifestEntry        `json:"entries"`
 	GraceNS    int64                        `json:"grace_ns"`
 }
 

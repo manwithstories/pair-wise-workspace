@@ -130,6 +130,11 @@ func (e *Engine) drain(track uint32) []*Envelope {
 	return out
 }
 
+// QuarantineExplicit 供管线登记非水位原因的隔离（如序号哈希冲突）。
+func (e *Engine) QuarantineExplicit(env *Envelope, reason, detail string) {
+	e.quar = append(e.quar, &Quarantine{Env: env, Reason: reason, Detail: detail})
+}
+
 // Quarantine 返回累积的隔离记录。
 func (e *Engine) Quarantine() []*Quarantine { return e.quar }
 

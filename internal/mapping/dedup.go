@@ -35,16 +35,25 @@ func NewDedup() *Dedup {
 // Classify 对已解析轨道的帧做判定；accept 时同时登记哈希。
 // 该方法对同一 (track,seq) 重复调用是确定性的。
 func (d *Dedup) Classify(trackID uint32, f *media.Frame) Decision {
+	dec := d.Peek(trackID, f)
+	if dec.Kind == DecisionAccept {
+		d.Commit(trackID, f.Sequence, f.SHA256)
+	}
+	return dec
+}
+
+// Peek 仅判定不登记：调用方负责在帧真正提交输出后调用 Commit。
+// 这样中断恢复时，仅停留在回溯区、尚未落盘的帧不会被误判为重复。
+func (d *Dedup) Peek(trackID uint32, f *media.Frame) Decision {
 	dec := Decision{TrackID: trackID, CameraID: f.CameraID, Sequence: f.Sequence, Incoming: f.SHA256}
 	ledger, ok := d.hashes[trackID]
 	if !ok {
-		ledger = make(map[uint64][32]byte)
-		d.hashes[trackID] = ledger
+		dec.Kind = DecisionAccept
+		return dec
 	}
 	prev, exists := ledger[f.Sequence]
 	switch {
 	case !exists:
-		ledger[f.Sequence] = f.SHA256
 		dec.Kind = DecisionAccept
 	case prev == f.SHA256:
 		dec.Kind = DecisionDuplicate
@@ -53,6 +62,16 @@ func (d *Dedup) Classify(trackID uint32, f *media.Frame) Decision {
 		dec.Existing = prev
 	}
 	return dec
+}
+
+// Commit 在帧已确定提交输出后固化其序号哈希。
+func (d *Dedup) Commit(trackID uint32, seq uint64, hash [32]byte) {
+	ledger, ok := d.hashes[trackID]
+	if !ok {
+		ledger = make(map[uint64][32]byte)
+		d.hashes[trackID] = ledger
+	}
+	ledger[seq] = hash
 }
 
 // Snapshot 返回可序列化的账本副本（检查点用）。

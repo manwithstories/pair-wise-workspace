@@ -103,6 +103,32 @@ func NewWriter(path string, format Format) (*Writer, error) {
 	return w, nil
 }
 
+// ResumeWriter 在已截断到已提交长度的输出上续写，恢复清单与字节计数。
+// MTA 模式下 tar 写入器从当前位置继续，成员命名确定且此前成员保持有效。
+func ResumeWriter(path string, format Format, committed int64, prior []ManifestEntry) (*Writer, error) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return nil, media.NewFault(media.StageCheckpoint, 0, 0, 0, "open for resume: %v", err)
+	}
+	if _, err := f.Seek(committed, io.SeekStart); err != nil {
+		f.Close()
+		return nil, media.NewFault(media.StageCheckpoint, 0, 0, 0, "seek: %v", err)
+	}
+	w := &Writer{
+		f: f, format: format, bytes: committed, index: len(prior),
+		manifest: Manifest{Format: string(format), Entries: append([]ManifestEntry(nil), prior...)},
+	}
+	if format == FormatMTA {
+		w.tw = tar.NewWriter(f)
+	}
+	return w, nil
+}
+
+// Entries 返回当前累积的清单条目（检查点持久化用）。
+func (w *Writer) Entries() []ManifestEntry {
+	return append([]ManifestEntry(nil), w.manifest.Entries...)
+}
+
 // WriteFrame 写出一帧并登记清单；返回该记录在输出中的字节偏移。
 func (w *Writer) WriteFrame(env *timeline.Envelope) (int64, error) {
 	fr := env.Frame
@@ -152,6 +178,22 @@ func (w *Writer) WrittenBytes() int64 { return w.bytes }
 
 // Frames 返回已写出帧数。
 func (w *Writer) Frames() int { return w.index }
+
+// CloseQuiet 仅同步并关闭输出文件，不写清单（中断路径使用；
+// 后续 ResumeWriter 会以追加方式在同一文件上继续）。
+func (w *Writer) CloseQuiet() error {
+	if w.format == FormatMTA {
+		// 不写 tar 结束块：恢复时续写的成员仍处在合法归档中段，
+		// 最终 Close 统一收尾。
+		if err := w.tw.Flush(); err != nil {
+			return err
+		}
+	}
+	if err := w.f.Sync(); err != nil {
+		return err
+	}
+	return w.f.Close()
+}
 
 // Close 收尾容器并把清单写到 manifestPath（确定性缩进 JSON）。
 func (w *Writer) Close(manifestPath string) error {
