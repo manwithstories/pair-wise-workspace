@@ -212,6 +212,12 @@ func buildPayload(t model.TrackPlan, seq, pts uint64) []byte {
 	for i := 20; i < n; i++ {
 		b[i] = byte((seq*31 + uint64(i)*17 + pts) & 0xff)
 	}
+	// 保证包体不含同步字序列，使读取器能用同步字可靠定界。
+	for i := 0; i+4 <= n; i++ {
+		if binary.BigEndian.Uint32(b[i:i+4]) == SyncWord {
+			b[i] ^= 0xFF
+		}
+	}
 	return b
 }
 

@@ -13,14 +13,14 @@ import (
 
 // 容器与帧常量。包长硬上限满足“限制包长”的约束。
 const (
-	FileMagic  = "BCAST1.0"
-	SyncWord   uint32 = 0xBC5ABC5A // 记录同步字，截断重扫用
-	FrameMagic        = "BF01"     // 帧体魔数，位于 payload 前 4 字节
-	HeaderLen         = 8 + 4 + 8 + 1
-	RecHdrLen         = 4 + 1 + 1 + 8 + 8 + 4 + 4 + 4 // sync+track+kind+seq+pts+dur+len+crc
-	MaxPacketLen      = 4096
-	VideoPayloadLen   = 128
-	AudioPayloadLen   = 96
+	FileMagic              = "BCAST1.0"
+	SyncWord        uint32 = 0xBC5ABC5A // 记录同步字，截断重扫用
+	FrameMagic             = "BF01"     // 帧体魔数，位于 payload 前 4 字节
+	HeaderLen              = 8 + 4 + 8 + 1
+	RecHdrLen              = 4 + 1 + 1 + 8 + 8 + 4 + 4 + 4 // sync+track+kind+seq+pts+dur+len+crc
+	MaxPacketLen           = 4096
+	VideoPayloadLen        = 128
+	AudioPayloadLen        = 96
 	// 队列与并发上限由各子系统引用，集中声明便于审计。
 	QueueCap = 64
 )
