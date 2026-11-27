@@ -50,13 +50,13 @@ type CameraResult struct {
 
 // Report is the serialisable run summary.
 type Report struct {
-	Status        string                     `json:"status"`
-	Accepted      []string                   `json:"accepted_cameras"`
-	Rejected      []provenance.Rejection     `json:"rejected"`
-	SegmentsDone  int                        `json:"segments_done"`
-	SegmentsTotal int                        `json:"segments_total"`
-	Outputs       map[string][]string        `json:"outputs"`
-	ToolVersion   string                     `json:"ffmpeg_version"`
+	Status        string                 `json:"status"`
+	Accepted      []string               `json:"accepted_cameras"`
+	Rejected      []provenance.Rejection `json:"rejected"`
+	SegmentsDone  int                    `json:"segments_done"`
+	SegmentsTotal int                    `json:"segments_total"`
+	Outputs       map[string][]string    `json:"outputs"`
+	ToolVersion   string                 `json:"ffmpeg_version"`
 }
 
 // Run executes the pipeline and returns a structured report and process code.
@@ -135,7 +135,7 @@ func Run(ctx context.Context, opts Options) (*Report, int, error) {
 	done, total, interrupted, err := encodeAll(ctx, encodeDeps{
 		job: job, opts: opts, runner: runner, timeline: timeline,
 		cuts: cuts, cas: cas, builder: builder, results: accepted,
-		segDur: segDur,
+		segDur: segDur, configHash: cfgHash,
 	})
 	if err != nil {
 		return report, ExitArgs, err

@@ -17,15 +17,16 @@ import (
 )
 
 type encodeDeps struct {
-	job      *JobConfig
-	opts     Options
-	runner   *encode.Runner
-	timeline *align.Timeline
-	cuts     []align.Cut
-	cas      *cache.Store
-	builder  *provenance.Builder
-	results  []*CameraResult
-	segDur   clock.Rat
+	job        *JobConfig
+	opts       Options
+	runner     *encode.Runner
+	timeline   *align.Timeline
+	cuts       []align.Cut
+	cas        *cache.Store
+	builder    *provenance.Builder
+	results    []*CameraResult
+	segDur     clock.Rat
+	configHash string
 }
 
 // segmentIdentity is the global unit of checkpointing: one variant of one cut
@@ -84,6 +85,11 @@ func encodeAll(ctx context.Context, d encodeDeps) (done, total int, interrupted 
 		// on-disk hash is re-verified against the checkpoint digest.
 		if state, ok := cp.Segment(segmentCheckpointKey(u)); ok {
 			if reuseIfIntact(cp, state, variant, dest, initDest, d) {
+				// The provenance builder is fresh per process, so a reused
+				// segment must still be recorded or the receipt would omit it.
+				if err := d.builder.AddSegment(u.camera, u.variant, u.seq, dest); err != nil {
+					return done, total, false, err
+				}
 				done++
 				continue
 			}
@@ -133,11 +139,34 @@ func reuseIfIntact(cp *checkpoint.Store, state checkpoint.SegmentState,
 func encodeUnit(ctx context.Context, d encodeDeps, res *CameraResult,
 	variant hls.Variant, cut align.Cut, u segmentIdentity, dest, initDest string) error {
 	vBit, aBit := bitrateFor(variant)
-	work := filepath.Join(d.opts.WorkDir, "scratch",
-		fmt.Sprintf("%s-%s-%03d", u.camera, u.variant, u.seq))
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return err
 	}
+
+	// Cache lookup: the key binds the source digest, the segment identity
+	// (variant + cut), the configuration and the FFmpeg version. Including the
+	// segment identity keeps every (variant, cut) in its own entry instead of
+	// letting same-camera segments overwrite one another. A hit is trusted only
+	// after re-verifying the input source and the cached output digest.
+	key := segmentCacheKey(res.InputSHA, d.configHash, d.runner.Version(), u)
+	entry, err := d.cas.Get(key)
+	if err != nil {
+		return err
+	}
+	if entry != nil {
+		name := casOutputName(u)
+		if verr := d.cas.Verify(entry, res.InputSHA); verr == nil {
+			if rerr := d.cas.Restore(entry, name, dest); rerr == nil {
+				if ierr := ensureInit(initDest); ierr == nil {
+					return nil
+				}
+				// Init missing: fall through to a full rebuild.
+			}
+		}
+	}
+
+	work := filepath.Join(d.opts.WorkDir, "scratch",
+		fmt.Sprintf("%s-%s-%03d", u.camera, u.variant, u.seq))
 	rng := cut.Ranges[u.camera]
 	start := rng.KfAt.Seconds()
 	dur, err := cut.Till.Sub(cut.At)
@@ -163,7 +192,39 @@ func encodeUnit(ctx context.Context, d encodeDeps, res *CameraResult,
 			return err
 		}
 	}
+	// Store the freshly built segment in the CAS so a later identical job can
+	// restore it without re-running FFmpeg.
+	if _, err := d.cas.Put(key, res.InputSHA, d.runner.Version(),
+		[]byte(d.configHash), map[string]string{casOutputName(u): dest}); err != nil {
+		return err
+	}
 	return nil
+}
+
+// segmentCacheKey derives a per-segment content key. The source digest already
+// separates cameras; folding in the variant and cut index separates the 15
+// outputs within one camera, while config and tool version retain the required
+// invalidation dimensions.
+func segmentCacheKey(inputSHA, configHash, toolVersion string, u segmentIdentity) string {
+	identity := fmt.Sprintf("%s|%s|seq=%d", u.camera, u.variant, u.seq)
+	composite := cache.HashBytes([]byte(configHash + "|" + identity))
+	return cache.Key(inputSHA, []byte(composite), toolVersion)
+}
+
+// casOutputName gives each (variant, cut) a stable logical name inside a
+// camera-scoped cache key; the source digest already separates cameras.
+func casOutputName(u segmentIdentity) string {
+	return fmt.Sprintf("%s-seg-%03d", u.variant, u.seq)
+}
+
+// ensureInit reports whether the variant init section is already published.
+// When absent the caller falls back to a full encode, which recreates it.
+func ensureInit(initDest string) error {
+	if _, err := os.Stat(initDest); err == nil {
+		return nil
+	}
+	return media.New(media.PhaseCache, media.KindDigest, initDest, -1,
+		"cache hit without a published init section; rebuild required")
 }
 
 func recordUnit(cp *checkpoint.Store, d encodeDeps, u segmentIdentity,
@@ -173,8 +234,8 @@ func recordUnit(cp *checkpoint.Store, d encodeDeps, u segmentIdentity,
 		return err
 	}
 	state := checkpoint.SegmentState{
-		Index: segmentCheckpointKey(u),
-		Outputs: map[string]string{u.variant: hash},
+		Index:    segmentCheckpointKey(u),
+		Outputs:  map[string]string{u.variant: hash},
 		CutAtNum: cut.At.Num, CutAtDen: cut.At.Den,
 	}
 	if err := cp.Record(state); err != nil {
