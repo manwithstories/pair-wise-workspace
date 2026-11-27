@@ -1,7 +1,6 @@
 package fixture
 
 import (
-	"encoding/binary"
 	"math/rand/v2"
 	"sort"
 )
@@ -126,9 +125,4 @@ func reindex(recs []record, v bool) []int {
 		}
 	}
 	return out
-}
-
-// seqOf reads the RTP sequence number from a prefixed record.
-func seqOf(buf []byte) uint16 {
-	return binary.BigEndian.Uint16(buf[4+2 : 4+4])
 }
