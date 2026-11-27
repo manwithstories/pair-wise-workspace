@@ -28,7 +28,7 @@ const (
 // Camera 一台机位的产物布局。
 type Camera struct {
 	ID           string
-	ClockOffset  int64 // 90000 时基下的时钟偏移 tick（0/720/1350 ≈ 0/8/15ms）
+	ClockOffset  int64 // 90000 时基下的时钟偏移 tick（0/720/1440 ≈ 0/8/16ms）
 	MPDPath      string
 	VideoInit    [3]string // 三档码率 init
 	VideoSegs    [3][]string
