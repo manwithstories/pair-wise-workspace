@@ -48,6 +48,9 @@ func (t *Timeline) End() model.Nano {
 	return t.Segments[len(t.Segments)-1].End
 }
 
+// SegmentCount returns the number of canonical segments.
+func (t *Timeline) SegmentCount() int { return len(t.Segments) }
+
 // SegmentAt finds the segment covering the given timestamp, or nil.
 func (t *Timeline) SegmentAt(ts model.Nano) *Segment {
 	for i := range t.Segments {

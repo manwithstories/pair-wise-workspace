@@ -20,8 +20,8 @@ const paritySeqBase int64 = 1 << 30
 func (s *Stream) inject(rng *rand.Rand) (parity []*Packet, lost []int64) {
 	ideal := s.IdealPackets
 	lostSet := map[int64]bool{}
-	if s.Params.LossBurst > 0 && s.Params.LossEvery > 0 {
-		cadence := s.Params.LossEvery
+	cadence := s.Params.LossEvery
+	if s.Params.LossBurst > 0 && cadence > 0 {
 		for start := cadence - 1; start < len(ideal); start += cadence {
 			burst := s.Params.LossBurst
 			for b := 0; b < burst && start+b < len(ideal); b++ {
@@ -71,6 +71,49 @@ func (s *Stream) inject(rng *rand.Rand) (parity []*Packet, lost []int64) {
 			lost = append(lost, pk.ExtSeq)
 		}
 	}
+
+	// Build the sender's finite retransmission record. The record survives
+	// only isolated loss: a packet whose parity group lost two or more
+	// members marks a congestion window in which the retransmission log was
+	// overrun, so those sequences have neither a parity nor a retrans source
+	// and must surface as explicit gaps.
+	groupMissing := map[int64]int{} // first member seq -> missing count
+	for _, g := range parity {
+		n := 0
+		for _, m := range g.Group {
+			if lostSet[m] {
+				n++
+			}
+		}
+		if len(g.Group) > 0 {
+			groupMissing[g.Group[0]] = n
+		}
+	}
+	groupOf := func(seq int64) (int64, bool) {
+		base := s.Params.StartSeq
+		idx := int(seq) - int(base)
+		if idx < 0 {
+			return 0, false
+		}
+		g := (idx / groupSize) * groupSize
+		return int64(base) + int64(g), true
+	}
+
+	record := map[int64][]byte{}
+	if cadence > 0 && s.Params.LossBurst > 0 {
+		payloadBySeq := map[int64][]byte{}
+		for _, pk := range ideal {
+			payloadBySeq[pk.ExtSeq] = pk.Payload
+		}
+		for _, seq := range lost {
+			gStart, ok := groupOf(seq)
+			if !ok || groupMissing[gStart] >= 2 {
+				continue // congestion window: retransmission log overrun
+			}
+			record[seq] = payloadBySeq[seq]
+		}
+	}
+	s.RetransRecord = record
 	return parity, lost
 }
 // buildArrival produces the actual arrival sequence: surviving ideal

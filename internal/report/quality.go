@@ -104,9 +104,10 @@ func Build(caseName string, c Counters) (Summary, error) {
 	return s, nil
 }
 
-// digest hashes the semantic content in a fixed field order. Counters feed
-// the hash so runs with the same generated input and processing produce the
-// same value, while any difference in recovery outcome changes it.
+// digest hashes the semantic recovery outcome in a fixed field order. It
+// deliberately excludes scheduling-sensitive runtime noise (the observed
+// peak queue occupancy), so identical seeds produce identical digests even
+// when goroutine timing differs; any change in recovery outcome changes it.
 func digest(s Summary, c Counters) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "case=%s\n", s.Case)
@@ -115,9 +116,9 @@ func digest(s Summary, c Counters) string {
 	fmt.Fprintf(&b, "actual=%.2f\n", s.ActualKbps)
 	fmt.Fprintf(&b, "packets=%d crc=%d\n", c.PacketsTotal, c.CRCMatched)
 	fmt.Fprintf(&b, "segments=%d complete=%d\n", c.SegmentsTotal, c.SegmentsComplete)
-	fmt.Fprintf(&b, "retrans=%d fec=%d gaps=%d backpressure=%d\n",
-		c.Retransmitted, c.FECRecovered, c.Gaps, c.Backpressure)
-	fmt.Fprintf(&b, "sync_ns=%d peak=%d\n", c.SyncErrorNanos, c.PeakBytes)
+	fmt.Fprintf(&b, "retrans=%d fec=%d gaps=%d\n",
+		c.Retransmitted, c.FECRecovered, c.Gaps)
+	fmt.Fprintf(&b, "sync_ns=%d\n", c.SyncErrorNanos)
 	h := sha256.Sum256([]byte(b.String()))
 	return hex.EncodeToString(h[:])
 }

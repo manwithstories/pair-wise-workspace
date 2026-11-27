@@ -69,7 +69,12 @@ type Stream struct {
 	IdealPackets []*Packet
 	Parity       []*Packet
 	LostExtSeqs  []int64
-	SegmentBound []model.Nano // start time of each segment, shared clock
+	// RetransRecord models the sender's finite retransmission log. A lost
+	// sequence appears here only when the sender still holds a copy; the
+	// tail of a multi-packet burst aged out or was never logged, so those
+	// holes have no retransmission source and must become explicit gaps.
+	RetransRecord map[int64][]byte
+	SegmentBound  []model.Nano // start time of each segment, shared clock
 }
 
 // payloadFor deterministically builds the CRC-protected body for ext-seq s.
