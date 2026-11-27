@@ -36,6 +36,10 @@ type Recover struct {
 	// SR 锚点对（扩展 RTP tick, NTP 纳秒），用于线性漂移估计。
 	anchors []anchor
 
+	// SR 专用的只增扩展参考，与数据包 lastExt 解耦以抵御乱序。
+	srStarted bool
+	srLastExt int64
+
 	ppm       int    // 当前采用的漂移（ppm），钳制在 ±MaxPPM
 	wrapCount uint64 // 观测到的 32 位回绕次数（诊断用）
 }
@@ -84,8 +88,16 @@ func (r *Recover) ObserveRTP(ts uint32) int64 {
 }
 
 // ObserveSR 融合一条 Sender Report，更新漂移估计与纳秒锚点。
+// SR 序号使用独立的只增扩展参考，不受数据包乱序导致的 lastExt 回退影响。
 func (r *Recover) ObserveSR(sr SRPoint) {
-	ext := media.Extend32(r.lastExt, sr.RTP)
+	if !r.srStarted {
+		r.srStarted = true
+		r.srLastExt = int64(sr.RTP)
+	}
+	ext := media.Extend32(r.srLastExt, sr.RTP)
+	if ext > r.srLastExt {
+		r.srLastExt = ext
+	}
 	ntp := sr.NTPNanos()
 	r.anchors = append(r.anchors, anchor{rtp: ext, ntpNs: ntp})
 	if len(r.anchors) > maxAnchors {
