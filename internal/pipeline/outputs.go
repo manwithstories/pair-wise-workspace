@@ -48,7 +48,8 @@ func (e *Engine) writeCaptions(cfg Config, plan *segment.Plan, caps caption.Resu
 		})
 	}
 	_ = logger
-	return nil
+	// Persist caption records so a recovery sees them and Verify can check them.
+	return journal.Flush()
 }
 
 // writeManifests renders and atomically writes every playlist from committed

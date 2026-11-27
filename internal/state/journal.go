@@ -64,6 +64,8 @@ func Open(jobDir string, fp Fingerprint) (*Journal, error) {
 	j := &Journal{
 		JobDir:      jobDir,
 		Fingerprint: fp,
+		Segments:    []SegmentRecord{},
+		Captions:    []CaptionRecord{},
 		path:        filepath.Join(jobDir, journalName),
 	}
 	raw, err := os.ReadFile(j.path)
@@ -181,6 +183,10 @@ func (j *Journal) Verify() (int, []adapter.Error) {
 	j.Captions = cc
 	return j.Reused, faults
 }
+
+// Flush persists the current journal state atomically. It is needed when
+// caption records are appended outside of Commit.
+func (j *Journal) Flush() error { return j.flush() }
 
 // flush atomically writes the journal via a temp file and rename.
 func (j *Journal) flush() error {
