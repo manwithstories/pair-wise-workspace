@@ -19,7 +19,7 @@ const (
 
 // 图像编码标识（线格式单字节）。
 const (
-	CodecPNG byte = 1
+	CodecPNG  byte = 1
 	CodecJPEG byte = 2
 )
 

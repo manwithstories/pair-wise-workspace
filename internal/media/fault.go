@@ -7,16 +7,16 @@ import (
 
 // 解析/处理阶段标识，随错误一起上报，定位首个错误发生的位置。
 const (
-	StagePrefix    = "prefix"    // 外层长度前缀
-	StageHeader    = "header"    // 记录头
-	StageLength    = "length"    // 长度越界 / 记录不完整
-	StageVersion   = "version"   // 未知版本
-	StagePayload   = "payload"   // 载荷读取
-	StageSHA       = "sha256"    // 载荷哈希不符
-	StageCRC       = "crc32c"    // CRC32C 不符
-	StageTar       = "tar"       // TAR 归档结构
+	StagePrefix     = "prefix"  // 外层长度前缀
+	StageHeader     = "header"  // 记录头
+	StageLength     = "length"  // 长度越界 / 记录不完整
+	StageVersion    = "version" // 未知版本
+	StagePayload    = "payload" // 载荷读取
+	StageSHA        = "sha256"  // 载荷哈希不符
+	StageCRC        = "crc32c"  // CRC32C 不符
+	StageTar        = "tar"     // TAR 归档结构
 	StageCheckpoint = "checkpoint"
-	StageConfig    = "config"
+	StageConfig     = "config"
 	StageQuarantine = "quarantine"
 )
 
