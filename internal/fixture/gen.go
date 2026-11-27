@@ -146,11 +146,11 @@ func Corrupt(dir string, plan *Plan, fault ingest.Fault) (int64, error) {
 	case ingest.FaultConflict:
 		// 冲突在网络层注入，文件层无需损坏。
 		return -1, nil
-	case "truncate":
+	case ingest.FaultTruncate:
 		return truncateBlock(dir, plan, false)
-	case "half-frame":
+	case ingest.FaultHalfFrame:
 		return truncateBlock(dir, plan, true)
-	case "bad-header":
+	case ingest.FaultBadHeader:
 		path := plan.Paths[0]
 		raw, err := os.ReadFile(path)
 		if err != nil {

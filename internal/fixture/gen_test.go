@@ -62,7 +62,7 @@ func TestCorruptTruncateAndHalfFrame(t *testing.T) {
 	plan, _ := Generate(dir, defaultSpec())
 
 	// 完整采样边界截断：扫描通过但标记 truncated 且有缺失帧
-	id, err := Corrupt(dir, plan, "truncate")
+	id, err := Corrupt(dir, plan, ingest.FaultTruncate)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestCorruptTruncateAndHalfFrame(t *testing.T) {
 	// 半帧截断：必须被扫描拒绝
 	dir2 := t.TempDir()
 	plan2, _ := Generate(dir2, defaultSpec())
-	id2, err := Corrupt(dir2, plan2, "half-frame")
+	id2, err := Corrupt(dir2, plan2, ingest.FaultHalfFrame)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestCorruptTruncateAndHalfFrame(t *testing.T) {
 func TestCorruptBadHeader(t *testing.T) {
 	dir := t.TempDir()
 	plan, _ := Generate(dir, defaultSpec())
-	id, err := Corrupt(dir, plan, "bad-header")
+	id, err := Corrupt(dir, plan, ingest.FaultBadHeader)
 	if err != nil || id != 0 {
 		t.Fatalf("bad-header: id=%d err=%v", id, err)
 	}
