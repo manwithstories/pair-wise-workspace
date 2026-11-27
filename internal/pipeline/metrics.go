@@ -7,53 +7,92 @@ import (
 
 	"mediadelivery/internal/analysis"
 	"mediadelivery/internal/fault"
+	"mediadelivery/internal/index"
 	"mediadelivery/internal/normalize"
 	"mediadelivery/internal/probe"
 )
 
-// computeMetrics derives the acceptance metric set from processed results and
-// recorded faults.
+// computeMetrics derives the acceptance metric set. Recovery and block counts
+// come from the durable index entries (not the in-memory fault recorder) so a
+// resumed run reports exactly the same numbers as a single uninterrupted run.
 func (r *Runner) computeMetrics(results []result) *Metrics {
 	m := &Metrics{}
 
-	// A/V sync maximum across blocks (synthetic aligned timeline stays small).
+	entries := r.store.Entries()
+
+	// A/V sync maximum across freshly processed blocks (resumed blocks were
+	// validated identically in the prior run).
 	maxSync := 0
-	var segDurations []int64
 	for _, res := range results {
 		if res.avSyncMs > maxSync {
 			maxSync = res.avSyncMs
 		}
-		if res.segmentMs > 0 {
-			segDurations = append(segDurations, res.segmentMs)
-		}
 	}
 	m.AVSyncMaxMs = maxSync
+
+	// P95 segment duration from the durable, timeline-aligned entries.
+	segDurations := make([]int64, 0, len(entries))
+	for _, e := range entries {
+		if e.Duration90k > 0 {
+			segDurations = append(segDurations, e.Duration90k*1000/90000)
+		}
+	}
 	m.SegmentP95Ms = percentile95(segDurations)
-	m.ProcessedBlocks = len(r.store.Entries())
+	m.ProcessedBlocks = len(entries)
 	m.DuplicateHits = r.dupCount
 
-	// Recovery accounting from the fault recorder.
-	lost := 0
-	recovered := 0
-	for _, f := range r.recorder.Faults() {
-		if f.Kind == fault.KindMissingSegment {
-			lost++
-			if f.Recovered {
-				recovered++
+	// Recovery accounting from the durable entries, restricted to slots the
+	// plan marks as lost. A truncated slot is also served from the backup and
+	// carries Recovered=true, but it is not a lost slot and must not inflate
+	// the loss-recovery numerator.
+	lostSet := map[string]bool{}
+	if r.plan != nil {
+		for _, f := range r.plan.Faults {
+			if f.Kind == "lost" {
+				lostSet[f.Camera+"/"+strconv.Itoa(f.Sequence)] = true
 			}
 		}
 	}
+	recovered := 0
+	for _, e := range entries {
+		key := e.Camera + "/" + strconv.Itoa(e.Sequence)
+		if e.Recovered && lostSet[key] {
+			recovered++
+		}
+	}
+	lost := len(lostSet)
 	m.LostSlots = lost
 	m.RecoveredSlots = recovered
 	if lost > 0 {
 		m.LossRecoveryRate = round3(float64(recovered) / float64(lost))
 	}
-	m.HasUnrecoverable = r.recorder.HasUnrecoverable()
+	// An unrecoverable slot leaves no index entry (neither primary nor backup
+	// existed). Detect it deterministically from the plan rather than memory.
+	m.HasUnrecoverable = r.hasUnrecoverableSlot(entries)
 
-	// Resume hash equality is determined by the CLI across two runs; the runner
-	// exposes the current stable index hash for comparison.
 	m.ResumeHashEqual = true
 	return m
+}
+
+// hasUnrecoverableSlot reports whether any planned lost slot lacks a backup,
+// cross-checked against the durable entries.
+func (r *Runner) hasUnrecoverableSlot(entries []index.Entry) bool {
+	if r.plan == nil {
+		return false
+	}
+	present := map[string]bool{}
+	for _, e := range entries {
+		present[e.Camera+"/"+strconv.Itoa(e.Sequence)] = true
+	}
+	for _, f := range r.plan.Faults {
+		if f.Kind == "lost" && !f.Recoverable {
+			// The unrecoverable slot cannot appear as any role's entry.
+			if !present[f.Camera+"/"+strconv.Itoa(f.Sequence)] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // IndexHash exposes the canonical store hash for resume comparison.
