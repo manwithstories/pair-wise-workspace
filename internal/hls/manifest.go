@@ -2,6 +2,7 @@ package hls
 
 import (
 	"fmt"
+	"math"
 	"path/filepath"
 
 	"github.com/Eyevinn/hls-m3u8/m3u8"
@@ -50,7 +51,7 @@ func BuildPlaylists(variants []Variant, bounds []Bound, audio []MediaRendition) 
 			if err := pl.Append(uri, dur, ""); err != nil {
 				return nil, err
 			}
-			if whole := uint(dur + 0.5); whole > target {
+			if whole := uint(math.Ceil(dur)); whole > target {
 				target = whole
 			}
 		}

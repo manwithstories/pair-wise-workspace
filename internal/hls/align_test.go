@@ -134,6 +134,12 @@ func TestBuildPlaylistsDeterministic(t *testing.T) {
 	if c := strings.Count(string(media), "#EXTINF"); c != 2 {
 		t.Fatalf("EXTINF count = %d, want 2", c)
 	}
+	if pl := set.MediaByName["hi"]; pl.TargetDuration < 1 {
+		t.Fatalf("TargetDuration = %d, must be >= 1", pl.TargetDuration)
+	}
+	if !strings.Contains(string(media), "#EXT-X-TARGETDURATION:1") {
+		t.Fatalf("sub-second segments must round target duration up to 1:\n%s", media)
+	}
 	uris := set.SegmentURIs()
 	if len(uris) == 0 || uris[0] > uris[len(uris)-1] {
 		t.Fatalf("segment URIs not sorted: %v", uris)
