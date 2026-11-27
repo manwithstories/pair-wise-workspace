@@ -1,6 +1,7 @@
 package manifest
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -47,6 +48,41 @@ func TestMediaPlaylistWithPartials(t *testing.T) {
 	// Each full segment must carry exactly two partials.
 	if got := strings.Count(out, "#EXT-X-PART:"); got != 4 {
 		t.Errorf("partial count = %d, want 4", got)
+	}
+}
+
+func TestMediaPlaylistRetainsAllVODPartials(t *testing.T) {
+	// Eight full segments must keep all sixteen partials; the hls-m3u8 live
+	// window would otherwise discard everything but the last three segments.
+	b := NewBuilder()
+	records := make([]state.SegmentRecord, 8)
+	for i := range records {
+		records[i] = rec(0, i, fmt.Sprintf("v0_%03d.m4s", i))
+	}
+	out, err := b.MediaPlaylist(records, VariantSpec{Name: "low"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(out, "#EXT-X-PART:"); got != 16 {
+		t.Errorf("VOD partial count = %d, want 16 (all segments retained)", got)
+	}
+	if !strings.Contains(out, "v0_000.part0.m4s") {
+		t.Error("first segment's partials must survive in a VOD playlist")
+	}
+	// Every full segment URI must still be present.
+	for i := 0; i < 8; i++ {
+		uri := fmt.Sprintf("v0_%03d.m4s", i)
+		if !strings.Contains(out, uri) {
+			t.Errorf("full segment %s missing", uri)
+		}
+	}
+	// Verify interleaving: partials of segment N precede segment N's EXTINF,
+	// which in turn precedes segment N+1's partials.
+	firstPart := strings.Index(out, "v0_000.part0")
+	firstFull := strings.Index(out, "v0_000.m4s")
+	secondPart := strings.Index(out, "v0_001.part0")
+	if !(firstPart < firstFull && firstFull < secondPart) {
+		t.Error("partial/full segment ordering is not correctly interleaved")
 	}
 }
 

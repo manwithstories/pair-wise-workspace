@@ -7,6 +7,8 @@ package manifest
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	"avcore/internal/clock"
 	"avcore/internal/state"
@@ -46,10 +48,13 @@ func (b *Builder) divisions() int {
 	return b.PartDivisions
 }
 
-// MediaPlaylist renders one rendition's closed VOD playlist including partial
-// segments. records must be the committed segments for a single variant, in
-// ascending cut order. Partial URIs share the full segment's sequence number
-// so the m3u8 library attaches them to the correct full segment.
+// MediaPlaylist renders one rendition's closed VOD playlist including every
+// LL-HLS partial segment. records must be the committed segments for a single
+// variant, in ascending cut order. The hls-m3u8 writer only retains partials
+// for the last three full segments (a live sliding-window rule), which is
+// wrong for a VOD manifest, so the full-segment skeleton is built with the
+// library and each segment's partials are then rendered deterministically
+// alongside it — preserving all cut points for the whole asset.
 func (b *Builder) MediaPlaylist(records []state.SegmentRecord, spec VariantSpec) (string, error) {
 	if len(records) == 0 {
 		return "", fmt.Errorf("manifest: no committed segments for %s", spec.Name)
@@ -61,30 +66,47 @@ func (b *Builder) MediaPlaylist(records []state.SegmentRecord, spec VariantSpec)
 	pl.MediaType = m3u8.VOD
 	pl.Closed = true
 	pl.SetIndependentSegments(true)
-	// LL-HLS part target: half the nominal full-segment duration.
-	first := records[0]
-	fullDur := clock.Seconds(first.EndTicks - first.StartTicks)
-	pl.PartTargetDuration = fullDur / float64(b.divisions())
-
-	divs := b.divisions()
 	for _, rec := range records {
 		dur := clock.Seconds(rec.EndTicks - rec.StartTicks)
 		if err := pl.Append(rec.Path, dur, ""); err != nil {
 			return "", err
 		}
-		// Append the partial segments belonging to this full segment. The
-		// URI prefix number matches the full segment so isPartOf groups them.
+	}
+	pl.Close()
+
+	divs := b.divisions()
+	first := records[0]
+	partTarget := clock.Seconds(first.EndTicks-first.StartTicks) / float64(divs)
+	var out strings.Builder
+	// Header through (and including) TARGETDURATION, then PART-INF.
+	skeleton := pl.Encode().String()
+	anchor := "#EXT-X-TARGETDURATION:" + strconv.Itoa(int(pl.TargetDuration)) + "\n"
+	idx := strings.Index(skeleton, anchor)
+	if idx < 0 {
+		return "", fmt.Errorf("manifest: target-duration anchor missing")
+	}
+	out.WriteString(skeleton[:idx+len(anchor)])
+	out.WriteString("#EXT-X-PART-INF:PART-TARGET=" + strconv.FormatFloat(partTarget, 'f', 3, 64) + "\n")
+
+	// Emit each full segment preceded by its own partial segments so the
+	// partials interleave with the cut points in the correct HLS order.
+	for _, rec := range records {
+		dur := clock.Seconds(rec.EndTicks - rec.StartTicks)
 		partDur := dur / float64(divs)
 		base := stripExt(rec.Path)
 		for p := 0; p < divs; p++ {
 			pURI := fmt.Sprintf("%s.part%d.m4s", base, p)
-			if err := pl.AppendPartial(pURI, partDur, p == 0); err != nil {
-				return "", err
+			out.WriteString("#EXT-X-PART:DURATION=" + strconv.FormatFloat(partDur, 'f', 3, 64))
+			if p == 0 {
+				out.WriteString(",INDEPENDENT=YES")
 			}
+			out.WriteString(",URI=\"" + pURI + "\"\n")
 		}
+		out.WriteString("#EXTINF:" + strconv.FormatFloat(dur, 'f', 3, 64) + ",\n")
+		out.WriteString(rec.Path + "\n")
 	}
-	pl.Close()
-	return pl.Encode().String(), nil
+	out.WriteString("#EXT-X-ENDLIST\n")
+	return out.String(), nil
 }
 
 // MasterPlaylist renders the multivariant playlist, linking each rendition's
