@@ -327,6 +327,19 @@ func Mutate(dir, kind string) error {
 		m.Tracks[0].Deps = []string{m.Tracks[len(m.Tracks)-1].Name}
 	case "fps":
 		m.OutputFPS = 30
+	case "ambiguous-wrap":
+		// A mid-sequence tick jumps beyond half the modulus while the
+		// declared wall time stays where it was: the unwrap cannot tell a
+		// wrap from a glitch, so the clock stage must refuse it.
+		e.Tick = (e.Tick + m.WrapAt/2 + 1) % m.WrapAt
+	case "bad-frame":
+		// Overwrite real frame bytes after the manifest hash was recorded:
+		// the file is present and named correctly, but its hash is wrong.
+		path := filepath.Join(dir, e.Path)
+		if err := os.WriteFile(path, []byte("tampered"), 0o644); err != nil {
+			return media.New(media.KindConflict, "gen.mutate", "", -1, err)
+		}
+		return nil
 	default:
 		return media.Newf(media.KindInput, "gen.mutate", "", -1, "unknown mutation %q", kind)
 	}

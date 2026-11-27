@@ -196,6 +196,8 @@ func reportRejections(root, input string) {
 		{"oversize", "oversize", 2},
 		{"cycle", "cycle", 3},
 		{"fps", "fps", 2},
+		{"ambiguous-wrap", "ambiguous-wrap", 3},
+		{"bad-frame", "bad-frame", 2},
 	}
 	for _, tc := range cases {
 		dir := filepath.Join(root, "reject-"+tc.name)
@@ -218,6 +220,19 @@ func reportRejections(root, input string) {
 		}
 		fmt.Printf("reject_check=%s exit=%d want=%d %s\n", tc.name, code, tc.code, got)
 	}
+	// Metrics are pure post-processing, so their out-of-bounds code is
+	// demonstrated without corrupting a dataset.
+	bad := metrics.Report{SyncMaxMs: 9.9, RecoveryRate: 1.0, P95FrameMs: 10,
+		Frames: 1, RootSHA256: "x", ResumeEqual: true, Verify: "PASS"}
+	code := exitCode(bad.Check(metrics.DefaultLimits))
+	fmt.Printf("reject_check=metrics exit=%d want=4 %s\n", code, matched(code, 4))
+}
+
+func matched(got, want int) string {
+	if got == want {
+		return "ok"
+	}
+	return "MISMATCH"
 }
 
 // copyInput mirrors the generated input so rejection cases never touch the
