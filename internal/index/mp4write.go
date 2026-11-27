@@ -74,14 +74,14 @@ func mvhd(timescale uint32, duration uint64) []byte {
 	p = binary.BigEndian.AppendUint32(p, timescale)
 	p = binary.BigEndian.AppendUint64(p, duration)
 	p = binary.BigEndian.AppendUint32(p, 0x00010000) // rate 1.0
-	p = append(p, 0x01, 0x00)                       // volume
-	p = append(p, make([]byte, 10)...)             // reserved
+	p = append(p, 0x01, 0x00)                        // volume
+	p = append(p, make([]byte, 10)...)               // reserved
 	// identity matrix (9 * uint32)
 	matrix := []uint32{0x00010000, 0, 0, 0, 0x00010000, 0, 0, 0, 0x40000000}
 	for _, m := range matrix {
 		p = binary.BigEndian.AppendUint32(p, m)
 	}
-	p = append(p, make([]byte, 24)...) // pre-defined
+	p = append(p, make([]byte, 24)...)      // pre-defined
 	p = binary.BigEndian.AppendUint32(p, 2) // next track ID
 	return rawBox("mvhd", full(1, 0, p))
 }
@@ -94,10 +94,15 @@ func tkhd(trackID uint32, duration uint64, video bool) []byte {
 	p = binary.BigEndian.AppendUint32(p, trackID)
 	p = binary.BigEndian.AppendUint32(p, 0) // reserved
 	p = binary.BigEndian.AppendUint64(p, duration)
-	p = append(p, make([]byte, 8)...)      // reserved
-	p = append(p, 0, 0)                    // layer/alt-group
-	p = append(p, func() byte { if video { return 0 }; return 0x01 }(), 0)
-	p = append(p, make([]byte, 2)...)      // reserved
+	p = append(p, make([]byte, 8)...) // reserved
+	p = append(p, 0, 0)               // layer/alt-group
+	p = append(p, func() byte {
+		if video {
+			return 0
+		}
+		return 0x01
+	}(), 0)
+	p = append(p, make([]byte, 2)...) // reserved
 	matrix := []uint32{0x00010000, 0, 0, 0, 0x00010000, 0, 0, 0, 0x40000000}
 	for _, m := range matrix {
 		p = binary.BigEndian.AppendUint32(p, m)

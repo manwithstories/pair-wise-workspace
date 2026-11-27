@@ -7,10 +7,10 @@ import (
 
 // Process exit codes used by the mediad CLI.
 const (
-	ExitOK             = 0  // success
-	ExitInputFailure   = 2  // input or verification failure
-	ExitInterrupted    = 75 // requested stop, checkpoint safely persisted
-	MaxAtomSize  int64 = 512 << 20
+	ExitOK                 = 0  // success
+	ExitInputFailure       = 2  // input or verification failure
+	ExitInterrupted        = 75 // requested stop, checkpoint safely persisted
+	MaxAtomSize      int64 = 512 << 20
 )
 
 // OffsetUnknown marks a fault whose exact byte offset cannot be located
@@ -34,10 +34,10 @@ const (
 // first bad byte inside the source file so every downstream subsystem can
 // report and correlate it without re-scanning.
 type Fault struct {
-	Kind    FaultKind `json:"kind"`
-	Offset  int64     `json:"offset"`
-	Source  string    `json:"source,omitempty"`
-	Detail  string    `json:"detail,omitempty"`
+	Kind   FaultKind `json:"kind"`
+	Offset int64     `json:"offset"`
+	Source string    `json:"source,omitempty"`
+	Detail string    `json:"detail,omitempty"`
 }
 
 // Error implements error.

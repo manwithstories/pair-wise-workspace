@@ -46,18 +46,18 @@ type Track struct {
 
 // FileIndex is the complete, content-addressed scan result of one file.
 type FileIndex struct {
-	Path         string    `json:"path"`
-	Name         string    `json:"name"`
-	Size         int64     `json:"size"`
-	SHA256       string    `json:"sha256"`
-	MoovBefore   bool      `json:"moov_before_mdat"`
-	MdatOffset   int64     `json:"mdat_offset"`
-	MdatPayload  int64     `json:"mdat_payload_offset"`
-	MdatSize     int64     `json:"mdat_size"`
-	Atoms        []AtomRec `json:"atoms"`
-	Tracks       []Track   `json:"tracks"`
+	Path         string         `json:"path"`
+	Name         string         `json:"name"`
+	Size         int64          `json:"size"`
+	SHA256       string         `json:"sha256"`
+	MoovBefore   bool           `json:"moov_before_mdat"`
+	MdatOffset   int64          `json:"mdat_offset"`
+	MdatPayload  int64          `json:"mdat_payload_offset"`
+	MdatSize     int64          `json:"mdat_size"`
+	Atoms        []AtomRec      `json:"atoms"`
+	Tracks       []Track        `json:"tracks"`
 	Faults       []*model.Fault `json:"faults"`
-	FirstBadByte int64     `json:"first_bad_offset"`
+	FirstBadByte int64          `json:"first_bad_offset"`
 }
 
 // ScanResult bundles the index with the (possibly non-nil) hard scan error.

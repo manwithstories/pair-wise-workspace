@@ -31,15 +31,15 @@ func stsdVideo() []byte {
 		0x68, 0xCE, 0x38, 0x80, // synthetic PPS
 	}
 	entry := make([]byte, 0, 86+len(avcC))
-	entry = append(entry, make([]byte, 6)...) // reserved
+	entry = append(entry, make([]byte, 6)...)       // reserved
 	entry = binary.BigEndian.AppendUint16(entry, 1) // data_reference_index
 	entry = append(entry, make([]byte, 16)...)      // pre-defined+reserved
 	entry = binary.BigEndian.AppendUint16(entry, 320)
 	entry = binary.BigEndian.AppendUint16(entry, 240)
 	entry = binary.BigEndian.AppendUint32(entry, 0x00480000) // h/v rez 72dpi
 	entry = binary.BigEndian.AppendUint32(entry, 0)
-	entry = binary.BigEndian.AppendUint16(entry, 1) // frame count
-	entry = append(entry, make([]byte, 32)...)      // compressorname
+	entry = binary.BigEndian.AppendUint16(entry, 1)      // frame count
+	entry = append(entry, make([]byte, 32)...)           // compressorname
 	entry = binary.BigEndian.AppendUint16(entry, 0x0018) // depth
 	entry = binary.BigEndian.AppendUint16(entry, 0xFFFF) // pre-defined
 	entry = append(entry, rawBox("avcC", avcC)...)
@@ -51,12 +51,12 @@ func stsdVideo() []byte {
 func stsdAudio() []byte {
 	// ESDS descriptor chain (tag, length, payload)
 	esDS := []byte{
-		0x00,       // ES_ID high
-		0x01,       // ES_ID = 1
-		0x00,       // streamDependenceFlag etc.
+		0x00,                         // ES_ID high
+		0x01,                         // ES_ID = 1
+		0x00,                         // streamDependenceFlag etc.
 		0x04, 0x80, 0x80, 0x80, 0x00, // DecoderConfigDescriptor tag+len
-		0x40,       // objectTypeIndication = Audio ISO/IEC 14496-3
-		0x15,       // streamType audio (0x05<<2) + upstream + reserved
+		0x40,             // objectTypeIndication = Audio ISO/IEC 14496-3
+		0x15,             // streamType audio (0x05<<2) + upstream + reserved
 		0x00, 0x00, 0x00, // bufferSizeDB
 		0x00, 0x00, 0x00, 0x00, // maxBitrate
 		0x00, 0x00, 0x00, 0x00, // avgBitrate
@@ -68,11 +68,11 @@ func stsdAudio() []byte {
 		append([]byte{0x03, 0x80, 0x80, 0x80, byte(len(esDS))}, esDS...)))
 	entry := make([]byte, 0, 36)
 	entry = append(entry, make([]byte, 6)...)
-	entry = binary.BigEndian.AppendUint16(entry, 1) // data ref index
-	entry = append(entry, make([]byte, 8)...)      // reserved
-	entry = binary.BigEndian.AppendUint16(entry, 2) // channels
-	entry = binary.BigEndian.AppendUint16(entry, 16) // sampleSize
-	entry = binary.BigEndian.AppendUint16(entry, 0) // pre-defined + reserved
+	entry = binary.BigEndian.AppendUint16(entry, 1)         // data ref index
+	entry = append(entry, make([]byte, 8)...)               // reserved
+	entry = binary.BigEndian.AppendUint16(entry, 2)         // channels
+	entry = binary.BigEndian.AppendUint16(entry, 16)        // sampleSize
+	entry = binary.BigEndian.AppendUint16(entry, 0)         // pre-defined + reserved
 	entry = binary.BigEndian.AppendUint32(entry, 48000<<16) // samplerate 16.16
 	entry = append(entry, esds...)
 	return rawBox("mp4a", entry)

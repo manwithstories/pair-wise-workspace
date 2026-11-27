@@ -11,13 +11,13 @@ import (
 
 // TrackView is one aligned track after clock correction.
 type TrackView struct {
-	TrackIdx   int
-	Handler    string
-	IsVideo    bool
-	IsAudio    bool
-	OffsetNS   model.Timestamp // constant offset applied to the raw PTS
-	SkewPPM    float64         // measured clock skew in parts per million
-	Samples    []index.Sample
+	TrackIdx int
+	Handler  string
+	IsVideo  bool
+	IsAudio  bool
+	OffsetNS model.Timestamp // constant offset applied to the raw PTS
+	SkewPPM  float64         // measured clock skew in parts per million
+	Samples  []index.Sample
 }
 
 // Report is the deterministic output of one alignment pass.
