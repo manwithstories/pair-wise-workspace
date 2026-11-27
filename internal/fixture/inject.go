@@ -51,13 +51,14 @@ func inject(recs []record, o Options, rng *rand.Rand) []record {
 
 	if o.has("late-vfr") && len(videoIdx) > 4 {
 		// Hold back two video packets: one ~1.5 s (inside the rollback
-		// horizon), one to the very end (beyond it -> quarantine).
-		a := videoIdx[len(videoIdx)/3]
-		b := videoIdx[2*len(videoIdx)/3]
+		// horizon), one to the very end (beyond the 128-packet reorder
+		// window -> isolated).
+		a := videoIdx[len(videoIdx)/4]
+		b := videoIdx[len(videoIdx)/3]
 		ra, rb := recs[a], recs[b]
 		recs = append(recs[:b], recs[b+1:]...)
 		recs = append(recs[:a], recs[a+1:]...)
-		insertAt := len(recs)/3 + 120 // ~1.5 s of mixed traffic later
+		insertAt := len(recs)/4 + 120 // ~1.5 s of mixed traffic later
 		if insertAt >= len(recs) {
 			insertAt = len(recs) - 1
 		}
