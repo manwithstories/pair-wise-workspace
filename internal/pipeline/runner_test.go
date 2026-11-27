@@ -223,10 +223,10 @@ func TestLoudnessAfterPipeline(t *testing.T) {
 }
 
 func TestLoudnessFaultSignalTPConstrained(t *testing.T) {
-	// 含故障/高瞬态信号：当 -18 LUFS 与 -1 dBTP 物理冲突时，
-	// 真峰值上限是硬约束，响度取该约束下的可达最大值，结果确定且可复现。
+	// 含故障信号（CRC 损坏→静音占位 + 突发丢失占位）：
+	// 损坏必须被计数，归一结果确定可复现，响度命中目标且真峰值守住 -1 dBTP。
 	g, _ := generate(t, 41, 5)
-	run := func() (float64, float64, bool) {
+	run := func() (float64, float64, int) {
 		dir := t.TempDir()
 		out := filepath.Join(dir, "fault.wav")
 		r, err := New(Options{
@@ -236,29 +236,53 @@ func TestLoudnessFaultSignalTPConstrained(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := r.Run(); err != nil {
+		res, err := r.Run()
+		if err != nil {
 			t.Fatal(err)
 		}
 		buf := readWAVMono(t, out)
 		st := audio.MeasureLoudness(&audio.Buffer{
 			Samples: stereoFromMono(buf), Frames: len(buf),
 		})
-		return st.IntegratedLUFS, st.TruePeakDBTP, r.debugNorm.AppliedLimit
+		return st.IntegratedLUFS, st.TruePeakDBTP, res.DamagePacketDelta
 	}
-	lufs1, tp1, limit1 := run()
-	lufs2, tp2, _ := run()
-	if lufs1 != lufs2 || tp1 != tp2 {
-		t.Fatalf("故障信号归一结果不确定: %.3f/%.3f vs %.3f/%.3f", lufs1, tp1, lufs2, tp2)
+	lufs1, tp1, dmg1 := run()
+	lufs2, tp2, dmg2 := run()
+	if lufs1 != lufs2 || tp1 != tp2 || dmg1 != dmg2 {
+		t.Fatalf("故障信号归一结果不确定: %.3f/%.3f/%d vs %.3f/%.3f/%d",
+			lufs1, tp1, dmg1, lufs2, tp2, dmg2)
+	}
+	if dmg1 != 1 {
+		t.Fatalf("损坏包计数 = %d，期望 1", dmg1)
 	}
 	// 硬约束：真峰值不得高于 -1 dBTP（留 0.02 数值容差）。
 	if tp1 > -1.0+0.02 {
 		t.Fatalf("真峰值 %.2f dBTP 超过 -1 上限", tp1)
 	}
-	if !limit1 {
-		t.Fatal("高瞬态信号应触发限幅以守住 TP 上限")
+	// 含静音占位的信号仍须把有效音频归一到 -18 LUFS ±0.5。
+	if d := lufs1 - audio.TargetLUFS; d > 0.5 || d < -0.5 {
+		t.Fatalf("故障信号响度偏差 %.2f LU 超过 0.5", d)
 	}
-	// 限幅情形响度允许低于目标，但必须落在工程可达区间（不弱于 -23 LUFS）。
-	if lufs1 < -23.0 || lufs1 > audio.TargetLUFS+0.5 {
-		t.Fatalf("限幅后响度 %.2f LUFS 超出可达区间", lufs1)
+}
+
+func TestTruePeakLimiterOnHotSignal(t *testing.T) {
+	// 直接构造满幅高瞬态立体声，验证真峰值限制器主动介入并守住 -1 dBTP。
+	frames := audio.TargetRate * 2
+	samples := make([]float32, frames*2)
+	for i := 0; i < frames; i++ {
+		// 接近满量程的复合信号，归一放大后必然越过 TP 上限。
+		v := float32(0.95)
+		samples[i*2], samples[i*2+1] = v, v
+	}
+	hot := &audio.Buffer{Samples: samples, Frames: frames}
+	res, err := audio.Normalize(hot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.AppliedLimit {
+		t.Fatal("满幅信号必须触发真峰值限制")
+	}
+	if res.StatsAfter.TruePeakDBTP > -1.0+0.02 {
+		t.Fatalf("限制后 TP %.2f 仍超过 -1 dBTP", res.StatsAfter.TruePeakDBTP)
 	}
 }

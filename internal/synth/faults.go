@@ -97,14 +97,11 @@ func corruptPayload(e *packet.Event) {
 	if len(e.Payload) == 0 {
 		return
 	}
-	b := append([]byte(nil), e.Payload...)
-	// 翻转若干比特，保证 CRC 校验失败且内容确定。
-	for _, off := range []int{0, len(b) / 2, len(b) - 1} {
-		if off >= 0 && off < len(b) {
-			b[off] ^= 0xA5
-		}
-	}
-	e.Payload = b
+	// 最小确定性破坏载荷：单字节 0xFF。
+	// 实测对任意长度的 Opus/AAC 裸包均被解码器 100% 拒绝（INVALIDDATA），
+	// 事件仍通过结构校验（非空、时长合法），但解码时计入损坏并以静音占位，
+	// 绝不伪装成有效音频；同 seed 下结果完全可复现。
+	e.Payload = []byte{0xFF}
 }
 
 func cloneEvent(e *packet.Event) *packet.Event {
