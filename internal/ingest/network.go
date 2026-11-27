@@ -14,6 +14,10 @@ const (
 	FaultFlapping  Fault = "flapping"   // 带宽持续升降 + 间歇丢包
 	FaultDuplicate Fault = "duplicate"  // 完全重复包（应幂等吸收）
 	FaultConflict  Fault = "conflict"   // 同序号内容冲突（应报错拒清单）
+	// 以下为文件级损坏，由 fixture 注入，网络层按无故障处理。
+	FaultTruncate  Fault = "truncate"   // 完整采样边界截断
+	FaultHalfFrame Fault = "half-frame" // 半个采样帧
+	FaultBadHeader Fault = "bad-header" // 非法 WAV 头
 )
 
 // FaultPlan 描述一次演示的网络损伤方案。
@@ -73,7 +77,8 @@ func Simulate(packets []*Packet, plan FaultPlan) (arrive []*Packet, conflicts []
 	stats.MinBPS, stats.MaxBPS = 1<<20, 8<<20
 
 	switch plan.Mode {
-	case FaultNone:
+	case FaultNone, FaultTruncate, FaultHalfFrame, FaultBadHeader:
+		// 文件级损坏不产生网络层损伤。
 	case FaultReorder, FaultBurstLoss, FaultFlapping, FaultDuplicate, FaultConflict:
 		applyPlan(plan, r, len(packets), drop, dup, conf, &stats)
 	default:

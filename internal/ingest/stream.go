@@ -83,3 +83,18 @@ func (s *Streamer) FramePos() int64 { return s.framePos }
 
 // Skip 在不读盘的情况下推进全局帧坐标，用于 resume 跳过已处理块。
 func (s *Streamer) Skip(frames int64) { s.framePos += frames }
+
+// GapSilence 为截断块的缺失区间生成精确长度的静音包，坐标紧接块有效帧之后。
+// 这样补偿长度与缺口逐帧相等，不会让后续块产生任何漂移。
+func (s *Streamer) GapSilence(blockID, validFrames, missingFrames int64) *Packet {
+	blockStart := s.framePos - validFrames - missingFrames
+	return &Packet{
+		Seq:        blockStart / s.packetN,
+		BlockID:    blockID,
+		StartFrame: blockStart + validFrames,
+		Frames:     missingFrames,
+		Source:     SourceSilence,
+		SHA256:     SilenceSHA(missingFrames, s.bpf),
+		PCM:        make([]byte, missingFrames*int64(s.bpf)),
+	}
+}
