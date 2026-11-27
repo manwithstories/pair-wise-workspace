@@ -17,10 +17,10 @@ type CameraInput struct {
 
 // JobConfig is the on-disk job descriptor (job.json).
 type JobConfig struct {
-	JobID          string          `json:"job_id"`
-	SegmentSeconds int             `json:"segment_seconds"`
-	Ladder         []hls.Variant   `json:"ladder,omitempty"`
-	Cameras        []CameraInput   `json:"cameras"`
+	JobID          string        `json:"job_id"`
+	SegmentSeconds int           `json:"segment_seconds"`
+	Ladder         []hls.Variant `json:"ladder,omitempty"`
+	Cameras        []CameraInput `json:"cameras"`
 }
 
 // Ladder returns the configured ladder or the built-in three-tier default.

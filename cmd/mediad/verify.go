@@ -7,11 +7,11 @@ import (
 	"os"
 	"path/filepath"
 
+	m3u8 "github.com/Eyevinn/hls-m3u8/m3u8"
 	"github.com/fashionweek/mediad/internal/cache"
 	"github.com/fashionweek/mediad/internal/hls"
 	"github.com/fashionweek/mediad/internal/media"
 	"github.com/fashionweek/mediad/internal/pipeline"
-	m3u8 "github.com/Eyevinn/hls-m3u8/m3u8"
 )
 
 // verifyMetrics is the exact metric line required by the acceptance script.

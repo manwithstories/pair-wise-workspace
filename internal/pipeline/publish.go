@@ -5,11 +5,11 @@ import (
 	"path/filepath"
 	"sort"
 
+	m3u8 "github.com/Eyevinn/hls-m3u8/m3u8"
 	"github.com/fashionweek/mediad/internal/align"
 	"github.com/fashionweek/mediad/internal/clock"
 	"github.com/fashionweek/mediad/internal/hls"
 	"github.com/fashionweek/mediad/internal/media"
-	m3u8 "github.com/Eyevinn/hls-m3u8/m3u8"
 )
 
 // publishManifests emits, for every accepted camera, one master playlist and
@@ -56,8 +56,8 @@ func buildSpec(camera string, v hls.Variant, cuts []align.Cut) (hls.PlaylistSpec
 				media.KindOverflow, "", -1, "segment duration underflow").Wrap(err)
 		}
 		segs[i] = hls.SegmentSpec{
-			Seq: i,
-			URI: filepath.Join(v.Name, segmentFileName(i)),
+			Seq:      i,
+			URI:      filepath.Join(v.Name, segmentFileName(i)),
 			Duration: dur,
 		}
 	}

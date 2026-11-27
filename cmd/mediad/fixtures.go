@@ -16,17 +16,17 @@ import (
 
 // fixtureCase describes one generated sample for the verifier.
 type fixtureCase struct {
-	Name       string `json:"name"`
-	File       string `json:"file"`
-	Kind       string `json:"kind"`        // valid | truncated_container | pts_rollback | invalid_timebase
-	ExpectReject bool  `json:"expect_reject"`
+	Name         string `json:"name"`
+	File         string `json:"file"`
+	Kind         string `json:"kind"` // valid | truncated_container | pts_rollback | invalid_timebase
+	ExpectReject bool   `json:"expect_reject"`
 }
 
 // fixturesManifest is the cases/index.json consumed by `mediad verify`.
 type fixturesManifest struct {
-	Seed   int64          `json:"seed"`
-	Cases  []fixtureCase  `json:"cases"`
-	Job    string         `json:"job"`
+	Seed  int64         `json:"seed"`
+	Cases []fixtureCase `json:"cases"`
+	Job   string        `json:"job"`
 }
 
 func runFixtures(args []string) error {
@@ -60,7 +60,10 @@ func runFixtures(args []string) error {
 		return err
 	}
 	cases = append(cases, fixtureCase{Name: "camA", File: "sources/camA.mp4", Kind: "valid"})
-	if err := gen.healthy("camB", "testsourcesize=1280x720:rate=30000/1001", 24000); err != nil {
+	// Both cameras share the same wall-clock origin (genlocked main-stage
+	// angles) but run different frame rates (30 vs 30000/1001), which still
+	// exercises exact rational VFR alignment while every 2s cut lands on an IDR.
+	if err := gen.healthy("camB", "testsourcesize=1280x720:rate=30000/1001", 0); err != nil {
 		return err
 	}
 	cases = append(cases, fixtureCase{Name: "camB", File: "sources/camB.mp4", Kind: "valid"})

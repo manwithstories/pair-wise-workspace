@@ -1,14 +1,14 @@
 package main
 
 import (
-	"bytes"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
+	m3u8 "github.com/Eyevinn/hls-m3u8/m3u8"
 	"github.com/fashionweek/mediad/internal/media"
 	"github.com/fashionweek/mediad/internal/mp4"
-	m3u8 "github.com/Eyevinn/hls-m3u8/m3u8"
 )
 
 // rejectOne indexes a corrupt sample and returns its structured media error.
@@ -34,44 +34,54 @@ func rejectOne(path string) (*media.Error, error) {
 }
 
 // firstPacketKeyframe reports whether the segment's first video packet is a
-// keyframe. The segment is probed together with its EXT-X-MAP init section so
-// fMP4 headers resolve correctly.
+// keyframe. A standalone fMP4 segment cannot be probed without its
+// initialization section, so the EXT-X-MAP init bytes and the segment bytes are
+// concatenated into a temporary file that ffprobe can demux as a whole.
 func firstPacketKeyframe(segPath string, mp *m3u8.Map) bool {
-	args := []string{"-v", "error", "-select_streams", "v:0",
-		"-show_entries", "packet=flags", "-of", "csv=p=0"}
-	if mp != nil {
-		initPath := filepath.Join(filepath.Dir(segPath), filepath.Base(mp.URI))
-		args = append([]string{"-init", initPath}, args...)
+	if mp == nil {
+		return false
 	}
-	args = append(args, segPath)
-	out, err := exec.Command("ffprobe", args...).Output()
+	initPath := filepath.Join(filepath.Dir(segPath), filepath.Base(mp.URI))
+	combined, err := combineForProbe(initPath, segPath)
 	if err != nil {
-		// ffprobe may reject the -init placement; retry probing the segment's
-		// moof directly by scanning packets without the map where supported.
-		return probeFirstFlag(segPath)
+		return false
 	}
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	for _, line := range lines {
+	defer os.Remove(combined)
+
+	out, err := exec.Command("ffprobe", "-v", "error",
+		"-select_streams", "v:0", "-show_entries", "packet=flags",
+		"-of", "csv=p=0", combined).Output()
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
+		// The first demuxed packet belongs to the segment and must be an IDR.
 		return strings.Contains(line, "K")
 	}
 	return false
 }
 
-// probeFirstFlag is a fallback that reads packet flags without an init path.
-func probeFirstFlag(segPath string) bool {
-	out, err := exec.Command("ffprobe", "-v", "error",
-		"-select_streams", "v:0", "-show_entries", "packet=flags",
-		"-of", "csv=p=0", segPath).Output()
+// combineForProbe streams init and segment into one temp file for ffprobe.
+func combineForProbe(initPath, segPath string) (string, error) {
+	tmp, err := os.CreateTemp(filepath.Dir(segPath), ".probe-*.mp4")
 	if err != nil {
-		return false
+		return "", err
 	}
-	first := bytes.Split(bytes.TrimSpace(out), []byte("\n"))
-	if len(first) == 0 {
-		return false
+	defer tmp.Close()
+	for _, p := range []string{initPath, segPath} {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			os.Remove(tmp.Name())
+			return "", err
+		}
+		if _, err := tmp.Write(data); err != nil {
+			os.Remove(tmp.Name())
+			return "", err
+		}
 	}
-	return bytes.Contains(first[0], []byte("K"))
+	return tmp.Name(), nil
 }

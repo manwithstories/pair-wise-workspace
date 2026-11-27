@@ -15,13 +15,13 @@ var Epoch1904 = time.Date(1904, 1, 1, 0, 0, 0, 0, time.UTC)
 
 // Sample describes one indexed sample with exact rational timing.
 type Sample struct {
-	Index      int       // 0-based decode order
-	Offset     int64     // absolute file offset
-	Size       int64
-	DTS        clock.Rat // decode time relative to track media origin
-	PTS        clock.Rat // presentation time (DTS + composition offset)
-	Duration   clock.Rat
-	Sync       bool // keyframe / IDR
+	Index    int   // 0-based decode order
+	Offset   int64 // absolute file offset
+	Size     int64
+	DTS      clock.Rat // decode time relative to track media origin
+	PTS      clock.Rat // presentation time (DTS + composition offset)
+	Duration clock.Rat
+	Sync     bool // keyframe / IDR
 }
 
 // EditEntry is one elst entry; times are converted to seconds.
@@ -47,7 +47,7 @@ type TrackIndex struct {
 
 // MovieIndex is everything the pipeline needs from the moov box.
 type MovieIndex struct {
-	Path          string
+	Path           string
 	MovieTimescale uint32
 	MovieDuration  clock.Rat
 	CreationTime   time.Time // mvhd creation_time, zero when unset
