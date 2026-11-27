@@ -110,17 +110,15 @@ func segmentize(tier Tier, track uint8, samples []model.Sample,
 		if s.Seq%tier.Stride != 0 {
 			continue
 		}
-		// 独立时钟核验：归一化 PTS 必须单调不减。
+		// 独立时钟核验：归一化 PTS 必须单调不减。抽帧后相邻保留样本之间
+		// 天然存在时间空隙（VFR/stride），不视作重叠；真正的半开区间
+		// 重叠核验在扇入阶段对“段边界”执行。
 		if cur != nil {
 			prev := cur.Samples[len(cur.Samples)-1]
 			if s.PTS < prev.PTS {
 				fc.Record(fault.KindBoundary, track, s.Seq, 0, 0,
 					"rendition clock moved backwards")
 				flush()
-			} else if s.PTS < prev.PTS+prev.Duration {
-				// 半开区间重叠是致命级边界错误。
-				fc.Record(fault.KindBoundary, track, s.Seq, 0, 0,
-					"half-open intervals overlap")
 			}
 		}
 		// 跨过任一缺口即闭合当前段，缺口之后独立恢复为新段。

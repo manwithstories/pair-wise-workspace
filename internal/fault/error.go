@@ -44,6 +44,10 @@ type Error struct {
 }
 
 func (e *Error) Error() string {
+	// 纯参数/输入类错误没有包定位信息，输出简洁信息，避免噪声字段。
+	if e.TrackID == 0 && e.Seq == 0 && e.ByteStart == 0 && e.ByteEnd == 0 && e.Detail != "" {
+		return e.Detail
+	}
 	s := fmt.Sprintf("fault %s track=%d seq=%d bytes=[%d,%d)",
 		e.Kind, e.TrackID, e.Seq, e.ByteStart, e.ByteEnd)
 	if e.Detail != "" {
