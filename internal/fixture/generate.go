@@ -69,6 +69,9 @@ func (s Spec) frameNS(i int) int64 {
 	return int64(i) * clock.Second / s.VideoFPS
 }
 
+// FrameNS is the exported form of frameNS for cross-package manifest math.
+func (s Spec) FrameNS(i int) int64 { return s.frameNS(i) }
+
 // GenerateVideo produces a deterministic video packet stream. defect, when
 // non-empty, injects the named timing defect on selected frames.
 func (s Spec) GenerateVideo(defect string) []Packet {
