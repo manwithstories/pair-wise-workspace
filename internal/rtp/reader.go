@@ -74,6 +74,12 @@ func (r *Reader) Read() (*Datagram, error) {
 	return dg, nil
 }
 
+// ParseDatagram 解析一条不含长度前缀的完整数据报（RTP 或 RTCP）。
+// 供按字节偏移随机读取的调用方复用同一套头部解析与 Fault 语义。
+func ParseDatagram(b []byte) (*Datagram, error) {
+	return parseDatagram(b, 0, 0)
+}
+
 // parseDatagram 区分 RTP/RTCP 并解析头部，保证返回的 Fault 带精确偏移。
 func parseDatagram(b []byte, offset, index int64) (*Datagram, error) {
 	d := &Datagram{Offset: offset, Index: index, RawLen: len(b)}
@@ -83,7 +89,12 @@ func parseDatagram(b []byte, offset, index int64) (*Datagram, error) {
 	}
 	version := b[0] >> 6
 	if version != rtpVersion {
-		return nil, media.NewFault(media.FaultBadPayload, media.SeqUnknown,
+		// 版本号非法时仍尽力提取序号，保证坏包能被精确定位（误差≤1包）。
+		seq := media.SeqUnknown
+		if len(b) >= 4 {
+			seq = binary.BigEndian.Uint16(b[2:4])
+		}
+		return nil, media.NewFault(media.FaultBadPayload, seq,
 			offset, index, fmt.Sprintf("bad RTP version %d", version))
 	}
 	// RTP/RTCP 共用 V=2 首字节，靠第二字节最高位区分：

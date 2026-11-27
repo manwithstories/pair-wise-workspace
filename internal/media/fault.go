@@ -63,11 +63,11 @@ func (k FaultKind) String() string {
 // Fault 携带精确定位信息：包序号、字节偏移与故障类别。
 // 所有子系统通过它把时钟异常与坏包向引擎层传播。
 type Fault struct {
-	Kind     FaultKind
-	Seq      uint16 // RTP 序号；截断到无法读取序号时为 SeqUnknown。
-	Offset   int64  // 该数据报在输入文件中的起始字节偏移。
-	Datagram int64  // 数据报在流中的次序（0 起），与序号互为交叉验证。
-	Detail   string
+	Kind     FaultKind `json:"kind"`
+	Seq      uint16    `json:"seq"`     // RTP 序号；截断到无法读取序号时为 SeqUnknown。
+	Offset   int64     `json:"offset"`  // 该数据报在输入文件中的起始字节偏移。
+	Datagram int64     `json:"datagram"` // 数据报在流中的次序（0 起），与序号互为交叉验证。
+	Detail   string    `json:"detail"`
 }
 
 // SeqUnknown 标记序号无法从数据报中恢复。

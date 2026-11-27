@@ -18,13 +18,14 @@ func NewStore(path string) *Store { return &Store{path: path} }
 
 // persisted 是磁盘上的 JSON 布局，Entry 切片单独编码。
 type persisted struct {
-	InputDigest string  `json:"input_digest"`
-	ParamDigest string  `json:"param_digest"`
-	PacketCount int64   `json:"packet_count"`
-	SRCount     int64   `json:"sr_count"`
-	PPM         int     `json:"ppm"`
-	WrapCount   uint64  `json:"wrap_count"`
-	Entries     []Entry `json:"entries"`
+	InputDigest string        `json:"input_digest"`
+	ParamDigest string        `json:"param_digest"`
+	PacketCount int64         `json:"packet_count"`
+	SRCount     int64         `json:"sr_count"`
+	PPM         int           `json:"ppm"`
+	WrapCount   uint64        `json:"wrap_count"`
+	Entries     []Entry       `json:"entries"`
+	Faults      []media.Fault `json:"faults"`
 }
 
 // Save 先写临时文件再 rename，保证索引要么完整存在、要么不出现。
@@ -40,6 +41,7 @@ func (s *Store) Save(idx *Index) error {
 		PPM:         idx.PPM,
 		WrapCount:   idx.WrapCount,
 		Entries:     idx.Entries,
+		Faults:      idx.Faults,
 	}
 	b, err := json.Marshal(&p)
 	if err != nil {
@@ -72,6 +74,7 @@ func (s *Store) Load() (*Index, error) {
 		InputDigest: p.InputDigest,
 		ParamDigest: p.ParamDigest,
 		Entries:     p.Entries,
+		Faults:      p.Faults,
 		PacketCount: p.PacketCount,
 		SRCount:     p.SRCount,
 		PPM:         p.PPM,

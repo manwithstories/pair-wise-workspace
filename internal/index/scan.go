@@ -55,10 +55,11 @@ type Index struct {
 	InputDigest string `json:"input_digest"`
 	ParamDigest string `json:"param_digest"`
 	Entries     []Entry
-	PacketCount int64  `json:"packet_count"`
-	SRCount     int64  `json:"sr_count"`
-	PPM         int    `json:"ppm"`
-	WrapCount   uint64 `json:"wrap_count"`
+	Faults      []media.Fault `json:"faults"`
+	PacketCount int64         `json:"packet_count"`
+	SRCount     int64         `json:"sr_count"`
+	PPM         int           `json:"ppm"`
+	WrapCount   uint64        `json:"wrap_count"`
 }
 
 // Scan 顺序读取包流并构建索引。读取经过的字节同时喂入 sha256 得到输入摘要，
@@ -80,6 +81,8 @@ func Scan(r io.Reader, params Params, onFault func(*media.Fault)) (*Index, error
 			if !ok {
 				return nil, err
 			}
+			// 记录全部可恢复故障（带序号与偏移），同时上抛给调用方。
+			idx.Faults = append(idx.Faults, *f)
 			if onFault != nil {
 				onFault(f)
 			}
