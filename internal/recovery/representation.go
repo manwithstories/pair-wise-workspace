@@ -295,19 +295,6 @@ func recoverTrack(id uint32, kind media.TrackKind, ts media.TimeScale, samples [
 	return rt, nil
 }
 
-// countSamplesBefore counts samples strictly before s in original order.
-// countSamplesBefore counts samples strictly before target by (DTS, Segment).
-// Fragment anchors have distinct keys, so the result is their sample ordinal.
-func countSamplesBefore(target media.Sample, all []media.Sample) int {
-	c := 0
-	for _, s := range all {
-		if s.DTS < target.DTS || (s.DTS == target.DTS && s.Segment < target.Segment) {
-			c++
-		}
-	}
-	return c
-}
-
 // fitDrift estimates a clock slope from the container's own decode times.
 //
 // Estimating from every sample makes VFR look like drift (each frame's

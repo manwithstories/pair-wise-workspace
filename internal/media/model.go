@@ -234,8 +234,6 @@ type Timeline struct {
 	Representations []string `json:"representations"`
 	// Alignments is the per-representation fragment boundary comparison.
 	Alignments []Alignment `json:"alignments,omitempty"`
-	// Alignment is reserved for a single alignment summary.
-	Alignment *Alignment `json:"-"`
 }
 
 // Alignment summarises fragment-boundary alignment between two representations.

@@ -278,7 +278,6 @@ func Build(inputs []Input, opts Options) (*media.Timeline, error) {
 		}
 	}
 	// Expose alignment statistics to the report stage.
-	tl.Alignment = nil
 	for i := range alignments {
 		a := alignments[i]
 		tl.Alignments = append(tl.Alignments, media.Alignment{
@@ -421,38 +420,6 @@ func firstDisplacedBoundary(carrier []media.TimelineSample, other []recovery.Tim
 		}
 	}
 	return maxd
-}
-
-// sharedEndDelta is the disagreement at the end of the last fragment sequence
-// both representations carry. Fragments present on only one side are coverage
-// differences and deliberately excluded.
-func sharedEndDelta(carrier []media.TimelineSample, other []recovery.TimedSample) int64 {
-	carrierEnd := map[uint32]int64{}
-	otherEnd := map[uint32]int64{}
-	carrierOrigin := carrier[0].StartMicros
-	otherOrigin := other[0].StartMicros
-	for _, s := range carrier {
-		carrierEnd[s.Segment] = s.EndMicros
-	}
-	for _, s := range other {
-		otherEnd[s.Segment] = s.EndMicros - otherOrigin
-	}
-	var last uint32
-	var have bool
-	for seq := range carrierEnd {
-		if _, ok := otherEnd[seq]; !ok {
-			continue
-		}
-		if !have || seq > last {
-			last = seq
-			have = true
-		}
-	}
-	if !have {
-		return 0
-	}
-	_ = carrierOrigin
-	return abs(carrierEnd[last] - otherEnd[last])
 }
 
 func abs(v int64) int64 {
