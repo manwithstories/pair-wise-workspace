@@ -90,7 +90,7 @@ func (t *PSITracker) Feed(pi PacketInfo) []model.Fault {
 			t.buf[pi.PID] = b[:0]
 			break
 		}
-		secLen := 3 + int(b[1]&0x0F)<<8 | int(b[2])
+		secLen := 3 + ((int(b[1]&0x0F) << 8) | int(b[2]))
 		if secLen < 4 || secLen > 1024 {
 			faults = append(faults, model.Fault{Kind: model.FaultPSICRC,
 				Offset: pi.Offset, PID: int(pi.PID),
