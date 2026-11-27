@@ -29,16 +29,20 @@ func (e *Engine) initFingerprints(format remux.Format) error {
 	return nil
 }
 
-// checkpoint 在安全点（回溯区排空）原子提交恢复点。
+// checkpoint 在安全点（消费者已排空投递帧）原子提交恢复点。
 func (e *Engine) checkpoint(inputOffset int64) error {
+	e.mu.Lock()
 	e.ckpt.InputOffset = inputOffset
-	e.ckpt.CommittedOutputLen = e.writer.WrittenBytes()
 	e.ckpt.FramesConsumed = e.stats.Consumed
 	e.ckpt.Duplicates = e.stats.Duplicates
 	e.ckpt.Quarantined = e.stats.Quarantined
 	e.ckpt.FramesReleased = e.stats.Released
-	e.ckpt.Dedup = checkpoint.EncodeDedup(e.dedup.Snapshot())
+	dedupSnap := checkpoint.EncodeDedup(e.dedup.Snapshot())
 	wm, recs := checkpoint.FromTimeline(e.tl.ExportState(), e.tl.Quarantine())
+	e.mu.Unlock()
+
+	e.ckpt.CommittedOutputLen = e.writer.WrittenBytes()
+	e.ckpt.Dedup = dedupSnap
 	e.ckpt.Watermarks = wm
 	e.ckpt.Quarantine = recs
 	e.ckpt.Entries = e.writer.Entries()
