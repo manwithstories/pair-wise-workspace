@@ -85,6 +85,7 @@ func (r *Reorderer) Push(p *Packet) ([]*Packet, *media.PacketError) {
 	} else {
 		ext = extendSeq(p.Seq, s.maxExt)
 	}
+	p.ExtSeq = ext // always expose the extended sequence number
 	if fresh {
 		// First packet of the stream: baseline, no reorder statistics.
 	} else if ext > s.maxExt {

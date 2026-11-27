@@ -116,17 +116,20 @@ func (m *Model) fit() {
 }
 
 // ToMediaTime converts an RTP timestamp to shared-timeline
-// microseconds. The result never moves backwards: once a media time
-// has been emitted, later packets clamp to it. The returned bound is
-// the current worst-case error in microseconds.
+// microseconds. Forward conversions never move backwards: once a media
+// time has been emitted, later in-order packets clamp to it. Genuinely
+// late packets (older than the last converted timestamp) get the true
+// mapped time without disturbing the monotonic emission state.
 func (m *Model) ToMediaTime(rtpTS uint32) (media.TimeUs, media.TimeUs) {
 	ext := m.extend(rtpTS)
-	m.lastExt, m.hasLast = ext, true
 	us := media.TimeUs(math.Round(m.slope*float64(ext) + m.intercept))
-	if m.hasUs && us < m.lastUs {
-		us = m.lastUs // monotonic guard
+	if !m.hasLast || ext >= m.lastExt {
+		m.lastExt, m.hasLast = ext, true
+		if m.hasUs && us < m.lastUs {
+			us = m.lastUs // monotonic guard
+		}
+		m.lastUs, m.hasUs = us, true
 	}
-	m.lastUs, m.hasUs = us, true
 	return us, m.errorBound(ext)
 }
 

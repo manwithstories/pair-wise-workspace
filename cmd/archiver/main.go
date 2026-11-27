@@ -140,7 +140,7 @@ func printMetrics(m *app.Metrics) {
 	if m.FirstErrorOffset >= 0 {
 		fmt.Printf("first_error_offset=%d\n", m.FirstErrorOffset)
 	}
-	fmt.Printf("lost=%d duplicates=%d reordered=%d\n", m.Lost, m.Duplicates, m.Reordered)
+	fmt.Printf("lost=%d duplicates=%d reordered=%d out_of_window=%d\n", m.Lost, m.Duplicates, m.Reordered, m.OutOfWindow)
 	fmt.Printf("replays=%d quarantined=%d\n", m.Replays, m.Quarantined)
 	fmt.Printf("keyframe_index_hit=%.2f%%\n", m.KeyframeHit)
 	fmt.Printf("segments=%d\n", m.Segments)

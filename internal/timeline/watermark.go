@@ -37,10 +37,10 @@ func (w *Watermark) Observe(t media.TrackID, ts media.TimeUs) media.TimeUs {
 	first := true
 	for _, v := range w.maxEvent {
 		if first || v < min {
-			min, first = v, true
+			min, first = v, false
 		}
 	}
-	if first {
+	if !first {
 		if cand := min - w.lateness; !w.started || cand > w.cur {
 			w.cur, w.started = cand, true
 		}

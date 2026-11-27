@@ -159,15 +159,21 @@ func Generate(o Options) []byte {
 		vIdx++
 	}
 
-	// RTCP sender reports every 2 s per track.
+	// RTCP sender reports every 2 s per track. The t=0 reports are
+	// ordered before the first media packets so the clock is anchored
+	// from the very first conversion.
 	if !o.has("drift-no-rtcp") {
 		for t := int64(0); t < o.DurationUs; t += 2_000_000 {
+			arr := t
+			if t == 0 {
+				arr = -1
+			}
 			ntpSec := uint32(ntpBaseSec + t/1_000_000)
 			ntpFrac := uint32((t % 1_000_000) << 32 / 1_000_000)
 			recs = append(recs, record{buf: prefix(rtcpSR(AudioSSRC, ntpSec, ntpFrac,
-				driftedTicks(t, AudioRate, drift))), arrUs: t})
+				driftedTicks(t, AudioRate, drift))), arrUs: arr})
 			recs = append(recs, record{buf: prefix(rtcpSR(VideoSSRC, ntpSec, ntpFrac,
-				driftedTicks(t, VideoRate, drift))), arrUs: t})
+				driftedTicks(t, VideoRate, drift))), arrUs: arr})
 		}
 	}
 

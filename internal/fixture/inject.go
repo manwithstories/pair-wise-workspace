@@ -3,6 +3,7 @@ package fixture
 import (
 	"encoding/binary"
 	"math/rand/v2"
+	"sort"
 )
 
 // inject applies the requested fault injections to the ordered records.
@@ -50,19 +51,29 @@ func inject(recs []record, o Options, rng *rand.Rand) []record {
 	}
 
 	if o.has("late-vfr") && len(videoIdx) > 4 {
-		// Hold back two video packets: one ~1.5 s (inside the rollback
-		// horizon), one to the very end (beyond the 128-packet reorder
-		// window -> isolated).
-		a := videoIdx[len(videoIdx)/4]
+		// Hold back three video packets with rising lateness:
+		//   a1 ~1.5 s — inside the reorder window (reordered)
+		//   a2 ~4.8 s — declared lost, then forwarded: timeline replay
+		//   b  to end — beyond the rollback horizon: quarantine
+		a1 := videoIdx[len(videoIdx)/5]
+		a2 := videoIdx[2*len(videoIdx)/5]
 		b := videoIdx[len(videoIdx)/3]
-		ra, rb := recs[a], recs[b]
-		recs = append(recs[:b], recs[b+1:]...)
-		recs = append(recs[:a], recs[a+1:]...)
-		insertAt := len(recs)/4 + 120 // ~1.5 s of mixed traffic later
-		if insertAt >= len(recs) {
-			insertAt = len(recs) - 1
+		r1, r2, rb := recs[a1], recs[a2], recs[b]
+		// Remove from the stream, highest index first.
+		idxs := []int{a1, a2, b}
+		sort.Ints(idxs)
+		for i := len(idxs) - 1; i >= 0; i-- {
+			recs = append(recs[:idxs[i]], recs[idxs[i]+1:]...)
 		}
-		recs = append(recs[:insertAt], append([]record{ra}, recs[insertAt:]...)...)
+		reinsert := func(r record, later int) {
+			pos := later
+			if pos >= len(recs) {
+				pos = len(recs)
+			}
+			recs = append(recs[:pos], append([]record{r}, recs[pos:]...)...)
+		}
+		reinsert(r1, a1+120) // ~1.5 s of mixed traffic
+		reinsert(r2, a2+385) // ~4.8 s of mixed traffic
 		recs = append(recs, rb)
 		rtpIdx = reindex(recs, false)
 		videoIdx = reindex(recs, true)

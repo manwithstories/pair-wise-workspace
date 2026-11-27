@@ -28,7 +28,7 @@ import (
 
 const (
 	latenessUs = 500_000
-	horizonUs  = 2_000_000
+	horizonUs  = 5_000_000
 	sliceUs    = 2_000_000
 )
 
@@ -188,7 +188,11 @@ func run(cfg Config, params archive.Params, stream []byte, digest string, reuse 
 		}
 		emitted, oow := reorder.Push(p)
 		if oow != nil {
+			// Out of the reorder window: record the anomaly and still
+			// forward the packet — the timeline decides between
+			// rollback replay (inside the horizon) and quarantine.
 			m.OutOfWindow++
+			emit(p)
 		}
 		for _, p := range emitted {
 			emit(p)
@@ -257,7 +261,6 @@ func run(cfg Config, params archive.Params, stream []byte, digest string, reuse 
 	rep.Flush()
 	seg.Flush()
 	m.Replays, m.Quarantined = rep.Stats()
-	m.Quarantined += m.OutOfWindow
 	m.Segments = seg.Committed()
 
 	if err := finishAudio(m, sink.events); err != nil {
