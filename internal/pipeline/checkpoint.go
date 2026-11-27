@@ -29,15 +29,15 @@ type BlockState struct {
 // and the cumulative output checksum, so a changed input or a corrupted
 // partial output cannot be silently continued.
 type Checkpoint struct {
-	InputSHA256     string       `json:"input_sha256"`
-	OutputName      string       `json:"output_name"`
-	SamplesDone     int          `json:"samples_done"`
-	PacketsDone     int          `json:"packets_done"`
-	RecoveredCount  int          `json:"recovered_count"`
-	UnrecoveredCount int         `json:"unrecovered_count"`
-	RunningHash     string       `json:"running_sha256"`
-	Blocks          []BlockState `json:"blocks"`
-	Interrupted     bool         `json:"interrupted"`
+	InputSHA256      string       `json:"input_sha256"`
+	OutputName       string       `json:"output_name"`
+	SamplesDone      int          `json:"samples_done"`
+	PacketsDone      int          `json:"packets_done"`
+	RecoveredCount   int          `json:"recovered_count"`
+	UnrecoveredCount int          `json:"unrecovered_count"`
+	RunningHash      string       `json:"running_sha256"`
+	Blocks           []BlockState `json:"blocks"`
+	Interrupted      bool         `json:"interrupted"`
 }
 
 // CheckpointStore loads and atomically persists checkpoints beneath outDir.
