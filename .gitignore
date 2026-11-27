@@ -71,3 +71,13 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 本项目运行期产物（素材、封装、帧序列、演示工作区）----
+.demo/
+.smoke*/
+master.bin
+*.mpk
+*.journal.json
+frames/
+*_manifest.json
+verify_report.json
