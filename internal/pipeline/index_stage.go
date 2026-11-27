@@ -23,6 +23,9 @@ func (c *runContext) buildIndex() (*index.Index, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The index carries the run's result hash so a reader can tie the
+	// committed map back to the repaired timeline.
+	idx.ResultHash = c.hash
 	path := filepath.Join(c.opt.OutputDir, "index.json")
 	sum, err := index.WriteAtomic(path, idx, c.opt.OutputDir)
 	if err != nil {
@@ -30,7 +33,6 @@ func (c *runContext) buildIndex() (*index.Index, error) {
 	}
 	c.report.IndexEntries = len(idx.Entries)
 	c.report.IndexPath = path
-	idx.ResultHash = sum
 	c.recordSeq++
 	if err := c.store.AppendRecord(journal.Record{
 		Seq: c.recordSeq, Stage: StageIndex, InputDigest: c.digest, OutputSHA256: sum,
