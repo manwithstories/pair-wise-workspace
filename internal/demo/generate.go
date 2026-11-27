@@ -141,12 +141,12 @@ func timecodeCSV(s Spec) string {
 		"track,rate,mode,value,offset_ms",
 		fmt.Sprintf("A,%s,normal,00:00:01:00,0", rate),
 		fmt.Sprintf("A,%s,offset,00:00:02:00,-1500", rate),
+		// A drop-frame row is always emitted to exercise mixed standard
+		// handling even when the media itself is an integer frame rate.
+		"A,30000/1001,dropframe,00:00:59;29,0",
 	}
 	if s.Rate == clock.Rate2997 {
-		lines = append(lines,
-			"A,30000/1001,dropframe,00:00:59;29,0",
-			"A,30000/1001,wrap,23:59:59;29,40",
-		)
+		lines = append(lines, "A,30000/1001,wrap,23:59:59;29,40")
 	} else {
 		lines = append(lines,
 			fmt.Sprintf("A,%s,wrap,23:59:59:%02d,40", rate, s.Rate.NominalFPS()-1),
