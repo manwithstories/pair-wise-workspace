@@ -39,7 +39,7 @@ func DefaultOptions() Options {
 		ConsumerStallMS:  30,
 		CorruptTailBytes: 7,
 		VerifyRepeat:     true,
-		Frames:           48000, // one second of program material
+		Frames:           44100, // one second of 44.1 kHz source material
 	}
 }
 
@@ -57,9 +57,9 @@ func (o Options) Validate() error {
 		return media.NewError(media.PhaseConfig, media.ExitUsage, "", 0, false, "options",
 			fmt.Errorf("--corrupt-tail-bytes must be non-negative"))
 	}
-	if o.Frames <= 0 || o.Frames > 48000*60 {
+	if o.Frames <= 0 || o.Frames > 44100*60 {
 		return media.NewError(media.PhaseConfig, media.ExitUsage, "", 0, false, "options",
-			fmt.Errorf("--frames must be in 1..%d", 48000*60))
+			fmt.Errorf("--frames must be in 1..%d", 44100*60))
 	}
 	if o.Out == "" {
 		return media.NewError(media.PhaseConfig, media.ExitUsage, "", 0, false, "options",
@@ -163,6 +163,9 @@ func Run(ctx context.Context, opts Options, stdout, stderr *os.File) (Report, er
 	tmpPath := finalPath + ".tmp-deterministic"
 	stats, err := runOnce(ctx, fx, opts, tl, tmpPath)
 	if err != nil {
+		// The deterministic temporary is never installed on failure, and it
+		// must not linger to confuse a later recovery run.
+		os.Remove(tmpPath)
 		return Report{}, err
 	}
 	newTL, err := buildTimeline(fx)

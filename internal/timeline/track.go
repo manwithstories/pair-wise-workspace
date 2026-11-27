@@ -56,11 +56,15 @@ type Timeline struct {
 	clock    media.Clock
 	order    []string
 	tracks   map[string]*trackState
+	maxTrack int
 	anchors  []int64
 	final    bool
 	missing  int64
 	accepted uint64
 }
+
+// MaxTracks is the hard ceiling on registered tracks.
+const MaxTracks = 16
 
 // New creates an empty timeline at the shared rate.
 func New(rate media.Rate) (*Timeline, error) {
@@ -68,7 +72,7 @@ func New(rate media.Rate) (*Timeline, error) {
 	if err != nil {
 		return nil, media.NewError(media.PhaseTimeline, media.ExitUsage, "", 0, false, "new", err)
 	}
-	return &Timeline{clock: clock, tracks: make(map[string]*trackState)}, nil
+	return &Timeline{clock: clock, tracks: make(map[string]*trackState), maxTrack: MaxTracks}, nil
 }
 
 // Clock returns the shared timeline clock.
@@ -83,6 +87,10 @@ func (t *Timeline) Add(track Track) error {
 	if track.ID == "" {
 		return media.NewError(media.PhaseTimeline, media.ExitUsage, track.ID, 0, false, "add",
 			fmt.Errorf("track id is empty"))
+	}
+	if len(t.tracks) >= t.maxTrack {
+		return media.NewError(media.PhaseTimeline, media.ExitUsage, track.ID, 0, false, "add",
+			fmt.Errorf("track limit %d reached", t.maxTrack))
 	}
 	if _, exists := t.tracks[track.ID]; exists {
 		return media.NewError(media.PhaseTimeline, media.ExitUsage, track.ID, 0, false, "add",

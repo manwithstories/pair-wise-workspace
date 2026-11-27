@@ -41,7 +41,9 @@ func GenerateFixtures(dir string, seed int64, frames, corruptTailBytes int) (Fix
 	if frames <= 0 {
 		return Fixtures{}, fmt.Errorf("fixture frames must be positive")
 	}
-	rate := media.Rate{Num: 48000, Den: 1}
+	// Source material is 44.1 kHz so the pipeline exercises a genuine,
+	// non-integer resample to the 48 kHz delivery rate.
+	rate := media.Rate{Num: 44100, Den: 1}
 	labels := append([]string(nil), layout.Surround.Labels...)
 	frameBytes := len(labels) * 2
 	if corruptTailBytes < 0 || corruptTailBytes >= frames*frameBytes {
@@ -64,7 +66,8 @@ func GenerateFixtures(dir string, seed int64, frames, corruptTailBytes int) (Fix
 		return Fixtures{}, err
 	}
 	fx.Keyframes = filepath.Join(dir, "keyframes.txt")
-	anchors, err := writeKeyframes(fx.Keyframes, frames, rate)
+	// Anchors live on the shared output clock, not the source clock.
+	anchors, err := writeKeyframes(fx.Keyframes, frames, media.Rate{Num: 48000, Den: 1})
 	if err != nil {
 		return Fixtures{}, err
 	}
@@ -80,9 +83,9 @@ func hostSamples(seed int64, frames int) []float64 {
 	out := make([]float64, frames*6)
 	phase := 0.0
 	for i := 0; i < frames; i++ {
-		t := float64(i) / 48000
+		t := float64(i) / 44100
 		carrier := 0.08 * math.Sin(2*math.Pi*440*t)
-		phase += 2 * math.Pi * 440 / 48000
+		phase += 2 * math.Pi * 440 / 44100
 		lfe := 0.05 * math.Sin(2*math.Pi*60*t)
 		ls := 0.006 * (rng.Float64()*2 - 1)
 		rs := 0.006 * (rng.Float64()*2 - 1)

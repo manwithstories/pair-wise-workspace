@@ -57,7 +57,7 @@ func runDemo(args []string) int {
 	fs.IntVar(&opts.CorruptTailBytes, "corrupt-tail-bytes", opts.CorruptTailBytes, "bytes stripped from the truncated fixture")
 	fs.BoolVar(&opts.VerifyRepeat, "verify-repeat", opts.VerifyRepeat, "re-run and compare segment hashes")
 	fs.StringVar(&opts.Out, "out", opts.Out, "output directory")
-	fs.IntVar(&opts.Frames, "frames", opts.Frames, "program length in frames at 48 kHz")
+	fs.IntVar(&opts.Frames, "frames", opts.Frames, "program length in source frames at 44.1 kHz")
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "usage: avpipe demo [flags]")
 		fmt.Fprintln(os.Stderr, "  renders the generated fixture through resample, layout, loudness,")

@@ -2,6 +2,7 @@ package timeline
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -137,6 +138,23 @@ func TestTrackValidation(t *testing.T) {
 	}
 	if err := tl.Add(Track{ID: "v", Kind: Video, Anchors: []Anchor{{At: 10 * time.Millisecond}, {At: time.Millisecond}}}); err == nil {
 		t.Fatal("unordered anchors accepted")
+	}
+}
+
+func TestTrackLimitEnforced(t *testing.T) {
+	tl, _ := New(media.Rate{Num: 48000, Den: 1})
+	for i := 0; i < MaxTracks; i++ {
+		err := tl.Add(Track{ID: fmt.Sprintf("v%d", i), Kind: Video, Anchors: []Anchor{{At: 0}}})
+		if err != nil {
+			t.Fatalf("track %d: %v", i, err)
+		}
+	}
+	err := tl.Add(Track{ID: "overflow", Kind: Video, Anchors: []Anchor{{At: 0}}})
+	if err == nil {
+		t.Fatal("track limit not enforced")
+	}
+	if media.ExitFor(err) != media.ExitUsage {
+		t.Fatalf("exit=%d", media.ExitFor(err))
 	}
 }
 

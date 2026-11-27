@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/go-audio/audio"
+	"github.com/go-audio/wav"
+
 	"avpipe/internal/media"
 )
 
@@ -147,6 +150,67 @@ func TestRecoveryReportsTruncatedBytes(t *testing.T) {
 	}
 	if dropped != 3 {
 		t.Fatalf("dropped=%d want 3", dropped)
+	}
+}
+
+// writePCM24 renders 24-bit PCM WAV so the reader's 24-bit path is exercised
+// against a real container rather than a synthesized byte slice.
+func writePCM24(t *testing.T, path string, rate media.Rate, channels int, samples []float64) {
+	t.Helper()
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	enc := wav.NewEncoder(f, int(rate.Float()), 24, channels, 1)
+	buf := &audio.IntBuffer{
+		Data:   make([]int, len(samples)),
+		Format: &audio.Format{NumChannels: channels, SampleRate: int(rate.Float())},
+	}
+	for i, s := range samples {
+		buf.Data[i] = int(s * 8388607)
+	}
+	if err := enc.Write(buf); err != nil {
+		t.Fatal(err)
+	}
+	if err := enc.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTwentyFourBitInput(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tone24.wav")
+	samples := tone(400, 2, 440)
+	writePCM24(t, path, rate48, 2, samples)
+	r, err := Open(path, DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	info := r.Info()
+	if info.BitDepth != 24 || info.Channels != 2 || info.Frames != 400 {
+		t.Fatalf("info=%+v", info)
+	}
+	chunk, err := r.ReadBlock("mix", 200, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chunk.Block.Frames() != 200 {
+		t.Fatalf("frames=%d", chunk.Block.Frames())
+	}
+	// The decoded sample must be within two 24-bit steps of the original
+	// (the fixture writer scales by 2^23-1, the reader by 2^23).
+	if diff := chunk.Block.Samples[3] - samples[3]; diff > 2.0/8388608 || diff < -2.0/8388608 {
+		t.Fatalf("sample decode error: %v vs %v", chunk.Block.Samples[3], samples[3])
+	}
+	for pos := 200; pos < 400; pos += 200 {
+		if _, err := r.ReadBlock("mix", 200, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !r.EOF() {
+		t.Fatal("not EOF at declared end")
 	}
 }
 
