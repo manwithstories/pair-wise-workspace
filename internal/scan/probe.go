@@ -7,6 +7,7 @@ package scan
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -124,6 +125,10 @@ func parseFloat(s string) float64 {
 
 // probeFile runs ffprobe over one rendition file.
 func probeFile(path string) (*ffprobeOut, error) {
+	if _, err := os.Stat(path); err != nil {
+		return nil, fault.New(fault.CodeMissingTrack, filepath.Base(path), -1, false,
+			"rendition file missing: %v", err)
+	}
 	var out ffprobeOut
 	err := runJSON("ffprobe", []string{
 		"-v", "error", "-show_streams", "-show_format", "-show_chapters",

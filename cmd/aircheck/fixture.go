@@ -85,7 +85,8 @@ func genRendition(dir string, s fixtureSpec, subPath, metaPath string, durSec in
 		"-i", subPath,
 		"-f", "ffmetadata", "-i", metaPath,
 		"-map", "0:v", "-map", "1:a", "-map", "2:s", "-map_metadata", "3",
-		"-c:v", "libx264", "-preset", "ultrafast", "-g", "50", "-pix_fmt", "yuv420p",
+		"-c:v", "libx264", "-preset", "ultrafast", "-threads", "1",
+		"-g", "50", "-pix_fmt", "yuv420p",
 		"-b:v", s.vbps, "-minrate", s.vbps, "-maxrate", s.vbps, "-bufsize", "1M",
 		"-c:a", "aac", "-b:a", "128k", "-ac", s.layout,
 		"-c:s", "mov_text", "-movflags", "+faststart"}
