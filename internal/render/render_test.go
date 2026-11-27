@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"image"
 	"image/color"
@@ -229,5 +230,83 @@ func TestConfigChangeInvalidatesCache(t *testing.T) {
 	}
 	if _, _, err := Open(dir, "cfg-a", "src-a"); err != nil {
 		t.Fatalf("same config rejected: %v", err)
+	}
+}
+
+func TestCheckpointIsAtomicChunked(t *testing.T) {
+	dir := t.TempDir()
+	ex, _, err := Open(dir, "cfg", "src")
+	if err != nil {
+		t.Fatal(err)
+	}
+	img := solid(2, 2, color.NRGBA{A: 255})
+	path := filepath.Join(dir, ProgressName)
+	if _, err := ex.Commit(0, img); err != nil {
+		t.Fatal(err)
+	}
+	if err := ex.Checkpoint(2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("checkpoint written before chunk boundary")
+	}
+	if _, err := ex.Commit(1, img); err != nil {
+		t.Fatal(err)
+	}
+	if err := ex.Checkpoint(2); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("checkpoint at chunk boundary: %v", err)
+	}
+	var p progress
+	if err := json.Unmarshal(data, &p); err != nil {
+		t.Fatalf("torn checkpoint: %v", err)
+	}
+	if p.Program != "fieldcut" || len(p.Hashes) != 2 || p.Chunk != 2 {
+		t.Fatalf("checkpoint = %+v", p)
+	}
+	// Unchanged commits do not rewrite the checkpoint.
+	if _, err := ex.Commit(1, img); err != nil {
+		t.Fatal(err)
+	}
+	if err := ex.Checkpoint(2); err != nil {
+		t.Fatal(err)
+	}
+	data2, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data2) != string(data) {
+		t.Fatal("checkpoint rewritten without new frames")
+	}
+	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
+		t.Fatal("temp checkpoint left behind")
+	}
+}
+
+func TestInvalidationClearsProgress(t *testing.T) {
+	dir := t.TempDir()
+	ex, _, err := Open(dir, "cfg-a", "src-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := ex.Commit(int64(i), solid(2, 2, color.NRGBA{A: 255})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := ex.Checkpoint(2); err != nil {
+		t.Fatal(err)
+	}
+	if err := ex.Finalize(Ownership{Config: "cfg-a", Source: "src-a"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := Open(dir, "cfg-b", "src-a"); err != nil {
+		t.Fatalf("changed config should invalidate: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ProgressName)); !os.IsNotExist(err) {
+		t.Fatal("stale checkpoint survived invalidation")
 	}
 }

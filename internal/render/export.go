@@ -17,21 +17,40 @@ import (
 	"fieldcut/internal/media"
 )
 
-// ManifestName is the program's own ownership marker inside an output dir.
-const ManifestName = "export.json"
+const (
+	// ManifestName is the program's own ownership marker inside an output dir.
+	ManifestName = "export.json"
+	// ProgressName is the chunked, atomically written resume checkpoint.
+	ProgressName = "progress.json"
+)
+
+// progress is the chunked commit list persisted after every chunk.
+type progress struct {
+	Program string           `json:"program"`
+	Seq     int64            `json:"last_seq"`
+	Chunk   int              `json:"chunk"`
+	Hashes  map[int64]string `json:"hashes"`
+}
 
 // Ownership marks a directory as written by fieldcut. Any other content in
 // the target directory is refused rather than overwritten.
 type Ownership struct {
-	Program string `json:"program"`
-	Version int    `json:"version"`
-	Frames  int    `json:"frames"`
-	Width   int    `json:"width"`
-	Height  int    `json:"height"`
-	Root    string `json:"root_sha256"`
-	Config  string `json:"config_sha256"`
-	Source  string `json:"source_sha256"`
-	Resumed bool   `json:"resumed"`
+	Program       string  `json:"program"`
+	Version       int     `json:"version"`
+	Frames        int     `json:"frames"`
+	Width         int     `json:"width"`
+	Height        int     `json:"height"`
+	Root          string  `json:"root_sha256"`
+	Config        string  `json:"config_sha256"`
+	Source        string  `json:"source_sha256"`
+	Resumed       bool    `json:"resumed"`
+	SyncMaxMs     float64 `json:"sync_max_ms"`
+	RecoveryRate  float64 `json:"recovery_rate"`
+	Eligible      int     `json:"eligible"`
+	Recovered     int     `json:"recovered"`
+	P95FrameMs    float64 `json:"p95_frame_ms"`
+	AudioOffsetNs int64   `json:"audio_offset_ns"`
+	AudioPulses   int     `json:"audio_pulses"`
 }
 
 // Exporter writes frames under dir/frames in atomic per-frame and manifest
@@ -40,9 +59,10 @@ type Ownership struct {
 // hash as a complete run. A changed configuration or source hash invalidates
 // the cache by clearing only program-owned artifacts.
 type Exporter struct {
-	mu      sync.Mutex
-	dir     string
-	partial map[int64]string // committed frame hashes for resumability
+	mu           sync.Mutex
+	dir          string
+	partial      map[int64]string // committed frame hashes for resumability
+	checkpointed int              // frames covered by the last progress write
 }
 
 // Open prepares an output directory. It refuses non-empty directories that
@@ -93,6 +113,14 @@ func refuseForeign(dir string) error {
 		if e.Name() == "frames" && e.IsDir() {
 			continue
 		}
+		if e.Name() == ProgressName && !e.IsDir() {
+			if data, err := os.ReadFile(filepath.Join(dir, ProgressName)); err == nil {
+				var p progress
+				if json.Unmarshal(data, &p) == nil && p.Program == "fieldcut" {
+					continue
+				}
+			}
+		}
 		return media.Newf(media.KindConflict, "export.open", "", -1, "refusing to overwrite non-fieldcut content %q", e.Name())
 	}
 	frames, err := os.ReadDir(filepath.Join(dir, "frames"))
@@ -125,6 +153,9 @@ func clearOwned(dir string) error {
 		if err := os.Remove(filepath.Join(dir, "frames", name)); err != nil {
 			return media.New(media.KindConflict, "export.invalidate", "", -1, err)
 		}
+	}
+	if err := os.Remove(filepath.Join(dir, ProgressName)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return media.New(media.KindConflict, "export.invalidate", "", -1, err)
 	}
 	if err := os.Remove(filepath.Join(dir, ManifestName)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return media.New(media.KindConflict, "export.invalidate", "", -1, err)
@@ -210,6 +241,44 @@ func (e *Exporter) Commit(seq int64, img image.Image) (string, error) {
 	}
 	e.partial[seq] = sum
 	return sum, nil
+}
+
+// Checkpoint persists the committed frame list atomically once every chunk
+// frames have been committed since the previous checkpoint. Chunk size <= 0
+// disables checkpointing. A crash leaves either the previous checkpoint or
+// the new one, never a torn file.
+func (e *Exporter) Checkpoint(chunk int) error {
+	if chunk <= 0 {
+		return nil
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if len(e.partial)-e.checkpointed < chunk {
+		return nil
+	}
+	var last int64 = -1
+	for seq := range e.partial {
+		if seq > last {
+			last = seq
+		}
+	}
+	p := progress{Program: "fieldcut", Seq: last, Chunk: chunk, Hashes: make(map[int64]string, len(e.partial))}
+	for seq, sum := range e.partial {
+		p.Hashes[seq] = sum
+	}
+	data, err := json.Marshal(&p)
+	if err != nil {
+		return media.New(media.KindConflict, "export.checkpoint", "", last, err)
+	}
+	tmp := filepath.Join(e.dir, ProgressName+".tmp")
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return media.New(media.KindConflict, "export.checkpoint", "", last, err)
+	}
+	if err := os.Rename(tmp, filepath.Join(e.dir, ProgressName)); err != nil {
+		return media.New(media.KindConflict, "export.checkpoint", "", last, err)
+	}
+	e.checkpointed = len(e.partial)
+	return nil
 }
 
 // Has returns the committed hash for a frame, enabling resume.

@@ -12,6 +12,9 @@ import (
 	"fieldcut/internal/render"
 )
 
+// checkpointChunk is the number of frames between atomic progress writes.
+const checkpointChunk = 32
+
 // Run executes the full pipeline. With Limit > 0 it commits at most Limit
 // newly written frames and returns ErrInterrupted together with the partial
 // result; the demo uses that to prove resume equals a full run.
@@ -65,6 +68,9 @@ func Run(opts Options) (*Result, error) {
 				img, err := a.composeFrame(idx)
 				if err == nil {
 					_, err = ex.Commit(idx, img)
+					if err == nil {
+						err = ex.Checkpoint(checkpointChunk)
+					}
 				}
 				if err != nil {
 					mu.Lock()
@@ -132,6 +138,10 @@ func Run(opts Options) (*Result, error) {
 	own := render.Ownership{
 		Width: a.width, Height: a.height,
 		Config: opts.ConfigHash, Source: a.sourceHash,
+		SyncMaxMs: a.syncMaxMs, RecoveryRate: a.rate,
+		Eligible: a.eligible, Recovered: a.recovered,
+		P95FrameMs: res.P95FrameMs, AudioOffsetNs: a.audio.OffsetNanos,
+		AudioPulses: len(a.audio.Pulses),
 	}
 	if err := ex.Finalize(own); err != nil {
 		return nil, err
@@ -177,15 +187,24 @@ func (a *analysis) composeFrame(idx int64) (*image.NRGBA, error) {
 			continue
 		}
 		if in, ok := tf.idxInterp[idx]; ok {
-			before := tf.entries[in.Before]
-			after := tf.entries[in.After]
+			// Interp.Before/After are output indices; resolve them to the
+			// source sequences of the valid frames used as interpolation
+			// endpoints.
+			beforeSeq, okB := tf.idxSeq[in.Before]
+			afterSeq, okC := tf.idxSeq[in.After]
+			if !okB || !okC {
+				return nil, media.Newf(media.KindCorrupt, "render.interp", name, in.Seq,
+					"interpolation endpoints missing at indices %d,%d", in.Before, in.After)
+			}
+			before := tf.entries[beforeSeq]
+			after := tf.entries[afterSeq]
 			p, err := render.LoadFrame(filepath.Join(a.inDir, before.Path), before.Width, before.Height)
 			if err != nil {
-				return nil, media.New(media.KindCorrupt, "render.load", name, in.Before, err)
+				return nil, media.New(media.KindCorrupt, "render.load", name, beforeSeq, err)
 			}
 			q, err := render.LoadFrame(filepath.Join(a.inDir, after.Path), after.Width, after.Height)
 			if err != nil {
-				return nil, media.New(media.KindCorrupt, "render.load", name, in.After, err)
+				return nil, media.New(media.KindCorrupt, "render.load", name, afterSeq, err)
 			}
 			layers = append(layers, render.Layer{
 				Track: name, Seq: in.Seq, Primary: p, Secondary: q, Mix: in.Weight, Mask: tf.node.Mask,
