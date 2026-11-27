@@ -158,3 +158,24 @@ func TestParseDASHTemplateTokenValidation(t *testing.T) {
 		t.Fatal("unknown token accepted")
 	}
 }
+
+func TestVariantSegmentsResolveAgainstVariantDir(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "sub/seg0.ts", "x")
+	write(t, dir, "sub/audio.m3u8", "#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXTINF:2.0,\nseg0.ts\n#EXT-X-ENDLIST\n")
+	idx := write(t, dir, "index.m3u8", `#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=64000,CODECS="mp4a.40.2"
+sub/audio.m3u8
+`)
+	m, err := Load(idx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Entries) != 1 {
+		t.Fatalf("entries: %d", len(m.Entries))
+	}
+	want := filepath.Join(dir, "sub", "seg0.ts")
+	if m.Entries[0].Path != want {
+		t.Fatalf("resolved %q, want %q", m.Entries[0].Path, want)
+	}
+}

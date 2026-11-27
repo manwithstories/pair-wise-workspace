@@ -74,10 +74,13 @@ func parseExtinfDuration(v float64) media.Rational {
 	return media.NewRational(millis, 1000)
 }
 
-// HLSResult is re-exported to keep callers independent of the m3u8 package.
+// hlsPlaylist pairs a decoded media playlist with the directory its
+// segment URIs are relative to. A variant playlist's URIs resolve
+// against the playlist file, not against the master.
 type hlsPlaylist struct {
 	Media   *m3u8.MediaPlaylist
 	Variant string
+	Dir     string
 }
 
 // loadHLSDirectory loads a master playlist and the media playlists it
@@ -94,7 +97,7 @@ func loadHLSDirectory(path string, data []byte, kind string) ([]hlsPlaylist, err
 		if !ok {
 			return nil, fmt.Errorf("hls: unexpected playlist type %T", pl)
 		}
-		return []hlsPlaylist{{Media: mediaPL, Variant: ""}}, nil
+		return []hlsPlaylist{{Media: mediaPL, Variant: "", Dir: dir}}, nil
 	case m3u8.MASTER:
 		master, ok := pl.(*m3u8.MasterPlaylist)
 		if !ok {
@@ -120,7 +123,11 @@ func loadHLSDirectory(path string, data []byte, kind string) ([]hlsPlaylist, err
 			if lt != m3u8.MEDIA {
 				return nil, fmt.Errorf("hls: variant %s is not a media playlist", v.URI)
 			}
-			out = append(out, hlsPlaylist{Media: sub.(*m3u8.MediaPlaylist), Variant: v.URI})
+			out = append(out, hlsPlaylist{
+				Media:   sub.(*m3u8.MediaPlaylist),
+				Variant: v.URI,
+				Dir:     filepath.Dir(ref),
+			})
 		}
 		if len(out) == 0 {
 			return nil, fmt.Errorf("hls: master playlist has no usable variants")

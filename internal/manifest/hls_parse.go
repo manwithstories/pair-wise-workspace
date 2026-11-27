@@ -16,7 +16,6 @@ func ParseHLS(path string, data []byte) (*Manifest, error) {
 		return nil, err
 	}
 	out := &Manifest{Kind: "hls", Source: filepath.Clean(path)}
-	dir := filepath.Dir(path)
 	for _, p := range pls {
 		if p.Media == nil {
 			continue
@@ -27,7 +26,7 @@ func ParseHLS(path string, data []byte) (*Manifest, error) {
 		}
 		track := trackIDFromName(name, "hls")
 		kind := inferKind(name)
-		entries, warnings, err := hlsEntries(p.Media, track, kind, dir, filepath.Base(name))
+		entries, warnings, err := hlsEntries(p.Media, track, kind, p.Dir, filepath.Base(name))
 		if err != nil {
 			return nil, err
 		}
