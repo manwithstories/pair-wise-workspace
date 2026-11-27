@@ -211,8 +211,10 @@ func (g *generator) packet(pid uint16, pusi bool, pcrTicks int64, payload []byte
 	}
 	pkt[3] |= g.cc[pid] & 0x0F
 	g.cc[pid]++
-	copy(pkt[pos:], payload)
-	for i := pos + len(payload); i < ts.PacketSize; i++ {
+	// Payload sits at the end of the packet; adaptation stuffing fills
+	// the gap between the adaptation content and the payload.
+	copy(pkt[ts.PacketSize-len(payload):], payload)
+	for i := pos; i < ts.PacketSize-len(payload); i++ {
 		pkt[i] = 0xFF
 	}
 	g.out = append(g.out, pkt...)
