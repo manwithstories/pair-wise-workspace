@@ -106,26 +106,39 @@ func (m *muxSink) OnWatermark(wm media.TimeUs) { m.seg.OnWatermark(wm) }
 
 // Run executes the pipeline and returns the acceptance metrics.
 func Run(cfg Config) (*Metrics, error) {
-	stream := fixture.Generate(fixture.Options{Seed: cfg.Seed, Inject: cfg.Inject})
-	sum := sha256.Sum256(stream)
-	digest := hex.EncodeToString(sum[:])
 	params := archive.Params{
 		Case: cfg.Case, Seed: cfg.Seed, Inject: cfg.Inject,
 		LatenessUs: latenessUs, HorizonUs: horizonUs, SliceUs: sliceUs,
 	}
-	if err := os.MkdirAll(cfg.Out, 0o755); err != nil {
-		return nil, err
-	}
 	var reuse map[int64]string
 	if cfg.Resume {
+		// Resume is self-contained: the checkpoint carries the
+		// original parameters, and the run regenerates the identical
+		// input stream from them.
 		cp, err := archive.LoadCheckpoint(cfg.Out)
 		if err != nil {
 			return nil, &InputError{Reason: fmt.Sprintf("no usable checkpoint: %v", err)}
 		}
+		params = cp.Params
+		cfg.Case, cfg.Seed, cfg.Inject = params.Case, params.Seed, params.Inject
+		stream := fixture.Generate(fixture.Options{Seed: cfg.Seed, Inject: cfg.Inject})
+		sum := sha256.Sum256(stream)
+		digest := hex.EncodeToString(sum[:])
 		if reason := archive.CheckResume(cp, digest, params); reason != "" {
 			return nil, &InputError{Reason: "resume refused: " + reason}
 		}
 		reuse = cp.SegmentHashes
+		return run(cfg, params, stream, digest, reuse)
+	}
+	stream := fixture.Generate(fixture.Options{Seed: cfg.Seed, Inject: cfg.Inject})
+	sum := sha256.Sum256(stream)
+	digest := hex.EncodeToString(sum[:])
+	return run(cfg, params, stream, digest, reuse)
+}
+
+func run(cfg Config, params archive.Params, stream []byte, digest string, reuse map[int64]string) (*Metrics, error) {
+	if err := os.MkdirAll(cfg.Out, 0o755); err != nil {
+		return nil, err
 	}
 
 	m := &Metrics{FirstErrorOffset: -1, SampleRate: audio.OutRate, Layout: "stereo"}
@@ -225,7 +238,7 @@ func Run(cfg Config) (*Metrics, error) {
 		rep.Add(ev)
 		if cfg.InterruptAfter > 0 && seg.Committed() >= cfg.InterruptAfter {
 			cp := archive.Checkpoint{
-				InputDigest: digest, ParamsHash: params.Hash(),
+				InputDigest: digest, Params: params, ParamsHash: params.Hash(),
 				SegmentsCommitted: seg.Committed(), WatermarkUs: int64(rep.Drained()),
 				Clock: map[uint32]clock.Snapshot{}, SegmentHashes: map[int64]string{},
 			}

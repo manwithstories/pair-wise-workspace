@@ -45,6 +45,7 @@ func Verify(dir string) (matched, total int, firstErr error, err error) {
 // input digest, parameters, clock state and the committed watermark.
 type Checkpoint struct {
 	InputDigest       string                    `json:"input_digest"`
+	Params            Params                    `json:"params"`
 	ParamsHash        string                    `json:"params_hash"`
 	SegmentsCommitted int                       `json:"segments_committed"`
 	WatermarkUs       int64                     `json:"watermark_us"`
