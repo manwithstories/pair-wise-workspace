@@ -214,12 +214,9 @@ func emsgRecords(data []byte, t Track, timeUS, pts int64) []MetaRecord {
 		Duration: int64(e.PresentationTicks()), TimeBase: t.TimeBase,
 		Payload: enc, Text: e.SchemeIDURI,
 	}}
-	if e.ID3 != nil {
-		out = append(out, MetaRecord{
-			Kind: meta.KindID3, Track: t.Index, TimeUS: timeUS, PTS: pts,
-			TimeBase: t.TimeBase, Payload: e.Message, Text: firstText(e.ID3),
-		})
-	}
+	// The emsg payload already carries any embedded ID3 tag; emitting it a
+	// second time would double-count the same timed metadata. Callers that
+	// need the inner tag can re-parse Record.Payload.
 	return out
 }
 

@@ -73,5 +73,3 @@ AGENTS.md.local
 .ai*/
 
 # 开发期临时探针（不提交）
-internal/scan/dbg2_test.go
-internal/scan/debug_test.go
