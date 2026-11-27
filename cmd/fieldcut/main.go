@@ -201,6 +201,10 @@ func reportRejections(root, input string) {
 	}
 	for _, tc := range cases {
 		dir := filepath.Join(root, "reject-"+tc.name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			fmt.Printf("reject_check=%s setup_error=%v\n", tc.name, err)
+			continue
+		}
 		if err := copyInput(input, dir); err != nil {
 			fmt.Printf("reject_check=%s setup_error=%v\n", tc.name, err)
 			continue
@@ -248,6 +252,9 @@ func copyInput(src, dst string) error {
 				return err
 			}
 		}
+	}
+	if err := os.MkdirAll(filepath.Join(dst, "frames"), 0o755); err != nil {
+		return err
 	}
 	for _, name := range []string{"manifest.json", "audio.pcm"} {
 		if err := copyFile(filepath.Join(src, name), filepath.Join(dst, name)); err != nil {
