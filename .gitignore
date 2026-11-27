@@ -71,3 +71,8 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 本地运行产物（演示工作目录、临时文件）----
+/var/
+*.test
+*.out
