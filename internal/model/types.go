@@ -56,10 +56,10 @@ type Gap struct {
 	TrackID   uint8
 	Kind      TrackKind
 	Missing   []uint64 // 缺失序号
-	AfterSeq  uint64    // 缺口前最后一个收到的序号
-	BeforeSeq uint64    // 缺口后第一个收到的序号
-	StartPTS  int64     // 归一化空洞起点
-	EndPTS    int64     // 归一化空洞终点
+	AfterSeq  uint64   // 缺口前最后一个收到的序号
+	BeforeSeq uint64   // 缺口后第一个收到的序号
+	StartPTS  int64    // 归一化空洞起点
+	EndPTS    int64    // 归一化空洞终点
 }
 
 // Fault 是非致命异常的结构化记录（损坏、截断、丢包等仍可继续处理）。
@@ -106,8 +106,8 @@ type FaultPlan struct {
 
 // FrameRef 指向导出的一帧 PNG 及其像素哈希。
 type FrameRef struct {
-	Index    int
-	TimeUS   int64
-	Path     string
-	Sha256   string
+	Index  int
+	TimeUS int64
+	Path   string
+	Sha256 string
 }

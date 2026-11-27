@@ -36,7 +36,7 @@ func (u *Unwrapper) Unwrap(raw uint64) (uint64, error) {
 		return u.last, nil
 	case raw < u.last%u.modulus:
 		// 正向流中出现变小：唯一合法解释是发生回绕。
-		next := u.last + (u.modulus-u.last%u.modulus) + raw
+		next := u.last + (u.modulus - u.last%u.modulus) + raw
 		if next < u.last {
 			return 0, ErrOverflow
 		}

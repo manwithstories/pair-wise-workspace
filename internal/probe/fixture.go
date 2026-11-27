@@ -12,11 +12,12 @@ import (
 )
 
 // DefaultTracks 构造三路 VFR 画面与 Opus/AAC 双音轨的标准编排。
+// 画面统一广播级 90kHz 时基，差异体现在帧周期与 VFR 抖动上，避免低时基量化抹平漂移。
 func DefaultTracks() []model.TrackPlan {
 	return []model.TrackPlan{
 		{ID: 0, Kind: model.KindVideo, Timebase: 90_000, PeriodUS: 33_333, JitterUS: 4_000, DriftPPM: 120},
-		{ID: 1, Kind: model.KindVideo, Timebase: 25, PeriodUS: 40_000, JitterUS: 2_500, DriftPPM: -80},
-		{ID: 2, Kind: model.KindVideo, Timebase: 30_000, PeriodUS: 33_367, JitterUS: 3_000, DriftPPM: 40},
+		{ID: 1, Kind: model.KindVideo, Timebase: 90_000, PeriodUS: 40_000, JitterUS: 2_500, DriftPPM: -80},
+		{ID: 2, Kind: model.KindVideo, Timebase: 90_000, PeriodUS: 33_367, JitterUS: 3_000, DriftPPM: 40},
 		{ID: 3, Kind: model.KindOpus, Timebase: 48_000, PeriodUS: 20_000, JitterUS: 800, DriftPPM: 60},
 		{ID: 4, Kind: model.KindAAC, Timebase: 90_000, PeriodUS: 21_333, JitterUS: 0, DriftPPM: -45},
 	}
@@ -132,11 +133,12 @@ func Generate(workDir string, p model.Plan) (int64, error) {
 			}
 		}
 
-		var clockUS int64
+		// 标称时钟按恒定周期独立推进；漂移只作用于标称时间（线性 ppm），
+		// VFR 抖动只改变单包时长，不污染时钟位置，保证漂移可被 OLS 准确恢复。
+		var nominalUS int64
 		idx := 0
-		for clockUS < totalUS {
-			// 漂移：线性 ppm 累积；VFR：对称抖动，均为确定值。
-			driftUS := clockUS * t.DriftPPM / 1_000_000
+		for nominalUS < totalUS {
+			driftUS := nominalUS * t.DriftPPM / 1_000_000
 			jitter := int64(0)
 			if t.JitterUS > 0 {
 				jitter = int64(rng.next()%uint64(2*t.JitterUS+1)) - t.JitterUS
@@ -145,7 +147,7 @@ func Generate(workDir string, p model.Plan) (int64, error) {
 			if durUS < t.PeriodUS/2 {
 				durUS = t.PeriodUS / 2
 			}
-			nowUS := clockUS + driftUS
+			nowUS := nominalUS + driftUS // 实际 PTS 位置 = 标称 + 漂移
 			pts, err := scaleUp(nowUS, t.Timebase)
 			if err != nil {
 				return 0, err
@@ -172,7 +174,7 @@ func Generate(workDir string, p model.Plan) (int64, error) {
 					totalPackets++
 				}
 			}
-			clockUS += durUS
+			nominalUS += t.PeriodUS
 			idx++
 		}
 	}

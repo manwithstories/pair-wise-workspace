@@ -84,10 +84,11 @@ func Build(src PacketSource, fc *fault.Collector) (*Timeline, error) {
 			return nil, fault.New(clock.ErrOverflow, fault.KindWrap, pkt.TrackID, pkt.Seq,
 				pkt.ByteStart, pkt.ByteEnd, "normalized value exceeds int64")
 		}
+		// 合并后帧体不再参与时间线/渲染（渲染由元数据确定性合成），
+		// 置空 Payload 以约束内存，避免 30 分钟素材整体驻留。
 		s := model.Sample{
 			TrackID: pkt.TrackID, Kind: pkt.Kind, Seq: pkt.Seq,
 			PTS: int64(ptsUS), Duration: int64(durUS), Wrap: st.unwrap.Wraps(),
-			Payload: pkt.Payload,
 		}
 		tl.ByTrack[pkt.TrackID] = append(tl.ByTrack[pkt.TrackID], s)
 		tl.Samples = append(tl.Samples, s)
