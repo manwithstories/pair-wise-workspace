@@ -92,6 +92,11 @@ func Verify(outDir, inputDir string) (*Verification, error) {
 		return nil, media.New(media.KindConflict, "verify.recovery", "", -1,
 			errors.New("recorded recovery counts differ from recomputation"))
 	}
+	if own.SyncMaxMs != a.syncMaxMs || own.RecoveryRate != a.rate {
+		return nil, media.Newf(media.KindConflict, "verify.metrics", "", -1,
+			"recorded sync=%.3f rate=%.4f, recomputed sync=%.3f rate=%.4f",
+			own.SyncMaxMs, own.RecoveryRate, a.syncMaxMs, a.rate)
+	}
 	return v, nil
 }
 
