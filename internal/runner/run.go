@@ -52,7 +52,16 @@ func Run(opts Options) (*Result, error) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var firstErr error
+	var stopOnce sync.Once
 	stop := make(chan struct{})
+	setErr := func(err error) {
+		mu.Lock()
+		if firstErr == nil {
+			firstErr = err
+		}
+		mu.Unlock()
+		stopOnce.Do(func() { close(stop) })
+	}
 	newlyCommitted := 0
 	for w := 0; w < workers; w++ {
 		wg.Add(1)
@@ -71,11 +80,7 @@ func Run(opts Options) (*Result, error) {
 					}
 				}
 				if err != nil {
-					mu.Lock()
-					if firstErr == nil {
-						firstErr = err
-					}
-					mu.Unlock()
+					setErr(err)
 					return
 				}
 				select {
@@ -107,15 +112,16 @@ func Run(opts Options) (*Result, error) {
 		newlyCommitted++
 		if opts.Limit > 0 && newlyCommitted >= opts.Limit {
 			interrupted = true
-			close(stop)
+			stopOnce.Do(func() { close(stop) })
 			break
 		}
 	}
-	// Drain late results so no worker blocks on a full channel.
-	go func() {
-		for range results {
-		}
-	}()
+	// Keep draining until every worker exits. A worker that already sent
+	// into results must not block on re-entry, and wg.Wait can only return
+	// once the channel is consumed. No new sends can occur after stop is
+	// closed, so this drain terminates.
+	for range results {
+	}
 	wg.Wait()
 	mu.Lock()
 	err = firstErr
