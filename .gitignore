@@ -71,3 +71,9 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- Go 构建与测试产物（不纳入交付）----
+/relayctl
+*.test
+*.out
+vendor/
