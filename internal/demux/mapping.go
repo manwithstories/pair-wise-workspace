@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/asticode/go-astiav"
+
 	"avpipe/internal/media"
 )
 
@@ -172,4 +174,20 @@ func (in *Input) Track(id string) (media.Track, bool) {
 		}
 	}
 	return media.Track{}, false
+}
+
+// CodecParameters returns the source codec parameters for a track so the
+// remux stage can copy them verbatim. The pointer is owned by the underlying
+// format context and remains valid until Close.
+func (in *Input) CodecParameters(trackID string) (*astiav.CodecParameters, bool) {
+	for _, s := range in.fc.Streams() {
+		st, ok := in.scratch[s.Index()]
+		if !ok {
+			continue
+		}
+		if st.track.ID == trackID {
+			return s.CodecParameters(), true
+		}
+	}
+	return nil, false
 }
