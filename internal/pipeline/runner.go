@@ -77,14 +77,3 @@ func (r *Runner) Run() (*Result, error) {
 	}
 	return r.finalize(cp, res)
 }
-
-// finalize 的最小占位实现，保证本提交可独立编译；
-// 完整的帧渲染与清单收尾在下一提交的 finalize.go 中替换。
-func (r *Runner) finalize(cp *Checkpoint, res *Result) (*Result, error) {
-	cp.Interrupted = false
-	if err := cp.save(r.opts.OutDir); err != nil {
-		return nil, err
-	}
-	res.Checkpoint = cp
-	return res, nil
-}
