@@ -69,6 +69,14 @@ func NewMFSReader(r io.Reader, name string) *MFSReader {
 	return &MFSReader{r: bufio.NewReaderSize(r, 1<<20), name: name}
 }
 
+// NewMFSReaderAt 在调用方已把底层流 seek 到 startOffset 的前提下构造读取器，
+// 使后续帧的 SourceOffset 仍为相对文件起点的真实偏移（检查点续跑用）。
+func NewMFSReaderAt(r io.Reader, name string, startOffset int64) *MFSReader {
+	m := NewMFSReader(r, name)
+	m.offset = startOffset
+	return m
+}
+
 // Offset 返回当前读取位置（下一条记录的前缀起点）。
 func (m *MFSReader) Offset() int64 { return m.offset }
 
