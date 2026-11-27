@@ -148,7 +148,7 @@ func TestRepairParityAndGap(t *testing.T) {
 	if !ok {
 		t.Fatal("parity build failed")
 	}
-	r.AddGroup(&ParityGroup{Members: []int64{1, 2, 3}, ParitySeq: 100, payload: parity})
+	r.AddGroup(NewParityGroup([]int64{1, 2, 3}, 100, parity))
 	present := map[int64]*MediaPacket{
 		1: {ExtSeq: 1, Payload: p1},
 		2: {ExtSeq: 2, Payload: p2},

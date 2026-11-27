@@ -57,6 +57,16 @@ type ParityGroup struct {
 	payload   []byte
 }
 
+// NewParityGroup builds a parity block from its protected members, the
+// parity packet's own sequence number and the XOR payload.
+func NewParityGroup(members []int64, paritySeq int64, payload []byte) *ParityGroup {
+	return &ParityGroup{
+		Members:   append([]int64(nil), members...),
+		ParitySeq: paritySeq,
+		payload:   append([]byte(nil), payload...),
+	}
+}
+
 // Repairer resolves missing sequence numbers within a bounded window. The
 // order of attempts is fixed: retransmission first, then group parity; when
 // neither succeeds an explicit gap is emitted, never a silent splice.
