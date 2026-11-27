@@ -76,7 +76,8 @@ func (r *Reorderer) Push(p *Packet) ([]*Packet, *media.PacketError) {
 		r.streams[p.SSRC] = s
 	}
 	var ext uint64
-	if !s.started {
+	fresh := !s.started
+	if fresh {
 		s.started = true
 		ext = uint64(p.Seq)
 		s.maxExt = ext
@@ -84,7 +85,9 @@ func (r *Reorderer) Push(p *Packet) ([]*Packet, *media.PacketError) {
 	} else {
 		ext = extendSeq(p.Seq, s.maxExt)
 	}
-	if ext > s.maxExt {
+	if fresh {
+		// First packet of the stream: baseline, no reorder statistics.
+	} else if ext > s.maxExt {
 		s.maxExt = ext
 	} else if emitted, seen := s.accounted[ext]; seen {
 		if emitted {

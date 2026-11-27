@@ -54,51 +54,53 @@ type Manifest struct {
 
 // Segmenter groups committed events into slices of SliceUs and writes
 // each slice atomically once the watermark has passed its end plus the
-// rollback horizon, so closed segments are immutable.
+// rollback horizon, so closed segments are immutable. Open slices are
+// kept in a small map (bounded by horizon/slice duration) so a late
+// event can still join an older open slice after a rollback.
 type Segmenter struct {
-	dir      string
-	sliceUs  media.TimeUs
-	horizon  media.TimeUs
-	reuse    map[int64]string // slice -> expected hash (resume mode)
+	dir     string
+	sliceUs media.TimeUs
+	horizon media.TimeUs
+	reuse   map[int64]string // slice -> expected hash (resume mode)
 
-	started bool
-	curIdx  int64
-	cur     []timeline.Event
-	segs    []SegmentMeta
+	bufs map[int64][]timeline.Event
+	segs []SegmentMeta
 
 	Reused        int // slices matched against existing files
 	ReuseMismatch int // slices whose fresh hash differs from disk
 }
 
 func NewSegmenter(dir string, sliceUs, horizon media.TimeUs, reuse map[int64]string) *Segmenter {
-	return &Segmenter{dir: dir, sliceUs: sliceUs, horizon: horizon, reuse: reuse}
+	return &Segmenter{
+		dir: dir, sliceUs: sliceUs, horizon: horizon, reuse: reuse,
+		bufs: map[int64][]timeline.Event{},
+	}
 }
 
 // Emit appends one committed event to its slice buffer.
 func (s *Segmenter) Emit(ev timeline.Event) {
 	idx := int64(ev.TimeUs / s.sliceUs)
-	if !s.started {
-		s.started, s.curIdx = true, idx
-	}
-	if idx != s.curIdx {
-		// Committed order is non-decreasing; a newer slice starts here.
-		s.close()
-		s.curIdx = idx
-	}
-	s.cur = append(s.cur, ev)
+	s.bufs[idx] = append(s.bufs[idx], ev)
 }
 
 // OnWatermark closes slices that can no longer be rolled back.
 func (s *Segmenter) OnWatermark(wm media.TimeUs) {
-	if s.started && (s.curIdx+1)*int64(s.sliceUs)+int64(s.horizon) <= int64(wm) {
-		s.close()
+	for idx := range s.bufs {
+		if (idx+1)*int64(s.sliceUs)+int64(s.horizon) <= int64(wm) {
+			s.close(idx)
+		}
 	}
 }
 
-// Flush closes the final open slice at end of stream.
+// Flush closes all remaining open slices at end of stream.
 func (s *Segmenter) Flush() {
-	if s.started && len(s.cur) > 0 {
-		s.close()
+	idxs := make([]int64, 0, len(s.bufs))
+	for idx := range s.bufs {
+		idxs = append(idxs, idx)
+	}
+	sort.Slice(idxs, func(i, j int) bool { return idxs[i] < idxs[j] })
+	for _, idx := range idxs {
+		s.close(idx)
 	}
 }
 
@@ -129,12 +131,14 @@ func serialize(slice int64, events []timeline.Event) []byte {
 	return out
 }
 
-func (s *Segmenter) close() {
-	content := serialize(s.curIdx, s.cur)
+func (s *Segmenter) close(idx int64) {
+	events := s.bufs[idx]
+	delete(s.bufs, idx)
+	content := serialize(idx, events)
 	sum := sha256.Sum256(content)
 	hash := hex.EncodeToString(sum[:])
-	name := fmt.Sprintf("segment_%06d.bin", s.curIdx)
-	if want, ok := s.reuse[s.curIdx]; ok {
+	name := fmt.Sprintf("segment_%06d.bin", idx)
+	if want, ok := s.reuse[idx]; ok {
 		// Resume mode: keep the existing file, verify reproducibility.
 		s.Reused++
 		if want != hash {
@@ -144,9 +148,8 @@ func (s *Segmenter) close() {
 		panic(fmt.Sprintf("write segment: %v", err))
 	}
 	s.segs = append(s.segs, SegmentMeta{
-		File: name, Slice: s.curIdx, Events: len(s.cur), SHA256: hash,
+		File: name, Slice: idx, Events: len(events), SHA256: hash,
 	})
-	s.cur = nil
 }
 
 // atomicWrite writes via a temporary file plus rename.
@@ -184,28 +187,31 @@ func (s *Segmenter) WriteManifest(inputDigest string, p Params) error {
 }
 
 // Snapshot implements timeline.Sink for rollback support: only the
-// open (not yet closed) slice is captured, since closed slices are
+// open (not yet closed) slices are captured, since closed slices are
 // beyond the rollback horizon by construction.
 type snapshot struct {
-	Started bool
-	CurIdx  int64
-	Cur     []timeline.Event
-	NSegs   int
+	Bufs  map[int64][]timeline.Event
+	NSegs int
 }
 
 func (s *Segmenter) Snapshot() []byte {
-	b, _ := json.Marshal(snapshot{
-		Started: s.started, CurIdx: s.curIdx, Cur: s.cur, NSegs: len(s.segs),
-	})
+	bufs := make(map[int64][]timeline.Event, len(s.bufs))
+	for k, v := range s.bufs {
+		bufs[k] = append([]timeline.Event(nil), v...)
+	}
+	b, _ := json.Marshal(snapshot{Bufs: bufs, NSegs: len(s.segs)})
 	return b
 }
 
-// Restore rolls the open slice back to a checkpoint snapshot.
+// Restore rolls the open slices back to a checkpoint snapshot.
 func (s *Segmenter) Restore(snap []byte) {
 	var ss snapshot
 	if err := json.Unmarshal(snap, &ss); err != nil {
 		panic(fmt.Sprintf("restore segmenter: %v", err))
 	}
-	s.started, s.curIdx, s.cur = ss.Started, ss.CurIdx, ss.Cur
+	s.bufs = ss.Bufs
+	if s.bufs == nil {
+		s.bufs = map[int64][]timeline.Event{}
+	}
 	s.segs = s.segs[:ss.NSegs]
 }

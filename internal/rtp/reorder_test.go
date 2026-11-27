@@ -68,7 +68,7 @@ func TestReorderOutOfOrderAndLoss(t *testing.T) {
 		}
 	}
 	st := r.Stats()
-	if st.Lost != 1 || st.Reordered != 2 {
+	if st.Lost != 1 || st.Reordered != 1 { // only packet 1 trails a higher seq
 		t.Fatalf("stats %+v", st)
 	}
 }
