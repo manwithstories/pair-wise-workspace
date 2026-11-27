@@ -55,6 +55,7 @@ type Fault struct {
 	Track uint32 // SSRC, 0 when not applicable
 	Seq   uint64 // extended sequence number, when applicable
 	At    int64  // input arrival index, -1 when not applicable
+	Count int64  // affected item count, e.g. gap length
 	Msg   string
 }
 
