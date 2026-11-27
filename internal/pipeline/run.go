@@ -51,6 +51,14 @@ func AllFaults() FaultMask {
 	}
 }
 
+// reorderWindow 返回有效的乱序窗口，零值时回退到默认窗口 4。
+func (c Config) reorderWindow() int64 {
+	if c.ReorderWindow < 1 {
+		return 4
+	}
+	return c.ReorderWindow
+}
+
 // Report 是一次流水线运行（或续跑）的终端汇报数据。
 type Report struct {
 	Case               string       `json:"case"`

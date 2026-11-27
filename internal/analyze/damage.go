@@ -65,8 +65,9 @@ func (d *DamageTracker) Observe(rec ingest.PacketRecord) error {
 		}
 	}
 
-	// 2) 采样连续性：与上一完好包之间未覆盖的区间即丢失缺口。
-	if d.started && rec.StartSample > d.prevEnd {
+	// 2) 采样连续性：与已确认覆盖位置之间未覆盖的区间即丢失缺口。
+	// 时间线从采样 0 起算，因此首个幸存包若不从 0 开始，其前方整段也是丢失。
+	if rec.StartSample > d.prevEnd {
 		if err := d.addGap(model.Gap{
 			Start: d.prevEnd, End: rec.StartSample,
 			Kind: model.GapKindLoss, LocError: 0,

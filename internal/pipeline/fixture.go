@@ -58,10 +58,13 @@ func BuildFixture(cfg Config) (*Fixture, error) {
 		pkts := splitPackets(tid, pcm, framesPerPacket, cfg.NoAnchors)
 		// 3) 注入弱网与内容故障。
 		pkts = injectFaults(cfg, tid, pkts, rng)
+		// 4) 回放持续变化的带宽计划：低带宽档积压溢出缓存产生突发丢失，
+		//    高带宽档排空队列产生先丢后到的乱序形态。确定性、无网络依赖。
+		pkts = shapeByBandwidth(cfg, pkts, framesPerPacket)
 		tf.Packets = pkts
 		fix.Tracks = append(fix.Tracks, tf)
 
-		// 4) 独立的 RIFF 长度溢出样例（不进入正常母版流）。
+		// 5) 独立的 RIFF 长度溢出样例（不进入正常母版流）。
 		if cfg.Faults.RiffOverflow {
 			bad := append([]byte(nil), wavBytes...)
 			binary.LittleEndian.PutUint32(bad[4:], 0xFFFFFFFF)
@@ -69,11 +72,33 @@ func BuildFixture(cfg Config) (*Fixture, error) {
 		}
 	}
 
-	// 5) 依赖成环样例：构造 A->B->A 的环，供 graph 阶段单独核验拒绝。
+	// 6) 依赖成环样例：构造 A->B->A 的环，供 graph 阶段单独核验拒绝。
 	if cfg.Faults.Cycle && cfg.Tracks >= 2 {
 		fix.CycleEdges = [][2]int{{0, 1}, {1, 0}}
 	}
 	return fix, nil
+}
+
+// shapeByBandwidth 依据配置的带宽计划整形包投递顺序与丢失。
+// 包等效比特数按 16bit 单声道帧载荷估算；时间片取 100ms。
+func shapeByBandwidth(cfg Config, pkts []ingest.Packet, fpp int64) []ingest.Packet {
+	if len(cfg.Bandwidth) == 0 {
+		return pkts
+	}
+	const sliceMs int64 = 100
+	packetBits := fpp * 2 * 8 // 每包帧数 * 2 字节 * 8 比特。
+	plan, err := ingest.NewBandwidthPlan(cfg.Bandwidth, sliceMs, packetBits)
+	if err != nil {
+		return pkts // 参数已在上游校验，这里防御性回退到原始序列。
+	}
+	// 链路缓存容量与流水线乱序窗口对齐；每片注入量取窗口一半，
+	// 使低带宽档（放行能力 < 注入）稳定产生积压与突发丢失。
+	queueCap := cfg.reorderWindow()
+	inject := queueCap / 2
+	if inject < 1 {
+		inject = 1
+	}
+	return plan.SimulateDelivery(pkts, queueCap, inject)
 }
 
 // TrackSampleCounts 返回各轨道期望采样总数，供检查点一致性核验。
