@@ -56,6 +56,7 @@ type demoArgs struct {
 	bandwidth      []int64
 	faults         pipeline.FaultMask
 	interruptAfter int
+	noAnchors      bool
 }
 
 func runDemo(argv []string) int {
@@ -68,6 +69,7 @@ func runDemo(argv []string) int {
 		bwRaw      = fs.String("bandwidth", "1200000,240000,900000", "带宽计划档位 bit/s，逗号分隔")
 		faultsRaw  = fs.String("faults", "all", "故障类型: all|none 或逗号分隔名称")
 		interrupt  = fs.Int("interrupt-after", 0, "在指定阶段步数后受控中断（用于演示续跑）")
+		noAnchor   = fs.Bool("no-anchor", false, "不放置同步锚点，演示关键帧缺标 N/A")
 	)
 	if err := fs.Parse(argv); err != nil {
 		return 2
@@ -84,7 +86,7 @@ func runDemo(argv []string) int {
 	}
 	args := demoArgs{
 		out: *out, seed: *seed, tracks: *tracks, samples: *samples,
-		bandwidth: bw, faults: mask, interruptAfter: *interrupt,
+		bandwidth: bw, faults: mask, interruptAfter: *interrupt, noAnchors: *noAnchor,
 	}
 	if err := args.validate(); err != nil {
 		fmt.Fprintf(os.Stderr, "参数错误: %v\n", err)
@@ -103,6 +105,7 @@ func runDemo(argv []string) int {
 		InterruptAfter: args.interruptAfter,
 		ReorderWindow:  4,
 		DriftTolerance: 1,
+		NoAnchors:      args.noAnchors,
 	}
 
 	runner := pipeline.NewRunner(cfg)

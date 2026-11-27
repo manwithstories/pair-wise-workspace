@@ -28,6 +28,8 @@ type Config struct {
 	ReorderWindow int64
 	// DriftTolerance 为跨轨漂移容差（采样点）。
 	DriftTolerance int64
+	// NoAnchors 为 true 时夹具不放置任何同步锚点，用于演示缺标 N/A。
+	NoAnchors bool
 }
 
 // FaultMask 控制夹具生成时注入的故障类型。

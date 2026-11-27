@@ -10,7 +10,8 @@ import (
 	"bcastqc/internal/repack"
 )
 
-// runAnalyze 执行 WAV 结构核验、包窗口组装与损坏定位。
+// runAnalyze 执行 WAV 结构核验、流式包窗口整理与损坏定位。
+// 包记录经窗口组装器即时释放，不在内存中累积整条素材。
 func (r *Runner) runAnalyze(fix *Fixture) (
 	[]analyze.StructureReport,
 	[]*analyze.DamageReport,
@@ -38,40 +39,26 @@ func (r *Runner) runAnalyze(fix *Fixture) (
 		}
 		structReps = append(structReps, *srep)
 
-		// 包序整理：去重、冲突检测、乱序窗口与突发丢包判定。
-		recs, err := assemble(tf, r.cfg.ReorderWindow)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-
-		// 登记同步锚点（PCM 关键帧标记完全来自包记录）。
-		for _, rec := range recs {
+		// 流式整理：有序记录即时登记锚点并喂给损坏定位器。
+		tracker := analyze.NewDamageTracker(tf.ID, tl, tf.ExpectFrames)
+		asm := ingest.NewWindowAssembler(tf.ID, r.cfg.ReorderWindow, func(rec ingest.PacketRecord) error {
 			if rec.Anchor {
 				tl.AddAnchor(model.Anchor{TrackID: tf.ID, Sample: rec.StartSample, Seq: rec.Seq})
 			}
+			return tracker.Observe(rec)
+		})
+		for _, p := range tf.Packets {
+			if err := asm.AddPacket(p); err != nil {
+				return nil, nil, nil, err
+			}
 		}
-
-		// 损坏定位：联合 CRC、采样连续性与 WAV 长度。
-		drep, err := analyze.LocateDamage(tf.ID, recs, tl, tf.ExpectFrames)
-		if err != nil {
+		if _, err := asm.Flush(); err != nil {
 			return nil, nil, nil, err
 		}
-		damageReps = append(damageReps, drep)
+		damageReps = append(damageReps, tracker.Finish())
 		timelines = append(timelines, tl)
 	}
 	return structReps, damageReps, timelines, nil
-}
-
-// assemble 对单轨包记录执行窗口整理并返回有序记录。
-func assemble(tf *TrackFixture, window int64) ([]ingest.PacketRecord, error) {
-	asm := ingest.NewWindowAssembler(tf.ID, window)
-	for _, p := range tf.Packets {
-		if err := asm.AddPacket(p); err != nil {
-			return nil, err
-		}
-	}
-	recs, _ := asm.Flush()
-	return recs, nil
 }
 
 // runGraph 构建显式轨道依赖图，核验拓扑、环路、漂移与越界。
@@ -144,6 +131,7 @@ func (r *Runner) runRepack(fix *Fixture, timelines []*model.TrackTimeline) (*rep
 		return nil, err
 	}
 
+	// 流式重建每轨道完好采样：窗口组装器即时把有序包写入按帧索引的切片。
 	trackData, err := r.buildTrackPCM(fix)
 	if err != nil {
 		return nil, err
@@ -184,20 +172,17 @@ func (r *Runner) runRepack(fix *Fixture, timelines []*model.TrackTimeline) (*rep
 	return w.Close()
 }
 
-// buildTrackPCM 组装每轨道完好区间的 16bit 采样（损坏处置零），按帧索引访问。
+// buildTrackPCM 流式组装每轨道完好区间的 16bit 采样（损坏处置零）。
+// 输出切片长度等于每轨帧数，由调用方按帧随机访问；窗口缓存仍只与窗口相关。
 func (r *Runner) buildTrackPCM(fix *Fixture) ([][]int, error) {
 	out := make([][]int, len(fix.Tracks))
 	table := crc32.MakeTable(crc32.IEEE)
 	for ti, tf := range fix.Tracks {
 		samples := make([]int, tf.ExpectFrames)
-		recs, err := assemble(tf, r.cfg.ReorderWindow)
-		if err != nil {
-			return nil, err
-		}
-		for _, rec := range recs {
+		asm := ingest.NewWindowAssembler(tf.ID, r.cfg.ReorderWindow, func(rec ingest.PacketRecord) error {
 			// CRC 失败的包不参与重建，对应帧保持零值。
 			if rec.CRC != 0 && crc32.Checksum(rec.Payload, table) != rec.CRC {
-				continue
+				return nil
 			}
 			for i := int64(0); i < rec.Frames; i++ {
 				idx := rec.StartSample + i
@@ -208,6 +193,15 @@ func (r *Runner) buildTrackPCM(fix *Fixture) ([][]int, error) {
 					uint16(rec.Payload[idx*2]) | uint16(rec.Payload[idx*2+1])<<8,
 				))
 			}
+			return nil
+		})
+		for _, p := range tf.Packets {
+			if err := asm.AddPacket(p); err != nil {
+				return nil, err
+			}
+		}
+		if _, err := asm.Flush(); err != nil {
+			return nil, err
 		}
 		out[ti] = samples
 	}

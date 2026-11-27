@@ -166,8 +166,18 @@ func mkPacket(seq, start, frames int64, anchor bool, payload byte) Packet {
 	}
 }
 
+// newCollectingAssembler 构造一个把释放记录收集到切片的窗口组装器。
+func newCollectingAssembler(trackID int, window int64) (*WindowAssembler, *[]PacketRecord) {
+	var recs []PacketRecord
+	a := NewWindowAssembler(trackID, window, func(rec PacketRecord) error {
+		recs = append(recs, rec)
+		return nil
+	})
+	return a, &recs
+}
+
 func TestWindowDedupAndConflict(t *testing.T) {
-	a := NewWindowAssembler(1, 4)
+	a, _ := newCollectingAssembler(1, 4)
 	p1 := mkPacket(0, 0, 10, true, 7)
 	if err := a.AddPacket(p1); err != nil {
 		t.Fatalf("首包: %v", err)
@@ -190,34 +200,44 @@ func TestWindowDedupAndConflict(t *testing.T) {
 }
 
 func TestWindowReorderAndBurstLoss(t *testing.T) {
-	a := NewWindowAssembler(1, 2)
+	a, recs := newCollectingAssembler(1, 2)
 	// 乱序到达：0,2,1，窗口 2 内容纳。
 	must := func(err error) { t.Helper(); if err != nil { t.Fatal(err) } }
 	must(a.AddPacket(mkPacket(0, 0, 10, true, 0)))
 	must(a.AddPacket(mkPacket(2, 20, 10, false, 2)))
 	must(a.AddPacket(mkPacket(1, 10, 10, false, 1)))
-	recs, stats := a.Flush()
-	if len(recs) != 3 || recs[0].Seq != 0 || recs[1].Seq != 1 || recs[2].Seq != 2 {
-		t.Fatalf("乱序重排结果错误: %+v", recs)
+	stats, err := a.Flush()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(*recs) != 3 || (*recs)[0].Seq != 0 || (*recs)[1].Seq != 1 || (*recs)[2].Seq != 2 {
+		t.Fatalf("乱序重排结果错误: %+v", *recs)
 	}
 	if stats.Reordered == 0 {
 		t.Fatal("应记录乱序包数量")
 	}
 
 	// 突发丢失：窗口 2，期望序号从 0 起，3/4/5 到达迫使 0、1 判丢。
-	b := NewWindowAssembler(1, 2)
+	b, recsB := newCollectingAssembler(1, 2)
 	must(b.AddPacket(mkPacket(3, 30, 10, false, 3)))
 	must(b.AddPacket(mkPacket(4, 40, 10, true, 4)))
 	must(b.AddPacket(mkPacket(5, 50, 10, false, 5)))
-	_, stats = b.Flush()
+	stats, _ = b.Flush()
 	lost := stats.LostSeqs[1]
 	if len(lost) != 3 || lost[0] != 0 || lost[1] != 1 || lost[2] != 2 {
 		t.Fatalf("序号 0/1/2 应被判突发丢失，实际 %+v", lost)
 	}
+	if len(*recsB) != 3 {
+		t.Fatalf("应只释放到达的 3 个包，实际 %d", len(*recsB))
+	}
 }
 
 func TestWindowMemoryBoundedByWindow(t *testing.T) {
-	a := NewWindowAssembler(1, 3)
+	emitted := 0
+	a := NewWindowAssembler(1, 3, func(rec PacketRecord) error {
+		emitted++
+		return nil
+	})
 	for seq := int64(0); seq < 100; seq += 2 { // 只发偶数序号
 		if err := a.AddPacket(mkPacket(seq, seq*10, 10, false, byte(seq))); err != nil {
 			t.Fatal(err)
@@ -226,9 +246,46 @@ func TestWindowMemoryBoundedByWindow(t *testing.T) {
 			t.Fatalf("缓存包数 %d 超出窗口上界，内存随素材总长增长", a.PendingCount())
 		}
 	}
-	recs, _ := a.Flush()
-	if len(recs) != 50 {
-		t.Fatalf("应释放 50 个偶数包，实际 %d", len(recs))
+	if _, err := a.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if emitted != 50 {
+		t.Fatalf("应流式释放 50 个偶数包，实际 %d", emitted)
+	}
+	if a.PendingCount() != 0 {
+		t.Fatalf("Flush 后缓存应清空，残留 %d", a.PendingCount())
+	}
+}
+
+func TestWindowMemoryIndependentOfTotalLength(t *testing.T) {
+	// 十万级包流、固定小窗口：pending 与历史指纹都必须保持有界。
+	const window int64 = 8
+	const total = 100000
+	emitted := 0
+	a := NewWindowAssembler(1, window, func(rec PacketRecord) error {
+		emitted++
+		return nil
+	})
+	maxPending := 0
+	for seq := int64(0); seq < total; seq++ {
+		if err := a.AddPacket(mkPacket(seq, seq*10, 10, seq%4 == 0, byte(seq))); err != nil {
+			t.Fatal(err)
+		}
+		if a.PendingCount() > maxPending {
+			maxPending = a.PendingCount()
+		}
+	}
+	if _, err := a.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if emitted != total {
+		t.Fatalf("有序流应释放全部 %d 包，实际 %d", total, emitted)
+	}
+	if int64(maxPending) > window+1 {
+		t.Fatalf("峰值缓存 %d 超出窗口上界 %d，内存随素材总长增长", maxPending, window+1)
+	}
+	if len(a.history) > int(window+1) {
+		t.Fatalf("历史指纹 %d 未保持有界", len(a.history))
 	}
 }
 

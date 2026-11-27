@@ -30,121 +30,112 @@ type DamageReport struct {
 	DamagedSamples int64 `json:"damaged_samples"`
 }
 
-// LocateDamage 联合包 CRC、采样连续性与 WAV 长度三类证据定位损坏区段。
-//
-// 定位策略（保证误差不超过 1 个采样点）：
-//   - CRC 失败的包：整个包区间标记为 crc 损坏，边界即包起止点，误差 0；
-//   - 序号/采样不连续：缺失区间由前后包的采样点精确夹出，误差 0；
-//   - 尾块截断：以最后一个完好包末端到 WAV 声明总长标记，误差至多 1；
-//   - 所有缺口只记录在时间线上，绝不挤移后续采样位置。
+// DamageTracker 以流式方式逐包定位损坏，内存只与当前连续性游标有关，
+// 不缓存整段素材。缺口即时登记到时间线，绝不挤移后续采样位置。
+type DamageTracker struct {
+	trackID   int
+	timeline  *model.TrackTimeline
+	wavFrames int64
+	// prevEnd 为已确认完好覆盖到的采样位置。
+	prevEnd int64
+	started bool
+	report  *DamageReport
+}
+
+// NewDamageTracker 创建流式损坏定位器。
+func NewDamageTracker(trackID int, tl *model.TrackTimeline, wavFrames int64) *DamageTracker {
+	return &DamageTracker{
+		trackID:   trackID,
+		timeline:  tl,
+		wavFrames: wavFrames,
+		report:    &DamageReport{TrackID: trackID},
+	}
+}
+
+// Observe 处理一个按序释放的包记录，即时识别 CRC 损坏与采样不连续。
+func (d *DamageTracker) Observe(rec ingest.PacketRecord) error {
+	// 1) CRC 核验：失败则整包区间标记为 crc 损坏，边界即包起止点，误差 0。
+	crcBad := rec.CRC != 0 && crc32.Checksum(rec.Payload, crcTable) != rec.CRC
+	if crcBad {
+		if err := d.addGap(model.Gap{
+			Start: rec.StartSample, End: rec.EndSample(),
+			Kind: model.GapKindCRC, LocError: 0,
+		}); err != nil {
+			return err
+		}
+	}
+
+	// 2) 采样连续性：与上一完好包之间未覆盖的区间即丢失缺口。
+	if d.started && rec.StartSample > d.prevEnd {
+		if err := d.addGap(model.Gap{
+			Start: d.prevEnd, End: rec.StartSample,
+			Kind: model.GapKindLoss, LocError: 0,
+		}); err != nil {
+			return err
+		}
+	}
+	d.started = true
+	// 无论 CRC 是否失败，包在时间线上都占据其采样区间（位置存在、内容损坏），
+	// 因此连续性游标照常推进，避免把 CRC 坏区误判成采样丢失。
+	if rec.EndSample() > d.prevEnd {
+		d.prevEnd = rec.EndSample()
+	}
+	return nil
+}
+
+// Finish 在包流结束后补记尾块截断并产出最终报告。
+func (d *DamageTracker) Finish() *DamageReport {
+	// 3) 尾块截断：完好覆盖范围短于 WAV 声明长度。
+	if d.wavFrames > d.prevEnd {
+		locErr := int64(0)
+		// 截断尾块可能只丢失部分帧，末端无法精确到采样，误差上界 1。
+		if d.wavFrames-d.prevEnd == 1 {
+			locErr = 1
+		}
+		_ = d.addGap(model.Gap{
+			Start: d.prevEnd, End: d.wavFrames,
+			Kind: model.GapKindTruncation, LocError: locErr,
+		})
+	}
+	// 以时间线合并后的缺口为准重算统计，保证与再封装清单口径一致。
+	d.report.Segments = d.report.Segments[:0]
+	d.report.DamagedSamples = 0
+	d.report.MaxLocError = 0
+	for _, g := range d.timeline.Gaps {
+		d.report.Segments = append(d.report.Segments, DamageSegment{
+			TrackID: g.TrackID, Start: g.Start, End: g.End,
+			Kind: g.Kind, LocError: g.LocError,
+		})
+		if g.LocError > d.report.MaxLocError {
+			d.report.MaxLocError = g.LocError
+		}
+		d.report.DamagedSamples += g.Length()
+	}
+	return d.report
+}
+
+// addGap 登记缺口到时间线并同步原始区段统计（最终以 Finish 合并口径为准）。
+func (d *DamageTracker) addGap(g model.Gap) error {
+	g.TrackID = d.trackID
+	return d.timeline.AddGap(g)
+}
+
+// LocateDamage 保留一次性全量入口，便于测试与离线场景复用：
+// 内部仍走流式定位器，按起始采样点排序后逐条喂入。
 func LocateDamage(
 	trackID int,
 	recs []ingest.PacketRecord,
 	tl *model.TrackTimeline,
 	wavFrames int64,
 ) (*DamageReport, error) {
-	rep := &DamageReport{TrackID: trackID}
 	sorted := make([]ingest.PacketRecord, len(recs))
 	copy(sorted, recs)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].StartSample < sorted[j].StartSample })
-
-	// 1) 逐包 CRC 核验。
+	tr := NewDamageTracker(trackID, tl, wavFrames)
 	for _, rec := range sorted {
-		if rec.CRC == 0 {
-			continue // 未附带 CRC 的包不做判坏，交由连续性检查兜底。
-		}
-		got := crc32.Checksum(rec.Payload, crcTable)
-		if got != rec.CRC {
-			rep.add(DamageSegment{
-				TrackID:  trackID,
-				Start:    rec.StartSample,
-				End:      rec.EndSample(),
-				Kind:     model.GapKindCRC,
-				LocError: 0,
-			})
-			if err := tl.AddGap(model.Gap{
-				Start: rec.StartSample, End: rec.EndSample(),
-				Kind: model.GapKindCRC, LocError: 0,
-			}); err != nil {
-				return nil, err
-			}
-		}
-	}
-
-	// 2) 采样连续性：相邻包之间未覆盖的区间即丢失缺口。
-	var prevEnd int64
-	for i, rec := range sorted {
-		if rec.StartSample > prevEnd {
-			rep.add(DamageSegment{
-				TrackID:  trackID,
-				Start:    prevEnd,
-				End:      rec.StartSample,
-				Kind:     model.GapKindLoss,
-				LocError: 0,
-			})
-			if err := tl.AddGap(model.Gap{
-				Start: prevEnd, End: rec.StartSample,
-				Kind: model.GapKindLoss, LocError: 0,
-			}); err != nil {
-				return nil, err
-			}
-		}
-		if i == 0 || rec.EndSample() > prevEnd {
-			prevEnd = rec.EndSample()
-		}
-	}
-
-	// 3) 尾块截断：完好包覆盖范围短于 WAV 声明长度。
-	if wavFrames > prevEnd {
-		locErr := int64(0)
-		// 截断尾块可能只丢失部分帧，末端无法精确到采样，误差上界 1。
-		if wavFrames-prevEnd == 1 {
-			locErr = 1
-		}
-		rep.add(DamageSegment{
-			TrackID:  trackID,
-			Start:    prevEnd,
-			End:      wavFrames,
-			Kind:     model.GapKindTruncation,
-			LocError: locErr,
-		})
-		if err := tl.AddGap(model.Gap{
-			Start: prevEnd, End: wavFrames,
-			Kind: model.GapKindTruncation, LocError: locErr,
-		}); err != nil {
+		if err := tr.Observe(rec); err != nil {
 			return nil, err
 		}
 	}
-
-	rep.finalize(tl)
-	return rep, nil
-}
-
-// add 登记区段并维护最大定位误差与损坏采样计数。
-func (r *DamageReport) add(seg DamageSegment) {
-	r.Segments = append(r.Segments, seg)
-	if seg.LocError > r.MaxLocError {
-		r.MaxLocError = seg.LocError
-	}
-	r.DamagedSamples += seg.End - seg.Start
-}
-
-// finalize 按时间线合并后的缺口重算统计，保证与再封装清单口径一致。
-func (r *DamageReport) finalize(tl *model.TrackTimeline) {
-	r.Segments = r.Segments[:0]
-	r.DamagedSamples = 0
-	r.MaxLocError = 0
-	for _, g := range tl.Gaps {
-		r.Segments = append(r.Segments, DamageSegment{
-			TrackID:  g.TrackID,
-			Start:    g.Start,
-			End:      g.End,
-			Kind:     g.Kind,
-			LocError: g.LocError,
-		})
-		if g.LocError > r.MaxLocError {
-			r.MaxLocError = g.LocError
-		}
-		r.DamagedSamples += g.Length()
-	}
+	return tr.Finish(), nil
 }

@@ -55,7 +55,7 @@ func BuildFixture(cfg Config) (*Fixture, error) {
 		tf.Info = info
 
 		// 2) 切分为带 CRC 与锚点的包记录。
-		pkts := splitPackets(tid, pcm, framesPerPacket)
+		pkts := splitPackets(tid, pcm, framesPerPacket, cfg.NoAnchors)
 		// 3) 注入弱网与内容故障。
 		pkts = injectFaults(cfg, tid, pkts, rng)
 		tf.Packets = pkts
@@ -116,8 +116,9 @@ func buildWAV(pcm []byte, rate uint32, chans, bits uint16) []byte {
 	return b.Bytes()
 }
 
-// splitPackets 将 PCM 切成定长包并附带 CRC，每 4 包放置一个同步锚点。
-func splitPackets(tid int, pcm []byte, fpp int64) []ingest.Packet {
+// splitPackets 将 PCM 切成定长包并附带 CRC；默认每 4 包放置一个同步锚点，
+// noAnchors 为 true 时完全不放锚点，用于演示关键帧缺标 N/A。
+func splitPackets(tid int, pcm []byte, fpp int64, noAnchors bool) []ingest.Packet {
 	total := int64(len(pcm) / 2)
 	pkts := make([]ingest.Packet, 0, (total+fpp-1)/fpp)
 	for seq, start := int64(0), int64(0); start < total; seq, start = seq+1, start+fpp {
@@ -131,7 +132,7 @@ func splitPackets(tid int, pcm []byte, fpp int64) []ingest.Packet {
 			Seq:         seq,
 			StartSample: start,
 			Frames:      end - start,
-			Anchor:      seq%4 == 0,
+			Anchor:      !noAnchors && seq%4 == 0,
 			Payload:     append([]byte(nil), payload...),
 			CRC:         crc32.Checksum(payload, crcIEEE),
 		})
