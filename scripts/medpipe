@@ -1,0 +1,14 @@
+#!/bin/sh
+# medpipe 包装器：go run 在 Go 1.25 不透传子进程退出码（会统一变成 1），
+# 而验收要求区分 0/2/75。这里先本地构建二进制再直接执行，纯本地、无外部依赖。
+set -e
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+ROOT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+BIN="$ROOT_DIR/.medpipe-bin"
+
+if [ ! -x "$BIN" ]; then
+	( cd "$ROOT_DIR" && go build -o "$BIN" ./cmd/medpipe )
+fi
+
+exec "$BIN" "$@"

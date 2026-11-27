@@ -71,3 +71,6 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# medpipe 本地构建二进制（scripts/medpipe 包装器使用）
+.medpipe-bin
