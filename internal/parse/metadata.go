@@ -325,6 +325,9 @@ func ParseSEI(ctx context.Context, r io.Reader, track int, emit Emitter) error {
 		}
 		i := 1
 		for i < len(nal) {
+			if i == len(nal)-1 && nal[i] == 0x80 {
+				break // rbsp_trailing_bits
+			}
 			ptype := 0
 			for i < len(nal) && nal[i] == 0xff {
 				ptype += 255
