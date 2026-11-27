@@ -165,11 +165,14 @@ func readSEILen(b []byte, i int) (uint32, int, bool) {
 	return 0, i, false
 }
 
-// parseTimingPayload decodes the fixed 16-byte custom timing layout:
-// frameNum uint32, skew uint32, position uint64 (all big-endian).
+// minTimingBody is the number of leading bytes that carry structured
+// timing fields; any trailing bytes are opaque padding.
+const minTimingBody = 16
+
+// parseTimingPayload decodes the custom timing layout: frameNum uint32,
+// skew uint32, position uint64 (big-endian), followed by optional padding.
 func parseTimingPayload(track string, body []byte, off int, rate RationalLike, col *model.Collector) (SEITiming, bool) {
-	const want = 16
-	if len(body) < want {
+	if len(body) < minTimingBody {
 		col.Add(model.FaultSEITruncated, track, int64(off+len(body)),
 			"timing payload truncated; first missing byte")
 		return SEITiming{}, false
