@@ -101,11 +101,8 @@ func Simulate(packets []*Packet, plan FaultPlan) (arrive []*Packet, conflicts []
 	for _, i := range order {
 		p := packets[i]
 		arrive = append(arrive, p)
-		if dup[p.Seq] {
-			arrive = append(arrive, p) // 同一指针再投一次：内容完全相同
-			stats.Duplicates = append(stats.Duplicates, p.Seq)
-		}
 		if conf[p.Seq] {
+			// 冲突包紧跟原包到达：同序号异内容必须被重排器拒绝。
 			cp := *p
 			cp.PCM = append([]byte(nil), p.PCM...)
 			if len(cp.PCM) > 0 {
@@ -114,6 +111,11 @@ func Simulate(packets []*Packet, plan FaultPlan) (arrive []*Packet, conflicts []
 			cp.SHA256 = HashPacket(cp.PCM)
 			conflicts = append(conflicts, &cp)
 			stats.Conflicts = append(stats.Conflicts, cp.Seq)
+			arrive = append(arrive, &cp)
+		}
+		if dup[p.Seq] {
+			arrive = append(arrive, p) // 同一指针再投一次：内容完全相同
+			stats.Duplicates = append(stats.Duplicates, p.Seq)
 		}
 	}
 	// 带宽证据：确定性正弦式升降，仅写入统计，不引入真实等待。

@@ -80,3 +80,6 @@ func (s *Streamer) ReadBlock(bi index.BlockIndex) ([]*Packet, int64, error) {
 
 // FramePos 返回读取器当前全局帧位置（含截断缺口）。
 func (s *Streamer) FramePos() int64 { return s.framePos }
+
+// Skip 在不读盘的情况下推进全局帧坐标，用于 resume 跳过已处理块。
+func (s *Streamer) Skip(frames int64) { s.framePos += frames }
