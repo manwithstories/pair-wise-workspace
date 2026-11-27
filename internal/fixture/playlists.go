@@ -35,7 +35,7 @@ func writeHLSPlaylists(camRoot, cam string, plan *Plan, count int, segmentSec fl
 func writeHLSVariant(camRoot, cam, role string, plan *Plan, count int, segmentSec float64) error {
 	isBackup := role == "backup"
 	var b strings.Builder
-	b.WriteString("#EXTM3U\n#EXT-X-VERSION:6\n#EXT-X-TARGETDURATION:2\n#EXT-X-MEDIA-SEQUENCE:0\n")
+	b.WriteString("#EXTM3U\n#EXT-X-VERSION:6\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:0\n")
 
 	// Determine the entry sequence numbers; an out-of-order fault swaps two
 	// adjacent declared sequences in the primary playlist.

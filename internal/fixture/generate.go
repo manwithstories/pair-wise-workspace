@@ -22,7 +22,7 @@ type Options struct {
 	Cameras     int
 	DurationSec float64
 	Profile     Profile
-	// SegmentSec is the target segment duration (defaults to 2).
+	// SegmentSec is the target segment duration (defaults to 1).
 	SegmentSec float64
 }
 
@@ -45,7 +45,7 @@ type CameraLayout struct {
 // segmentCount derives the number of segments from duration / segment length.
 func segmentCount(durationSec, segmentSec float64) int {
 	if segmentSec <= 0 {
-		segmentSec = 2
+		segmentSec = 1
 	}
 	n := int(durationSec/segmentSec + 0.5)
 	if n < 1 {
@@ -61,7 +61,7 @@ func Generate(opt Options) (*Dataset, error) {
 	}
 	segmentSec := opt.SegmentSec
 	if segmentSec <= 0 {
-		segmentSec = 2
+		segmentSec = 1
 	}
 	cameras := CameraNames(opt.Cameras)
 	count := segmentCount(opt.DurationSec, segmentSec)

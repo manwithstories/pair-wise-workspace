@@ -109,6 +109,31 @@ func (r *Runner) Run() (*Metrics, error) {
 	return metrics, nil
 }
 
+// ReferenceHash runs the same configuration without interruption or resume in
+// a throwaway directory and returns its canonical index hash. It provides the
+// ground truth for verifying that an interrupted-and-resumed run produced an
+// identical index. Generation is deterministic, so the reference is reproducible.
+func ReferenceHash(cfg Config) (string, error) {
+	ref, err := NewRunner(Config{
+		WorkDir:             filepath.Join(cfg.WorkDir, ".reference"),
+		Format:              cfg.Format,
+		Cameras:             cfg.Cameras,
+		DurationSec:         cfg.DurationSec,
+		Profile:             cfg.Profile,
+		RunID:               cfg.RunID + "-reference",
+		MaxWorkers:          cfg.MaxWorkers,
+		MaxBlockBytes:       cfg.MaxBlockBytes,
+		InterruptAfterBlock: 0,
+	})
+	if err != nil {
+		return "", err
+	}
+	if _, err := ref.Run(); err != nil {
+		return "", err
+	}
+	return ref.IndexHash(), nil
+}
+
 // buildBlocks resolves primary slots from manifests, marks missing/truncated
 // files and records the first anomalous position for each fault category.
 func (r *Runner) buildBlocks(ds *fixture.Dataset) ([]block, error) {
@@ -236,17 +261,17 @@ func (r *Runner) isTruncated(path string, seg manifest.Segment) bool {
 }
 
 // processBlocks runs bounded-concurrency analysis with recovery and resume.
-// When InterruptAfterBlock is set, dispatch stops once that many new blocks
-// have been launched; in-flight blocks finish and their checkpoints remain
-// durable, then ErrInterrupted is returned with the partial results.
+// When InterruptAfterBlock is set, dispatch stops once that many blocks have
+// completed and been checkpointed. In-flight blocks finish durably, then
+// ErrInterrupted is returned with the partial results.
 func (r *Runner) processBlocks(blocks []block) ([]result, error) {
 	sem := make(chan struct{}, r.cfg.MaxWorkers)
 	results := make([]result, len(blocks))
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var firstErr error
-	launched := 0
 	interrupted := false
+	completedThisRun := 0
 
 	for i, b := range blocks {
 		blockID := fmt.Sprintf("%s/%s/%d", b.camera, b.role, b.sequence)
@@ -255,12 +280,11 @@ func (r *Runner) processBlocks(blocks []block) ([]result, error) {
 			// checkpoint, so leave a zero result and skip reprocessing.
 			continue
 		}
-		// Stop launching new work once the interruption budget is exhausted.
-		if r.cfg.InterruptAfterBlock > 0 && launched >= r.cfg.InterruptAfterBlock {
+		// Stop launching new work once enough blocks have completed this run.
+		if r.cfg.InterruptAfterBlock > 0 && completedThisRun >= r.cfg.InterruptAfterBlock {
 			interrupted = true
 			break
 		}
-		launched++
 		wg.Add(1)
 		sem <- struct{}{}
 		go func(idx int, blk block) {
@@ -273,6 +297,9 @@ func (r *Runner) processBlocks(blocks []block) ([]result, error) {
 				firstErr = err
 			}
 			results[idx] = res
+			if err == nil && res.contentHash != "" {
+				completedThisRun++
+			}
 		}(i, b)
 	}
 	wg.Wait()

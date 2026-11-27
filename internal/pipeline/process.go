@@ -151,7 +151,10 @@ func (r *Runner) analyze(path string, res *result) error {
 	if data, err := os.ReadFile(path); err == nil {
 		res.fileHash = index.HashBytes(data)
 	}
-	res.segmentMs = rep.Duration90k * 1000 / 90000
+	// Segment length for the P95 SLA comes from the shared timeline (the
+	// manifest-declared duration), not container framing which AAC frame
+	// rounding can inflate slightly beyond the nominal value.
+	res.segmentMs = res.block.duration90k * 1000 / 90000
 	return nil
 }
 

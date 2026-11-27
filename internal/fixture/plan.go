@@ -52,7 +52,7 @@ func BuildPlan(profile Profile, cameras []string, segmentCount int) *Plan {
 		Profile:      profile,
 		Cameras:      cameras,
 		SegmentCount: segmentCount,
-		SegmentSec:   2.0,
+		SegmentSec:   1.0,
 	}
 	if profile != ProfileBoundary || len(cameras) == 0 {
 		return p
