@@ -199,3 +199,57 @@ const (
 
 // MaxSampleBytes bounds a single sample to keep peak memory under 256 MiB.
 const MaxSampleBytes = 64 << 20
+
+// TimelineSample is one sample after fan-in: it carries both the recovered
+// per-representation timing and the shared-clock correction applied.
+type TimelineSample struct {
+	Sample
+	Representation string        `json:"representation"`
+	StartMicros    int64         `json:"start_us"`
+	EndMicros      int64         `json:"end_us"`
+	Drift          DriftEstimate `json:"drift"`
+}
+
+// TrackTimeline is a single track's samples on the shared clock, ordered by
+// composition time then decode time.
+type TrackTimeline struct {
+	TrackID   uint32           `json:"track_id"`
+	Kind      TrackKind        `json:"kind"`
+	Timescale TimeScale        `json:"timescale"`
+	Samples   []TimelineSample `json:"samples"`
+	StartUS   int64            `json:"start_us"`
+	EndUS     int64            `json:"end_us"`
+}
+
+// Timeline is the fanned-in, shared-clock result handed to decode and verify.
+type Timeline struct {
+	// OriginUS is the common zero of the shared clock.
+	OriginUS int64           `json:"origin_us"`
+	Tracks   []TrackTimeline `json:"tracks"`
+	// Boundaries records each representation's declared track boundaries.
+	Boundaries []Boundary `json:"boundaries"`
+	// Conflicts is non-empty when representations disagree past the threshold.
+	Conflicts []Conflict `json:"conflicts"`
+	// Representations lists the source representations in fan-in order.
+	Representations []string `json:"representations"`
+}
+
+// Boundary is one track's first and last sample in shared time.
+type Boundary struct {
+	Representation string    `json:"representation"`
+	TrackID        uint32    `json:"track_id"`
+	Kind           TrackKind `json:"kind"`
+	StartUS        int64     `json:"start_us"`
+	EndUS          int64     `json:"end_us"`
+	SampleCount    int       `json:"sample_count"`
+}
+
+// Conflict is a boundary mismatch beyond the configured threshold.
+type Conflict struct {
+	Kind      TrackKind `json:"kind"`
+	Track     uint32    `json:"track_id"`
+	Metric    string    `json:"metric"`
+	DeltaUS   int64     `json:"delta_us"`
+	Threshold int64     `json:"threshold_us"`
+	Detail    string    `json:"detail"`
+}
