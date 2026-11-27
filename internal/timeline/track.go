@@ -250,6 +250,15 @@ func (t *Timeline) Advance(id string, start int64, frames int) (int64, error) {
 	return gap, nil
 }
 
+// LastEnd returns the end frame of the most recently advanced block.
+func (t *Timeline) LastEnd(id string) (int64, bool) {
+	st, ok := t.tracks[id]
+	if !ok || !st.started {
+		return 0, false
+	}
+	return st.lastEnd, true
+}
+
 // Accept records a block sequence number and hash. A repeat of a sequence
 // number with the same hash is a duplicate to be dropped; the same number
 // with a different hash is a conflict.
