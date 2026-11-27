@@ -88,7 +88,6 @@ type runner struct {
 	crcMatched     int
 	retrans        int
 	fec            int
-	peakQueue      int64
 	aligned        []syncer.AlignedPacket
 }
 

@@ -52,9 +52,6 @@ func (r *runner) process(ctx context.Context) error {
 			r.selector.Choose(drop, rise)
 			sampleAt++
 		}
-		if peak := int64(r.queue.PeakBytes()); peak > r.peakQueue {
-			r.peakQueue = peak
-		}
 	}
 
 	ordered, missing := r.jitter.Drain()
@@ -178,10 +175,13 @@ func (r *runner) estimateActualKbps() float64 {
 }
 
 func (r *runner) peakPeak() int64 {
-	if q := int64(r.queue.PeakBytes()); q > r.peakQueue {
-		return q
+	// Prefer the deterministic jitter-buffer high-water mark. The bounded
+	// queue's own peak is also bounded by the same memory ceiling, but only
+	// the window-derived figure is reproducible run to run.
+	if jp := r.jitter.PeakBytes(); jp > 0 {
+		return jp
 	}
-	return r.peakQueue
+	return int64(r.queue.PeakBytes())
 }
 
 func segmentsWithGaps(tl *manifest.Timeline, log *model.FaultLog) int {
