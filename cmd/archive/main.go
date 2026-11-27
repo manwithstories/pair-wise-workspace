@@ -7,6 +7,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -17,6 +18,16 @@ import (
 	"archivemedia/internal/pipeline"
 	"archivemedia/internal/synth"
 )
+
+// 进程内存硬上限 256 MiB。在 main 最早处设置：
+//   - SetMemoryLimit 让运行时在接近上限时主动回收，避免 RSS 失控；
+//   - 更积极的 GC 百分比把长媒资整段缓冲的堆峰值压在上限内。
+const memoryLimitBytes = 256 * 1024 * 1024
+
+func init() {
+	debug.SetMemoryLimit(memoryLimitBytes)
+	debug.SetGCPercent(50)
+}
 
 // 退出码约定。
 const (

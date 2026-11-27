@@ -42,85 +42,81 @@ func MeasureLoudness(buf *Buffer) LoudnessStats {
 		st.TruePeakDBTP = math.Inf(-1)
 		return st
 	}
-	// 拆出各声道样本。
-	channels := 2
-	perCh := make([][]float32, channels)
-	for c := 0; c < channels; c++ {
-		perCh[c] = make([]float32, buf.Frames)
-		for i := 0; i < buf.Frames; i++ {
-			perCh[c][i] = buf.Samples[i*channels+c]
-		}
-	}
-	// 静音检测：全部声道整体未加权 RMS。
-	rmsSum, n := 0.0, 0
-	peak := 0.0
-	for c := 0; c < channels; c++ {
-		if tp := estimateTruePeak(perCh[c]); tp > peak {
-			peak = tp
-		}
-		for _, v := range perCh[c] {
-			fv := float64(v)
-			rmsSum += fv * fv
-			n++
-		}
-	}
-	st.TruePeak = peak
-	st.TruePeakDBTP = toDBTP(peak)
-	if math.Sqrt(rmsSum/float64(n)) < silenceFloor {
-		st.IsSilence = true
-		st.IntegratedLUFS = math.Inf(-1)
-		return st
-	}
-	// 逐声道 K 加权。
-	weighted := make([][]float64, channels)
-	for c := 0; c < channels; c++ {
-		w := kWeight(perCh[c], TargetRate)
-		f64 := make([]float64, len(w))
-		for i, v := range w {
-			f64[i] = float64(v)
-		}
-		weighted[c] = f64
-	}
+	const channels = 2
+	n := buf.Frames
+
+	// 单条复用 scratch：每个声道依次做"抽取→K加权→块能量累加"，
+	// 全程只分配一次 []float64(n)，避免 per-channel 多份全量副本。
+	scratch := make([]float64, n)
 	blockLen := TargetRate * blockMillis / 1000
 	hop := TargetRate * 100 / 1000 // 100ms 重叠步长
 	if hop <= 0 {
 		hop = blockLen
 	}
-	// 每个块的跨声道平均功率。
-	var blockPower []float64
-	for start := 0; start < buf.Frames; start += hop {
-		end := start + blockLen
-		if end > buf.Frames {
-			end = buf.Frames
+	numBlocks := (n + hop - 1) / hop
+	blockSums := make([]float64, numBlocks)
+	blockCnt := make([]int, numBlocks)
+
+	rmsSum := 0.0
+	peak := 0.0
+	for c := 0; c < channels; c++ {
+		// 抽取该声道并在 scratch 内原地转 float64。
+		for i := 0; i < n; i++ {
+			v := float64(buf.Samples[i*channels+c])
+			scratch[i] = v
+			rmsSum += v * v
 		}
-		if end-start == 0 {
-			continue
+		// 真峰值需要 float32 视图，直接在交错缓冲上按声道步长估计。
+		if tp := estimateTruePeakInterleaved(buf.Samples, c, channels); tp > peak {
+			peak = tp
 		}
-		sum := 0.0
-		for c := 0; c < channels; c++ {
+		// 原地 K 加权（两级 biquad 写回同一 scratch）。
+		applyBiquadInPlace(scratch, r128HighShelf(TargetRate))
+		applyBiquadInPlace(scratch, r128HighPass(TargetRate))
+		// 累加该声道在各块的能量。
+		b := 0
+		for start := 0; start < n; start += hop {
+			end := start + blockLen
+			if end > n {
+				end = n
+			}
+			sum := 0.0
 			for i := start; i < end; i++ {
-				v := weighted[c][i]
+				v := scratch[i]
 				sum += v * v
 			}
+			blockSums[b] += sum
+			blockCnt[b] = end - start
+			b++
 		}
-		// R128: 跨声道求和后除以样本数（声道数已含在求和中）。
-		power := sum / float64(end-start)
-		blockPower = append(blockPower, power)
+	}
+	st.TruePeak = peak
+	st.TruePeakDBTP = toDBTP(peak)
+	if math.Sqrt(rmsSum/float64(n*channels)) < silenceFloor {
+		st.IsSilence = true
+		st.IntegratedLUFS = math.Inf(-1)
+		return st
+	}
+	// 每块跨声道平均功率（声道数已含在求和中）。
+	blockPower := make([]float64, 0, numBlocks)
+	for b := 0; b < numBlocks; b++ {
+		if blockCnt[b] > 0 {
+			blockPower = append(blockPower, blockSums[b]/float64(blockCnt[b]))
+		}
 	}
 	if len(blockPower) == 0 {
 		st.IntegratedLUFS = math.Inf(-1)
 		return st
 	}
 	// 绝对门限：剔除 < -70 LUFS 的块。
-	var gated []float64
+	gated := blockPower[:0]
 	for _, p := range blockPower {
 		if lufsFromMeanSq(p) >= absGateLUFS {
 			gated = append(gated, p)
 		}
 	}
 	if len(gated) == 0 {
-		// 短片/极弱信号：退化为全部块平均，保证确定结果。
-		gated = blockPower
+		gated = blockPower // 短片/极弱信号退化，保证确定结果
 	}
 	// 相对门限：基于绝对门限均值再剔除低于 (均值-10 LU) 的块。
 	mean0 := 0.0
@@ -144,6 +140,63 @@ func MeasureLoudness(buf *Buffer) LoudnessStats {
 	}
 	st.IntegratedLUFS = lufsFromMeanSq(total / float64(len(final)))
 	return st
+}
+
+// applyBiquadInPlace 在 []float64 上原地应用双二阶滤波。
+func applyBiquadInPlace(x []float64, bq biquad) {
+	var x1, x2, y1, y2 float64
+	for i, in := range x {
+		out := bq.b0*in + bq.b1*x1 + bq.b2*x2 - bq.a1*y1 - bq.a2*y2
+		x[i] = out
+		x2, x1 = x1, in
+		y2, y1 = y1, out
+	}
+}
+
+// estimateTruePeakInterleaved 对交错缓冲中指定声道做 4x sinc 真峰值估计。
+func estimateTruePeakInterleaved(interleaved []float32, ch, channels int) float64 {
+	n := len(interleaved) / channels
+	if n == 0 {
+		return 0
+	}
+	const up = 4
+	const half = 8
+	kernel := truePeakKernel
+	samplePeak := 0.0
+	for i := 0; i < n; i++ {
+		if a := math.Abs(float64(interleaved[i*channels+ch])); a > samplePeak {
+			samplePeak = a
+		}
+	}
+	peak := samplePeak
+	if samplePeak == 0 {
+		return 0
+	}
+	threshold := samplePeak * 0.9
+	at := func(idx int) float64 {
+		if idx < 0 || idx >= n {
+			return 0
+		}
+		return float64(interleaved[idx*channels+ch])
+	}
+	for i := 0; i < n; i++ {
+		if math.Abs(at(i)) < threshold {
+			continue
+		}
+		for k := 0; k < up; k++ {
+			row := kernel[k]
+			acc := 0.0
+			w := 0
+			for m := -half; m <= half; m++ {
+				acc += at(i+m) * row[w]
+				w++
+			}
+			if av := math.Abs(acc); av > peak {
+				peak = av
+			}
+		}
+	}
+	return peak
 }
 
 // NormalizeResult 是响度归一结果。
@@ -216,56 +269,6 @@ func toDBTP(linear float64) float64 {
 	return 20 * math.Log10(linear)
 }
 
-// estimateTruePeak 用 4x 窗控 sinc 插值过采样估计连续域真峰值。
-// sinc 带限重建比朴素余弦插值更贴近真实 D/A 过冲，避免系统性高估导致过度限幅。
-//
-// 性能：先 O(n) 求样本峰值，再只对接近峰值的少量样本做完整 sinc 插值，
-// 把 O(68n) 的卷积降为 O(n)+O(68·candidate)，结果与全量卷积等价。
-func estimateTruePeak(x []float32) float64 {
-	n := len(x)
-	if n == 0 {
-		return 0
-	}
-	const up = 4
-	const half = 8 // 半窗长度（输入样本数）
-	kernel := truePeakKernel
-
-	// 第一遍：样本峰值与候选阈值（峰值的 0.9，过冲不会越过该邻域）。
-	samplePeak := 0.0
-	for _, v := range x {
-		if a := math.Abs(float64(v)); a > samplePeak {
-			samplePeak = a
-		}
-	}
-	peak := samplePeak
-	if samplePeak == 0 {
-		return 0
-	}
-	threshold := samplePeak * 0.9
-	// 第二遍：仅对接近峰值的样本做过采样插值。
-	for i := range x {
-		if math.Abs(float64(x[i])) < threshold {
-			continue
-		}
-		for k := 0; k < up; k++ {
-			row := kernel[k]
-			acc := 0.0
-			w := 0
-			for m := -half; m <= half; m++ {
-				idx := i + m
-				if idx >= 0 && idx < n {
-					acc += float64(x[idx]) * row[w]
-				}
-				w++
-			}
-			if av := math.Abs(acc); av > peak {
-				peak = av
-			}
-		}
-	}
-	return peak
-}
-
 // truePeakKernel 是启动时一次性预计算的 4 相位 × 17 抽头窗控 sinc 核，
 // 热循环仅做乘加，避免在每个采样点重复计算三角函数。
 var truePeakKernel = func() [4][17]float64 {
@@ -306,15 +309,6 @@ const (
 	r128HPQ    = 0.5003270373238773
 )
 
-// kWeight 应用 EBU R128 K 加权：先高架预滤波（HSF），再高通加权（HPF）。
-// 系数与 Audacity/BS.1770 参考实现一致，固定且可逐位复现。
-func kWeight(x []float32, rate int) []float32 {
-	hs := r128HighShelf(rate)
-	y := processBiquad(x, hs)
-	hp := r128HighPass(rate)
-	return processBiquad(y, hp)
-}
-
 type biquad struct {
 	b0, b1, b2, a1, a2 float64
 }
@@ -349,17 +343,4 @@ func r128HighPass(rate int) biquad {
 		a1: 2 * (K2 - 1) / d,
 		a2: (1 - Kq + K2) / d,
 	}
-}
-
-func processBiquad(x []float32, bq biquad) []float32 {
-	y := make([]float32, len(x))
-	var x1, x2, y1, y2 float64
-	for i, v := range x {
-		in := float64(v)
-		out := bq.b0*in + bq.b1*x1 + bq.b2*x2 - bq.a1*y1 - bq.a2*y2
-		y[i] = float32(out)
-		x2, x1 = x1, in
-		y2, y1 = y1, out
-	}
-	return y
 }
