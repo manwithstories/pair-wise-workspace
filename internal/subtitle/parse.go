@@ -31,9 +31,9 @@ type Cue struct {
 
 // Track is a named subtitle stream plus the structured defects found in it.
 type Track struct {
-	Name   string          `json:"name"`
-	Format Format          `json:"format"`
-	Cues   []Cue           `json:"cues"`
+	Name   string              `json:"name"`
+	Format Format              `json:"format"`
+	Cues   []Cue               `json:"cues"`
 	Errors []*clock.TrackError `json:"errors,omitempty"`
 }
 

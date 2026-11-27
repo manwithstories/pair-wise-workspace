@@ -146,6 +146,25 @@ func TestRejectsUnsafeOutputDir(t *testing.T) {
 	}
 }
 
+func TestQualityGate(t *testing.T) {
+	if !qualityGate(1.5, 0.5, 0) {
+		t.Fatal("metrics inside bounds must pass")
+	}
+	if qualityGate(2.5, 0.0, 0) {
+		t.Error("drift over 2% must fail")
+	}
+	if qualityGate(0, 1.5, 0) {
+		t.Error("skew over 1ms must fail")
+	}
+	if qualityGate(0, 0, 1) {
+		t.Error("any seek miss must fail")
+	}
+	// Boundary values are inclusive.
+	if !qualityGate(MaxDriftPct, MaxSkewMS, 0) {
+		t.Error("exact threshold values must pass")
+	}
+}
+
 func absF(v float64) float64 {
 	if v < 0 {
 		return -v

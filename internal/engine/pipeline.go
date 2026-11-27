@@ -24,8 +24,8 @@ const (
 
 // Quality bounds from the acceptance contract.
 const (
-	MaxDriftPct      = 2.0
-	MaxSkewMS        = 1.0
+	MaxDriftPct = 2.0
+	MaxSkewMS   = 1.0
 )
 
 // Options controls a pipeline run.
@@ -163,8 +163,7 @@ func Run(sc *fixture.Scenario, opt Options) (*Report, error) {
 	rep.OutputSHA256 = hashOutputs(caseDir, idx)
 
 	// 9. Threshold gate drives the quality-failure exit code.
-	if math_abs(rep.DriftPct) > MaxDriftPct ||
-		rep.ManifestMaxSkewMS > MaxSkewMS || rep.SeekMiss != 0 {
+	if !qualityGate(rep.DriftPct, rep.ManifestMaxSkewMS, rep.SeekMiss) {
 		rep.ExitCode = ExitQualityFailure
 	}
 

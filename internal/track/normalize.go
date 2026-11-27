@@ -21,15 +21,15 @@ var layoutChannels = map[string]int{
 
 // Normalized is the output of the normalization pass for one node.
 type Normalized struct {
-	ID           string
-	Layout       string
-	Channels     int
-	SampleRate   int
-	Resampled    bool
-	Color        ColorMeta
+	ID            string
+	Layout        string
+	Channels      int
+	SampleRate    int
+	Resampled     bool
+	Color         ColorMeta
 	ColorConflict bool
-	Isolated     bool
-	Errors       []*clock.TrackError
+	Isolated      bool
+	Errors        []*clock.TrackError
 }
 
 // Normalize walks nodes in topological order. It mutates a defensive copy of
@@ -37,8 +37,8 @@ type Normalized struct {
 // structured error carrying the track ID and repair action.
 func Normalize(g *Graph, order []string) ([]*Normalized, []*clock.TrackError) {
 	var (
-		out   []*Normalized
-		errs  []*clock.TrackError
+		out  []*Normalized
+		errs []*clock.TrackError
 	)
 	for _, id := range order {
 		node, _ := g.NodeByID(id)

@@ -24,11 +24,11 @@ type Report struct {
 	SeekMiss          int     `json:"seek_miss"`
 	OutputSHA256      string  `json:"output_sha256"`
 	// Diagnostics supplement the contract fields without changing them.
-	Isolated     int                  `json:"isolated"`
-	Errors       []*clock.TrackError `json:"errors,omitempty"`
-	Indexed      int                  `json:"indexed"`
-	RecoveredNS  int64                `json:"recovered_ns"`
-	ExitCode     int                  `json:"exit_code"`
+	Isolated    int                 `json:"isolated"`
+	Errors      []*clock.TrackError `json:"errors,omitempty"`
+	Indexed     int                 `json:"indexed"`
+	RecoveredNS int64               `json:"recovered_ns"`
+	ExitCode    int                 `json:"exit_code"`
 }
 
 // bitrate computes target and actual bits-per-second over a verified interval.
@@ -109,4 +109,13 @@ func driftPercent(target, actual int64) float64 {
 		return 0
 	}
 	return 100 * float64(actual-target) / float64(target)
+}
+
+// qualityGate decides whether measured metrics violate the acceptance
+// invariants: bitrate drift within 2%, manifest skew within 1 ms and zero seek
+// misses. It is the single decision point behind exit code 4.
+func qualityGate(driftPct, maxSkewMS float64, seekMiss int) bool {
+	return math.Abs(driftPct) <= MaxDriftPct &&
+		maxSkewMS <= MaxSkewMS &&
+		seekMiss == 0
 }

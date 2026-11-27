@@ -12,12 +12,12 @@ import (
 
 // Case names understood by the generator and the CLI.
 const (
-	CaseClean       = "clean"
-	CaseRollback    = "rollback"
-	CaseOverlap     = "overlap"
+	CaseClean        = "clean"
+	CaseRollback     = "rollback"
+	CaseOverlap      = "overlap"
 	CaseMetaConflict = "meta-conflict"
-	CaseTruncated   = "truncated"
-	CaseInterrupted = "interrupted"
+	CaseTruncated    = "truncated"
+	CaseInterrupted  = "interrupted"
 )
 
 // KnownCases lists every generator scenario in canonical order.
@@ -28,12 +28,12 @@ var KnownCases = []string{
 
 // Packet is a synthetic media packet in the unified nanosecond time base.
 type Packet struct {
-	Track    string  `json:"track"`
-	Kind     string  `json:"kind"`
-	Seq      int     `json:"seq"`
-	TS       int64   `json:"ts_ns"`
-	Duration int64   `json:"duration_ns"`
-	Bytes    int     `json:"bytes"`
+	Track    string `json:"track"`
+	Kind     string `json:"kind"`
+	Seq      int    `json:"seq"`
+	TS       int64  `json:"ts_ns"`
+	Duration int64  `json:"duration_ns"`
+	Bytes    int    `json:"bytes"`
 	// Luma is the packet's mean luma value 0..255 (video only).
 	Luma float64 `json:"luma,omitempty"`
 	// Samples holds a deterministic PCM-like waveform (audio only).
@@ -42,13 +42,13 @@ type Packet struct {
 
 // Spec controls a generated stream.
 type Spec struct {
-	VideoFPS    int64
-	VideoFrames int
-	AudioRate   int
+	VideoFPS     int64
+	VideoFrames  int
+	AudioRate    int
 	AudioPackets int
-	VideoBytes  int // fixed payload size per video packet
-	AudioBytes  int // fixed payload size per audio packet
-	DurationNS  int64
+	VideoBytes   int // fixed payload size per video packet
+	AudioBytes   int // fixed payload size per audio packet
+	DurationNS   int64
 }
 
 // DefaultSpec returns the deterministic fixture geometry shared by cases.

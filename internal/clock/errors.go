@@ -10,21 +10,21 @@ import (
 type ErrorCode string
 
 const (
-	CodeIllegalFrame   ErrorCode = "ILLEGAL_FRAME"
-	CodeRollback       ErrorCode = "ROLLBACK"
-	CodeDuplicateTS    ErrorCode = "DUPLICATE_TIMESTAMP"
-	CodeRepairTooLarge ErrorCode = "REPAIR_TOO_LARGE"
+	CodeIllegalFrame    ErrorCode = "ILLEGAL_FRAME"
+	CodeRollback        ErrorCode = "ROLLBACK"
+	CodeDuplicateTS     ErrorCode = "DUPLICATE_TIMESTAMP"
+	CodeRepairTooLarge  ErrorCode = "REPAIR_TOO_LARGE"
 	CodeSubtitleOverlap ErrorCode = "SUBTITLE_OVERLAP"
-	CodeSubtitleParse  ErrorCode = "SUBTITLE_PARSE"
-	CodeGraphCycle     ErrorCode = "GRAPH_CYCLE"
-	CodeUnknownLayout  ErrorCode = "UNKNOWN_LAYOUT"
-	CodeSampleRate     ErrorCode = "SAMPLE_RATE_CONFLICT"
-	CodeColorConflict  ErrorCode = "COLOR_METADATA_CONFLICT"
-	CodeTruncated      ErrorCode = "INPUT_TRUNCATED"
-	CodeInterrupted    ErrorCode = "INPUT_INTERRUPTED"
-	CodeChecksum       ErrorCode = "CHECKSUM_MISMATCH"
-	CodeNonMonotonic   ErrorCode = "NON_MONOTONIC_INDEX"
-	CodeBadOffset      ErrorCode = "BAD_OFFSET"
+	CodeSubtitleParse   ErrorCode = "SUBTITLE_PARSE"
+	CodeGraphCycle      ErrorCode = "GRAPH_CYCLE"
+	CodeUnknownLayout   ErrorCode = "UNKNOWN_LAYOUT"
+	CodeSampleRate      ErrorCode = "SAMPLE_RATE_CONFLICT"
+	CodeColorConflict   ErrorCode = "COLOR_METADATA_CONFLICT"
+	CodeTruncated       ErrorCode = "INPUT_TRUNCATED"
+	CodeInterrupted     ErrorCode = "INPUT_INTERRUPTED"
+	CodeChecksum        ErrorCode = "CHECKSUM_MISMATCH"
+	CodeNonMonotonic    ErrorCode = "NON_MONOTONIC_INDEX"
+	CodeBadOffset       ErrorCode = "BAD_OFFSET"
 )
 
 // Interval is the half-open [Start, End) nanosecond span an error applies to.

@@ -6,8 +6,8 @@ import (
 
 // ReconcileResult is the output of a subtitle reconciliation pass.
 type ReconcileResult struct {
-	Cues     []Cue            // non-overlapping, strictly ordered cues
-	Isolated []Cue            // cues that could not be repaired
+	Cues     []Cue // non-overlapping, strictly ordered cues
+	Isolated []Cue // cues that could not be repaired
 	Errors   []*clock.TrackError
 	Repairs  int
 }

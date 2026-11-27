@@ -42,8 +42,6 @@ func abs64(v int64) int64 {
 	return v
 }
 
-func math_abs(v float64) float64 { return math.Abs(v) }
-
 func round4(v float64) float64 {
 	return math.Round(v*1e4) / 1e4
 }

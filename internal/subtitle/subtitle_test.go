@@ -90,8 +90,8 @@ func TestReconcileRollbackAndIsolation(t *testing.T) {
 		Name: "sub",
 		Cues: []Cue{
 			{Index: 0, StartNS: 10_000_000, EndNS: 10_500_000},
-			{Index: 1, StartNS: 11_000_000, EndNS: 11_500_000},  // healthy gap
-			{Index: 2, StartNS: 1_000_000, EndNS: 2_000_000},     // >500ms rollback -> isolated
+			{Index: 1, StartNS: 11_000_000, EndNS: 11_500_000}, // healthy gap
+			{Index: 2, StartNS: 1_000_000, EndNS: 2_000_000},   // >500ms rollback -> isolated
 		},
 	}
 	res := Reconcile(tr)

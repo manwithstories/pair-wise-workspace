@@ -11,8 +11,8 @@ type Point struct {
 
 // RepairResult is the output of a monotonicity repair pass.
 type RepairResult struct {
-	Repaired []Point        // strictly increasing timestamps
-	Isolated []Point        // points whose correction exceeded MaxRepairDelta
+	Repaired []Point       // strictly increasing timestamps
+	Isolated []Point       // points whose correction exceeded MaxRepairDelta
 	Errors   []*TrackError // structured defects, in input order
 	Repairs  int           // count of applied nudges/shifts
 }
