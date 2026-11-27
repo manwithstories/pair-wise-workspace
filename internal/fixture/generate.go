@@ -102,10 +102,10 @@ var rate = metadata.RationalLike{Num: 30000, Den: 1001}
 
 // Set is the full generated workspace for one demo run.
 type Set struct {
-	Seed        uint64
-	Segments    int
-	Tracks      []Track
-	Fault       FaultSpec
+	Seed     uint64
+	Segments int
+	Tracks   []Track
+	Fault    FaultSpec
 	// FaultTrack is the track that carries the injected fault blob.
 	FaultTrack string
 }

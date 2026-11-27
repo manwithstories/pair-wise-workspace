@@ -30,9 +30,9 @@ var topo = []string{"src", "norm", "align", "manifest"}
 
 func TestFreshRunRedoesEverything(t *testing.T) {
 	desired := map[string]NodeState{
-		"src":  state("src", "i1", "c1"),
-		"norm": state("norm", "i2", "c1"),
-		"align": state("align", "i3", "c1"),
+		"src":      state("src", "i1", "c1"),
+		"norm":     state("norm", "i2", "c1"),
+		"align":    state("align", "i3", "c1"),
 		"manifest": state("manifest", "i4", "c1"),
 	}
 	plan := BuildPlan(nil, desired, topo, downstream)

@@ -11,11 +11,11 @@ import (
 // value means "unspecified"; a fully specified signal carries all three
 // HLS color identifiers.
 type ColorDesc struct {
-	Track    string
-	Primaries     string // e.g. "bt709", "bt2020"
-	Transfer      string // e.g. "smpte2084" for PQ
-	Matrix        string
-	VideoRange    string // SDR, HLG, PQ (HLS VIDEO-RANGE)
+	Track      string
+	Primaries  string // e.g. "bt709", "bt2020"
+	Transfer   string // e.g. "smpte2084" for PQ
+	Matrix     string
+	VideoRange string // SDR, HLG, PQ (HLS VIDEO-RANGE)
 }
 
 // signature is the comparable identity of a color description. Tracks

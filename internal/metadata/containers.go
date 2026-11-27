@@ -164,10 +164,10 @@ func syncSafe(b []byte) uint32 {
 
 // EMSG is one DASH event message box.
 type EMSG struct {
-	Event      TimedEvent
-	SchemeID   string
-	Value      string
-	Timescale  uint32
+	Event             TimedEvent
+	SchemeID          string
+	Value             string
+	Timescale         uint32
 	PresentationDelta uint64
 }
 

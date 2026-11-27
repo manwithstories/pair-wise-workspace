@@ -92,9 +92,10 @@ func ParseSEI(track string, data []byte, rate RationalLike) ([]SEITiming, error)
 		payload := nalEmulationPrevention(u.rbsp[1:])
 		// payload[0] sits one byte after the NAL header byte, so its
 		// absolute offset is headerOff+1. All offsets reported below are
-		// base plus the index inside this payload slice.
+		// base plus the index inside this payload slice. blobEnd anchors a
+		// hard cut: the first byte past the source blob is len(data).
 		off := int(u.headerOff) + 1
-		t, ok := parseSEIMessages(track, payload, off, rate, col)
+		t, ok := parseSEIMessages(track, payload, off, len(data), rate, col)
 		if !ok {
 			return out, col.Err()
 		}
@@ -108,14 +109,15 @@ func ParseSEI(track string, data []byte, rate RationalLike) ([]SEITiming, error)
 }
 
 // parseSEIMessages walks the payloadType/payloadSize framing of one SEI
-// NAL unit. It stops and reports the first malformed offset.
-func parseSEIMessages(track string, payload []byte, base int, rate RationalLike, col *model.Collector) ([]SEITiming, bool) {
+// NAL unit. It stops and reports the first malformed offset. blobEnd is
+// the absolute offset one past the source blob, used to anchor a hard cut.
+func parseSEIMessages(track string, payload []byte, base, blobEnd int, rate RationalLike, col *model.Collector) ([]SEITiming, bool) {
 	var out []SEITiming
 	i := 0
 	for i < len(payload) {
 		pType, n, ok := readSEILen(payload, i)
 		if !ok {
-			col.Add(model.FaultSEITruncated, track, int64(base+i), "truncated payload_type")
+			col.Add(model.FaultSEITruncated, track, int64(blobEnd), "truncated payload_type")
 			return out, false
 		}
 		// The trailing marker is a single byte with no following size, so
@@ -126,15 +128,15 @@ func parseSEIMessages(track string, payload []byte, base int, rate RationalLike,
 		i = n
 		pSize, n, ok := readSEILen(payload, i)
 		if !ok {
-			col.Add(model.FaultSEITruncated, track, int64(base+i), "truncated payload_size")
+			col.Add(model.FaultSEITruncated, track, int64(blobEnd), "truncated payload_size")
 			return out, false
 		}
 		i = n
 		if i+int(pSize) > len(payload) {
-			// The first byte the payload_size claim needs but the blob
-			// does not contain: report that exact offset.
-			missing := base + len(payload)
-			col.Add(model.FaultSEITruncated, track, int64(missing),
+			// A payload_size claim that runs past the decoded payload means
+			// the source blob was cut; the first unreadable byte is the one
+			// immediately beyond the blob, i.e. blobEnd itself.
+			col.Add(model.FaultSEITruncated, track, int64(blobEnd),
 				"payload extends beyond NAL unit; first missing byte")
 			return out, false
 		}
