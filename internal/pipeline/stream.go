@@ -92,8 +92,9 @@ func (q *Queue) Recv(ctx context.Context) (model.Event, bool, error) {
 // Close closes the queue; safe to call more than once.
 func (q *Queue) Close() { q.once.Do(func() { close(q.ch) }) }
 
-// Run starts each stage in its own goroutine and waits for all,
-// returning the first stage error (by stage order).
+// Run starts each stage in its own goroutine and waits for all.
+// Cancellation of a sibling stage is a consequence, not a cause, so
+// a non-cancellation error is preferred when several stages fail.
 func Run(stages ...func() error) error {
 	var wg sync.WaitGroup
 	errs := make([]error, len(stages))
@@ -105,10 +106,18 @@ func Run(stages ...func() error) error {
 		}()
 	}
 	wg.Wait()
+	var canceled error
 	for _, err := range errs {
-		if err != nil {
-			return err
+		if err == nil {
+			continue
 		}
+		if errors.Is(err, context.Canceled) {
+			if canceled == nil {
+				canceled = err
+			}
+			continue
+		}
+		return err
 	}
-	return nil
+	return canceled
 }
