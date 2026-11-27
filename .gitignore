@@ -73,3 +73,13 @@ AGENTS.md.local
 .ai*/
 
 # 开发期临时探针（不提交）
+
+# ---- mediacore: 构建产物与运行期文件 ----
+/bin/
+/dist/
+/tmp/
+/.work/
+*.test
+*.out
+*.prof
+coverage.*
