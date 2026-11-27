@@ -174,6 +174,7 @@ func ParseTS(payloads [][]byte) ([]Sample, error) {
 		return nil
 	}
 	seen := map[uint16]bool{}
+	var order []uint16
 	for i, p := range payloads {
 		if len(p) != TSPacketLen || p[0] != 0x47 {
 			return nil, fmt.Errorf("%w: packet %d", ErrBadTS, i)
@@ -202,12 +203,15 @@ func ParseTS(payloads [][]byte) ([]Sample, error) {
 				return nil, err
 			}
 			pending[pid] = append([]byte(nil), p[off:]...)
-			seen[pid] = true
+			if !seen[pid] {
+				seen[pid] = true
+				order = append(order, pid)
+			}
 		} else if seen[pid] {
 			pending[pid] = append(pending[pid], p[off:]...)
 		}
 	}
-	for pid := range pending {
+	for _, pid := range order {
 		if err := flush(pid); err != nil {
 			return nil, err
 		}
