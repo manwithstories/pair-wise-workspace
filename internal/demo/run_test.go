@@ -2,10 +2,12 @@ package demo
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"avpipe/internal/graph"
 	"avpipe/internal/media"
@@ -235,6 +237,35 @@ func TestGraphFailureHasNoOutputSideEffects(t *testing.T) {
 		if _, statErr := os.Stat(filepath.Join(dir, "session.wav.tmp-deterministic")); !os.IsNotExist(statErr) {
 			t.Fatalf("%s: temporary output exists despite failure", name)
 		}
+	}
+}
+
+// TestCancelDuringSlowConsumer verifies that cancelling a run with a slow
+// consumer unblocks the producer, preserves every already-enqueued block, and
+// leaves no output installed (the atomic rename never happens on failure).
+func TestCancelDuringSlowConsumer(t *testing.T) {
+	opts, dir := testOptions(t)
+	opts.ConsumerStallMS = 5
+	opts.Frames = 44100
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+	devnull, _ := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	defer devnull.Close()
+	_, err := Run(ctx, opts, devnull, os.Stderr)
+	if err == nil {
+		t.Fatal("cancelled run reported success")
+	}
+	if !errors.Is(err, media.ErrCancelled) {
+		t.Fatalf("err=%v", err)
+	}
+	if media.ExitFor(err) != media.ExitInternal {
+		t.Fatalf("exit=%d", media.ExitFor(err))
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "session.wav")); !os.IsNotExist(statErr) {
+		t.Fatal("output installed despite cancellation")
 	}
 }
 

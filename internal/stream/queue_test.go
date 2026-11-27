@@ -3,6 +3,7 @@ package stream
 import (
 	"context"
 	"errors"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -153,6 +154,36 @@ func TestQueueCloseDrains(t *testing.T) {
 	if err := q.Push(ctx, 5); err == nil {
 		t.Fatal("push on closed queue accepted")
 	}
+}
+
+func TestQueueNoGoroutineLeakUnderCancellation(t *testing.T) {
+	q, _ := NewQueue[int](1)
+	before := runtime.NumGoroutine()
+	ctx, cancel := context.WithCancel(context.Background())
+	for i := 0; i < 50; i++ {
+		q.Push(context.Background(), i)
+		done := make(chan struct{})
+		go func() {
+			q.Push(ctx, 99)
+			close(done)
+		}()
+		time.Sleep(time.Millisecond)
+		cancel()
+		<-done
+		q.TryPop()
+		ctx, cancel = context.WithCancel(context.Background())
+	}
+	cancel()
+	q.Close()
+	// Allow the watcher goroutines to retire.
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if runtime.NumGoroutine() <= before+2 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("goroutines grew from %d to %d", before, runtime.NumGoroutine())
 }
 
 func TestQueueConcurrentBounded(t *testing.T) {

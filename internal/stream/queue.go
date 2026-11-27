@@ -203,13 +203,17 @@ var ErrClosed = fmt.Errorf("queue closed")
 
 // watch starts a goroutine that broadcasts when ctx is done, waking any
 // cond.Wait. The returned stop function must be called after the wait to
-// release the watcher.
+// release the watcher; it tolerates being called after the watcher already
+// fired (the context-done branch) so a wait woken by cancellation never leaks
+// a goroutine or panics on a double close.
 func (q *Queue[T]) watch(ctx context.Context) func() {
 	if ctx.Done() == nil {
 		return func() {}
 	}
 	done := make(chan struct{})
+	finished := make(chan struct{})
 	go func() {
+		defer close(finished)
 		select {
 		case <-ctx.Done():
 			q.notEmpty.Broadcast()
@@ -217,5 +221,12 @@ func (q *Queue[T]) watch(ctx context.Context) func() {
 		case <-done:
 		}
 	}()
-	return func() { close(done) }
+	return func() {
+		select {
+		case <-done:
+		default:
+			close(done)
+		}
+		<-finished
+	}
 }
