@@ -281,9 +281,14 @@ func (r *Runner) processBlocks(blocks []block) ([]result, error) {
 			continue
 		}
 		// Stop launching new work once enough blocks have completed this run.
-		if r.cfg.InterruptAfterBlock > 0 && completedThisRun >= r.cfg.InterruptAfterBlock {
-			interrupted = true
-			break
+		if r.cfg.InterruptAfterBlock > 0 {
+			mu.Lock()
+			done := completedThisRun
+			mu.Unlock()
+			if done >= r.cfg.InterruptAfterBlock {
+				interrupted = true
+				break
+			}
 		}
 		wg.Add(1)
 		sem <- struct{}{}

@@ -4,7 +4,10 @@
 // that the report and the recovery logic use the same vocabulary.
 package fault
 
-import "fmt"
+import (
+	"fmt"
+	"sync"
+)
 
 // Kind enumerates the anomaly categories the pipeline can detect.
 type Kind string
@@ -88,8 +91,10 @@ func (f Fault) Error() string {
 }
 
 // Recorder collects faults in deterministic encounter order and keeps simple
-// counters so the report layer does not have to re-scan the slice.
+// counters so the report layer does not have to re-scan the slice. It is safe
+// for concurrent use because pipeline workers record faults in parallel.
 type Recorder struct {
+	mu     sync.Mutex
 	faults []Fault
 }
 
@@ -98,6 +103,8 @@ func NewRecorder() *Recorder { return &Recorder{} }
 
 // Record appends a fault. It returns the recorded fault for convenience.
 func (r *Recorder) Record(f Fault) Fault {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.faults = append(r.faults, f)
 	return f
 }
@@ -114,16 +121,24 @@ func (r *Recorder) AddNoSeq(kind Kind, camera, track string, recoverable bool, d
 
 // Faults returns a copy of the recorded faults.
 func (r *Recorder) Faults() []Fault {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	out := make([]Fault, len(r.faults))
 	copy(out, r.faults)
 	return out
 }
 
 // Len returns the number of recorded faults.
-func (r *Recorder) Len() int { return len(r.faults) }
+func (r *Recorder) Len() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.faults)
+}
 
 // CountByKind groups faults by Kind.
 func (r *Recorder) CountByKind() map[Kind]int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	m := make(map[Kind]int)
 	for _, f := range r.faults {
 		m[f.Kind]++
@@ -133,6 +148,8 @@ func (r *Recorder) CountByKind() map[Kind]int {
 
 // CountRecoverable / CountRecovered drive the recovery-rate metric.
 func (r *Recorder) CountRecoverable() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	n := 0
 	for _, f := range r.faults {
 		if f.Recoverable {
@@ -144,6 +161,8 @@ func (r *Recorder) CountRecoverable() int {
 
 // CountRecovered counts faults that were actually remediated.
 func (r *Recorder) CountRecovered() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	n := 0
 	for _, f := range r.faults {
 		if f.Recovered {
@@ -156,6 +175,8 @@ func (r *Recorder) CountRecovered() int {
 // MarkRecovered flags every fault matching kind+sequence as recovered. It
 // returns the number of faults updated.
 func (r *Recorder) MarkRecovered(kind Kind, sequence int) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	n := 0
 	for i := range r.faults {
 		if r.faults[i].Kind == kind && r.faults[i].Sequence == sequence {
@@ -168,6 +189,8 @@ func (r *Recorder) MarkRecovered(kind Kind, sequence int) int {
 
 // HasUnrecoverable reports whether any fault could not be remediated.
 func (r *Recorder) HasUnrecoverable() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	for _, f := range r.faults {
 		if !f.Recoverable {
 			return true
@@ -178,6 +201,8 @@ func (r *Recorder) HasUnrecoverable() bool {
 
 // Unrecoverable returns the subset of faults that cannot be remediated.
 func (r *Recorder) Unrecoverable() []Fault {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	var out []Fault
 	for _, f := range r.faults {
 		if !f.Recoverable {

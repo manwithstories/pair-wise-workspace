@@ -178,7 +178,6 @@ func (r *Runner) deduplicate(results []result) {
 		matched := false
 		for _, s := range seen {
 			if analysis.Similarity(cur, s.fp) {
-				results[i].block.role = results[i].block.role // keep role
 				r.dupCount++
 				matched = true
 				break

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 // CheckpointVersion is bumped if the on-disk shape changes incompatibly.
@@ -28,7 +29,10 @@ type Checkpoint struct {
 }
 
 // CheckpointManager loads, validates and advances a single checkpoint file.
+// All methods are safe for concurrent use: worker goroutines advance the
+// checkpoint while the dispatcher queries completion.
 type CheckpointManager struct {
+	mu   sync.Mutex
 	path string
 	cp   Checkpoint
 	// failNext, when true, makes the next Advance simulate a disk failure and
@@ -53,9 +57,12 @@ func NewCheckpointManager(workDir, runID string) (*CheckpointManager, error) {
 // a fresh run and yields an empty checkpoint without error. Corrupt or
 // mismatched content is rejected so an invalid checkpoint is never resumed.
 func (cm *CheckpointManager) Load() (*Checkpoint, error) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
 	data, err := os.ReadFile(cm.path)
 	if os.IsNotExist(err) {
-		return &cm.cp, nil
+		cp := cm.cp
+		return &cp, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("checkpoint: read: %w", err)
@@ -71,25 +78,34 @@ func (cm *CheckpointManager) Load() (*Checkpoint, error) {
 		return nil, fmt.Errorf("checkpoint: run id mismatch (stale checkpoint)")
 	}
 	cm.cp = loaded
-	return &cm.cp, nil
+	cp := cm.cp
+	return &cp, nil
 }
 
 // IsComplete reports whether a block ID is already checkpointed.
 func (cm *CheckpointManager) IsComplete(blockID string) bool {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
 	return contains(cm.cp.CompletedBlocks, blockID)
 }
 
 // FailNext arms a simulated disk failure for the next Advance call.
-func (cm *CheckpointManager) FailNext() { cm.failNext = true }
+func (cm *CheckpointManager) FailNext() {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	cm.failNext = true
+}
 
 // Advance marks one more block complete. It refuses to move unless the supplied
 // index hash is non-empty. On a simulated or real write failure the on-disk
 // checkpoint is left unchanged and the error is surfaced.
 func (cm *CheckpointManager) Advance(blockID, indexHash string, entry Entry) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
 	if indexHash == "" {
 		return fmt.Errorf("checkpoint: refusing to advance without validated index hash")
 	}
-	if cm.IsComplete(blockID) {
+	if contains(cm.cp.CompletedBlocks, blockID) {
 		return nil // idempotent
 	}
 
@@ -120,7 +136,11 @@ func (cm *CheckpointManager) Advance(blockID, indexHash string, entry Entry) err
 }
 
 // Current returns a copy of the in-memory checkpoint.
-func (cm *CheckpointManager) Current() Checkpoint { return cm.cp }
+func (cm *CheckpointManager) Current() Checkpoint {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	return cm.cp
+}
 
 func contains(list []string, v string) bool {
 	for _, x := range list {
