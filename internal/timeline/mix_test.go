@@ -41,7 +41,7 @@ func TestMixerPlaceAndExport(t *testing.T) {
 	if readSample(out, 0) != 100 || readSample(out, 2) != -200 || readSample(out, 14) != -400 {
 		t.Fatalf("放置坐标错误: %d %d %d", readSample(out, 0), readSample(out, 2), readSample(out, 14))
 	}
-	clip, miss, align, ranges := m.Stats()
+	clip, miss, _, align, ranges := m.Stats()
 	if clip != 0 || miss != 0 || align != 0 || len(ranges) != 2 {
 		t.Fatalf("统计异常 clip=%d miss=%d align=%d ranges=%d", clip, miss, align, len(ranges))
 	}
@@ -64,7 +64,7 @@ func TestMixerSilenceAndNoDrift(t *testing.T) {
 	if readSample(out, 0) != 0 || readSample(out, 8) != 50 {
 		t.Fatalf("静音补偿后坐标漂移: %d %d", readSample(out, 0), readSample(out, 8))
 	}
-	_, miss, _, ranges := m.Stats()
+	_, miss, _, _, ranges := m.Stats()
 	if miss != 4 { // 2 帧 * 2 声道
 		t.Fatalf("缺失样本统计应为 4, 得 %d", miss)
 	}
@@ -86,11 +86,11 @@ func TestMixerClipping(t *testing.T) {
 	// 满量程样本本身计入削波
 	m2, _ := NewMixer(tb, 1, 16, 1)
 	_ = m2.Apply(pcmPacket(0, 0, 1, 0, ingest.SourcePCM, -32768))
-	clip, _, _, _ := m2.Stats()
+	clip, _, _, _, _ := m2.Stats()
 	if clip == 0 {
 		t.Fatal("满量程样本应计入削波")
 	}
-	clip, _, _, _ = m.Stats()
+	clip, _, _, _, _ = m.Stats()
 	if clip == 0 {
 		t.Fatal("饱和削波未统计")
 	}

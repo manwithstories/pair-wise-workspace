@@ -22,12 +22,14 @@ type Mixer struct {
 	bits        int
 	totalFrames int64
 	// 每帧每声道一个有符号 32 位累加器，混轨时饱和到 int16 域。
-	acc        [][]int32
-	placed     []bool
-	ranges     []SourceRange
-	clipped    int64
-	missing    int64
-	maxAlignEr int64
+	acc         [][]int32
+	placed      []bool
+	ranges      []SourceRange
+	clipped     int64
+	missing     int64
+	silenceFr   int64
+	maxAlignEr  int64
+	nextFrame   int64 // 已提交区间之后期望的下一帧坐标
 }
 
 // NewMixer 构造 totalFrames*channels 的有界时间线。
@@ -63,6 +65,7 @@ func (m *Mixer) Apply(p *ingest.Packet) error {
 			// 静音只是占位：不写 placed，后续真实包仍可覆盖该位置。
 			if !m.placed[pos] {
 				m.missing += int64(m.channels)
+				m.silenceFr++
 			}
 			continue
 		}
@@ -89,15 +92,25 @@ func (m *Mixer) Apply(p *ingest.Packet) error {
 		BlockID: p.BlockID, Source: p.Source,
 	})
 	if p.Source == ingest.SourceSilence {
-		// 静音坐标与真实包共用同一序号几何，对齐误差期望恒为 0。
+		// 静音占位同样推进坐标连续性。
+		m.advance(p)
 		return nil
 	}
-	// 时间对齐误差：包声明坐标与按序号推算坐标的偏差，期望恒为 0~1 采样。
-	want := p.Seq * (p.Frames)
-	if d := abs64(p.StartFrame - want); d > m.maxAlignEr {
+	// 时间对齐误差：包起始坐标相对“上一提交区间结束坐标”的间隙。
+	// 正确的等长/短包序列该间隙恒为 0；任何重叠或跳变都会被捕获。
+	if d := abs64(p.StartFrame - m.nextFrame); d > m.maxAlignEr {
 		m.maxAlignEr = d
 	}
+	m.advance(p)
 	return nil
+}
+
+// advance 推进期望下一帧坐标，仅接受连续或向后的包区间。
+func (m *Mixer) advance(p *ingest.Packet) {
+	end := p.StartFrame + p.Frames
+	if end > m.nextFrame {
+		m.nextFrame = end
+	}
 }
 
 // PCM 导出饱和后的交错 16bit PCM，长度固定为 totalFrames*channels*2。
@@ -115,8 +128,8 @@ func (m *Mixer) PCM() []byte {
 }
 
 // Stats 暴露合轨证据。
-func (m *Mixer) Stats() (clipped, missingSamples, maxAlignError int64, ranges []SourceRange) {
-	return m.clipped, m.missing, m.maxAlignEr, m.ranges
+func (m *Mixer) Stats() (clipped, missingSamples, silenceFrames, maxAlignError int64, ranges []SourceRange) {
+	return m.clipped, m.missing, m.silenceFr, m.maxAlignEr, m.ranges
 }
 
 // TotalFrames 返回时间线总采样帧数。
