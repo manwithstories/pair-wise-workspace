@@ -212,13 +212,13 @@ func parseCodec(ra io.ReaderAt, stbl Box, tr *TrackIndex) error {
 	if err != nil {
 		return err
 	}
-	if len(buf) < 20 {
+	if len(buf) < 16 {
 		return media.New(media.PhaseScan, media.KindTruncated, "", stsd.Payload, "stsd too short")
 	}
 	// Payload: FullBox version/flags(4) + entry_count(4), then each sample
-	// entry begins with its own size(4) and type(4); the type is the codec 4CC
-	// and therefore sits at payload offset 16 (4+4+4+4).
-	codecOff := int64(16)
+	// entry begins with its own size(4) and type(4). The codec 4CC (the entry
+	// type) therefore sits at payload offset 12 (4+4+4).
+	codecOff := int64(12)
 	codec := FourCC(buf, int(codecOff))
 	if codec == "" {
 		return media.New(media.PhaseIndex, media.KindUnsupported, "", stsd.Payload+codecOff,

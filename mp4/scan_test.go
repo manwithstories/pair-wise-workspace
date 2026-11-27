@@ -62,13 +62,13 @@ func buildMP4(t *testing.T, timescale uint32, cttsRollback bool) []byte {
 	copy(hdlrPayload[4:8], "vide")
 	hdlr := fullBox("hdlr", 0, hdlrPayload)
 
-	// stsd payload: version/flags(4) + entry_count(4) + sample entry, which
-	// starts with entry size(4) followed by the codec type 4CC. So codec sits
-	// at payload offset 12.
+	// stsd field area (fullBox prepends the 4-byte version/flags):
+	// entry_count(4) + sample entry size(4) + codec type 4CC. After fullBox
+	// the codec lands at absolute payload offset 12, matching ISO-BMFF.
 	stsdPayload := make([]byte, 12)
-	binary.BigEndian.PutUint32(stsdPayload[0:4], 1) // entry_count
-	binary.BigEndian.PutUint32(stsdPayload[4:8], 20) // sample entry size
-	stsdPayload = append(stsdPayload, []byte("avc1")...)
+	binary.BigEndian.PutUint32(stsdPayload[0:4], 1)  // entry_count
+	binary.BigEndian.PutUint32(stsdPayload[4:8], 16) // sample entry size
+	copy(stsdPayload[8:12], "avc1")
 	stsd := fullBox("stsd", 0, stsdPayload)
 
 	// stts: one run, n samples, 10 ticks each.

@@ -71,3 +71,8 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 本地工作区与流水线产物（不提交）----
+.work/
+work/
+*.tmp
