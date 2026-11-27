@@ -38,11 +38,16 @@ func MeasureRendition(dir, name string, targetBPS int64) (RenditionStats, error)
 	var lb strings.Builder
 	for _, s := range segs {
 		p := filepath.Join(dir, filepath.Base(s.URI))
-		fi, err := os.Stat(p)
-		if err != nil {
+		if _, err := os.Stat(p); err != nil {
 			return rs, fmt.Errorf("segment %s missing: %w", s.URI, err)
 		}
-		totalBytes += fi.Size()
+		// Content bitrate: elementary-stream payload bytes (video+audio
+		// packets), excluding container packaging overhead.
+		es, err := payloadBytes(p)
+		if err != nil {
+			return rs, err
+		}
+		totalBytes += es
 		totalTicks += s.DurationTicks
 		fmt.Fprintf(&lb, "file '%s'\n", p)
 	}
@@ -62,6 +67,27 @@ func MeasureRendition(dir, name string, targetBPS int64) (RenditionStats, error)
 	}
 	rs.AudioRMSDbFS, rs.AudioPeakDbFS, err = loudness(list)
 	return rs, err
+}
+
+// payloadBytes sums elementary-stream packet sizes of one segment.
+func payloadBytes(path string) (int64, error) {
+	out, err := run("ffprobe", "-v", "error", "-show_entries", "packet=size",
+		"-of", "csv=p=0", path)
+	if err != nil {
+		return 0, fmt.Errorf("payload probe %s: %v", path, err)
+	}
+	var total int64
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if line == "" {
+			continue
+		}
+		n, err := strconv.ParseInt(strings.TrimSpace(line), 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("packet size parse %q: %v", line, err)
+		}
+		total += n
+	}
+	return total, nil
 }
 
 func countFrames(list string) (int64, error) {

@@ -142,6 +142,7 @@ func ffmpegArgs(r scan.Rendition, cp *plan.CutPlan, inputRoot, tmpDir string, o 
 	}
 	segSec := strconv.FormatFloat(clock.Seconds(cp.SegmentTicks), 'f', 3, 64)
 	if reencode {
+		// Budget the video ES so video + 128k audio lands on target.
 		vbps := r.TargetBPS - 128000
 		if vbps < 100000 {
 			vbps = 100000
@@ -152,6 +153,7 @@ func ffmpegArgs(r scan.Rendition, cp *plan.CutPlan, inputRoot, tmpDir string, o 
 			"-b:v", fmt.Sprint(vbps), "-minrate", fmt.Sprint(vbps),
 			"-maxrate", fmt.Sprint(vbps),
 			"-bufsize", fmt.Sprint(vbps/2), "-g", fmt.Sprint(gop),
+			"-x264-params", "nal-hrd=cbr", // HRD filler pins ES bitrate to vbps
 			"-force_key_frames", "expr:gte(t,n_forced*"+segSec+")",
 			"-pix_fmt", "yuv420p")
 		args = append(args, normalize.ColorArgs(o.Color.Target)...)
