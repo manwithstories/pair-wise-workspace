@@ -67,8 +67,9 @@ func ParsePacket(buf []byte, abs int64) (*Packet, error) {
 	if v := buf[0] >> 6; v != 2 {
 		return nil, pktErr(abs, "invalid RTP version %d", v)
 	}
-	pt := buf[1] & 0x7f
-	if pt >= 200 && pt <= 204 {
+	// RTCP packet types occupy the full second byte (200-204); RTP
+	// payload types are 7 bits and never reach that range.
+	if pt := buf[1]; pt >= 200 && pt <= 204 {
 		return parseRTCP(buf, abs)
 	}
 	return parseRTP(buf, abs)
