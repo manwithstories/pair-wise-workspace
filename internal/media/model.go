@@ -20,6 +20,24 @@ const (
 	KindLimit
 )
 
+func (k Kind) String() string {
+	switch k {
+	case KindInput:
+		return "input"
+	case KindClock:
+		return "clock"
+	case KindGraph:
+		return "graph"
+	case KindCorrupt:
+		return "corrupt"
+	case KindConflict:
+		return "conflict"
+	case KindLimit:
+		return "limit"
+	}
+	return "invalid"
+}
+
 var (
 	// ErrInput marks rejected manifests, paths, sizes and hashes.
 	ErrInput = errors.New("input rejected")
