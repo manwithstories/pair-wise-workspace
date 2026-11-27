@@ -87,12 +87,6 @@ func (c *runContext) unwrapTrack(track *media.Track) error {
 				prev = un
 			}
 		}
-		if seg.Format != "" && seg.Format != "mp4" {
-			if len(seg.Samples) > 0 {
-				seg.RawStart = seg.Samples[0].Raw
-				seg.RawEnd = seg.Samples[len(seg.Samples)-1].Raw
-			}
-		}
 	}
 	return nil
 }
