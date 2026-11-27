@@ -3,7 +3,6 @@ package manifest
 import (
 	"fmt"
 	"path/filepath"
-	"strings"
 
 	m3u8 "github.com/Eyevinn/hls-m3u8/m3u8"
 
@@ -78,11 +77,9 @@ func hlsEntries(pl *m3u8.MediaPlaylist, track string, kind media.TrackType, dir,
 			Discontinuity: seg.Discontinuity,
 			ByteOffset:    seg.Offset,
 			ByteLength:    seg.Limit,
+			Timescale:     90000,
 		})
 		start = start.Add(dur)
 	}
 	return out, warnings, nil
 }
-
-// HLSPlaylistName returns a deterministic playlist file name for a track.
-func HLSPlaylistName(track string) string { return strings.TrimSpace(track) + ".m3u8" }

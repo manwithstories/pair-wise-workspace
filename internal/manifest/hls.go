@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	m3u8 "github.com/Eyevinn/hls-m3u8/m3u8"
@@ -28,6 +27,7 @@ type Entry struct {
 	Discontinuity bool
 	ByteOffset    int64
 	ByteLength    int64
+	Timescale     int64 // 0 means "infer from payload"
 }
 
 // Manifest is the parsed manifest description.
@@ -39,8 +39,11 @@ type Manifest struct {
 	Warnings  []string
 }
 
-// Load detects and parses a manifest file.
+// Load detects and parses a manifest file or a case directory.
 func Load(path string) (*Manifest, error) {
+	if info, err := os.Stat(path); err == nil && info.IsDir() {
+		return LoadDir(path)
+	}
 	data, err := media.ReadManifest(path)
 	if err != nil {
 		return nil, err
@@ -159,18 +162,4 @@ func inferKind(name string) media.TrackType {
 	default:
 		return media.TrackOther
 	}
-}
-
-func sortedKeys(m map[string]struct{}) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func statExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
 }

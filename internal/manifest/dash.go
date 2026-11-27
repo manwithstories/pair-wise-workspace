@@ -50,7 +50,7 @@ type mpdTemplate struct {
 	Initialization string       `xml:"initialization,attr"`
 	Timescale      int64        `xml:"timescale,attr"`
 	Duration       int64        `xml:"duration,attr"`
-	StartNumber    int64        `xml:"startNumber,attr"`
+	StartNumber    *int64       `xml:"startNumber,attr"`
 	PresentationTO int64        `xml:"presentationTimeOffset,attr"`
 	Timeline       *mpdTimeline `xml:"SegmentTimeline"`
 }
@@ -162,9 +162,12 @@ func dashEntries(tmpl *mpdTemplate, tl *mpdTimeline, timescale int64, kind media
 	if tmpl.Media == "" {
 		return nil, fmt.Errorf("dash: representation %s has no media template", repID)
 	}
-	startNumber := tmpl.StartNumber
-	if startNumber == 0 {
-		startNumber = 1
+	startNumber := int64(1)
+	if tmpl.StartNumber != nil {
+		startNumber = *tmpl.StartNumber
+	}
+	if startNumber < 0 {
+		return nil, fmt.Errorf("dash: representation %s has negative startNumber", repID)
 	}
 	var out []Entry
 	seq := int(startNumber)
@@ -187,6 +190,7 @@ func dashEntries(tmpl *mpdTemplate, tl *mpdTimeline, timescale int64, kind media
 			Path:          path,
 			DeclaredStart: start,
 			Duration:      dur,
+			Timescale:     timescale,
 		})
 		seq++
 		return nil

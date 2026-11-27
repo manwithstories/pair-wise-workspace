@@ -69,6 +69,11 @@ func Build(videos, audios []string) (*Plan, error) {
 			return nil, err
 		}
 	}
+	for _, id := range append(append([]string(nil), videos...), audios...) {
+		if id == "index" {
+			return nil, fmt.Errorf("graph: track id %q is reserved", id)
+		}
+	}
 	all := append(append([]string(nil), videos...), audios...)
 	if err := add("index", KindIndex, all); err != nil {
 		return nil, err
