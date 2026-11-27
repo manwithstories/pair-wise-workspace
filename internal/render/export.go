@@ -190,7 +190,7 @@ func (e *Exporter) adopt() error {
 
 // parseFrameName recognises the canonical 00000.png frame name.
 func parseFrameName(name string) (int64, bool) {
-	if len(name) != 9 || filepath.Ext(name) != ".png" {
+	if len(name) != 9 || !strings.HasSuffix(name, ".png") || strings.HasSuffix(name, ".png.tmp") {
 		return 0, false
 	}
 	digits := name[:5]
