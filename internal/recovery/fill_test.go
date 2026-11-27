@@ -177,3 +177,113 @@ func TestRateDenominatorIsInjectedHoles(t *testing.T) {
 		t.Fatalf("rate = %v", plan.Rate())
 	}
 }
+
+func positions(valid, present []bool) []Position {
+	var out []Position
+	for i := range valid {
+		out = append(out, Position{Seq: int64(i), Index: int64(i), Present: present[i], Valid: valid[i]})
+	}
+	return out
+}
+
+func TestAnalyzePositionsInterpolatesSingleHole(t *testing.T) {
+	valid := []bool{true, true, false, true, true}
+	present := []bool{true, true, false, true, true}
+	plan, err := AnalyzePositions("A", len(valid), positions(valid, present))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Eligible != 1 || plan.Recovered != 1 {
+		t.Fatalf("eligible=%d recovered=%d", plan.Eligible, plan.Recovered)
+	}
+	if len(plan.Interps) != 1 || plan.Interps[0].Before != 1 || plan.Interps[0].After != 3 {
+		t.Fatalf("interps = %+v", plan.Interps)
+	}
+	if plan.Interps[0].Weight.Cmp(media.NewRational(1, 2)) != 0 {
+		t.Fatalf("weight = %v", plan.Interps[0].Weight)
+	}
+}
+
+func TestAnalyzePositionsGapOfTwoWeights(t *testing.T) {
+	valid := []bool{true, false, false, true}
+	plan, err := AnalyzePositions("A", 4, positions(valid, valid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Eligible != 2 || plan.Recovered != 2 {
+		t.Fatalf("eligible=%d recovered=%d", plan.Eligible, plan.Recovered)
+	}
+	if plan.Interps[0].Weight.Cmp(media.NewRational(1, 3)) != 0 ||
+		plan.Interps[1].Weight.Cmp(media.NewRational(2, 3)) != 0 {
+		t.Fatalf("weights = %v %v", plan.Interps[0].Weight, plan.Interps[1].Weight)
+	}
+}
+
+func TestAnalyzePositionsThreeHoleGapIsMissing(t *testing.T) {
+	valid := []bool{true, false, false, false, true}
+	plan, err := AnalyzePositions("A", 5, positions(valid, valid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Recovered != 0 || len(plan.Missing) != 3 {
+		t.Fatalf("recovered=%d missing=%v", plan.Recovered, plan.Missing)
+	}
+	if plan.Missing[1].Reason != "gap-too-long" {
+		t.Fatalf("reason = %q", plan.Missing[1].Reason)
+	}
+}
+
+func TestAnalyzePositionsBoundaryHoleIsMissing(t *testing.T) {
+	valid := []bool{false, true, true, false}
+	plan, err := AnalyzePositions("A", 4, positions(valid, valid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Eligible != 0 || len(plan.Missing) != 2 {
+		t.Fatalf("eligible=%d missing=%d", plan.Eligible, len(plan.Missing))
+	}
+	if plan.Missing[0].Reason != "boundary-before" || plan.Missing[1].Reason != "boundary-after" {
+		t.Fatalf("reasons = %v", plan.Missing)
+	}
+}
+
+func TestAnalyzePositionsCorruptDoesNotCount(t *testing.T) {
+	valid := []bool{true, true, false, true}
+	present := []bool{true, true, true, true}
+	plan, err := AnalyzePositions("A", 4, positions(valid, present))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.CorruptRepaired != 1 || plan.Eligible != 0 || plan.Recovered != 0 {
+		t.Fatalf("corrupt=%d eligible=%d recovered=%d", plan.CorruptRepaired, plan.Eligible, plan.Recovered)
+	}
+	if plan.Rate() != 1.0 {
+		t.Fatalf("rate = %v", plan.Rate())
+	}
+}
+
+func TestAnalyzePositionsValidWinsOverCorrupt(t *testing.T) {
+	valid := []bool{true, true, true}
+	positionsList := []Position{
+		{Seq: 10, Index: 1, Present: true, Valid: true},
+		{Seq: 11, Index: 1, Present: true, Valid: false},
+	}
+	plan, err := AnalyzePositions("A", 3, positionsList)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Missing == nil && plan.CorruptRepaired != 0 {
+		t.Fatalf("corrupt=%d", plan.CorruptRepaired)
+	}
+	if plan.CorruptRepaired != 0 || plan.Eligible != 0 {
+		t.Fatalf("corrupt=%d eligible=%d", plan.CorruptRepaired, plan.Eligible)
+	}
+	_ = valid
+}
+
+func TestAnalyzePositionsRejectsBadIndex(t *testing.T) {
+	_, err := AnalyzePositions("A", 4, []Position{{Seq: 0, Index: 9, Valid: true}})
+	if err == nil {
+		t.Fatal("out-of-range index accepted")
+	}
+}

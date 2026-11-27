@@ -173,6 +173,112 @@ func Analyze(track string, declaredFrames int, present []ingest.Entry, valid fun
 	return plan, nil
 }
 
+// Position is one observed frame on the output grid. Index is the 25 fps
+// output frame it maps to; Seq is its source sequence. Valid means the
+// frame passed hash and decode checks.
+type Position struct {
+	Seq     int64
+	Index   int64
+	Present bool
+	Valid   bool
+}
+
+// AnalyzePositions plans recovery directly on the output grid: holes are
+// output indices with no valid source frame. When two valid neighbours are
+// at most MaxGapFrames apart, the hole is interpolated with an exact
+// rational weight; every other hole becomes an explicit missing record.
+// A corrupt frame sharing an index with a valid frame costs nothing.
+func AnalyzePositions(track string, frames int, positions []Position) (Plan, error) {
+	if frames <= 0 {
+		return Plan{}, media.Newf(media.KindInput, "recovery.positions", track, -1, "declared frames %d", frames)
+	}
+	type cell struct {
+		present bool
+		valid   bool
+		seq     int64
+	}
+	cells := make([]cell, frames)
+	for _, p := range positions {
+		if p.Index < 0 || p.Index >= int64(frames) {
+			return Plan{}, media.Newf(media.KindInput, "recovery.positions", track, p.Seq,
+				"index %d outside [0,%d)", p.Index, frames)
+		}
+		if p.Seq < 0 {
+			return Plan{}, media.Newf(media.KindInput, "recovery.positions", track, p.Seq, "negative sequence")
+		}
+		c := &cells[p.Index]
+		switch {
+		case p.Valid:
+			// Latest valid capture inside the interval wins, deterministically.
+			if !c.valid || p.Seq >= c.seq {
+				*c = cell{present: true, valid: true, seq: p.Seq}
+			}
+		case !c.valid && (!c.present || p.Seq >= c.seq):
+			*c = cell{present: p.Present, valid: false, seq: p.Seq}
+		}
+	}
+	plan := Plan{Track: track, Slots: make([]Slot, 0, frames)}
+	state := make([]Slot, frames)
+	for i := range state {
+		state[i] = Slot{Seq: int64(i), Present: cells[i].present, Valid: cells[i].valid}
+		if cells[i].present && !cells[i].valid {
+			state[i].Err = media.Newf(media.KindCorrupt, "recovery.decode", track, cells[i].seq, "frame failed to decode")
+		}
+	}
+	for i := 0; i < frames; {
+		if state[i].Valid {
+			i++
+			continue
+		}
+		j := i
+		for j < frames && !state[j].Valid {
+			j++
+		}
+		runLen := j - i
+		hasBefore := i-1 >= 0 && state[i-1].Valid
+		hasAfter := j < frames && state[j].Valid
+		if hasBefore && hasAfter && runLen <= MaxGapFrames {
+			span := int64(runLen + 1)
+			for k := int64(1); k <= int64(runLen); k++ {
+				idx := int64(i) + k - 1
+				plan.Interps = append(plan.Interps, Interp{
+					Seq:    idx,
+					Track:  track,
+					Before: int64(i) - 1,
+					After:  int64(j),
+					Weight: media.NewRational(k, span),
+				})
+				if state[idx].Present {
+					plan.CorruptRepaired++
+				} else {
+					plan.Eligible++
+					plan.Recovered++
+				}
+				state[idx].Valid = true
+				state[idx].Err = nil
+			}
+		} else {
+			for k := i; k < j; k++ {
+				reason := "hole"
+				switch {
+				case state[k].Present:
+					reason = "corrupt"
+				case !hasBefore:
+					reason = "boundary-before"
+				case !hasAfter:
+					reason = "boundary-after"
+				default:
+					reason = "gap-too-long"
+				}
+				plan.Missing = append(plan.Missing, Missing{Track: track, Seq: int64(k), Reason: reason})
+			}
+		}
+		i = j
+	}
+	plan.Slots = state
+	return plan, nil
+}
+
 // FrameAt returns the slot and its state for a sequence position.
 func (p Plan) FrameAt(seq int64) (Slot, bool) {
 	if seq < 0 || seq >= int64(len(p.Slots)) {
