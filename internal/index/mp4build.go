@@ -87,15 +87,26 @@ func sttsBox(samples []SampleSpec) []byte {
 
 func cttsBox(samples []SampleSpec) []byte {
 	hasCT := false
+	needsSigned := false
 	for _, s := range samples {
 		if s.CTOff != 0 {
 			hasCT = true
+		}
+		if s.CTOff < 0 {
+			needsSigned = true
 		}
 	}
 	if !hasCT {
 		return nil
 	}
 	p := binary.BigEndian.AppendUint32(nil, uint32(len(samples)))
+	if needsSigned {
+		// version 1 carries signed int32 composition offsets
+		for _, s := range samples {
+			p = binary.BigEndian.AppendUint32(p, uint32(int32(s.CTOff)))
+		}
+		return rawBox("ctts", full(1, 0, p))
+	}
 	for _, s := range samples {
 		p = binary.BigEndian.AppendUint32(p, uint32(s.CTOff))
 	}

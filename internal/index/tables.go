@@ -107,33 +107,37 @@ func signedNano(off int64, timescale uint32) model.Timestamp {
 }
 
 // detectPTSFaults classifies PTS discontinuities on native timescale units.
-// A backward jump explained by the 32-bit modular boundary is a wraparound;
-// any other backward jump is a true regression. The first occurrence of
-// each kind is recorded with its sample index and byte offset.
+// Classification works on the uint32 modular values actually stored in the
+// container: a backward jump explained by the 32-bit boundary is a
+// wraparound; any other backward jump is a true regression. The first
+// occurrence of each kind is recorded with its sample index and byte offset.
 func detectPTSFaults(samples []Sample, rawPTS []int64, tr *Track,
 	idx *FileIndex, addFault faultAdder) {
 	const mod = int64(1) << 32
 	if len(samples) > 0 {
 		tr.FirstPTS = int64(samples[0].PTS)
 	}
-	// unwrap modular values to obtain a monotonic reference
+	// modular 32-bit view of every presentation timestamp
+	modular := make([]uint32, len(rawPTS))
+	for i, v := range rawPTS {
+		modular[i] = uint32(v)
+	}
+	// unwrap modular values to obtain a monotonic reference (for hidden
+	// regressions that survive modular arithmetic)
 	unwrapped := make([]int64, len(rawPTS))
 	var acc int64
-	for i, v := range rawPTS {
-		if i > 0 {
-			prev := rawPTS[i-1]
-			if v < prev && prev-v > mod/2 {
-				acc += mod // forward wrap across the 32-bit boundary
-			}
+	for i := range rawPTS {
+		if i > 0 && modular[i] < modular[i-1] &&
+			int64(modular[i-1])-int64(modular[i]) > mod/2 {
+			acc += mod // forward wrap across the 32-bit boundary
 		}
-		unwrapped[i] = v + acc
+		unwrapped[i] = int64(modular[i]) + acc
 	}
-	for i := 1; i < len(rawPTS); i++ {
-		if rawPTS[i] >= rawPTS[i-1] {
+	for i := 1; i < len(modular); i++ {
+		if modular[i] >= modular[i-1] {
 			continue
 		}
-		prev := rawPTS[i-1]
-		isWrap := prev-rawPTS[i] > mod/2
+		isWrap := int64(modular[i-1])-int64(modular[i]) > mod/2
 		if isWrap && tr.WrappedAt == -1 {
 			tr.WrappedAt = i
 			addFault(model.NewFault(model.FaultPTSWrap, samples[i].Offset,
@@ -146,7 +150,7 @@ func detectPTSFaults(samples []Sample, rawPTS []int64, tr *Track,
 				idx.Name, "PTS regresses at sample "+itoa(i)))
 		}
 	}
-	// a regression can also hide inside an unwrapped sequence
+	// a regression can also hide inside an otherwise unwrapped sequence
 	for i := 1; i < len(unwrapped); i++ {
 		if unwrapped[i] < unwrapped[i-1] && tr.Regression == -1 {
 			tr.Regression = i
