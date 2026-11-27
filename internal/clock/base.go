@@ -43,6 +43,11 @@ func (r Rational) Equal(o Rational) bool {
 	return r.Num == o.Num && r.Den == o.Den
 }
 
+// String 返回 num/den 形式，便于清单与日志稳定输出。
+func (r Rational) String() string {
+	return fmt.Sprintf("%d/%d", r.Num, r.Den)
+}
+
 // TimeBase 以“每秒采样数”描述一条音频时间线。
 type TimeBase struct {
 	Rate int64
