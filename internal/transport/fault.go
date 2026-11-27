@@ -29,6 +29,15 @@ func LoadFaultProfile(path string) (*FaultProfile, error) {
 	if err != nil {
 		return nil, err
 	}
+	return ParseFaultProfile(b)
+}
+
+// ParseFaultProfile decodes a profile from raw JSON bytes. Nil/empty input
+// yields a clean (no-impairment) profile.
+func ParseFaultProfile(b []byte) (*FaultProfile, error) {
+	if len(b) == 0 {
+		return &FaultProfile{}, nil
+	}
 	var p FaultProfile
 	if err := json.Unmarshal(b, &p); err != nil {
 		return nil, err
