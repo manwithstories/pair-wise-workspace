@@ -21,14 +21,14 @@ func encVInt(value uint64, width int) []byte {
 }
 
 func encID(id uint32) []byte {
-	// EBML ID 自带前导标记位，宽度由首个置位的 1 决定。
+	// 元素 ID 宽度由数值范围决定（标记位已包含在 id 常量中）。
 	width := 4
 	switch {
-	case id&0x80000000 != 0:
+	case id >= 1<<24:
 		width = 4
-	case id&0x00400000 != 0:
+	case id >= 1<<16:
 		width = 3
-	case id&0x00008000 != 0:
+	case id >= 1<<8:
 		width = 2
 	default:
 		width = 1

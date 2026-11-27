@@ -94,7 +94,9 @@ func parseSegment(r *Reader, seg *Element, doc *Document) error {
 			}
 		}
 	}
-	return r.Drain(seg)
+	// 子读取器已消费段数据区，把共享底层读取器的记账位置回传给父级。
+	r.SyncPos(sr.Offset())
+	return nil
 }
 
 // parseInfo 同时兼容直接的 Info 元素与 SeekHead 包装。
@@ -121,7 +123,8 @@ func parseInfo(r *Reader, el *Element, doc *Document) error {
 			return err
 		}
 	}
-	return r.Drain(el)
+	r.SyncPos(ir.Offset())
+	return nil
 }
 
 func parseTracks(r *Reader, tracks *Element, doc *Document) error {
@@ -165,9 +168,11 @@ func parseTracks(r *Reader, tracks *Element, doc *Document) error {
 				ti.ClockNS = int64(binary.BigEndian.Uint64(pad8(data)))
 			}
 		}
+		tr.SyncPos(er.Offset())
 		doc.Tracks = append(doc.Tracks, ti)
 	}
-	return r.Drain(tracks)
+	r.SyncPos(tr.Offset())
+	return nil
 }
 
 func parseCluster(r *Reader, cluster *Element, doc *Document) error {
@@ -204,7 +209,8 @@ func parseCluster(r *Reader, cluster *Element, doc *Document) error {
 			}
 		}
 	}
-	return r.Drain(cluster)
+	r.SyncPos(cr.Offset())
+	return nil
 }
 
 // decodeBlock 解析 Matroska 块头：VINT 轨道号、int16 相对时间码、

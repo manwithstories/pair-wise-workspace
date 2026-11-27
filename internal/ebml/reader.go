@@ -183,6 +183,9 @@ func (r *Reader) Child(el *Element) *Reader {
 	}
 }
 
+// SyncPos 在子读取器消费共享底层数据后，把绝对位置回传给父读取器。
+func (r *Reader) SyncPos(pos int64) { r.pos = pos }
+
 // Drain 消费元素数据区剩余字节；未知长度元素为空操作。
 func (r *Reader) Drain(el *Element) error {
 	if el.Size == UnknownSize {
