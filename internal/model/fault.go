@@ -42,6 +42,9 @@ type Fault struct {
 	Reason string
 }
 
+// Error makes Fault usable as an error while preserving structured fields.
+func (f Fault) Error() string { return f.String() }
+
 // String renders a fault as a stable single-line diagnostic.
 func (f Fault) String() string {
 	if f.Offset >= 0 {
