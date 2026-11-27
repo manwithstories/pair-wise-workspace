@@ -51,7 +51,7 @@ func (r *Runner) processBlocks(idx *index.Index, ro *ingest.Reorder, st *ingest.
 				return err
 			}
 		}
-		// 块末：本块缺失包不会再到达，按静音补齐并推进水位，避免下一块越窗。
+		// 块末：本块网络缺失包不会再到达，按静音补齐并推进水位，避免下一块越窗。
 		blockEndSeq := (st.FramePos() + r.opts.PacketFrames - 1) / r.opts.PacketFrames
 		filled, err := ro.FlushThrough(blockEndSeq)
 		if err != nil {
@@ -59,6 +59,13 @@ func (r *Runner) processBlocks(idx *index.Index, ro *ingest.Reorder, st *ingest.
 		}
 		for _, p := range filled {
 			if err := r.commit(p, cp); err != nil {
+				return err
+			}
+		}
+		// 截断缺口：用与缺失帧数等长的精确静音包，保证后续块零漂移。
+		if bi.Truncated && bi.MissingFrames > 0 {
+			gap := st.GapSilence(bi.ID, bi.Frames, bi.MissingFrames)
+			if err := r.commit(gap, cp); err != nil {
 				return err
 			}
 		}

@@ -41,10 +41,13 @@ func (r *Runner) finalize(cp *Checkpoint, res *Result) (*Result, error) {
 		}
 		metrics = append(metrics, fm)
 	}
-	clipped, missing, maxAlign, ranges := r.mixer.Stats()
-	var compensated int64
+	clipped, missing, silenceFrames, maxAlign, ranges := r.mixer.Stats()
+	// compensated_frames 涵盖网络丢包与块截断两类静音补偿（按采样帧计）。
+	compensated := silenceFrames
 	for _, b := range r.blocks {
-		compensated += b.Compensated
+		if b.Truncated {
+			compensated += b.MissingFrames
+		}
 	}
 	sum := quality.Finalize(metrics, r.opts.TargetBPS, r.opts.FPSNum, r.opts.FPSDen,
 		clipped, missing, maxAlign, compensated)
