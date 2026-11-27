@@ -1,6 +1,8 @@
 package journal
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -157,6 +159,7 @@ func (s *Store) LoadCheckpoint() (*Checkpoint, error) {
 	return &cp, nil
 }
 
-
-// sha256Hex is shared with digest.go.
-func sha256Hex(data []byte) string { return hexSum(data) }
+func sha256Hex(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
