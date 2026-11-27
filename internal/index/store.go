@@ -329,12 +329,22 @@ type EnsureResult struct {
 }
 
 // Ensure loads a fresh index, rebuilding when missing, corrupt or stale.
-// Invalidation is atomic: the stale file is removed only after the fresh index
-// has been written under its new digest.
+//
+// A corrupt or stale entry is deleted by its own filename, before the rebuild
+// attempts to read the media. If the rebuild then fails the cache is left
+// clean rather than holding an entry that can never be trusted.
 func (s *Store) Ensure(digest string, size int64, build func() (*scan.Scan, error)) (EnsureResult, error) {
+	rebuild := false
 	if old, err := s.Load(digest); err == nil {
 		return EnsureResult{Index: old, Reason: "cache hit"}, nil
-	} else if !errors.Is(err, ErrMissing) && !errors.Is(err, ErrStale) && !errors.Is(err, ErrCorrupt) {
+	} else if errors.Is(err, ErrCorrupt) || errors.Is(err, ErrStale) {
+		// The cached file is unusable; remove it so a failed rebuild does not
+		// leave a landmine for the next run.
+		if rmErr := s.Invalidate(digest); rmErr != nil {
+			return EnsureResult{}, rmErr
+		}
+		rebuild = true
+	} else if !errors.Is(err, ErrMissing) {
 		return EnsureResult{}, err
 	}
 	sc, err := build()
@@ -348,7 +358,9 @@ func (s *Store) Ensure(digest string, size int64, build func() (*scan.Scan, erro
 	if err := s.Save(ix); err != nil {
 		return EnsureResult{}, err
 	}
-	return EnsureResult{Index: ix, Rebuilt: true, Reason: "rebuilt"}, nil
+	res := EnsureResult{Index: ix, Rebuilt: true, Reason: "rebuilt"}
+	res.Invalidated = rebuild
+	return res, nil
 }
 
 // Invalidate removes the cached entry for a digest.

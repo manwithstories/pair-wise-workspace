@@ -168,6 +168,30 @@ func TestEnsureRebuildsOnMissingAndStale(t *testing.T) {
 	}
 }
 
+func TestEnsureRemovesCorruptEntryBeforeRebuild(t *testing.T) {
+	dir := t.TempDir()
+	st, _ := NewStore(dir)
+	dg := testDigest(14)
+	if err := os.WriteFile(st.path(dg), []byte("{corrupt"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A failing rebuild must not leave the corrupt file behind for the next
+	// run to trip over.
+	if _, err := st.Ensure(dg, 1, func() (*scan.Scan, error) { return nil, errors.New("boom") }); err == nil {
+		t.Fatal("expected build failure")
+	}
+	if _, err := os.Stat(st.path(dg)); !os.IsNotExist(err) {
+		t.Fatalf("corrupt entry not removed: %v", err)
+	}
+	res, err := st.Ensure(dg, 1, func() (*scan.Scan, error) { return sampleScan(), nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Rebuilt || res.Invalidated {
+		t.Fatalf("clean rebuild: %+v", res)
+	}
+}
+
 func TestEnsureChainsErrors(t *testing.T) {
 	dir := t.TempDir()
 	st, _ := NewStore(dir)
