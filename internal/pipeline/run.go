@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"mediad/internal/index"
@@ -15,20 +16,20 @@ import (
 
 // Config controls one delivery run.
 type Config struct {
-	InputDir        string
-	OutDir          string
-	FaultProfile    string
+	InputDir         string
+	OutDir           string
+	FaultProfile     string
 	StopAfterSamples int // >0 requests an interrupt (exit 75) after N samples
-	Resume          bool
+	Resume           bool
 }
 
 // Result is the structured outcome reported to the CLI.
 type Result struct {
-	Manifest     *output.Manifest
-	ResumeMS     int64
-	Interrupted  bool
-	InputSHA     string
-	OutputPath   string
+	Manifest    *output.Manifest
+	ResumeMS    int64
+	Interrupted bool
+	InputSHA    string
+	OutputPath  string
 }
 
 // Run executes the streaming pipeline for every source file in InputDir.
@@ -59,6 +60,17 @@ func Run(cfg Config) (*Result, error) {
 	idx := scanRes.Index
 	manifest := output.NewManifest(idx.SHA256)
 	manifest.RecordFaults(idx.Faults)
+	// A hard scanner error (e.g. truncated final atom) is carried alongside a
+	// partial index; fold it into the fault list so it still produces a
+	// manifest while forcing an input-failure exit code.
+	if scanRes.Err != nil {
+		if f, ok := model.AsFault(scanRes.Err); ok {
+			manifest.RecordFaults([]*model.Fault{f})
+			idx.Faults = append(idx.Faults, f)
+		} else {
+			return nil, scanRes.Err
+		}
+	}
 
 	// checkpoint validation: a changed source invalidates any prior run
 	start := time.Now()
@@ -77,14 +89,49 @@ func Run(cfg Config) (*Result, error) {
 		}
 	}
 
-	out, err := processOne(cfg, idx, cp, manifest)
+	out, runErr := processOne(cfg, idx, cp, manifest)
 	resumeMS := time.Since(start).Milliseconds()
-	if err != nil && !errors.Is(err, model.ErrInterrupted) {
-		return nil, err
+	if runErr != nil && !errors.Is(runErr, model.ErrInterrupted) {
+		return nil, runErr
 	}
 	manifest.Resumed = resumed
-	out.ResumeMS = resumeMS
-	return out, err
+	if out != nil {
+		out.ResumeMS = resumeMS
+	}
+	// A hard index fault on the primary source (truncation, out-of-bounds
+	// sample, missing index) is an input failure even though a partial
+	// deliverable and manifest were still produced. Surface it after the
+	// provenance is safely on disk so the CLI can return exit code 2.
+	if hardFault := firstHardFault(idx.Faults); hardFault != nil {
+		if out != nil {
+			return out, hardFault
+		}
+		return nil, hardFault
+	}
+	return out, runErr
+}
+
+// hardFaultKinds are defects that make the input invalid for delivery.
+var hardFaultKinds = map[model.FaultKind]bool{
+	model.FaultTruncatedAtom:   true,
+	model.FaultOutOfBounds:     true,
+	model.FaultMissingIndex:    true,
+	model.FaultContainerBounds: true,
+}
+
+// firstHardFault returns the earliest hard fault (smallest byte offset), or
+// nil when the index only carries soft warnings such as PTS anomalies.
+func firstHardFault(faults []*model.Fault) *model.Fault {
+	var best *model.Fault
+	for _, f := range faults {
+		if !hardFaultKinds[f.Kind] {
+			continue
+		}
+		if best == nil || (f.Offset >= 0 && (best.Offset < 0 || f.Offset < best.Offset)) {
+			best = f
+		}
+	}
+	return best
 }
 
 // processOne handles one file end to end and mutates the manifest.
@@ -104,6 +151,16 @@ func processOne(cfg Config, idx *index.FileIndex, cp *Checkpoint,
 	// 2) bounded jitter + NACK + XOR recovery
 	delivered, gaps, stats, mechanism := transport.Run(originals, impaired,
 		transport.DefaultJitterConfig())
+	// On resume, the transport re-simulates the full deterministic stream but
+	// the already-committed samples are skipped during remux. Recovery that
+	// belonged to those samples was counted in the prior run and recorded in
+	// the checkpoint, so it is folded back in here rather than double counted.
+	if cp != nil && cfg.Resume {
+		stats.RecoveredPackets += cp.RecoveredCount
+		stats.NACKRecovered += cp.RecoveredCount
+		stats.UnrecoveredPackets += cp.UnrecoveredCount
+		stats.LostPackets += cp.UnrecoveredCount
+	}
 	decisions := buildDecisions(originals, delivered, gaps, mechanism)
 	manifest.RecordTransport(stats, gaps, decisions)
 
@@ -215,7 +272,11 @@ func streamSamples(remuxer *output.Remuxer, reader *SampleReader,
 			}
 			buf, err := reader.ReadSample(uint32(ti), n)
 			if err != nil {
-				return written, false, err
+				// An unreadable sample range (truncation/OOB) is already
+				// recorded as an index fault. Skip it so a partial
+				// deliverable and manifest are still produced; the run is
+				// flagged as an input failure by firstHardFault afterwards.
+				continue
 			}
 			if len(buf) == 0 {
 				continue
@@ -277,7 +338,10 @@ func buildDecisions(originals, delivered []*transport.Packet,
 	return out
 }
 
-// listSources returns MP4/MOV files in dir, sorted for stable ordering.
+// listSources returns MP4/MOV files in a stable order. The canonical normal
+// fixture (or an interrupt copy of it) is promoted to the front so the
+// headline manifest describes the primary deliverable rather than an
+// alphabetically earlier companion such as an audio track.
 func listSources(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -294,5 +358,21 @@ func listSources(dir string) ([]string, error) {
 			out = append(out, filepath.Join(dir, name))
 		}
 	}
+	sort.Slice(out, func(i, j int) bool {
+		return sourceRank(out[i]) < sourceRank(out[j]) ||
+			(sourceRank(out[i]) == sourceRank(out[j]) && filepath.Base(out[i]) < filepath.Base(out[j]))
+	})
 	return out, nil
+}
+
+// sourceRank orders the primary video sources ahead of companions.
+func sourceRank(path string) int {
+	switch filepath.Base(path) {
+	case "normal.mp4", "normal.mov":
+		return 0
+	case "interrupt.mp4", "interrupt.mov":
+		return 1
+	default:
+		return 2
+	}
 }
