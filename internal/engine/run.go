@@ -2,7 +2,6 @@ package engine
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"time"
@@ -95,11 +94,18 @@ func loadOrScan(st *index.Store, inputPath, digest string, params index.Params) 
 	return idx, nil
 }
 
+// mapScanError 把扫描期故障映射为约定退出码语义。
+// 用 errors.Join 同时保留 errDamaged 标记与原始 Fault 错误链。
 func mapScanError(err error) error {
 	if f, ok := media.FindFault(err); ok && f.Kind == media.FaultFraming {
-		return fmt.Errorf("%w: %v", errDamaged, err)
+		return errors.Join(errDamaged, err)
 	}
 	return err
+}
+
+// IsDamaged 报告错误链中是否包含无法定位的损坏输入。
+func IsDamaged(err error) bool {
+	return errors.Is(err, errDamaged)
 }
 
 // packetReader 按索引条目的字节偏移随机读取 RTP 数据报，
