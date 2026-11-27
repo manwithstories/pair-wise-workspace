@@ -8,8 +8,8 @@ import (
 
 // 响度与真峰值目标（EBU R128 语义的工程化实现，全确定、无外部依赖）。
 const (
-	TargetLUFS  = -18.0
-	MaxTPdBTP   = -1.0
+	TargetLUFS = -18.0
+	MaxTPdBTP  = -1.0
 	// blockMillis 是响度测量的块长度（400ms，EBU R128 标准块）。
 	blockMillis = 400
 	// absGateLUFS 是绝对门限 -70 LUFS。
@@ -34,6 +34,7 @@ type LoudnessStats struct {
 //     同相信号会被系统性低估约 3 LU；
 //   - 400ms 重叠块（步长 100ms）+ 绝对门限(-70 LUFS)与相对门限(-10 LU)；
 //   - 真峰值按 4x 窗控 sinc 过采样逐声道取最大值。
+//
 // 结果仅依赖样本，可逐位复现。
 func MeasureLoudness(buf *Buffer) LoudnessStats {
 	st := LoudnessStats{Frames: buf.Frames}
@@ -302,11 +303,11 @@ func sincWindowed(d float64) float64 {
 
 // R128 K 加权滤波器精确参数（Mansbridge, Finn & Reiss；EBU R128 48kHz 基准）。
 const (
-	r128HSFreq = 1681.974450955533
+	r128HSFreq   = 1681.974450955533
 	r128HSGainDB = 3.999843853973347
-	r128HSQ    = 0.7071752369554196
-	r128HPFreq = 38.13547087602444
-	r128HPQ    = 0.5003270373238773
+	r128HSQ      = 0.7071752369554196
+	r128HPFreq   = 38.13547087602444
+	r128HPQ      = 0.5003270373238773
 )
 
 type biquad struct {

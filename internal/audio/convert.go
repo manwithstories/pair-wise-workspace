@@ -56,6 +56,7 @@ func (r *Resampler) Close() {
 		r.swr = nil
 	}
 }
+
 // ensureConfig 在输入签名首次出现或变化时记录；swr 由 ConvertFrame 按帧自配置。
 func (r *Resampler) ensureConfig(f *packet.PCMFrame) error {
 	if r.inRate == f.SampleRate && r.inCh == f.Channels {

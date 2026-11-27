@@ -17,7 +17,7 @@ func TestResumeWithTruncatedCheckpoint(t *testing.T) {
 	dirFresh := t.TempDir()
 	rf, err := New(Options{
 		Events: g.Events, ExtraData: g.ExtraData,
-		OutputWAV: filepath.Join(dirFresh, "fresh.wav"),
+		OutputWAV:  filepath.Join(dirFresh, "fresh.wav"),
 		JournalDir: filepath.Join(dirFresh, "j"),
 	})
 	if err != nil {

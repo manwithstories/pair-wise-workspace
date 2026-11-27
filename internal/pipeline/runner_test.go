@@ -148,7 +148,7 @@ func TestRepeatedRunsIdenticalChecksum(t *testing.T) {
 		dir := t.TempDir()
 		r, err := New(Options{
 			Events: g.Events, ExtraData: g.ExtraData,
-			OutputWAV: filepath.Join(dir, "o.wav"),
+			OutputWAV:  filepath.Join(dir, "o.wav"),
 			JournalDir: filepath.Join(dir, "j"),
 		})
 		if err != nil {
@@ -174,7 +174,7 @@ func TestMissingPlaceholdersAreSilence(t *testing.T) {
 	dir := t.TempDir()
 	r, err := New(Options{
 		Events: g.Events, ExtraData: g.ExtraData,
-		OutputWAV: filepath.Join(dir, "o.wav"),
+		OutputWAV:  filepath.Join(dir, "o.wav"),
 		JournalDir: filepath.Join(dir, "j"),
 	})
 	if err != nil {

@@ -201,13 +201,13 @@ func unmarshalPayload(seq uint64, b []byte) (*Checkpoint, error) {
 			"摘要长度越界", nil)
 	}
 	cp := &Checkpoint{
-		Seq:              seq,
-		LastExtSeq:       int64(binary.LittleEndian.Uint64(b[0:])),
-		WatermarkMicros:  int64(binary.LittleEndian.Uint64(b[8:])),
-		CountedPackets:   binary.LittleEndian.Uint64(b[16:]),
-		OutputOffset:     int64(binary.LittleEndian.Uint64(b[24:])),
-		InputDigest:      string(b[34 : 34+digestLen]),
-		Payload:          append([]byte(nil), b[34+digestLen:]...),
+		Seq:             seq,
+		LastExtSeq:      int64(binary.LittleEndian.Uint64(b[0:])),
+		WatermarkMicros: int64(binary.LittleEndian.Uint64(b[8:])),
+		CountedPackets:  binary.LittleEndian.Uint64(b[16:]),
+		OutputOffset:    int64(binary.LittleEndian.Uint64(b[24:])),
+		InputDigest:     string(b[34 : 34+digestLen]),
+		Payload:         append([]byte(nil), b[34+digestLen:]...),
 	}
 	return cp, nil
 }

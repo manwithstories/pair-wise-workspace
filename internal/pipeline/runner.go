@@ -15,8 +15,8 @@ import (
 
 // InterruptPlan 描述模拟中断（仅用于演示/测试）。
 type InterruptPlan struct {
-	Enabled    bool
-	AtArrival  int
+	Enabled   bool
+	AtArrival int
 }
 
 // Options 是一次流水线运行的输入。
@@ -31,12 +31,12 @@ type Options struct {
 
 // Result 是运行结果与验收所需统计。
 type Result struct {
-	Manifest         *journal.Manifest
-	OutputSHA256     string
-	ResumeMS         int64
-	ResumeMatched    bool
+	Manifest          *journal.Manifest
+	OutputSHA256      string
+	ResumeMS          int64
+	ResumeMatched     bool
 	DamagePacketDelta int
-	Interrupted      bool
+	Interrupted       bool
 }
 
 // Runner 执行一次完整恢复流水线。
@@ -78,12 +78,12 @@ func New(opt Options) (*Runner, error) {
 		return nil, err
 	}
 	r := &Runner{
-		opt:       opt,
-		dedup:     packet.NewDeduper(),
-		bwe:       timeline.NewBandwidthEstimator(),
-		ingested:  make(map[int64]*packet.Event),
-		store:     store,
-		stats:     *journal.NewManifest(),
+		opt:      opt,
+		dedup:    packet.NewDeduper(),
+		bwe:      timeline.NewBandwidthEstimator(),
+		ingested: make(map[int64]*packet.Event),
+		store:    store,
+		stats:    *journal.NewManifest(),
 	}
 	r.watermark = timeline.NewWatermark(r.bwe)
 	r.replayer = timeline.NewReplayer(48000)

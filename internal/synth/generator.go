@@ -42,7 +42,7 @@ type Generated struct {
 	GroundTruth []*packet.Event
 	// ExtraData 是 AAC 解码所需的 AudioSpecificConfig；Opus 为 nil。
 	ExtraData []byte
-	Stats      FaultStats
+	Stats     FaultStats
 }
 
 // FaultStats 记录注入的各类故障数量。

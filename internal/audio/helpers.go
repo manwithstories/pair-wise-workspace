@@ -2,7 +2,7 @@ package audio
 
 import "math"
 
-func float32Bits(f float32) uint32  { return math.Float32bits(f) }
+func float32Bits(f float32) uint32     { return math.Float32bits(f) }
 func float32FromBits(b uint32) float32 { return math.Float32frombits(b) }
 
 // Silence 生成长度为 frames 的交错立体声静音。
@@ -61,4 +61,3 @@ func (a *Accumulator) WriteSilence(frames int) {
 func (a *Accumulator) Buffer() *Buffer {
 	return &Buffer{Samples: a.Samples, Frames: a.Frames}
 }
-
