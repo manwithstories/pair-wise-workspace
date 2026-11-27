@@ -11,7 +11,6 @@ import (
 	"avrepair/internal/fixture"
 	"avrepair/internal/index"
 	"avrepair/internal/media"
-	"avrepair/internal/recovery"
 	"avrepair/internal/segment"
 )
 
@@ -212,5 +211,4 @@ func TestRecoveryCountersMatchJournal(t *testing.T) {
 	if count != rep.SegmentsValid {
 		t.Fatalf("journal output records=%d, valid segments=%d", count, rep.SegmentsValid)
 	}
-	var _ = recovery.GroupSize
 }

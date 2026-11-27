@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 
-	"avrepair/internal/manifest"
 	"avrepair/internal/media"
 	"avrepair/internal/recovery"
 	"avrepair/internal/segment"
@@ -226,5 +225,3 @@ func toModelSamples(in []segment.Sample) []media.Sample {
 	}
 	return out
 }
-
-var _ = manifest.Entry{}
