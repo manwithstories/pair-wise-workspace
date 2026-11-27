@@ -42,7 +42,7 @@ func TestRejectNonIntegralFrames(t *testing.T) {
 func TestBlockRoundTripAndDigest(t *testing.T) {
 	b := &Block{Seq: 7, Track: 1, Rate: 44100, Layout: Quad,
 		Samples: []int16{1, 2, 3, 4},
-		Red: [2]Redundancy{
+		Red: [4]Redundancy{
 			{Seq: 6, Samples: []int16{9, 9, 9, 9}},
 			{Seq: 5, Samples: []int16{8, 8, 8, 8}},
 		}}

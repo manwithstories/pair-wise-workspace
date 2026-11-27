@@ -68,7 +68,9 @@ func Generate() *Source {
 			v := 3000 * math.Sin(2*math.Pi*sp.freq*t)
 			for _, et := range EventTimesS {
 				if d := t - et; d >= 0 && d < 0.05 {
-					v += 12000 * math.Sin(2*math.Pi*880*t)
+					// Cosine burst: full amplitude at the onset sample so
+					// threshold detection localizes the onset to <=1 sample.
+					v += 12000 * math.Cos(2*math.Pi*880*d)
 				}
 			}
 			s := int16(v)
@@ -85,26 +87,34 @@ func Generate() *Source {
 	return src
 }
 
+// FlushBlocks is the number of redundancy-only blocks appended at the end of
+// each track so the tail audio blocks have forward carriers too.
+const FlushBlocks = 4
+
 // cutBlocks slices PCM into BlockMS blocks, each carrying redundancy copies
-// of the two preceding blocks.
+// of the four preceding blocks, then appends FlushBlocks empty tail blocks
+// that exist purely to carry redundancy for the tail of the stream.
 func cutBlocks(p *wav.PCM) []*wav.Block {
 	ch := p.Layout.Channels()
 	per := p.Rate * BlockMS / 1000 * ch
 	var blocks []*wav.Block
-	for off, seq := 0, uint64(0); off < len(p.Samples); off, seq = off+per, seq+1 {
+	for off := 0; off < len(p.Samples); off += per {
 		end := off + per
 		if end > len(p.Samples) {
 			end = len(p.Samples)
 		}
-		b := &wav.Block{Seq: seq, Rate: p.Rate, Layout: p.Layout,
-			Samples: p.Samples[off:end]}
-		if len(blocks) > 0 {
-			b.Red[0] = wav.Redundancy{Seq: seq - 1, Samples: blocks[len(blocks)-1].Samples}
+		blocks = append(blocks, &wav.Block{Seq: uint64(len(blocks)), Rate: p.Rate,
+			Layout: p.Layout, Samples: p.Samples[off:end]})
+	}
+	for i := 0; i < FlushBlocks; i++ {
+		blocks = append(blocks, &wav.Block{Seq: uint64(len(blocks)), Rate: p.Rate,
+			Layout: p.Layout, Samples: []int16{}})
+	}
+	for i, b := range blocks {
+		for back := 1; back <= 4 && i-back >= 0; back++ {
+			b.Red[back-1] = wav.Redundancy{Seq: b.Seq - uint64(back),
+				Samples: blocks[i-back].Samples}
 		}
-		if len(blocks) > 1 {
-			b.Red[1] = wav.Redundancy{Seq: seq - 2, Samples: blocks[len(blocks)-2].Samples}
-		}
-		blocks = append(blocks, b)
 	}
 	return blocks
 }

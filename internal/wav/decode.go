@@ -115,14 +115,14 @@ type Redundancy struct {
 	Samples []int16
 }
 
-// Block is one network sample block with two levels of redundancy.
+// Block is one network sample block with four levels of redundancy.
 type Block struct {
 	Seq     uint64
 	Track   int
 	Rate    int
 	Layout  Layout
 	Samples []int16
-	Red     [2]Redundancy // Red[0]=previous block, Red[1]=the one before
+	Red     [4]Redundancy // Red[0]=seq-1 … Red[3]=seq-4
 }
 
 const noneSeq = ^uint64(0)

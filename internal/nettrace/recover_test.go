@@ -18,6 +18,12 @@ func mkBlocks(n int) []*wav.Block {
 		if i > 1 {
 			b.Red[1] = wav.Redundancy{Seq: uint64(i - 2), Samples: out[i-2].Samples}
 		}
+		if i > 2 {
+			b.Red[2] = wav.Redundancy{Seq: uint64(i - 3), Samples: out[i-3].Samples}
+		}
+		if i > 3 {
+			b.Red[3] = wav.Redundancy{Seq: uint64(i - 4), Samples: out[i-4].Samples}
+		}
 		out[i] = b
 	}
 	return out
@@ -57,18 +63,20 @@ func TestRecoverIsolatedAndBurstTwo(t *testing.T) {
 }
 
 func TestUnrecoverableBurstLeavesGap(t *testing.T) {
-	blocks := mkBlocks(10)
-	drop := map[int]bool{4: true, 5: true, 6: true} // burst of 3
-	items, st := Recover(arrived(blocks, drop, 2), 0, 9)
-	if st.Lost != 3 || st.Recovered != 2 || st.Gaps != 1 {
+	blocks := mkBlocks(14)
+	drop := map[int]bool{4: true, 5: true, 6: true, 7: true, 8: true} // burst of 5
+	items, st := Recover(arrived(blocks, drop, 2), 0, 13)
+	if st.Lost != 5 || st.Recovered != 4 || st.Gaps != 1 {
 		t.Fatalf("stats %+v", st)
 	}
-	// seq 4 has no carrier (5,6 lost); 5 and 6 ride on block 7.
+	// seq 4 has no carrier (5..8 lost); 5..8 ride on block 9.
 	if !items[4].Gap {
 		t.Fatalf("seq 4 should be a gap: %+v", items[4])
 	}
-	if items[5].Gap || !items[5].Recovered || items[6].Gap || !items[6].Recovered {
-		t.Fatalf("seq 5,6 should be recovered: %+v %+v", items[5], items[6])
+	for _, i := range []int{5, 6, 7, 8} {
+		if items[i].Gap || !items[i].Recovered {
+			t.Fatalf("seq %d should be recovered: %+v", i, items[i])
+		}
 	}
 	// Order is preserved; the gap is a marker, not a shift.
 	for i, it := range items {

@@ -63,15 +63,17 @@ func Recover(arrived []*wav.Block, first, last uint64) ([]Item, Stats) {
 }
 
 // findRedundant looks for a redundancy copy of seq in the blocks that did
-// arrive: seq+1 carries it as Red[0], seq+2 as Red[1].
+// arrive: seq+1 carries it as Red[0] … seq+4 as Red[3].
 func findRedundant(bySeq map[uint64]*wav.Block, seq uint64) (*wav.Block, bool) {
-	if n, ok := bySeq[seq+1]; ok && n.Red[0].Samples != nil && n.Red[0].Seq == seq {
-		return &wav.Block{Seq: seq, Track: n.Track, Rate: n.Rate,
-			Layout: n.Layout, Samples: n.Red[0].Samples}, true
-	}
-	if n, ok := bySeq[seq+2]; ok && n.Red[1].Samples != nil && n.Red[1].Seq == seq {
-		return &wav.Block{Seq: seq, Track: n.Track, Rate: n.Rate,
-			Layout: n.Layout, Samples: n.Red[1].Samples}, true
+	for back := 1; back <= 4; back++ {
+		n, ok := bySeq[seq+uint64(back)]
+		if !ok {
+			continue
+		}
+		if r := n.Red[back-1]; r.Samples != nil && r.Seq == seq {
+			return &wav.Block{Seq: seq, Track: n.Track, Rate: n.Rate,
+				Layout: n.Layout, Samples: r.Samples}, true
+		}
 	}
 	return nil, false
 }
