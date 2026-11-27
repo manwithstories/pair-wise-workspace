@@ -284,6 +284,63 @@ func TestRetainedHistoryIsBounded(t *testing.T) {
 	}
 }
 
+// TestNoOvershootOnHeavyDownsample guards the emission cap: for a large
+// downsample factor the kernel's reach in output frames is tiny, and a greedy
+// "rightmost tap buffered" test could emit a frame beyond the exact total.
+func TestNoOvershootOnHeavyDownsample(t *testing.T) {
+	cases := []struct{ src, dst media.Rate }{
+		{media.Rate{Num: 48000, Den: 1}, media.Rate{Num: 1000, Den: 1}},
+		{media.Rate{Num: 192000, Den: 1}, media.Rate{Num: 8000, Den: 1}},
+		{media.Rate{Num: 48000, Den: 1}, media.Rate{Num: 1, Den: 1}},
+	}
+	for _, c := range cases {
+		for _, frames := range []int{1, 2, 17, 113, 1000, 4097} {
+			r, err := New(Config{Src: c.src, Dst: c.dst})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []media.Block
+			blk := media.Block{Track: "t", Start: 0, Rate: c.src, Channels: 1,
+				Samples: make([]float64, frames)}
+			out, err := r.Process(blk)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got = append(got, out...)
+			tail, err := r.Flush()
+			if err != nil {
+				t.Fatal(err)
+			}
+			got = append(got, tail...)
+			var emitted int64
+			for _, b := range got {
+				emitted += int64(b.Frames())
+			}
+			clock, _ := media.NewClock(c.src)
+			want, _ := clock.Convert(int64(frames), c.dst)
+			if emitted != want || emitted != r.TotalOut() {
+				t.Fatalf("%s->%s frames=%d: emitted=%d TotalOut=%d want=%d",
+					c.src.String(), c.dst.String(), frames, emitted, r.TotalOut(), want)
+			}
+		}
+	}
+}
+
+func TestMisalignedSamplesRejected(t *testing.T) {
+	rate := media.Rate{Num: 48000, Den: 1}
+	r, _ := New(Config{Src: rate, Dst: rate})
+	_, err := r.Process(media.Block{Track: "t", Rate: rate, Channels: 2, Samples: []float64{1, 2, 3}})
+	if err == nil {
+		t.Fatal("misaligned samples accepted")
+	}
+	if media.ExitFor(err) != media.ExitInput {
+		t.Fatalf("exit=%d", media.ExitFor(err))
+	}
+	if r.buf != nil && len(r.buf) != 0 {
+		t.Fatalf("rejected block polluted the buffer: %d", len(r.buf))
+	}
+}
+
 func TestEmptyFlush(t *testing.T) {
 	rate := media.Rate{Num: 48000, Den: 1}
 	r, _ := New(Config{Src: rate, Dst: rate})

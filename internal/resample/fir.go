@@ -31,6 +31,7 @@ type Config struct {
 // Resampler streams interleaved normalized samples from Src to Dst.
 type Resampler struct {
 	src, dst media.Rate
+	srcClock media.Clock
 	track    string
 	channels int
 	maxBlock int
@@ -65,11 +66,16 @@ func New(cfg Config) (*Resampler, error) {
 	if maxBlock <= 0 {
 		maxBlock = 4096
 	}
+	clock, err := media.NewClock(cfg.Src)
+	if err != nil {
+		return nil, media.NewError(media.PhaseConfig, media.ExitUsage, "", 0, false, "new", err)
+	}
 	ratio := cfg.Dst.Float() / cfg.Src.Float()
 	fc := 0.5 * cutoff * math.Min(1, ratio)
 	return &Resampler{
 		src:      cfg.Src,
 		dst:      cfg.Dst,
+		srcClock: clock,
 		maxBlock: maxBlock,
 		coeffs:   kernel(fc),
 	}, nil
@@ -164,17 +170,38 @@ func (r *Resampler) Process(in media.Block) ([]media.Block, error) {
 		return nil, media.NewError(media.PhaseResample, media.ExitInput, in.Track, in.Seq, false, "process",
 			fmt.Errorf("non-contiguous input: start %d, expected %d", in.Start, r.totalIn))
 	}
+	if len(in.Samples)%in.Channels != 0 {
+		return nil, media.NewError(media.PhaseResample, media.ExitInput, in.Track, in.Seq, false, "process",
+			fmt.Errorf("sample count %d not divisible by %d channels", len(in.Samples), in.Channels))
+	}
 	r.track = in.Track
 	frames := in.Frames()
 	r.buf = append(r.buf, in.Samples...)
 	r.bufFrames += int64(frames)
 	r.totalIn += int64(frames)
-	return r.emitAvailable(false)
+	// Never emit past the exact total implied by the input seen so far; the
+	// remainder is produced by Flush once the true end of stream is known.
+	cap, err := r.outputTotal(r.totalIn)
+	if err != nil {
+		return nil, media.NewError(media.PhaseResample, media.ExitInternal, in.Track, in.Seq, false, "emit", err)
+	}
+	return r.emitAvailable(false, cap, true)
 }
 
-// emitAvailable produces every output frame whose rightmost tap is buffered.
-// With final set it runs to the exact total, reading silence past the end.
-func (r *Resampler) emitAvailable(final bool) ([]media.Block, error) {
+// outputTotal is the exact number of output frames for framesIn input frames,
+// using the same rational conversion as Clock.Convert (round halves away from
+// zero).
+func (r *Resampler) outputTotal(framesIn int64) (int64, error) {
+	return r.srcClock.Convert(framesIn, r.dst)
+}
+
+// emitAvailable produces every output frame whose rightmost tap is buffered
+// and, when hasCap is set, whose index is below cap. With final set it runs
+// to the exact total, reading silence past the end. The cap keeps a streaming
+// emission from ever passing the exact rational total, which only becomes
+// known for certain at Flush: for heavy downsampling the kernel's reach in
+// output frames is short, so the "buffered" test alone could overshoot.
+func (r *Resampler) emitAvailable(final bool, cap int64, hasCap bool) ([]media.Block, error) {
 	var out []media.Block
 	for {
 		if final {
@@ -182,6 +209,9 @@ func (r *Resampler) emitAvailable(final bool) ([]media.Block, error) {
 				break
 			}
 		} else {
+			if hasCap && r.nextOut >= cap {
+				break
+			}
 			base, _, err := r.exactPos(r.nextOut)
 			if err != nil {
 				return nil, err
@@ -270,18 +300,15 @@ func (r *Resampler) Flush() ([]media.Block, error) {
 		r.flushed = true
 		return nil, nil
 	}
-	clock, err := media.NewClock(r.src)
-	if err != nil {
-		return nil, media.NewError(media.PhaseResample, media.ExitInternal, r.track, 0, false, "flush", err)
-	}
-	r.totalOut, err = clock.Convert(r.totalIn, r.dst)
+	var err error
+	r.totalOut, err = r.outputTotal(r.totalIn)
 	if err != nil {
 		return nil, media.NewError(media.PhaseResample, media.ExitInternal, r.track, 0, false, "flush", err)
 	}
 	pad := int64(half + 1)
 	r.buf = append(r.buf, make([]float64, pad*int64(r.channels))...)
 	r.bufFrames += pad
-	out, err := r.emitAvailable(true)
+	out, err := r.emitAvailable(true, 0, false)
 	if err != nil {
 		return nil, media.NewError(media.PhaseResample, media.ExitInternal, r.track, 0, false, "flush", err)
 	}

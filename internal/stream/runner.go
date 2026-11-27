@@ -131,6 +131,11 @@ func (r *Runner) Run(ctx context.Context, src Source, proc Processor, sink Sink)
 		err := r.consume(ctx, q, sink, &res, &resMu)
 		if err != nil {
 			consErr = err
+			// A sink failure must stop the producer too. Without this the
+			// producer parks in Push on a full queue and Run never returns;
+			// cancelling lets it unblock, and its deferred Close ends the
+			// consumer loop.
+			cancel()
 		}
 	}()
 
@@ -144,11 +149,16 @@ func (r *Runner) Run(ctx context.Context, src Source, proc Processor, sink Sink)
 		return res, media.NewError(media.PhaseIO, media.ExitInternal, r.opts.Track, 0, false, "run",
 			fmt.Errorf("%w: %v", media.ErrCancelled, ctx.Err()))
 	}
-	if prodErr != nil {
-		return res, prodErr
-	}
+	// A sink failure is the root cause; the producer's resulting cancellation
+	// is only its consequence, so report the sink error first.
 	if consErr != nil {
-		return res, consErr
+		if _, ok := media.AsError(consErr); ok {
+			return res, consErr
+		}
+		return res, media.NewError(media.PhaseIO, media.ExitInternal, r.opts.Track, 0, false, "sink", consErr)
+	}
+	if prodErr != nil && !errors.Is(prodErr, context.Canceled) {
+		return res, prodErr
 	}
 	return res, nil
 }
@@ -191,9 +201,16 @@ func (r *Runner) produce(ctx context.Context, q *Queue[media.Block], src Source,
 			continue
 		}
 
+		// A first block that does not start at frame zero is a leading gap and
+		// is filled exactly like any interior gap, so the downstream resampler
+		// always sees a stream that begins at zero.
 		lastEnd, started := tl.LastEnd(track)
 		var gap int64
-		if started && item.Block.Start > lastEnd {
+		if !started {
+			lastEnd = 0
+			started = true
+		}
+		if item.Block.Start > lastEnd {
 			gap = item.Block.Start - lastEnd
 		}
 		if gap > r.opts.MaxGapFrames {

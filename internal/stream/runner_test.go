@@ -232,6 +232,69 @@ func TestRunnerDuplicatesAndConflict(t *testing.T) {
 	_ = dupItems
 }
 
+// errSink fails on its first block; the runner must return that error rather
+// than hanging with a producer parked on a full queue.
+type errSink struct{ err error }
+
+func (e errSink) Consume(media.Block) error { return e.err }
+
+func TestRunnerSinkErrorDoesNotHang(t *testing.T) {
+	tl := newTimeline(t, 1, 0)
+	src := &sliceSource{items: audioItems(200, 16, nil)}
+	r, _ := NewRunner(RunnerOptions{Capacity: 2, MaxBlock: 4096, Track: "mix", Timeline: tl})
+	sinkErr := errors.New("disk full")
+	done := make(chan struct{})
+	var err error
+	go func() {
+		_, err = r.Run(context.Background(), src, &passProc{}, errSink{err: sinkErr})
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run hung after sink error")
+	}
+	if err == nil || !errors.Is(err, sinkErr) {
+		t.Fatalf("err=%v want sink error", err)
+	}
+}
+
+func TestRunnerLeadingGapFilled(t *testing.T) {
+	tl := newTimeline(t, 1, 0)
+	items := []SourceItem{
+		{Block: media.Block{Track: "mix", Seq: 0, Start: 100, Rate: rate48, Channels: 1, Samples: make([]float64, 16)}},
+	}
+	sink := &collectSink{}
+	r, _ := NewRunner(RunnerOptions{Capacity: 4, MaxBlock: 32, MaxGapFrames: 1000, Track: "mix", Timeline: tl})
+	res, err := r.Run(context.Background(), &sliceSource{items: items}, &passProc{}, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Gaps != 1 || res.GapFrames != 100 {
+		t.Fatalf("gaps=%d frames=%d", res.Gaps, res.GapFrames)
+	}
+	if sink.blocks[0].Start != 0 {
+		t.Fatalf("output starts at %d, expected leading silence from 0", sink.blocks[0].Start)
+	}
+	var total int
+	for _, b := range sink.blocks {
+		total += b.Frames()
+	}
+	if total != 116 {
+		t.Fatalf("total frames=%d want 116", total)
+	}
+
+	// An oversized leading gap must be rejected just like an interior one.
+	tl2 := newTimeline(t, 1, 0)
+	big := []SourceItem{
+		{Block: media.Block{Track: "mix", Seq: 0, Start: 1_000_000, Rate: rate48, Channels: 1, Samples: make([]float64, 16)}},
+	}
+	r2, _ := NewRunner(RunnerOptions{Capacity: 2, MaxGapFrames: 100, Track: "mix", Timeline: tl2})
+	if _, err := r2.Run(context.Background(), &sliceSource{items: big}, &passProc{}, &collectSink{}); err == nil {
+		t.Fatal("oversized leading gap accepted")
+	}
+}
+
 func TestRunnerGapFillAndOversizeGap(t *testing.T) {
 	tl := newTimeline(t, 1, 0)
 	nonZero := make([]float64, 16)
