@@ -189,6 +189,24 @@ func TestCancellationFreesResourcesAndKeepsAck(t *testing.T) {
 	}
 }
 
+func TestProducerOversizeJobIsRootError(t *testing.T) {
+	// A job whose prepared cost exceeds the whole budget must surface as the
+	// producer error, not as the empty-queue consequence.
+	q := NewQueue(100)
+	jobs := makeJobs(2, 10)
+	_, err := Run(context.Background(), q, jobs, func(_ context.Context, j *Job) error { return nil },
+		RunOptions{Prepare: func(_ context.Context, j *Job) error {
+			j.Cost = 1000
+			return nil
+		}})
+	if !errors.Is(err, ErrMemoryLimit) {
+		t.Fatalf("root cause lost: %v", err)
+	}
+	if q.Used() != 0 {
+		t.Fatalf("queue retained %d bytes", q.Used())
+	}
+}
+
 func TestConsumerErrorStopsRun(t *testing.T) {
 	q := NewQueue(1000)
 	boom := errors.New("boom")

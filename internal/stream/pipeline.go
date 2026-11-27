@@ -339,6 +339,15 @@ func Run(ctx context.Context, q *Queue, jobs []Job, consume func(context.Context
 	perr := <-producerErr
 	wg.Wait()
 	close(errCh)
+	// A producer-side error (e.g. a job larger than the whole budget) is the
+	// root cause; an empty-queue drain is only a consequence of it.
+	if perr != nil && !errors.Is(perr, context.Canceled) {
+		out.PeakBytes = q.Peak()
+		out.BackpressureWaits = q.Waits()
+		out.Cancelled = ctx.Err() != nil
+		q.Reset()
+		return out, perr
+	}
 	for err := range errCh {
 		if err != nil && !errors.Is(err, context.Canceled) {
 			return out, err

@@ -377,6 +377,9 @@ func execute(f verifyFlags, limit int64, stderr io.Writer) (*report, error) {
 	// Segment digests verify against a second, independent run so the output
 	// is proven reproducible.
 	if len(rep.Reports) == 0 {
+		if run.outcome.Processed == 0 {
+			return rep, fmt.Errorf("no segments completed: every prepare failed (queue limit %d bytes)", limit)
+		}
 		return rep, errors.New("no segments completed")
 	}
 	for _, r := range rep.Reports {
