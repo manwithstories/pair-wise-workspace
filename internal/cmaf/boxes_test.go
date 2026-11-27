@@ -6,11 +6,12 @@ import (
 )
 
 func boxBytes(typ string, payload []byte) []byte {
-	out := make([]byte, 8+len(payload))
-	out[0] = byte(8 + len(payload) >> 24)
-	out[1] = byte(8 + len(payload) >> 16)
-	out[2] = byte(8 + len(payload) >> 8)
-	out[3] = byte(8 + len(payload))
+	size := 8 + len(payload)
+	out := make([]byte, size)
+	out[0] = byte(size >> 24)
+	out[1] = byte(size >> 16)
+	out[2] = byte(size >> 8)
+	out[3] = byte(size)
 	copy(out[4:8], typ)
 	copy(out[8:], payload)
 	return out
@@ -50,7 +51,7 @@ func TestOutOfRangeLength(t *testing.T) {
 	_, err := ScanBoxes(stream, 100)
 	var be *BoxError
 	if !errors.As(err, &be) || be.Offset != 100 {
-		t.Fatalf("want BoxError at absolute offset 100, got %v", err)
+		t.Fatalf("want BoxError at absolute box start 100, got %v", err)
 	}
 	if off, ok := DamageOffset(err); !ok || off != 100 {
 		t.Fatalf("DamageOffset = %d,%v", off, ok)
@@ -61,16 +62,16 @@ func TestTruncatedHeaderAndMdat(t *testing.T) {
 	if _, err := ScanBoxes([]byte{0, 0, 0, 12, 'm', 'd'}, 0); err == nil {
 		t.Fatal("truncated header must error")
 	}
-	// A well-formed header whose mdat payload is cut short: the first
-	// missing byte is the end of the available data.
+	// A well-formed header whose mdat payload is cut short: the damaged
+	// unit is the mdat header whose declared length cannot be satisfied.
 	stream := boxBytes(TypeMdat, []byte{1, 2, 3, 4})[:10]
 	_, err := ScanBoxes(stream, 0)
 	var be *BoxError
 	if !errors.As(err, &be) {
 		t.Fatalf("want BoxError, got %T %v", err, err)
 	}
-	if be.BoxType != TypeMdat || be.Offset != int64(len(stream)) {
-		t.Fatalf("truncated mdat: type=%s offset=%d want %d", be.BoxType, be.Offset, len(stream))
+	if be.BoxType != TypeMdat || be.Offset != 0 {
+		t.Fatalf("truncated mdat: type=%s offset=%d want 0", be.BoxType, be.Offset)
 	}
 }
 

@@ -110,15 +110,12 @@ func parseBox(data []byte, pos int, base int64) (Box, int, error) {
 	}
 	end := uint64(pos) + size
 	if end > uint64(len(data)) {
-		off := base + int64(pos)
-		reason := fmt.Sprintf("box length %d exceeds %d remaining bytes", size, len(data)-pos)
-		if typ == TypeMdat {
-			// A declared mdat running past the buffer is a truncated payload:
-			// the first missing byte sits exactly at the end of the data.
-			off = base + int64(len(data))
-			reason = "truncated mdat payload"
-		}
-		return Box{}, 0, &BoxError{Offset: off, BoxType: typ, Reason: reason}
+		// The box header itself is the first corrupted unit: its declared
+		// length cannot be satisfied by the remaining bytes. This covers a
+		// truncated mdat exactly the same way as any other out-of-range
+		// box, so callers always know where the damage begins.
+		return Box{}, 0, &BoxError{Offset: base + int64(pos), BoxType: typ,
+			Reason: fmt.Sprintf("out-of-range box length %d (only %d bytes remain)", size, len(data)-pos)}
 	}
 	b := Box{
 		Type:       typ,
