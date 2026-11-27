@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"strings"
 
 	"avrepair/internal/manifest"
 	"avrepair/internal/media"
@@ -26,10 +25,6 @@ type capture struct {
 	unrecov   int
 	sha       string
 	err       error
-}
-
-func stateSegName(id string) string {
-	return strings.ReplaceAll(id, "/", "_") + ".json"
 }
 
 // loadCapture reads one segment within the size limit and sniffs its
@@ -91,7 +86,6 @@ func (c *runContext) buildTimeline() (*media.Timeline, error) {
 			Discontinuity: e.Discontinuity,
 			Timescale:     t.Timescale,
 		}
-		seg.StateFile = stateSegName(seg.ID)
 		cap := loadCapture(e.Path, e.ByteOffset, e.ByteLength)
 		c.captures[seg.ID] = cap
 		c.parseSegment(seg, cap)

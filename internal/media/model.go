@@ -92,7 +92,6 @@ type Segment struct {
 	RawEnd          int64     `json:"raw_end,omitempty"`
 	Format          string    `json:"format,omitempty"`
 	SourceSHA       string    `json:"source_sha256,omitempty"`
-	StateFile       string    `json:"state_file,omitempty"`
 	Quarantine      string    `json:"quarantine,omitempty"`
 	QuarantineCause string    `json:"quarantine_cause,omitempty"`
 	MissingPackets  int       `json:"missing_packets,omitempty"`
