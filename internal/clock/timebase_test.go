@@ -40,7 +40,6 @@ func TestConvertExactAndRounded(t *testing.T) {
 	if err != nil || got != -2 {
 		t.Fatalf("round half negative: %d %v", got, err)
 	}
-	// 1/90000 -> 1/48000 = 8/15, exact big.Int math.
 	got, err = Convert(90000, Rational{1, 90000}, Rational{1, 48000})
 	if err != nil || got != 48000 {
 		t.Fatalf("90000->48000: %d %v", got, err)
@@ -99,37 +98,55 @@ func TestTimelineValidation(t *testing.T) {
 	if err == nil {
 		t.Fatal("duplicate track accepted")
 	}
+	_, err = NewTimeline([]TrackSpec{{Track: 1, TimeBase: Rational{1, 1000}, Start: -10}})
+	if !errors.Is(err, ErrInvalidTimestamp) {
+		t.Fatalf("negative start accepted: %v", err)
+	}
 }
 
-func TestTimelineUnification(t *testing.T) {
+func TestTimelineSharedOrigin(t *testing.T) {
+	// Audio starts at 0.1 s, subtitles at 0.3 s: both are measured on one
+	// container timeline, so the cue keeps its 200 ms offset.
 	tl, err := NewTimeline([]TrackSpec{
-		{Track: 0, TimeBase: Rational{1, 1000}, Start: 0, Duration: 1000},
-		{Track: 1, TimeBase: Rational{1, 48000}, Start: 0, Duration: 48000},
-		{Track: 2, TimeBase: Rational{1, 90000}, Start: 9000, Duration: 90000},
+		{Track: 0, TimeBase: Rational{1, 1000}, Start: 100, Duration: 1000},
+		{Track: 1, TimeBase: Rational{1, 90000}, Start: 27000, Duration: 90000},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	u, err := tl.ToUnified(2, 9000)
+	if tl.Origin() != 100_000 {
+		t.Fatalf("origin %d", tl.Origin())
+	}
+	u, err := tl.ToUnified(1, 27000)
+	if err != nil || u != 200_000 {
+		t.Fatalf("cue should be 200ms after audio start: %d %v", u, err)
+	}
+	u, err = tl.ToUnified(0, 100)
 	if err != nil || u != 0 {
-		t.Fatalf("track start should map to 0: %d %v", u, err)
+		t.Fatalf("audio start should be 0: %d %v", u, err)
 	}
-	u, err = tl.ToUnified(2, 99000)
-	if err != nil || u != 1_000_000 {
-		t.Fatalf("track 1s: %d %v", u, err)
-	}
-	back, err := tl.ToTrack(2, 1_000_000)
-	if err != nil || back != 99000 {
+	back, err := tl.ToTrack(1, 200_000)
+	if err != nil || back != 27000 {
 		t.Fatalf("roundtrip: %d %v", back, err)
 	}
-	if _, err := tl.ToUnified(2, -1); !errors.Is(err, ErrInvalidTimestamp) {
+	if _, err := tl.ToUnified(1, -1); !errors.Is(err, ErrInvalidTimestamp) {
 		t.Fatalf("negative pts: %v", err)
 	}
 	if _, err := tl.ToUnified(99, 0); !errors.Is(err, ErrOutOfRange) {
 		t.Fatalf("unknown track: %v", err)
 	}
+}
+
+func TestTimelineTotalDuration(t *testing.T) {
+	tl, err := NewTimeline([]TrackSpec{
+		{Track: 0, TimeBase: Rational{1, 1000}, Start: 0, Duration: 2000},
+		{Track: 1, TimeBase: Rational{1, 48000}, Start: 4800, Duration: 96000},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	total, err := tl.TotalDuration()
-	if err != nil || total != 1_000_000 {
+	if err != nil || total != 2_100_000 {
 		t.Fatalf("total: %d %v", total, err)
 	}
 }
