@@ -52,14 +52,15 @@ func (c *runContext) writeOutputs(tl *media.Timeline) error {
 			}
 			name := fmt.Sprintf("%s_%05d.bin", sanitize(track.ID), seg.Seq)
 			path := filepath.Join(c.opt.OutputDir, name)
+			elapsed := float64(time.Since(start).Microseconds()) / 1000.0
 			if err := atomicWrite(path, data); err != nil {
 				return err
 			}
 			seg.Output = name
 			seg.OutputSHA = sha256Hex(data)
-			// The metric tracks repair work per segment, excluding disk
-			// write latency, so it reflects the pipeline's own cost.
-			c.segTimes = append(c.segTimes, float64(time.Since(start).Microseconds())/1000.0)
+			// The metric measures in-memory repair work per segment and
+			// excludes the atomic write so it is not disk-latency bound.
+			c.segTimes = append(c.segTimes, elapsed)
 			if err := c.writeSegmentRecord(track, seg); err != nil {
 				return err
 			}
