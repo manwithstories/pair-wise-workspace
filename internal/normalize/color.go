@@ -7,13 +7,11 @@ import (
 	"aircheck/internal/scan"
 )
 
-// colorFamilies groups equivalent color metadata triples.
-var colorFamilies = map[string]string{
-	"bt709|bt709|bt709":                 "bt709",
-	"smpte170m|smpte170m|smpte170m":     "bt601",
-	"bt470bg|bt470bg|bt470bg":           "bt601",
-	"bt2020nc|bt2020|bt2020nc":          "bt2020",
-	"bt2020nc|bt2020|smpte2084":         "bt2020-hdr",
+// fieldFamily maps a single color metadata value to its family.
+var fieldFamily = map[string]string{
+	"bt709": "bt709",
+	"smpte170m": "bt601", "bt470bg": "bt601",
+	"bt2020nc": "bt2020", "bt2020": "bt2020", "smpte2084": "bt2020",
 }
 
 // ColorPolicy declares how color metadata deviations are handled.
@@ -48,9 +46,21 @@ func CheckColor(t scan.Track, p ColorPolicy) (ColorDecision, error) {
 		d.Notes = append(d.Notes, "unspecified color metadata, tagging "+p.Target)
 		return d, nil
 	}
-	key := fmt.Sprintf("%s|%s|%s", orUnk(cs), orUnk(cp), orUnk(ct))
-	fam, ok := colorFamilies[key]
-	if !ok {
+	// Every specified field must resolve to the same family; mixed
+	// families are a conflict, unknown values are a conflict too.
+	fams := map[string]bool{}
+	for _, v := range []string{cs, cp, ct} {
+		if v == "" {
+			continue
+		}
+		f, ok := fieldFamily[v]
+		if !ok {
+			fams["unknown:" + v] = true
+			continue
+		}
+		fams[f] = true
+	}
+	if len(fams) > 1 {
 		err := fault.New(fault.CodeColorConflict, t.ID, -1, p.OnConflict == "tag",
 			"conflicting color metadata space=%s primaries=%s transfer=%s", cs, cp, ct)
 		if p.OnConflict != "tag" {
@@ -60,10 +70,16 @@ func CheckColor(t scan.Track, p ColorPolicy) (ColorDecision, error) {
 		d.Retag = true
 		return d, nil
 	}
-	d.Family = fam
-	if fam != p.Target {
+	for f := range fams {
+		d.Family = f
+	}
+	if cs == "" || cp == "" || ct == "" {
 		d.Retag = true
-		d.Notes = append(d.Notes, fmt.Sprintf("color family %s != target %s, retagging", fam, p.Target))
+		d.Notes = append(d.Notes, "partial color metadata, completing tag "+p.Target)
+	}
+	if d.Family != p.Target {
+		d.Retag = true
+		d.Notes = append(d.Notes, fmt.Sprintf("color family %s != target %s, retagging", d.Family, p.Target))
 	}
 	return d, nil
 }
@@ -71,13 +87,6 @@ func CheckColor(t scan.Track, p ColorPolicy) (ColorDecision, error) {
 func norm(s string) string {
 	if s == "unknown" || s == "unspecified" {
 		return ""
-	}
-	return s
-}
-
-func orUnk(s string) string {
-	if s == "" {
-		return "unspecified"
 	}
 	return s
 }
