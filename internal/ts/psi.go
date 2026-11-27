@@ -149,12 +149,13 @@ func (t *PSITracker) section(pid uint16, sec []byte, off int64) *model.Fault {
 	return nil
 }
 
-// versionOK accepts the first version seen or an increment by one (mod 32).
+// versionOK accepts the first version seen, a retransmission of the
+// current version, or an increment by one (mod 32).
 func (t *PSITracker) versionOK(last, next int) bool {
 	if last < 0 {
 		return true
 	}
-	return next == (last+1)%32
+	return next == last || next == (last+1)%32
 }
 
 // parsePMTStreams extracts elementary stream entries from a PMT section.

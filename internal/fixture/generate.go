@@ -95,7 +95,15 @@ func (g *generator) run() {
 	}
 	g.writePSI()
 	t := start
-	for len(g.out) < g.opts.Bytes {
+	// Derive a frame count so every branch shares the same timeline.
+	// The estimate uses the lowest branch's packet rate for all
+	// branches; higher branches simply produce proportionally more
+	// bytes for the same frames.
+	nominal := esFillByBranch[0]
+	perFrame := ts.PacketSize * (1 + (14+nominal+183)/184)
+	psiPerFrame := 2 * ts.PacketSize / 30
+	frames := max(1, g.opts.Bytes/(perFrame+psiPerFrame))
+	for g.frame < frames {
 		interval := int64(frameTicks)
 		if g.opts.VFR {
 			interval = frameTicks/2 + g.schedule.Int64N(frameTicks)
