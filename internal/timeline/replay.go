@@ -114,6 +114,12 @@ func (r *Replayer) ContiguousEdge() (int64, bool) {
 	return r.lastContiguous, r.have
 }
 
+// Get 返回指定展开序号的槽位与是否存在。
+func (r *Replayer) Slot(extSeq int64) (*Slot, bool) {
+	s, ok := r.slots[extSeq]
+	return s, ok
+}
+
 // MissingRanges 返回当前所有占位区间（展开序号闭区间），确定性排序。
 func (r *Replayer) MissingRanges() [][2]int64 {
 	var missing []int64

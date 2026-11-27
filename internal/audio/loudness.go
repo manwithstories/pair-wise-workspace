@@ -12,8 +12,6 @@ const (
 	MaxTPdBTP   = -1.0
 	// blockMillis 是响度测量的块长度（400ms，EBU R128 标准块）。
 	blockMillis = 400
-	// minBlocks 是允许给出集成响度的最少有效块；不足则按短片规则处理。
-	minBlocks = 1
 	// absGateLUFS 是绝对门限 -70 LUFS。
 	absGateLUFS = -70.0
 	// silenceFloor 是判定整段静音的 RMS 门限（线性）。
@@ -29,10 +27,14 @@ type LoudnessStats struct {
 	Frames         int
 }
 
-// MeasureLoudness 对交错立体声 48k PCM 做确定性响度测量。
+// MeasureLoudness 对交错立体声 48k PCM 做确定性 EBU R128 响度测量。
 //
-// 采用工程化 K 加权（二阶高架+高通滤波）+ 400ms 均方能量块 + 绝对门限平均，
-// 真峰值按 4x 过采样估计。结果仅依赖样本，可逐位复现。
+// 关键点（与 R128 对齐）：
+//   - 逐声道 K 加权，块能量在各声道"求和"而非先下混，否则立体声
+//     同相信号会被系统性低估约 3 LU；
+//   - 400ms 重叠块（步长 100ms）+ 绝对门限(-70 LUFS)与相对门限(-10 LU)；
+//   - 真峰值按 4x 窗控 sinc 过采样逐声道取最大值。
+// 结果仅依赖样本，可逐位复现。
 func MeasureLoudness(buf *Buffer) LoudnessStats {
 	st := LoudnessStats{Frames: buf.Frames}
 	if buf == nil || buf.Frames == 0 {
@@ -40,69 +42,107 @@ func MeasureLoudness(buf *Buffer) LoudnessStats {
 		st.TruePeakDBTP = math.Inf(-1)
 		return st
 	}
-	// 下混为单声道能量序列（立体声平均），同时跟踪线性峰值。
-	mono := downmixMono(buf)
-	globalPeak := 0.0
-	for _, v := range mono {
-		if a := math.Abs(float64(v)); a > globalPeak {
-			globalPeak = a
+	// 拆出各声道样本。
+	channels := 2
+	perCh := make([][]float32, channels)
+	for c := 0; c < channels; c++ {
+		perCh[c] = make([]float32, buf.Frames)
+		for i := 0; i < buf.Frames; i++ {
+			perCh[c][i] = buf.Samples[i*channels+c]
 		}
 	}
-	st.TruePeak = estimateTruePeak(mono)
-	st.TruePeakDBTP = toDBTP(st.TruePeak)
-
-	// K 加权滤波（固定系数的二阶滤波串联）。
-	weighted := kWeight(mono, TargetRate)
-
-	block := TargetRate * blockMillis / 1000
-	var blockMeans []float64
-	for start := 0; start < len(weighted); start += block {
-		end := start + block
-		if end > len(weighted) {
-			end = len(weighted)
+	// 静音检测：全部声道整体未加权 RMS。
+	rmsSum, n := 0.0, 0
+	peak := 0.0
+	for c := 0; c < channels; c++ {
+		if tp := estimateTruePeak(perCh[c]); tp > peak {
+			peak = tp
+		}
+		for _, v := range perCh[c] {
+			fv := float64(v)
+			rmsSum += fv * fv
+			n++
+		}
+	}
+	st.TruePeak = peak
+	st.TruePeakDBTP = toDBTP(peak)
+	if math.Sqrt(rmsSum/float64(n)) < silenceFloor {
+		st.IsSilence = true
+		st.IntegratedLUFS = math.Inf(-1)
+		return st
+	}
+	// 逐声道 K 加权。
+	weighted := make([][]float64, channels)
+	for c := 0; c < channels; c++ {
+		w := kWeight(perCh[c], TargetRate)
+		f64 := make([]float64, len(w))
+		for i, v := range w {
+			f64[i] = float64(v)
+		}
+		weighted[c] = f64
+	}
+	blockLen := TargetRate * blockMillis / 1000
+	hop := TargetRate * 100 / 1000 // 100ms 重叠步长
+	if hop <= 0 {
+		hop = blockLen
+	}
+	// 每个块的跨声道平均功率。
+	var blockPower []float64
+	for start := 0; start < buf.Frames; start += hop {
+		end := start + blockLen
+		if end > buf.Frames {
+			end = buf.Frames
 		}
 		if end-start == 0 {
 			continue
 		}
 		sum := 0.0
-		for i := start; i < end; i++ {
-			w := float64(weighted[i])
-			sum += w * w
+		for c := 0; c < channels; c++ {
+			for i := start; i < end; i++ {
+				v := weighted[c][i]
+				sum += v * v
+			}
 		}
-		mean := sum / float64(end-start)
-		loud := lufsFromMeanSq(mean)
-		if loud >= absGateLUFS {
-			blockMeans = append(blockMeans, mean)
-		}
+		// R128: 跨声道求和后除以样本数（声道数已含在求和中）。
+		power := sum / float64(end-start)
+		blockPower = append(blockPower, power)
 	}
-	// 静音检测基于未加权整体 RMS。
-	rms := 0.0
-	for _, v := range mono {
-		fv := float64(v)
-		rms += fv * fv
-	}
-	rms = math.Sqrt(rms / float64(len(mono)))
-	if rms < silenceFloor {
-		st.IsSilence = true
+	if len(blockPower) == 0 {
 		st.IntegratedLUFS = math.Inf(-1)
 		return st
 	}
-	if len(blockMeans) < minBlocks {
-		// 短片：用全部加权样本能量，保证有确定结果。
-		sum := 0.0
-		for _, v := range weighted {
-			fv := float64(v)
-			sum += fv * fv
+	// 绝对门限：剔除 < -70 LUFS 的块。
+	var gated []float64
+	for _, p := range blockPower {
+		if lufsFromMeanSq(p) >= absGateLUFS {
+			gated = append(gated, p)
 		}
-		st.IntegratedLUFS = lufsFromMeanSq(sum / float64(len(weighted)))
-		return st
 	}
-	// 集成响度：门限块平均能量再转 LUFS（能量域平均，非响度域）。
+	if len(gated) == 0 {
+		// 短片/极弱信号：退化为全部块平均，保证确定结果。
+		gated = blockPower
+	}
+	// 相对门限：基于绝对门限均值再剔除低于 (均值-10 LU) 的块。
+	mean0 := 0.0
+	for _, p := range gated {
+		mean0 += p
+	}
+	mean0 /= float64(len(gated))
+	relThresh := lufsFromMeanSq(mean0) - 10
+	final := gated[:0]
+	for _, p := range gated {
+		if lufsFromMeanSq(p) >= relThresh {
+			final = append(final, p)
+		}
+	}
+	if len(final) == 0 {
+		final = gated
+	}
 	total := 0.0
-	for _, m := range blockMeans {
-		total += m
+	for _, p := range final {
+		total += p
 	}
-	st.IntegratedLUFS = lufsFromMeanSq(total / float64(len(blockMeans)))
+	st.IntegratedLUFS = lufsFromMeanSq(total / float64(len(final)))
 	return st
 }
 
@@ -136,22 +176,20 @@ func Normalize(buf *Buffer) (*NormalizeResult, error) {
 		res.StatsAfter = before
 		return res, nil
 	}
-	gainDB := TargetLUFS - before.IntegratedLUFS
-	gain := math.Pow(10, gainDB/20)
-	applyGain(buf, float32(gain))
-
-	after := MeasureLoudness(buf)
-	// 真峰值限制：目标线性阈值 = 10^(-1/20)。
+	// 单遍确定增益：先求达到 LUFS 目标所需增益，再用真峰值上限约束，
+	// 取两者较小值，避免"先放大再限幅压回"导致响度目标落空。
+	lufsGain := math.Pow(10, (TargetLUFS-before.IntegratedLUFS)/20)
 	tpLimit := math.Pow(10, MaxTPdBTP/20)
-	if after.TruePeak > tpLimit {
-		limitGain := tpLimit / after.TruePeak
-		applyGain(buf, float32(limitGain))
-		gain *= limitGain
-		gainDB += 20 * math.Log10(limitGain)
+	maxGainByTP := tpLimit / before.TruePeak
+	gain := lufsGain
+	if maxGainByTP < gain {
+		gain = maxGainByTP
 		res.AppliedLimit = true
 	}
+	applyGain(buf, float32(gain))
+
 	res.GainLinear = gain
-	res.GainDB = gainDB
+	res.GainDB = 20 * math.Log10(gain)
 	res.StatsAfter = MeasureLoudness(buf)
 	return res, nil
 }
@@ -161,15 +199,6 @@ func applyGain(buf *Buffer, g float32) {
 	for i := range buf.Samples {
 		buf.Samples[i] *= g
 	}
-}
-
-// downmixMono 把交错立体声下混为单声道（两声道平均）。
-func downmixMono(buf *Buffer) []float32 {
-	mono := make([]float32, buf.Frames)
-	for i := 0; i < buf.Frames; i++ {
-		mono[i] = (buf.Samples[i*2] + buf.Samples[i*2+1]) * 0.5
-	}
-	return mono
 }
 
 // lufsFromMeanSq 把均方能量转换为 LUFS（-0.691 为 K 加权校准常数）。
@@ -187,21 +216,29 @@ func toDBTP(linear float64) float64 {
 	return 20 * math.Log10(linear)
 }
 
-// estimateTruePeak 用 4x 线性插值过采样估计连续域真峰值。
+// estimateTruePeak 用 4x 窗控 sinc 插值过采样估计连续域真峰值。
+// sinc 带限重建比朴素余弦插值更贴近真实 D/A 过冲，避免系统性高估导致过度限幅。
 func estimateTruePeak(x []float32) float64 {
 	if len(x) == 0 {
 		return 0
 	}
+	const up = 4
+	const half = 8 // 半窗长度（输入样本数）
 	peak := 0.0
-	up := 4
-	for i := 0; i < len(x)-1; i++ {
-		a := float64(x[i])
-		b := float64(x[i+1])
+	for i := range x {
 		for k := 0; k < up; k++ {
+			// 在样本 i 与 i+1 之间的分数位置 t∈[0,1)。
 			t := float64(k) / float64(up)
-			// 余弦插值比线性更接近带限重建的过冲。
-			v := a*0.5*(1+math.Cos(math.Pi*t)) + b*0.5*(1-math.Cos(math.Pi*t))
-			if av := math.Abs(v); av > peak {
+			acc := 0.0
+			for m := -half; m <= half; m++ {
+				idx := i + m
+				if idx < 0 || idx >= len(x) {
+					continue
+				}
+				d := t - float64(m) // 相对当前插值点的距离
+				acc += float64(x[idx]) * sincWindowed(d)
+			}
+			if av := math.Abs(acc); av > peak {
 				peak = av
 			}
 		}
@@ -212,47 +249,68 @@ func estimateTruePeak(x []float32) float64 {
 	return peak
 }
 
-// kWeight 应用工程化 K 加权：高通(≈38Hz) + 高架(≈1.68kHz,+4dB)。
-// 双二阶（biquad）系数固定，保证逐位可复现。
+// sincWindowed 返回 Hann 加窗的归一化 sinc 核。
+func sincWindowed(d float64) float64 {
+	if math.Abs(d) < 1e-12 {
+		return 1
+	}
+	piD := math.Pi * d
+	hann := 0.5 * (1 + math.Cos(piD/float64(8)))
+	return math.Sin(piD) / piD * hann
+}
+
+// R128 K 加权滤波器精确参数（Mansbridge, Finn & Reiss；EBU R128 48kHz 基准）。
+const (
+	r128HSFreq = 1681.974450955533
+	r128HSGainDB = 3.999843853973347
+	r128HSQ    = 0.7071752369554196
+	r128HPFreq = 38.13547087602444
+	r128HPQ    = 0.5003270373238773
+)
+
+// kWeight 应用 EBU R128 K 加权：先高架预滤波（HSF），再高通加权（HPF）。
+// 系数与 Audacity/BS.1770 参考实现一致，固定且可逐位复现。
 func kWeight(x []float32, rate int) []float32 {
-	// 第一级：二阶高通，截止 ~38Hz。
-	hp := biquadHighPass(rate, 38.0, 0.707)
-	y := processBiquad(x, hp)
-	// 第二级：高架滤波，1.68kHz 提升约 4dB。
-	hs := biquadHighShelf(rate, 1681.5, dbToGain(4.0))
-	y = processBiquad(y, hs)
-	return y
+	hs := r128HighShelf(rate)
+	y := processBiquad(x, hs)
+	hp := r128HighPass(rate)
+	return processBiquad(y, hp)
 }
 
 type biquad struct {
 	b0, b1, b2, a1, a2 float64
 }
 
-func biquadHighPass(rate int, cutoff, q float64) biquad {
-	w := 2 * math.Pi * cutoff / float64(rate)
-	cosw := math.Cos(w)
-	alpha := math.Sin(w) / (2 * q)
-	b0 := (1 + cosw) / 2
-	b1 := -(1 + cosw)
-	b2 := (1 + cosw) / 2
-	a0 := 1 + alpha
-	a1 := -2 * cosw
-	a2 := 1 - alpha
-	return biquad{b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0}
+// r128HighShelf 按 R128 修改式 RBJ 高架公式计算（f0≈1681.97Hz，+4dB）。
+func r128HighShelf(rate int) biquad {
+	K := math.Tan(math.Pi * r128HSFreq / float64(rate))
+	Vh := math.Pow(10, r128HSGainDB/20)
+	Vb := math.Pow(Vh, 0.4996667741545416)
+	Kq := K / r128HSQ
+	K2 := K * K
+	a0 := 1 + Kq + K2
+	return biquad{
+		b0: (Vh + Vb*Kq + K2) / a0,
+		b1: 2 * (K2 - Vh) / a0,
+		b2: (Vh - Vb*Kq + K2) / a0,
+		a1: 2 * (K2 - 1) / a0,
+		a2: (1 - Kq + K2) / a0,
+	}
 }
 
-func biquadHighShelf(rate int, cutoff, gainLin float64) biquad {
-	w := 2 * math.Pi * cutoff / float64(rate)
-	cosw := math.Cos(w)
-	sinw := math.Sin(w)
-	a := gainLin
-	b0 := a * ((a + 1) + (a-1)*cosw + 2*math.Sqrt(a)*sinw)
-	b1 := -2 * a * ((a - 1) + (a + 1) * cosw)
-	b2 := a * ((a + 1) + (a-1)*cosw - 2*math.Sqrt(a)*sinw)
-	a0 := (a + 1) - (a-1)*cosw + 2*math.Sqrt(a)*sinw
-	a1 := 2 * ((a - 1) - (a + 1) * cosw)
-	a2 := (a + 1) - (a-1)*cosw - 2*math.Sqrt(a)*sinw
-	return biquad{b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0}
+// r128HighPass 按 R128 固定分子高通公式计算（f0≈38.14Hz，Q≈0.5003）。
+func r128HighPass(rate int) biquad {
+	K := math.Tan(math.Pi * r128HPFreq / float64(rate))
+	Kq := K / r128HPQ
+	K2 := K * K
+	d := 1 + Kq + K2
+	return biquad{
+		b0: 1 / d,
+		b1: -2 / d,
+		b2: 1 / d,
+		a1: 2 * (K2 - 1) / d,
+		a2: (1 - Kq + K2) / d,
+	}
 }
 
 func processBiquad(x []float32, bq biquad) []float32 {
@@ -267,5 +325,3 @@ func processBiquad(x []float32, bq biquad) []float32 {
 	}
 	return y
 }
-
-func dbToGain(db float64) float64 { return math.Pow(10, db/20) }

@@ -3,6 +3,8 @@
 package audio
 
 import (
+	"math"
+
 	"github.com/asticode/go-astiav"
 
 	"archivemedia/internal/media"
@@ -22,12 +24,12 @@ type Buffer struct {
 
 // Resampler 把任意输入格式的 PCM 帧转换为 48 kHz 立体声平面浮点，
 // 再交错输出。内部 swr 按首帧自动配置（FFmpeg 9 行为）。
+// 输入帧统一使用 planar FLTP，按 AVFrame linesize 对齐填充，避免紧密缓冲被拒。
 type Resampler struct {
 	swr *astiav.SoftwareResampleContext
 	// 已配置的输入签名，输入格式变化时需要重建 swr。
 	inRate   int
 	inCh     int
-	inFmt    astiav.SampleFormat
 	outFrame *astiav.Frame
 }
 
@@ -54,8 +56,7 @@ func (r *Resampler) Close() {
 
 // ensureConfig 在输入签名首次出现或变化时记录；swr 由 ConvertFrame 按帧自配置。
 func (r *Resampler) ensureConfig(f *packet.PCMFrame) error {
-	sf := astiav.SampleFormatFlt // 解码器输出已交错
-	if r.inRate == f.SampleRate && r.inCh == f.Channels && r.inFmt == sf {
+	if r.inRate == f.SampleRate && r.inCh == f.Channels {
 		return nil
 	}
 	// 输入变化：重建 swr 以避免残留延迟污染新流。
@@ -65,7 +66,6 @@ func (r *Resampler) ensureConfig(f *packet.PCMFrame) error {
 	}
 	r.inRate = f.SampleRate
 	r.inCh = f.Channels
-	r.inFmt = sf
 	return nil
 }
 
@@ -81,7 +81,7 @@ func (r *Resampler) Convert(f *packet.PCMFrame) (*Buffer, error) {
 	src := astiav.AllocFrame()
 	defer src.Free()
 	src.SetNbSamples(f.NbSamples)
-	src.SetSampleFormat(astiav.SampleFormatFlt)
+	src.SetSampleFormat(astiav.SampleFormatFltp)
 	src.SetSampleRate(f.SampleRate)
 	src.SetChannelLayout(layoutFor(f.Channels))
 	if err := src.AllocBuffer(0); err != nil {
@@ -89,10 +89,9 @@ func (r *Resampler) Convert(f *packet.PCMFrame) (*Buffer, error) {
 			media.ErrorLocation{ArrivalIndex: -1, ByteOffset: -1},
 			"输入帧缓冲分配失败", err)
 	}
-	if err := src.Data().SetBytes(float32Bytes(f.Samples), 0); err != nil {
-		return nil, media.E(media.KindAudio, "audio.resample",
-			media.ErrorLocation{ArrivalIndex: -1, ByteOffset: -1},
-			"写入输入帧失败", err)
+	// 按帧实际 linesize 把交错样本解交织写入平面缓冲，保证对齐正确。
+	if err := writePlanar(src, f); err != nil {
+		return nil, err
 	}
 	// 输出帧容量按最保守上界预留，swr 会写入实际采样数。
 	est := f.NbSamples*TargetRate/f.SampleRate + 32
@@ -158,10 +157,23 @@ func (r *Resampler) readOut() (*Buffer, error) {
 	}
 	out := make([]float32, n*2)
 	for i := 0; i < n; i++ {
-		out[i*2] = planar[i]
-		out[i*2+1] = planar[n+i]
+		out[i*2] = softClip(planar[i])
+		out[i*2+1] = softClip(planar[n+i])
 	}
 	return &Buffer{Samples: out, Frames: n}, nil
+}
+
+// softClip 用 tanh 把样本约束在 (-1,1)，仅在接近/超过满量程时显著作用，
+// 避免重采样过冲在写 16-bit WAV 时被硬削顶，保证浮点测量与落盘一致。
+func softClip(v float32) float32 {
+	av := v
+	if av < 0 {
+		av = -av
+	}
+	if av <= 0.99 {
+		return v
+	}
+	return float32(math.Tanh(float64(v)))
 }
 
 // layoutFor 把声道数映射为标准布局。
@@ -170,6 +182,26 @@ func layoutFor(channels int) astiav.ChannelLayout {
 		return astiav.ChannelLayoutMono
 	}
 	return astiav.ChannelLayoutStereo
+}
+
+// writePlanar 把交错 float32 PCM 按 AVFrame 的 linesize 解交织写入各平面。
+// 使用 SetBytes 提供按平面紧密排列的输入（每平面 n 个 float），
+// FrameData 内部按 linesize 完成对齐拷贝。
+func writePlanar(frame *astiav.Frame, f *packet.PCMFrame) error {
+	n := f.NbSamples
+	ch := f.Channels
+	planar := make([]float32, n*ch)
+	for c := 0; c < ch; c++ {
+		for i := 0; i < n; i++ {
+			planar[c*n+i] = f.Samples[i*ch+c]
+		}
+	}
+	if err := frame.Data().SetBytes(float32Bytes(planar), 1); err != nil {
+		return media.E(media.KindAudio, "audio.resample",
+			media.ErrorLocation{ArrivalIndex: -1, ByteOffset: -1},
+			"写入平面输入帧失败", err)
+	}
+	return nil
 }
 
 func float32Bytes(s []float32) []byte {
