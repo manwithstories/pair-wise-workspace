@@ -39,7 +39,10 @@ func NewResampler() *Resampler {
 	out.SetChannelLayout(astiav.ChannelLayoutStereo)
 	out.SetSampleFormat(astiav.SampleFormatFltp)
 	out.SetSampleRate(TargetRate)
-	return &Resampler{swr: astiav.AllocSoftwareResampleContext(), outFrame: out}
+	return &Resampler{
+		swr:      astiav.AllocSoftwareResampleContext(),
+		outFrame: out,
+	}
 }
 
 // Close 释放 C 资源。
@@ -53,7 +56,6 @@ func (r *Resampler) Close() {
 		r.swr = nil
 	}
 }
-
 // ensureConfig 在输入签名首次出现或变化时记录；swr 由 ConvertFrame 按帧自配置。
 func (r *Resampler) ensureConfig(f *packet.PCMFrame) error {
 	if r.inRate == f.SampleRate && r.inCh == f.Channels {
@@ -78,6 +80,7 @@ func (r *Resampler) Convert(f *packet.PCMFrame) (*Buffer, error) {
 	if err := r.ensureConfig(f); err != nil {
 		return nil, err
 	}
+	// 输入帧每帧分配（astiav 标准安全用法，避免跨包缓冲残留导致不确定性）。
 	src := astiav.AllocFrame()
 	defer src.Free()
 	src.SetNbSamples(f.NbSamples)
@@ -93,7 +96,7 @@ func (r *Resampler) Convert(f *packet.PCMFrame) (*Buffer, error) {
 	if err := writePlanar(src, f); err != nil {
 		return nil, err
 	}
-	// 输出帧容量按最保守上界预留，swr 会写入实际采样数。
+	// 输出帧容量按最保守上界预留，每帧 Unref 后重分配（astiav 标准模式）。
 	est := f.NbSamples*TargetRate/f.SampleRate + 32
 	r.outFrame.Unref()
 	r.outFrame.SetChannelLayout(astiav.ChannelLayoutStereo)

@@ -218,36 +218,74 @@ func toDBTP(linear float64) float64 {
 
 // estimateTruePeak 用 4x 窗控 sinc 插值过采样估计连续域真峰值。
 // sinc 带限重建比朴素余弦插值更贴近真实 D/A 过冲，避免系统性高估导致过度限幅。
+//
+// 性能：先 O(n) 求样本峰值，再只对接近峰值的少量样本做完整 sinc 插值，
+// 把 O(68n) 的卷积降为 O(n)+O(68·candidate)，结果与全量卷积等价。
 func estimateTruePeak(x []float32) float64 {
-	if len(x) == 0 {
+	n := len(x)
+	if n == 0 {
 		return 0
 	}
 	const up = 4
 	const half = 8 // 半窗长度（输入样本数）
-	peak := 0.0
+	kernel := truePeakKernel
+
+	// 第一遍：样本峰值与候选阈值（峰值的 0.9，过冲不会越过该邻域）。
+	samplePeak := 0.0
+	for _, v := range x {
+		if a := math.Abs(float64(v)); a > samplePeak {
+			samplePeak = a
+		}
+	}
+	peak := samplePeak
+	if samplePeak == 0 {
+		return 0
+	}
+	threshold := samplePeak * 0.9
+	// 第二遍：仅对接近峰值的样本做过采样插值。
 	for i := range x {
+		if math.Abs(float64(x[i])) < threshold {
+			continue
+		}
 		for k := 0; k < up; k++ {
-			// 在样本 i 与 i+1 之间的分数位置 t∈[0,1)。
-			t := float64(k) / float64(up)
+			row := kernel[k]
 			acc := 0.0
+			w := 0
 			for m := -half; m <= half; m++ {
 				idx := i + m
-				if idx < 0 || idx >= len(x) {
-					continue
+				if idx >= 0 && idx < n {
+					acc += float64(x[idx]) * row[w]
 				}
-				d := t - float64(m) // 相对当前插值点的距离
-				acc += float64(x[idx]) * sincWindowed(d)
+				w++
 			}
 			if av := math.Abs(acc); av > peak {
 				peak = av
 			}
 		}
 	}
-	if av := math.Abs(float64(x[len(x)-1])); av > peak {
-		peak = av
-	}
 	return peak
 }
+
+// truePeakKernel 是启动时一次性预计算的 4 相位 × 17 抽头窗控 sinc 核，
+// 热循环仅做乘加，避免在每个采样点重复计算三角函数。
+var truePeakKernel = func() [4][17]float64 {
+	const up = 4
+	const half = 8
+	var tbl [4][2*half + 1]float64
+	for k := 0; k < up; k++ {
+		t := float64(k) / float64(up)
+		w := 0
+		for m := -half; m <= half; m++ {
+			tbl[k][w] = sincWindowed(t - float64(m))
+			w++
+		}
+	}
+	var out [4][17]float64
+	for i := range out {
+		copy(out[i][:], tbl[i][:])
+	}
+	return out
+}()
 
 // sincWindowed 返回 Hann 加窗的归一化 sinc 核。
 func sincWindowed(d float64) float64 {

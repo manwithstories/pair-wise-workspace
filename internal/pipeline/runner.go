@@ -276,37 +276,39 @@ func (r *Runner) buildTimeline() error {
 
 // render 逐槽位解码、重采样、整段响度归一并写 WAV。
 func (r *Runner) render() error {
-	accumulated := &audio.Buffer{}
+	// 预估总帧数，一次性分配累积缓冲，消除逐帧扩容的 GC 压力。
+	estFrames := 0
 	for _, slot := range r.replayer.SortedSlots() {
-		var buf *audio.Buffer
+		estFrames += int(slot.Event.DurationTicks) * audio.TargetRate /
+			int(slot.Event.ClockRate)
+	}
+	acc := audio.NewAccumulator(estFrames + 1024)
+	for _, slot := range r.replayer.SortedSlots() {
+		frames := int(slot.Event.DurationTicks) * audio.TargetRate /
+			int(slot.Event.ClockRate)
 		if slot.Missing {
-			frames := int(slot.Event.DurationTicks) * audio.TargetRate /
-				int(slot.Event.ClockRate)
-			buf = audio.Silence(frames)
-		} else {
-			b, err := r.decodeOne(slot.Event)
-			if err != nil {
-				if media.IsKind(err, media.KindDecode) {
-					r.stats.Corrupt++
-					frames := int(slot.Event.DurationTicks) * audio.TargetRate /
-						int(slot.Event.ClockRate)
-					buf = audio.Silence(frames)
-				} else {
-					return err
-				}
-			} else {
-				buf = b
-			}
+			acc.WriteSilence(frames)
+			continue
 		}
-		accumulated = audio.Append(accumulated, buf)
+		b, err := r.decodeOne(slot.Event)
+		if err != nil {
+			if media.IsKind(err, media.KindDecode) {
+				r.stats.Corrupt++
+				acc.WriteSilence(frames)
+				continue
+			}
+			return err
+		}
+		acc.Write(b)
 	}
 	if r.resampler != nil {
 		tail, err := r.resampler.Flush()
 		if err != nil {
 			return err
 		}
-		accumulated = audio.Append(accumulated, tail)
+		acc.Write(tail)
 	}
+	accumulated := acc.Buffer()
 	if accumulated.Frames > 0 {
 		nres, err := audio.Normalize(accumulated)
 		if err != nil {
