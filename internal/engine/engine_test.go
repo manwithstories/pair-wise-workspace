@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"avrepair/internal/clock"
 	"avrepair/internal/fixture"
 )
 
@@ -143,6 +144,19 @@ func TestRejectsUnsafeOutputDir(t *testing.T) {
 	sc, _ := fixture.Build(fixture.CaseClean)
 	if _, err := Run(sc, Options{OutDir: ""}); err == nil {
 		t.Fatal("empty output dir must be rejected")
+	}
+}
+
+func TestRejectsOversizedInput(t *testing.T) {
+	sc, _ := fixture.Build(fixture.CaseClean)
+	// Inflate one packet so the declared payload reaches the 4 GiB ceiling.
+	sc.Video[0].Bytes = int(clock.MaxInputBytes)
+	err := checkInputSize(sc)
+	if err == nil || !clock.HasCode(err, clock.CodeBadOffset) {
+		t.Fatalf("oversized input must be rejected, got %v", err)
+	}
+	if _, err := Run(sc, Options{OutDir: t.TempDir()}); err == nil {
+		t.Fatal("Run must enforce the 4 GiB input ceiling")
 	}
 }
 

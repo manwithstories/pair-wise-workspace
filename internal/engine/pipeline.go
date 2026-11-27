@@ -56,6 +56,10 @@ func Run(sc *fixture.Scenario, opt Options) (*Report, error) {
 	rep := &Report{Case: sc.Name, ExitCode: ExitOK}
 	var errs []*clock.TrackError
 
+	if err := checkInputSize(sc); err != nil {
+		return nil, err
+	}
+
 	// 1. Clock repair on the video and audio timelines.
 	videoPts := toPoints("video", sc.Video)
 	audioPts := toPoints("audio", sc.Audio)
