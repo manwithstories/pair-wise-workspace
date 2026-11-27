@@ -49,6 +49,9 @@ func (t TrackID) String() string {
 type PacketError struct {
 	Offset int64
 	Reason string
+	// Fatal marks framing errors (bad length prefix, truncated
+	// record) after which the stream cannot be resynchronized.
+	Fatal bool
 }
 
 func (e *PacketError) Error() string {

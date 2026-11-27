@@ -41,6 +41,7 @@ type Packet struct {
 	Marker       bool
 	PayloadType  uint8
 	Seq          uint16
+	ExtSeq       uint64 // extended sequence number, set by the Reorderer
 	Timestamp    uint32
 	SSRC         uint32
 	CSRC         []uint32
@@ -55,6 +56,12 @@ type Packet struct {
 
 func pktErr(off int64, format string, args ...any) *media.PacketError {
 	return &media.PacketError{Offset: off, Reason: fmt.Sprintf(format, args...)}
+}
+
+func fatalErr(off int64, format string, args ...any) *media.PacketError {
+	e := pktErr(off, format, args...)
+	e.Fatal = true
+	return e
 }
 
 // ParsePacket parses one datagram. abs is the absolute stream offset of
@@ -211,7 +218,7 @@ func (rd *Reader) Next() (*Packet, error) {
 			return nil, io.EOF
 		}
 		if err == io.ErrUnexpectedEOF {
-			return nil, pktErr(rd.off, "truncated length prefix")
+			return nil, fatalErr(rd.off, "truncated length prefix")
 		}
 		return nil, err
 	}
@@ -219,13 +226,13 @@ func (rd *Reader) Next() (*Packet, error) {
 	rd.off += lenPrefixLen
 	n := binary.BigEndian.Uint32(hdr[:])
 	if n == 0 || int64(n) > int64(rd.max) {
-		return nil, pktErr(base, "invalid length prefix %d (max %d)", n, rd.max)
+		return nil, fatalErr(base, "invalid length prefix %d (max %d)", n, rd.max)
 	}
 	buf := make([]byte, n)
 	got, err := io.ReadFull(rd.r, buf)
 	rd.off += int64(got)
 	if err != nil {
-		return nil, pktErr(rd.off, "truncated payload: need %d bytes, have %d", n, got)
+		return nil, fatalErr(rd.off, "truncated payload: need %d bytes, have %d", n, got)
 	}
 	return ParsePacket(buf, base+lenPrefixLen)
 }

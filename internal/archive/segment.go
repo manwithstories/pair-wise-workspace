@@ -165,6 +165,9 @@ func (s *Segmenter) Segments() []SegmentMeta {
 	return out
 }
 
+// Committed returns the number of closed segments.
+func (s *Segmenter) Committed() int { return len(s.segs) }
+
 // WriteManifest atomically writes the manifest for this run.
 func (s *Segmenter) WriteManifest(inputDigest string, p Params) error {
 	m := Manifest{

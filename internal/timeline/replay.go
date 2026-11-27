@@ -23,6 +23,12 @@ type Checkpoint struct {
 	Clock     []byte
 }
 
+// WatermarkSink is an optional Sink extension notified after each
+// drain so slices can be closed once they leave the rollback horizon.
+type WatermarkSink interface {
+	OnWatermark(wm media.TimeUs)
+}
+
 // Replayer commits events in stable (time, SSRC, ext seq) order as the
 // watermark advances. Late events inside the rollback horizon trigger
 // a restart from the nearest checkpoint; events beyond the horizon are
@@ -132,6 +138,9 @@ func (r *Replayer) drain() {
 	if n > 0 {
 		r.drained = wm
 		r.prune()
+		if ws, ok := r.sink.(WatermarkSink); ok {
+			ws.OnWatermark(wm)
+		}
 	}
 }
 
@@ -175,3 +184,6 @@ func (r *Replayer) Flush() {
 
 // Stats reports rollback and quarantine counters.
 func (r *Replayer) Stats() (replays, quarantined int) { return r.Replays, r.Quarantined }
+
+// Drained returns the committed watermark used at the last drain.
+func (r *Replayer) Drained() media.TimeUs { return r.drained }

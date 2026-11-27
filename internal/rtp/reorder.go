@@ -118,6 +118,7 @@ func (r *Reorderer) drain(s *stream) []*Packet {
 		emitted := false
 		if p, ok := s.buf[s.nextEmit]; ok {
 			delete(s.buf, s.nextEmit)
+			p.ExtSeq = s.nextEmit
 			out = append(out, p)
 			emitted = true
 		} else if s.nextEmit+r.window <= s.maxExt {
@@ -147,6 +148,7 @@ func (r *Reorderer) Flush() []*Packet {
 		for len(s.buf) > 0 {
 			if p, ok := s.buf[s.nextEmit]; ok {
 				delete(s.buf, s.nextEmit)
+				p.ExtSeq = s.nextEmit
 				out = append(out, p)
 				r.stats.Emitted++
 			} else {
