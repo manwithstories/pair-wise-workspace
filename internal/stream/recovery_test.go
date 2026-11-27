@@ -154,6 +154,20 @@ func TestRecoveryProducesIdenticalDigests(t *testing.T) {
 	}
 }
 
+func TestResumeRejectsMisalignedJobIDs(t *testing.T) {
+	// A caller that hands over a sub-slice without preserving absolute IDs
+	// would make Complete record digests under the wrong segment numbers.
+	dg := testDigest(t)
+	jobs := makeJobs(6, 100)[2:]
+	r := Resume{Resumed: true, StartIndex: 2, Skipped: 2,
+		Checkpoint: &Checkpoint{Version: 1, Digest: dg, SegmentSizeUS: 1000, Complete: 2, NextIndex: 2, LastAckUS: 2000}}
+	ck := NewCheckpointer(&CheckpointStore{Path: t.TempDir() + "/x.json"}, dg, 1000, r)
+	consume := func(_ context.Context, j *Job) (string, error) { return "d", nil }
+	if _, err := RunWithRecovery(context.Background(), NewQueue(1000), jobs, ck, r, consume, RunOptions{}); err == nil {
+		t.Fatal("misaligned job IDs accepted")
+	}
+}
+
 func compareDigests(a, b []string) error {
 	if len(a) != len(b) {
 		return fmt.Errorf("digest count %d != %d", len(a), len(b))

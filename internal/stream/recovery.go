@@ -251,6 +251,12 @@ func RunWithRecovery(ctx context.Context, q *Queue, jobs []Job, ck *Checkpointer
 		if resume.StartIndex > len(jobs) {
 			return Outcome{}, fmt.Errorf("stream: checkpoint segment %d beyond %d jobs", resume.StartIndex, len(jobs))
 		}
+		// IDs must stay aligned with checkpoint indices; otherwise Complete
+		// would record a digest under the wrong segment number.
+		if len(jobs) > 0 && jobs[resume.StartIndex].ID != resume.StartIndex {
+			return Outcome{}, fmt.Errorf("stream: job %d carries ID %d at checkpoint segment %d",
+				resume.StartIndex, jobs[resume.StartIndex].ID, resume.StartIndex)
+		}
 		jobs = jobs[resume.StartIndex:]
 	}
 	wrapped := func(ctx context.Context, job *Job) error {
@@ -272,7 +278,9 @@ func RunWithRecovery(ctx context.Context, q *Queue, jobs []Job, ck *Checkpointer
 		out.Processed += resume.Skipped
 		out.Acknowledged += resume.Skipped
 	}
-	if out.LastAckUS == 0 && resume.Resumed {
+	if resume.Resumed && out.LastAckUS < resume.StartUS {
+		// The resumed run completed no segment; report the checkpoint's
+		// position rather than regressing to zero.
 		out.LastAckUS = resume.StartUS
 	}
 	return out, err
