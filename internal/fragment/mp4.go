@@ -65,7 +65,14 @@ func walkBoxes(data []byte) ([]box, *fault.Error) {
 		}
 		size := int64(binary.BigEndian.Uint32(data[off:]))
 		typ := string(data[off+4 : off+8])
-		if size < 8 || off+size > int64(len(data)) {
+		if size < 8 {
+			return boxes, fault.Newf(fault.KindTruncated, "", off, true,
+				"box %s invalid size %d", typ, size)
+		}
+		if off+size > int64(len(data)) {
+			// 截断盒子：保留实际剩余数据，便于挽救完整样本
+			boxes = append(boxes, box{typ: typ, off: off, size: size,
+				payload: data[off+8:]})
 			return boxes, fault.Newf(fault.KindTruncated, "", off, true,
 				"box %s size %d out of range (file %d)", typ, size, len(data))
 		}
@@ -93,7 +100,7 @@ func ParseInit(path string) (*InitInfo, *fault.Error) {
 		}
 		inner, _ := walkBoxes(b.payload)
 		for _, ib := range inner {
-			if ib.typ == "rinit" && len(ib.payload) >= 26 {
+			if ib.typ == "rinf" && len(ib.payload) >= 26 {
 				p := ib.payload
 				return &InitInfo{
 					Codec:         string(p[0:4]),
@@ -107,7 +114,7 @@ func ParseInit(path string) (*InitInfo, *fault.Error) {
 			}
 		}
 	}
-	return nil, fault.New(fault.KindMissingInit, path, 0, false, "no moov/rinit box")
+	return nil, fault.New(fault.KindMissingInit, path, 0, false, "no moov/rinf box")
 }
 
 // ParseSegment 解析分片：sidx 索引、moof 时间戳、mdat 数据。
@@ -142,7 +149,7 @@ func ParseSegment(path string) (*Segment, []*fault.Error) {
 				break
 			}
 			n := binary.BigEndian.Uint32(b.payload)
-			for i := uint32(0); i < n && 8+8*i+8 <= uint32(len(b.payload)); i++ {
+			for i := uint32(0); i < n && 4+8*i+8 <= uint32(len(b.payload)); i++ {
 				sidxSizes = append(sidxSizes, binary.BigEndian.Uint32(b.payload[4+8*i:]))
 			}
 			seg.IndexCount = len(sidxSizes)
@@ -160,7 +167,7 @@ func ParseSegment(path string) (*Segment, []*fault.Error) {
 			}
 		case "mdat":
 			mdatOff = b.off + 8
-			mdatLen = b.size - 8
+			mdatLen = int64(len(b.payload)) // 截断时为实际剩余
 		}
 	}
 	// 数据偏移换算为文件绝对偏移并校验越界
@@ -177,13 +184,13 @@ func ParseSegment(path string) (*Segment, []*fault.Error) {
 				break
 			}
 		}
-		if rel > mdatLen && len(seg.Samples) > 0 {
+		if rel > mdatLen && len(seg.Samples) > 0 && len(errs) == 0 {
 			errs = append(errs, fault.Newf(fault.KindTruncated, path, mdatOff+mdatLen, true,
 				"samples exceed mdat"))
 		}
 	}
-	// 索引缺项：sidx 条目数与 trun 样本数不一致
-	if seg.IndexCount != len(seg.Samples) {
+	// 索引缺项：sidx 条目数少于 trun 样本数（多于则是截断所致，不重复报告）
+	if seg.IndexCount < len(seg.Samples) {
 		errs = append(errs, fault.Newf(fault.KindMissingIndex, path, int64(seg.IndexCount), true,
 			"sidx entries %d != trun samples %d", seg.IndexCount, len(seg.Samples)))
 	}

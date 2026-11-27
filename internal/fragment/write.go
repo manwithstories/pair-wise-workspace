@@ -39,7 +39,7 @@ func WriteInit(path string, info *InitInfo) error {
 	p.Write(u32(0)) // 保留
 
 	var moov bytes.Buffer
-	putBox(&moov, "rinit", p.Bytes())
+	putBox(&moov, "rinf", p.Bytes())
 
 	var out bytes.Buffer
 	putBox(&out, "ftyp", []byte("isom\x00\x00\x00\x00"))
