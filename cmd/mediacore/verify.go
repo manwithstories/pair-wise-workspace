@@ -43,6 +43,11 @@ type report struct {
 	MemoryLimit       int64
 	Loudness          audio.Loudness
 	LUFS              float64
+	InputLUFS         float64
+	InputPeak         float64
+	GainDB            float64
+	Backpressure      int64
+	Quarantine        []scan.MetaRecord
 	Limited           bool
 	Quarantined       int
 	IndexRebuilt      bool
@@ -74,15 +79,23 @@ func (r *report) print(w io.Writer) {
 	fmt.Fprintf(w, "queue_peak_bytes=%d queue_limit_bytes=%d\n", r.QueuePeak, r.MemoryLimit)
 	fmt.Fprintf(w, "metadata_records=%d chapters=%d keyframes=%d quarantined_records=%d\n",
 		r.Records, r.Chapters, r.Keyframes, r.Quarantined)
-	if r.Loudness.Valid {
-		fmt.Fprintf(w, "loudness_before_lufs=%.2f loudness_target_lufs=%.1f loudness_limited=%v sample_peak=%.3f\n",
-			r.LUFS, audio.TargetLUFS, r.Limited, r.Loudness.SamplePeak)
+	if r.InputLUFS != 0 {
+		fmt.Fprintf(w, "loudness_in_lufs=%.2f loudness_target_lufs=%.1f loudness_gain_db=%.2f loudness_limited=%v input_sample_peak=%.3f\n",
+			r.InputLUFS, audio.TargetLUFS, r.GainDB, r.Limited, r.InputPeak)
+	}
+	if r.Backpressure > 0 {
+		fmt.Fprintf(w, "backpressure_waits=%d queue_full=1\n", r.Backpressure)
+	} else {
+		fmt.Fprintf(w, "backpressure_waits=0 queue_full=0\n")
 	}
 	if r.IndexRebuilt {
 		fmt.Fprintf(w, "index_rebuilt=1 index_invalidated=%d\n", r.IndexInvalidated)
 	}
 	fmt.Fprintf(w, "checkpoint_complete=%d recovered_segments=%d resumed=%v elapsed_ms=%d\n",
 		r.Checkpoint.Complete, r.RecoveredSegments, r.Resumed, r.Elapsed.Milliseconds())
+	for _, rec := range r.Quarantine {
+		fmt.Fprintf(w, "quarantined kind=%s track=%d t_us=%d reason=%q\n", rec.Kind, rec.Track, rec.TimeUS, rec.Reason)
+	}
 	for _, n := range r.Notes {
 		fmt.Fprintf(w, "note=%s\n", n)
 	}
@@ -246,6 +259,22 @@ func execute(f verifyFlags, limit int64, stderr io.Writer) (*report, error) {
 		return rep, err
 	}
 
+	// Pass 1 measures the source loudness; the resulting gain is fixed
+	// afterwards, so the hashed pass applies one constant gain to every
+	// segment and stays a pure function of the segment window.
+	meas, err := measureLoudness(path, sc, jobs)
+	if err != nil {
+		return rep, err
+	}
+	gainDB, limited := meas.GainDB, meas.Limited
+	rep.Limited = limited
+	rep.GainDB = gainDB
+	rep.InputLUFS = meas.LUFS
+	rep.InputPeak = meas.Peak
+	if !meas.Valid {
+		rep.Notes = append(rep.Notes, "loudness_measurement_invalid")
+	}
+
 	runOnce := func(resume stream.Resume, stopAfter int) (*segmentRun, error) {
 		dec, err := decode.Open(path, sc.Timeline)
 		if err != nil {
@@ -256,6 +285,7 @@ func execute(f verifyFlags, limit int64, stderr io.Writer) (*report, error) {
 		if err != nil {
 			return nil, err
 		}
+		worker.GainDB = gainDB
 		ck := stream.NewCheckpointer(ckStore, digest, segmentSizeUS, resume)
 		out, runErr := stream.RunWithRecovery(context.Background(), stream.NewQueue(limit), jobs, ck, resume,
 			worker.Consume, stream.RunOptions{ConsumerDelay: f.slowConsumer, StopAfter: stopAfter, Prepare: worker.Prepare})
@@ -289,7 +319,6 @@ func execute(f verifyFlags, limit int64, stderr io.Writer) (*report, error) {
 		if !f.resume {
 			// Without --resume the reported result is the interrupted run.
 			rep.Reports = run.worker.Reports
-			rep.Loudness = run.worker.Loudness()
 			rep.Resumed = false
 			rep.SegmentTotal = len(rep.Reports)
 			rep.SegmentMatch = len(rep.Reports)
@@ -324,18 +353,12 @@ func execute(f verifyFlags, limit int64, stderr io.Writer) (*report, error) {
 		return rep, err
 	}
 	rep.QueuePeak = run.outcome.PeakBytes
+	rep.Backpressure = run.outcome.BackpressureWaits
 	rep.Checkpoint = run.checkpoint
 	rep.Reports = run.worker.Reports
-	rep.Loudness = run.worker.Loudness()
+	rep.Quarantine = quarantinedRecords(sc)
 	if rep.QueuePeak == 0 && first != nil {
 		rep.QueuePeak = first.outcome.PeakBytes
-	}
-	if rep.Loudness.Valid {
-		rep.LUFS = rep.Loudness.IntegratedLUFS
-		if gain, limited := audio.GainForTarget(rep.Loudness, audio.TargetLUFS); limited {
-			rep.Limited = true
-			rep.Notes = append(rep.Notes, fmt.Sprintf("loudness_gain_db=%.2f limited_by_peak=1", 20*math.Log10(gain)))
-		}
 	}
 
 	// When resuming after a crash, the resumed run's reports cover only the
@@ -360,7 +383,7 @@ func execute(f verifyFlags, limit int64, stderr io.Writer) (*report, error) {
 		rep.Digests = append(rep.Digests, r.SHA256)
 	}
 	if !run.cancelled {
-		second, err := secondRunDigests(path, sc, ix, limit, f.slowConsumer)
+		second, err := secondRunDigests(path, sc, ix, limit, f.slowConsumer, gainDB)
 		if err != nil {
 			return rep, err
 		}
@@ -385,7 +408,7 @@ func execute(f verifyFlags, limit int64, stderr io.Writer) (*report, error) {
 }
 
 // secondRunDigests replays the pipeline from scratch to prove determinism.
-func secondRunDigests(path string, sc *scan.Scan, ix *index.Index, limit int64, slow time.Duration) ([]string, error) {
+func secondRunDigests(path string, sc *scan.Scan, ix *index.Index, limit int64, slow time.Duration, gainDB float64) ([]string, error) {
 	dec, err := decode.Open(path, sc.Timeline)
 	if err != nil {
 		return nil, err
@@ -395,6 +418,7 @@ func secondRunDigests(path string, sc *scan.Scan, ix *index.Index, limit int64, 
 	if err != nil {
 		return nil, err
 	}
+	worker.GainDB = gainDB
 	jobs, err := stream.SegmentBounds(sc.DurationUS, segmentSizeUS)
 	if err != nil {
 		return nil, err
@@ -511,4 +535,84 @@ type segmentRun struct {
 	outcome    stream.Outcome
 	checkpoint stream.Checkpoint
 	cancelled  bool
+}
+
+// loudnessMeasurement is the result of pass 1.
+type loudnessMeasurement struct {
+	LUFS    float64
+	Peak    float64
+	GainDB  float64
+	Limited bool
+	Valid   bool
+}
+
+// measureLoudness decodes the whole program once and reports the gain needed
+// to reach the -23 LUFS target, plus whether the sample-peak ceiling limited it.
+func measureLoudness(path string, sc *scan.Scan, jobs []stream.Job) (loudnessMeasurement, error) {
+	dec, err := decode.Open(path, sc.Timeline)
+	if err != nil {
+		return loudnessMeasurement{}, err
+	}
+	defer dec.Close()
+	meter := audio.NewMeter(2)
+	var peak float64
+	for _, job := range jobs {
+		buf, err := dec.ReadIntoBuffer(context.Background(), job.StartUS, job.EndUS)
+		if err != nil {
+			return loudnessMeasurement{}, err
+		}
+		if buf.Frames() == 0 {
+			continue
+		}
+		if p := audio.Peak(buf); p > peak {
+			peak = p
+		}
+		n, err := audio.NewNormalizer(buf.Rate, buf.Channels(), layoutFor(buf.Channels()))
+		if err != nil {
+			return loudnessMeasurement{}, err
+		}
+		norm, err := n.Process(buf)
+		if err != nil {
+			return loudnessMeasurement{}, err
+		}
+		tail := n.Flush()
+		if tail.Frames() > 0 {
+			norm.Planes[0] = append(norm.Planes[0], tail.Planes[0]...)
+			norm.Planes[1] = append(norm.Planes[1], tail.Planes[1]...)
+		}
+		if err := meter.Add(norm); err != nil {
+			return loudnessMeasurement{}, err
+		}
+	}
+	l := meter.Result()
+	if !l.Valid {
+		return loudnessMeasurement{Peak: peak}, nil
+	}
+	gain, limited := audio.GainForTarget(l, audio.TargetLUFS)
+	return loudnessMeasurement{
+		LUFS: l.IntegratedLUFS, Peak: peak, GainDB: 20 * math.Log10(gain),
+		Limited: limited, Valid: true,
+	}, nil
+}
+
+func layoutFor(channels int) string {
+	switch channels {
+	case 1:
+		return "mono"
+	case 2:
+		return "stereo"
+	}
+	return "multi"
+}
+
+// quarantinedRecords returns the isolated records with their reasons so the
+// terminal report can locate each one.
+func quarantinedRecords(sc *scan.Scan) []scan.MetaRecord {
+	var out []scan.MetaRecord
+	for _, rec := range sc.Meta {
+		if rec.Quarantined {
+			out = append(out, rec)
+		}
+	}
+	return out
 }

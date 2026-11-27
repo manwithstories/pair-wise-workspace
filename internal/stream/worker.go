@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 
 	"mediacore/internal/audio"
 	"mediacore/internal/hash"
@@ -31,6 +32,10 @@ type SegmentWorker struct {
 	Faults int
 	// Reports holds each segment's digest in completion order.
 	Reports []hash.Report
+	// GainDB is the fixed loudness gain applied to every segment. It is
+	// computed by a measuring pass and then held constant, so the per-segment
+	// output stays a pure function of the segment window.
+	GainDB float64
 }
 
 // FrameSource yields decoded audio for the requested window.
@@ -95,6 +100,9 @@ func (w *SegmentWorker) Prepare(ctx context.Context, job *Job) error {
 	}
 	if w.Normalizer == nil {
 		w.Normalizer = normalizer
+	}
+	if w.GainDB != 0 {
+		norm = audio.ApplyGain(norm, math.Pow(10, w.GainDB/20))
 	}
 	// Loudness is measured on the normalized 48 kHz stereo signal so the
 	// gain decision matches what a listener would hear.
