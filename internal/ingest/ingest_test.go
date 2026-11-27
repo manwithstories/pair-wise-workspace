@@ -361,3 +361,26 @@ func TestParseWAVShortFile(t *testing.T) {
 		t.Fatalf("零长度文件应报结构错误，实际 %v", err)
 	}
 }
+
+func TestParseWAVRejectsUnsupportedBitDepth(t *testing.T) {
+	// 12bit 不在支持的 8/16/24/32 之列。
+	wb := newWavBuilder(48000, 1, 12, WaveFormatPCM)
+	wb.addFmt()
+	wb.addData(validPCM(8))
+	raw := wb.bytes()
+	if _, err := ParseWAV(bytes.NewReader(raw), int64(len(raw))); !errors.Is(err, model.ErrUnsupportedCodec) {
+		t.Fatalf("12bit 应报 ErrUnsupportedCodec，实际 %v", err)
+	}
+}
+
+func TestParseWAVBlockAlignMismatch(t *testing.T) {
+	wb := newWavBuilder(48000, 2, 16, WaveFormatPCM)
+	wb.addFmt()
+	wb.addData(validPCM(8))
+	raw := wb.bytes()
+	// fmt 块体从偏移 20 起，AvgBytesPerSec 位于其第 8 字节，即文件偏移 28。
+	binary.LittleEndian.PutUint32(raw[28:], 7)
+	if _, err := ParseWAV(bytes.NewReader(raw), int64(len(raw))); !errors.Is(err, model.ErrRiffStructure) {
+		t.Fatalf("块对齐速率不一致应报 ErrRiffStructure，实际 %v", err)
+	}
+}

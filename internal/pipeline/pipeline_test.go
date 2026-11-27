@@ -201,6 +201,8 @@ func TestInvalidConfigExitCodeTwo(t *testing.T) {
 		{OutDir: t.TempDir(), Tracks: 2, Samples: 0, Bandwidth: []int64{1}},
 		{OutDir: t.TempDir(), Tracks: 2, Samples: 100, Bandwidth: nil},
 		{OutDir: "", Tracks: 2, Samples: 100, Bandwidth: []int64{1}},
+		{OutDir: t.TempDir(), Tracks: 2, Samples: model.MaxSamples + 1, Bandwidth: []int64{1}},
+		{OutDir: t.TempDir(), Tracks: model.MaxTracks + 1, Samples: 100, Bandwidth: []int64{1}},
 	}
 	for i, cfg := range cases {
 		cfg.JobID = "bad"
