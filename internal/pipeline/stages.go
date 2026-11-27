@@ -94,12 +94,18 @@ func (e *Engine) classifyAndIngest(ctx context.Context, frame *media.Frame) erro
 	frame.EventNS = corrected
 
 	e.mu.Lock()
-	dupSeen := e.pendingSeen.has(trackID, frame.Sequence)
+	pendingHash, pendingExists := e.pendingSeen.lookup(trackID, frame.Sequence)
 	decision := e.dedup.Peek(trackID, frame)
 	e.mu.Unlock()
 
-	if dupSeen {
-		e.addDuplicate()
+	// 先判回溯区在途序号：哈希相同幂等忽略，哈希不同立即隔离为冲突。
+	if pendingExists {
+		if pendingHash == frame.SHA256 {
+			e.addDuplicate()
+			return nil
+		}
+		e.quarantine(trackID, frame, timeline.ReasonDuplicateConflict,
+			"same sequence still in holdback with different payload hash")
 		return nil
 	}
 	switch decision.Kind {
@@ -107,17 +113,14 @@ func (e *Engine) classifyAndIngest(ctx context.Context, frame *media.Frame) erro
 		e.addDuplicate()
 		return nil // 已提交过的相同帧，幂等忽略
 	case mapping.DecisionConflict:
-		e.mu.Lock()
-		e.tl.QuarantineExplicit(&timeline.Envelope{TrackID: trackID, Frame: frame},
-			timeline.ReasonDuplicateConflict, "same sequence with different payload hash")
-		e.stats.Quarantined++
-		e.mu.Unlock()
+		e.quarantine(trackID, frame, timeline.ReasonDuplicateConflict,
+			"same sequence committed with different payload hash")
 		return nil
 	}
 
 	env := &timeline.Envelope{TrackID: trackID, Frame: frame}
 	e.mu.Lock()
-	e.pendingSeen.add(trackID, frame.Sequence)
+	e.pendingSeen.add(trackID, frame.Sequence, frame.SHA256)
 	e.mu.Unlock()
 
 	for _, released := range e.tl.Ingest(env) {
@@ -126,6 +129,14 @@ func (e *Engine) classifyAndIngest(ctx context.Context, frame *media.Frame) erro
 		}
 	}
 	return nil
+}
+
+// quarantine 登记一帧隔离并累加计数。
+func (e *Engine) quarantine(trackID uint32, frame *media.Frame, reason, detail string) {
+	e.mu.Lock()
+	e.tl.QuarantineExplicit(&timeline.Envelope{TrackID: trackID, Frame: frame}, reason, detail)
+	e.stats.Quarantined++
+	e.mu.Unlock()
 }
 
 // dispatch 经有界管道投递一帧；额度不足时阻塞形成背压。

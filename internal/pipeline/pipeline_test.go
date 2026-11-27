@@ -116,6 +116,53 @@ func TestInterruptThenResumeCompletes(t *testing.T) {
 	}
 }
 
+func TestConflictFrameIsQuarantinedNotOverwritten(t *testing.T) {
+	fx := setupFixture(t, 40)
+	dir := filepath.Dir(fx.Conflict)
+	e, err := New(context.Background(), Options{
+		InputPath: fx.Conflict, OutputPath: filepath.Join(dir, "cf.mta"),
+		MapPath: fx.Map, CheckpointPath: filepath.Join(dir, "cf.ckpt"),
+		ManifestPath: filepath.Join(dir, "cf.json"), MaxBuffer: 64 << 20,
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Run(context.Background()); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	st := e.Stats()
+	if st.Quarantined != 1 || st.Released != 1 {
+		t.Fatalf("conflict must quarantine 1 and release 1, got %+v", st)
+	}
+	// 输出只保留第一帧，冲突帧不得静默覆盖。
+	outPath := filepath.Join(dir, "cf.mta")
+	f, _ := os.Open(outPath)
+	frames, err := demux.OpenContainer(f, outPath)
+	f.Close()
+	if err != nil || len(frames) != 1 {
+		t.Fatalf("output frames = %d err=%v", len(frames), err)
+	}
+}
+
+func TestBeyondWindowFrameIsQuarantined(t *testing.T) {
+	fx := setupFixture(t, 40)
+	dir := filepath.Dir(fx.Beyond)
+	e, err := New(context.Background(), Options{
+		InputPath: fx.Beyond, OutputPath: filepath.Join(dir, "bw.mta"),
+		MapPath: fx.Map, CheckpointPath: filepath.Join(dir, "bw.ckpt"),
+		ManifestPath: filepath.Join(dir, "bw.json"), MaxBuffer: 64 << 20,
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Run(context.Background()); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if st := e.Stats(); st.Quarantined != 1 || st.Consumed != 3 {
+		t.Fatalf("beyond-window stats wrong: %+v", st)
+	}
+}
+
 func TestCorruptInputReturnsMediaFault(t *testing.T) {
 	fx := setupFixture(t, 40)
 	dir := filepath.Dir(fx.BadCRC)

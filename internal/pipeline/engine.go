@@ -59,22 +59,31 @@ type Engine struct {
 	interruptRequested bool
 }
 
-// seenSequences 是回溯区在途帧序号的轻量集合（仅生产者 goroutine 访问）。
-type seenSequences struct{ m map[uint32]map[uint64]bool }
+// seenSequences 记录回溯区在途 (轨道,序号) 的载荷哈希，仅生产者 goroutine 访问。
+// 同序号同哈希幂等忽略，哈希不同即使尚未落盘也按冲突隔离，不得静默覆盖。
+type seenSequences struct {
+	m map[uint32]map[uint64][32]byte
+}
 
 func newSeenSequences() *seenSequences {
-	return &seenSequences{m: map[uint32]map[uint64]bool{}}
+	return &seenSequences{m: map[uint32]map[uint64][32]byte{}}
 }
 
-func (s *seenSequences) has(track uint32, seq uint64) bool {
-	return s.m[track] != nil && s.m[track][seq]
-}
-
-func (s *seenSequences) add(track uint32, seq uint64) {
-	if s.m[track] == nil {
-		s.m[track] = map[uint64]bool{}
+// lookup 返回在途哈希与是否存在该序号。
+func (s *seenSequences) lookup(track uint32, seq uint64) ([32]byte, bool) {
+	if ledger := s.m[track]; ledger != nil {
+		h, ok := ledger[seq]
+		return h, ok
 	}
-	s.m[track][seq] = true
+	var zero [32]byte
+	return zero, false
+}
+
+func (s *seenSequences) add(track uint32, seq uint64, hash [32]byte) {
+	if s.m[track] == nil {
+		s.m[track] = map[uint64][32]byte{}
+	}
+	s.m[track][seq] = hash
 }
 
 func (s *seenSequences) remove(track uint32, seq uint64) {
