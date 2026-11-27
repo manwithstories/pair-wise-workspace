@@ -119,10 +119,10 @@ func Build(cams []*Camera) (*Timeline, error) {
 
 // SampleRange identifies a half-open run of samples on one camera.
 type SampleRange struct {
-	First     int // decode index, inclusive
-	Last      int // decode index, inclusive
-	Keyframe  int // decode index of the IDR at the cut
-	KfAt      clock.Rat
+	First    int // decode index, inclusive
+	Last     int // decode index, inclusive
+	Keyframe int // decode index of the IDR at the cut
+	KfAt     clock.Rat
 }
 
 // Cut is one common boundary across all cameras.
@@ -144,7 +144,12 @@ func (t *Timeline) Plan(segmentDur clock.Rat) ([]Cut, error) {
 	if err != nil {
 		return nil, err
 	}
-	count := span.Num * segmentDur.Den / (segmentDur.Num * span.Den)
+	// Round (rather than truncate) the segment count. AAC priming and rational
+	// frame rates can make a nominal 12s/2s timeline measure 11.9999s; a
+	// truncated division would wrongly drop the final segment. The last cut's
+	// Till is clamped to the timeline end, so rounding up covers the tail
+	// without inventing a segment for a genuinely short remainder.
+	count := roundedRatio(span.Num, span.Den, segmentDur.Num, segmentDur.Den)
 	if count < 1 {
 		return nil, media.New(media.PhaseAlign, media.KindBounds, "", -1,
 			"common timeline shorter than one segment")
@@ -169,6 +174,11 @@ func (t *Timeline) Plan(segmentDur clock.Rat) ([]Cut, error) {
 		}
 		if till.Cmp(t.End) > 0 {
 			till = t.End
+		}
+		// Rounding can place a nominal cut at/after the timeline end; such a
+		// cut has no media to cover and must be dropped.
+		if at.Cmp(t.End) >= 0 {
+			continue
 		}
 		cut := Cut{Index: int(k), At: at, Till: till, Ranges: map[string]SampleRange{}}
 		minAt, maxAt := at, at
@@ -196,6 +206,8 @@ func (t *Timeline) Plan(segmentDur clock.Rat) ([]Cut, error) {
 				fmt.Sprintf("cut %d: cross-camera keyframe spread %s exceeds one frame %s",
 					int(k), spread.String(), t.FrameTol.String())).AtTime(at)
 		}
+		// Renumber by final position so dropped tail cuts leave no index gaps.
+		cut.Index = len(cuts)
 		cuts = append(cuts, cut)
 	}
 	return cuts, nil
@@ -308,6 +320,20 @@ func tail(frames []Frame) (clock.Rat, error) {
 
 func ratFromDuration(d time.Duration) (clock.Rat, error) {
 	return clock.New(int64(d), int64(time.Second))
+}
+
+// roundedRatio returns nearest-integer (a/b) / (c/d) with .5 rounded up.
+func roundedRatio(a, b, c, d int64) int64 {
+	num := a * d
+	den := b * c
+	if den <= 0 || num <= 0 {
+		return 0
+	}
+	q := num / den
+	if 2*(num%den) >= den {
+		q++
+	}
+	return q
 }
 
 func presentationOrder(samples []mp4.Sample) []int {
