@@ -27,7 +27,9 @@ type BlockState struct {
 
 // Checkpoint is the durable resume token. It pins the exact source digest
 // and the cumulative output checksum, so a changed input or a corrupted
-// partial output cannot be silently continued.
+// partial output cannot be silently continued. The fault profile is embedded
+// verbatim so a resume needs no command-line re-flagging and reproduces the
+// identical impairment that produced the partial output.
 type Checkpoint struct {
 	InputSHA256      string       `json:"input_sha256"`
 	OutputName       string       `json:"output_name"`
@@ -37,6 +39,7 @@ type Checkpoint struct {
 	UnrecoveredCount int          `json:"unrecovered_count"`
 	RunningHash      string       `json:"running_sha256"`
 	Blocks           []BlockState `json:"blocks"`
+	FaultProfile     []byte       `json:"fault_profile,omitempty"`
 	Interrupted      bool         `json:"interrupted"`
 }
 

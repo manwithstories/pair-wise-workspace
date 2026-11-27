@@ -89,12 +89,19 @@ func Run(cfg Config) (*Result, error) {
 		}
 	}
 
-	out, runErr := processOne(cfg, idx, cp, manifest)
+	// Resolve the fault profile. A resume command may omit --fault-profile;
+	// in that case the exact profile embedded in the checkpoint is reused so
+	// impairment is reproduced byte-for-byte without re-flagging it.
+	profileBytes, err := resolveProfileBytes(cfg, cp)
+	if err != nil {
+		return nil, err
+	}
+
+	out, runErr := processOne(cfg, idx, cp, manifest, profileBytes, resumed)
 	resumeMS := time.Since(start).Milliseconds()
 	if runErr != nil && !errors.Is(runErr, model.ErrInterrupted) {
 		return nil, runErr
 	}
-	manifest.Resumed = resumed
 	if out != nil {
 		out.ResumeMS = resumeMS
 	}
@@ -134,33 +141,44 @@ func firstHardFault(faults []*model.Fault) *model.Fault {
 	return best
 }
 
+// resolveProfileBytes returns the raw fault-profile JSON for a run. An
+// explicit --fault-profile always wins; otherwise a resume reuses the bytes
+// stored in its checkpoint; a fresh run with no flag yields an empty profile
+// (no impairment).
+func resolveProfileBytes(cfg Config, cp *Checkpoint) ([]byte, error) {
+	if cfg.FaultProfile != "" {
+		return os.ReadFile(cfg.FaultProfile)
+	}
+	if cp != nil && len(cp.FaultProfile) > 0 {
+		return cp.FaultProfile, nil
+	}
+	return nil, nil
+}
+
 // processOne handles one file end to end and mutates the manifest.
 func processOne(cfg Config, idx *index.FileIndex, cp *Checkpoint,
-	manifest *output.Manifest) (*Result, error) {
+	manifest *output.Manifest, profileBytes []byte, resumed bool) (*Result, error) {
+	manifest.Resumed = resumed
 	// 1) packetize all tracks, then apply deterministic impairment
 	var originals []*transport.Packet
 	for _, tr := range idx.Tracks {
 		originals = append(originals, transport.PacketizeTrack(tr)...)
 	}
-	profile, err := transport.LoadFaultProfile(cfg.FaultProfile)
+	profile, err := transport.ParseFaultProfile(profileBytes)
 	if err != nil {
 		return nil, err
 	}
 	impaired := transport.NewInjector(profile).Inject(originals)
 
-	// 2) bounded jitter + NACK + XOR recovery
+	// 2) bounded jitter + NACK + XOR recovery. Fault injection is seeded and
+	// therefore deterministic, so re-simulating the full stream on resume
+	// yields the exact same recovery outcomes as the original run. These
+	// recomputed totals are the authoritative whole-pipeline counts; the
+	// checkpoint only controls which already-committed samples are skipped
+	// during remux, so counts must NOT be added on top (that would double
+	// count every recovery across a resume boundary).
 	delivered, gaps, stats, mechanism := transport.Run(originals, impaired,
 		transport.DefaultJitterConfig())
-	// On resume, the transport re-simulates the full deterministic stream but
-	// the already-committed samples are skipped during remux. Recovery that
-	// belonged to those samples was counted in the prior run and recorded in
-	// the checkpoint, so it is folded back in here rather than double counted.
-	if cp != nil && cfg.Resume {
-		stats.RecoveredPackets += cp.RecoveredCount
-		stats.NACKRecovered += cp.RecoveredCount
-		stats.UnrecoveredPackets += cp.UnrecoveredCount
-		stats.LostPackets += cp.UnrecoveredCount
-	}
 	decisions := buildDecisions(originals, delivered, gaps, mechanism)
 	manifest.RecordTransport(stats, gaps, decisions)
 
@@ -212,6 +230,7 @@ func processOne(cfg Config, idx *index.FileIndex, cp *Checkpoint,
 			UnrecoveredCount: stats.UnrecoveredPackets,
 			RunningHash:      remuxer.RunningDigest(),
 			Blocks:           fromOutputBlocks(remuxer.CommittedBlocks()),
+			FaultProfile:     profileBytes,
 			Interrupted:      true,
 		}
 		if err := cpStore.Save(newCP); err != nil {
