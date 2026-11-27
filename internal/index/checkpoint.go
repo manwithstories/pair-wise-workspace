@@ -16,6 +16,9 @@ type Checkpoint struct {
 	Version       int    `json:"version"`
 	// CompletedBlocks are block IDs already fully processed and indexed.
 	CompletedBlocks []string `json:"completed_blocks"`
+	// Entries persists the fully-formed index entries for completed blocks so a
+	// resume rebuilds the identical store instead of fabricating placeholders.
+	Entries []Entry `json:"entries"`
 	// LastBlock is the highest completed block ID in processing order.
 	LastBlock string `json:"last_block"`
 	// IndexHash pins the index content the checkpoint was advanced against.
@@ -82,7 +85,7 @@ func (cm *CheckpointManager) FailNext() { cm.failNext = true }
 // Advance marks one more block complete. It refuses to move unless the supplied
 // index hash is non-empty. On a simulated or real write failure the on-disk
 // checkpoint is left unchanged and the error is surfaced.
-func (cm *CheckpointManager) Advance(blockID, indexHash string) error {
+func (cm *CheckpointManager) Advance(blockID, indexHash string, entry Entry) error {
 	if indexHash == "" {
 		return fmt.Errorf("checkpoint: refusing to advance without validated index hash")
 	}
@@ -93,6 +96,7 @@ func (cm *CheckpointManager) Advance(blockID, indexHash string) error {
 	next := Checkpoint{
 		Version:         CheckpointVersion,
 		CompletedBlocks: append(append([]string{}, cm.cp.CompletedBlocks...), blockID),
+		Entries:         append(append([]Entry{}, cm.cp.Entries...), entry),
 		LastBlock:       blockID,
 		IndexHash:       indexHash,
 		RunID:           cm.cp.RunID,

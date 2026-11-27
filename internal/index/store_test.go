@@ -53,17 +53,17 @@ func TestCheckpointAdvanceOnlyAfterValidatedHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := cm.Advance("b0", ""); err == nil {
+	if err := cm.Advance("b0", "", Entry{}); err == nil {
 		t.Fatal("advance with empty hash must be rejected")
 	}
 	if cm.IsComplete("b0") {
 		t.Fatal("block marked complete despite rejected advance")
 	}
-	if err := cm.Advance("b0", "hashA"); err != nil {
+	if err := cm.Advance("b0", "hashA", Entry{}); err != nil {
 		t.Fatal(err)
 	}
 	// Idempotent re-advance.
-	if err := cm.Advance("b0", "hashA"); err != nil {
+	if err := cm.Advance("b0", "hashA", Entry{}); err != nil {
 		t.Fatalf("idempotent advance failed: %v", err)
 	}
 	if !cm.IsComplete("b0") {
@@ -74,11 +74,11 @@ func TestCheckpointAdvanceOnlyAfterValidatedHash(t *testing.T) {
 func TestCheckpointDiskFailureDoesNotAdvance(t *testing.T) {
 	dir := t.TempDir()
 	cm, _ := NewCheckpointManager(dir, "run-1")
-	if err := cm.Advance("b0", "hashA"); err != nil {
+	if err := cm.Advance("b0", "hashA", Entry{}); err != nil {
 		t.Fatal(err)
 	}
 	cm.FailNext()
-	if err := cm.Advance("b1", "hashB"); err == nil {
+	if err := cm.Advance("b1", "hashB", Entry{}); err == nil {
 		t.Fatal("expected simulated disk failure")
 	}
 	if cm.IsComplete("b1") {
