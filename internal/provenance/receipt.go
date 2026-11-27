@@ -25,13 +25,13 @@ type SourceSpan struct {
 
 // CameraReceipt captures one camera's provenance even when it is rejected.
 type CameraReceipt struct {
-	Name      string            `json:"name"`
-	Path      string            `json:"path"`
-	InputHash string            `json:"input_sha256"`
-	Accepted  bool              `json:"accepted"`
-	Span      *SourceSpan       `json:"span,omitempty"`
-	Error     *media.Error      `json:"error,omitempty"`
-	Segments  []SegmentReceipt  `json:"segments,omitempty"`
+	Name      string           `json:"name"`
+	Path      string           `json:"path"`
+	InputHash string           `json:"input_sha256"`
+	Accepted  bool             `json:"accepted"`
+	Span      *SourceSpan      `json:"span,omitempty"`
+	Error     *media.Error     `json:"error,omitempty"`
+	Segments  []SegmentReceipt `json:"segments,omitempty"`
 }
 
 // SegmentReceipt hashes one published media segment.
@@ -45,23 +45,23 @@ type SegmentReceipt struct {
 
 // Receipt is the full per-job provenance document.
 type Receipt struct {
-	JobID       string                     `json:"job_id"`
-	GeneratedAt string                     `json:"generated_at"`
-	ToolVersion string                     `json:"ffmpeg_version"`
-	ConfigHash  string                     `json:"config_sha256"`
-	Cameras     map[string]*CameraReceipt  `json:"cameras"`
-	Rejected    []Rejection                `json:"rejected"`
+	JobID       string                    `json:"job_id"`
+	GeneratedAt string                    `json:"generated_at"`
+	ToolVersion string                    `json:"ffmpeg_version"`
+	ConfigHash  string                    `json:"config_sha256"`
+	Cameras     map[string]*CameraReceipt `json:"cameras"`
+	Rejected    []Rejection               `json:"rejected"`
 }
 
 // Rejection keeps a structured error in the delivery report.
 type Rejection struct {
-	Camera    string       `json:"camera"`
-	Kind      media.Kind   `json:"kind"`
-	Phase     media.Phase  `json:"phase"`
-	Path      string       `json:"path"`
-	Offset    int64        `json:"byte_offset"`
-	Detail    string       `json:"detail"`
-	MediaTime string       `json:"media_time,omitempty"`
+	Camera    string      `json:"camera"`
+	Kind      media.Kind  `json:"kind"`
+	Phase     media.Phase `json:"phase"`
+	Path      string      `json:"path"`
+	Offset    int64       `json:"byte_offset"`
+	Detail    string      `json:"detail"`
+	MediaTime string      `json:"media_time,omitempty"`
 }
 
 // Builder accumulates the receipt while the pipeline runs.

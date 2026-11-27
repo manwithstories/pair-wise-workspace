@@ -32,9 +32,9 @@ type Store struct {
 
 // State is the full checkpoint document.
 type State struct {
-	JobKey   string          `json:"job_key"`
-	Segments []SegmentState  `json:"segments"`
-	Finished map[int]bool    `json:"-"`
+	JobKey   string         `json:"job_key"`
+	Segments []SegmentState `json:"segments"`
+	Finished map[int]bool   `json:"-"`
 }
 
 // Open loads an existing checkpoint or initialises a fresh one.

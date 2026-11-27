@@ -19,11 +19,11 @@ import (
 
 // Entry is the on-disk record describing one cached result.
 type Entry struct {
-	Key       string            `json:"key"`
-	InputHash string            `json:"input_hash"`
-	ConfigHash string           `json:"config_hash"`
-	Tool      string            `json:"tool"`
-	Outputs   map[string]string `json:"outputs"` // logical name -> sha256
+	Key        string            `json:"key"`
+	InputHash  string            `json:"input_hash"`
+	ConfigHash string            `json:"config_hash"`
+	Tool       string            `json:"tool"`
+	Outputs    map[string]string `json:"outputs"` // logical name -> sha256
 }
 
 // Store is a directory-backed CAS.
