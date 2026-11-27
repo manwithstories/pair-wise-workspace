@@ -194,6 +194,10 @@ func readData(r io.Reader, f *os.File, declared, maxBlock int64, bi *BlockIndex)
 	if avail < declared {
 		bi.Truncated = true
 		bi.MissingFrames = (declared - avail + align - 1) / align
+		if avail%align != 0 {
+			return clock.NewError(clock.CodeInvalidHeader, bi.ID,
+				"半个采样帧: 数据 %d 字节不能被 %d 整除", avail, align)
+		}
 	}
 	if declared%align != 0 {
 		return clock.NewError(clock.CodeInvalidHeader, bi.ID, "声明数据长度含半个采样帧")
