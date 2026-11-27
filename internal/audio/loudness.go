@@ -1,6 +1,7 @@
 package audio
 
 import (
+	"encoding/binary"
 	"math"
 
 	"github.com/asticode/go-astiav"
@@ -148,4 +149,37 @@ func softLimit(v float64) float64 {
 // Reset 清空累积状态，供第二遍处理或测试复用。
 func (m *LoudnessMeter) Reset() {
 	*m = *NewLoudnessMeter()
+}
+
+// GainLinear 把 dB 增益换算为线性幅度。
+func GainLinear(gainDB float64) float64 {
+	return math.Pow(10, gainDB/20)
+}
+
+// LimitSample 对单个样本施加真峰值限制，保证 |out| ≤ -1dBTP 线性上限。
+func LimitSample(v float64) float64 {
+	if v > TruePeakLimitLinear {
+		return TruePeakLimitLinear
+	}
+	if v < -TruePeakLimitLinear {
+		return -TruePeakLimitLinear
+	}
+	return v
+}
+
+// FloatToS16 把 [-1,1] 浮点样本饱和转换并以小端写入 dst（需 2 字节）。
+func FloatToS16(dst []byte, v float64) {
+	binary.LittleEndian.PutUint16(dst, uint16(floatToS16(v)))
+}
+
+// floatToS16 返回饱和后的 int16 位模式。
+func floatToS16(v float64) int16 {
+	switch {
+	case v >= 1:
+		return math.MaxInt16
+	case v <= -1:
+		return math.MinInt16
+	default:
+		return int16(math.Round(v * 32767))
+	}
 }
