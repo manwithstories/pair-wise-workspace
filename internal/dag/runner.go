@@ -57,7 +57,9 @@ type RunResult struct {
 	Skipped    []string // already-succeeded nodes reused on resume
 	Blocked    []string
 	FirstBlock *BlockedError
-	PausedAt   string
+	// Failures maps a node that itself returned an error to that error text.
+	Failures map[string]string
+	PausedAt string
 }
 
 // Run topologically executes nodes. Succeeded nodes are skipped (their
@@ -74,7 +76,7 @@ func (r *Runner) Run(nodes []Node) (RunResult, error) {
 		return RunResult{}, fmt.Errorf("dag: dependency cycle at %q", cycle)
 	}
 
-	res := RunResult{}
+	res := RunResult{Failures: map[string]string{}}
 	outputs := map[string]string{}
 	done := map[string]bool{}
 	failed := map[string]string{}
@@ -100,10 +102,11 @@ func (r *Runner) Run(nodes []Node) (RunResult, error) {
 			if !r.depsReady(n, done) {
 				continue
 			}
-			if ok := r.runOne(n, outputs, &res); ok {
+			if ok, failText := r.runOne(n, outputs, &res); ok {
 				done[name] = true
 			} else {
 				failed[name] = name
+				res.Failures[name] = failText
 			}
 			progressed = true
 			if name == r.pauseAfter {
@@ -118,13 +121,13 @@ func (r *Runner) Run(nodes []Node) (RunResult, error) {
 	return res, nil
 }
 
-func (r *Runner) runOne(n Node, outputs map[string]string, res *RunResult) bool {
+func (r *Runner) runOne(n Node, outputs map[string]string, res *RunResult) (bool, string) {
 	key := IdempotencyKey(n.Name(), n.InputDigests(), n.Parameters())
 	if r.journal.IsDone(key) {
 		prev, _ := r.journal.Get(key)
 		outputs[n.Name()] = prev.Output
 		res.Skipped = append(res.Skipped, n.Name())
-		return true
+		return true, ""
 	}
 	_ = r.journal.Put(Entry{Key: key, Name: n.Name(), Status: StatusRunning,
 		UpdatedAt: r.clock().UTC().Format(time.RFC3339Nano)})
@@ -134,13 +137,13 @@ func (r *Runner) runOne(n Node, outputs map[string]string, res *RunResult) bool 
 		entry.Status = StatusFailed
 		entry.Error = err.Error()
 		_ = r.journal.Put(entry)
-		return false
+		return false, err.Error()
 	}
 	entry.Status = StatusSucceeded
 	_ = r.journal.Put(entry)
 	outputs[n.Name()] = out
 	res.Executed = append(res.Executed, n.Name())
-	return true
+	return true, ""
 }
 
 func (r *Runner) depsReady(n Node, done map[string]bool) bool {

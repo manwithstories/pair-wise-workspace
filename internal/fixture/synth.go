@@ -59,6 +59,10 @@ func genGood(seed int64) *Scenario {
 	// fragment legitimately wraps, exercising unwrap rather than rollback.
 	const mod33 = uint64(1) << 33
 	videoTrack.BaseTfdt = mod33 - ticksToWrapMargin(videoTrack.Timescale)
+	// Align the audio presentation start to the same master-clock instant:
+	// both tracks must begin at the same millisecond despite differing
+	// timescales, or lip-sync would reject an otherwise healthy stream.
+	audioTrack.BaseTfdt = videoTrack.BaseTfdt * uint64(audioTrack.Timescale) / uint64(videoTrack.Timescale)
 
 	cmaf := buildMultiFragmentStream(videoTrack, audioTrack)
 	pkts, fec, plan := buildWire(pb, cmaf, seed, lossModeSingle)
@@ -83,6 +87,9 @@ func genDamaged(seed int64) *Scenario {
 	pb := newPlanBuilder(seed + 1)
 	videoTrack := vfrVideoTrack()
 	audioTrack := audioTrack()
+	const mod33 = uint64(1) << 33
+	videoTrack.BaseTfdt = mod33 - ticksToWrapMargin(videoTrack.Timescale)
+	audioTrack.BaseTfdt = videoTrack.BaseTfdt * uint64(audioTrack.Timescale) / uint64(videoTrack.Timescale)
 	cmaf := buildMultiFragmentStream(videoTrack, audioTrack)
 
 	pkts, fec, plan := buildWire(pb, cmaf, seed, lossModeBurst)
