@@ -148,8 +148,10 @@ func ffmpegArgs(r scan.Rendition, cp *plan.CutPlan, inputRoot, tmpDir string, o 
 		}
 		gop := int(clock.ToRational(cp.SegmentTicks, 25))
 		args = append(args, "-c:v", "libx264", "-preset", "ultrafast",
-			"-b:v", fmt.Sprint(vbps), "-maxrate", fmt.Sprint(vbps),
-			"-bufsize", fmt.Sprint(vbps*2), "-g", fmt.Sprint(gop),
+			"-threads", "1", // deterministic output for resume/hash reuse
+			"-b:v", fmt.Sprint(vbps), "-minrate", fmt.Sprint(vbps),
+			"-maxrate", fmt.Sprint(vbps),
+			"-bufsize", fmt.Sprint(vbps/2), "-g", fmt.Sprint(gop),
 			"-force_key_frames", "expr:gte(t,n_forced*"+segSec+")",
 			"-pix_fmt", "yuv420p")
 		args = append(args, normalize.ColorArgs(o.Color.Target)...)
