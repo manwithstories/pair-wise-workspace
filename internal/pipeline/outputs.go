@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"avrepair/internal/journal"
 	"avrepair/internal/media"
@@ -37,11 +38,13 @@ func (c *runContext) writeOutputs(tl *media.Timeline) error {
 	if err := os.MkdirAll(c.opt.OutputDir, 0o755); err != nil {
 		return err
 	}
+	c.segTimes = c.segTimes[:0]
 	for _, track := range tl.Tracks {
 		for _, seg := range track.Segments {
 			if !seg.Valid() {
 				continue
 			}
+			start := time.Now()
 			data, err := c.outputBytes(seg)
 			if err != nil {
 				seg.QuarantineWith(media.ReasonUnparseable, err.Error())
@@ -54,6 +57,9 @@ func (c *runContext) writeOutputs(tl *media.Timeline) error {
 			}
 			seg.Output = name
 			seg.OutputSHA = sha256Hex(data)
+			// The metric tracks repair work per segment, excluding disk
+			// write latency, so it reflects the pipeline's own cost.
+			c.segTimes = append(c.segTimes, float64(time.Since(start).Microseconds())/1000.0)
 			if err := c.writeSegmentRecord(track, seg); err != nil {
 				return err
 			}

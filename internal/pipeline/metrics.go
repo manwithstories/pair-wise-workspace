@@ -77,19 +77,3 @@ func sanitize(name string) string {
 func atomicWrite(path string, data []byte) error {
 	return journal.AtomicWrite(path, data, 0o644)
 }
-
-// measureSegments records per-segment repair latency for the p95 metric.
-// Timing is derived from work volume rather than wall clock so the value
-// is reproducible across runs, as required for stable demo output.
-func (c *runContext) measureSegments(tl *media.Timeline) {
-	c.segTimes = c.segTimes[:0]
-	for _, track := range tl.Tracks {
-		for _, seg := range track.Segments {
-			ms := float64(len(seg.Samples)) / 10.0
-			if ms > 50 {
-				ms = 50
-			}
-			c.segTimes = append(c.segTimes, ms)
-		}
-	}
-}

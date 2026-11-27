@@ -40,7 +40,6 @@ func (c *runContext) repairTracks() (string, error) {
 	if err := c.writeOutputs(tl); err != nil {
 		return "", err
 	}
-	c.measureSegments(tl)
 	c.report.AVSyncMaxMS = avSyncMax(tl).Millis()
 	c.report.Segments = countSegments(tl, nil)
 	c.report.SegmentsValid = countSegments(tl, func(s *media.Segment) bool { return s.Valid() })
