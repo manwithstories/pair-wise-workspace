@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/png"
 	"io"
 	"os"
 	"path/filepath"
@@ -197,4 +199,51 @@ func VerifyEntry(root string, e Entry) error {
 		return media.Newf(media.KindCorrupt, "ingest.hash", e.Track, e.Seq, "sha256 mismatch")
 	}
 	return nil
+}
+
+// Verdict records a per-entry check: nil Err means the frame decoded and
+// matched its declared dimensions. Hash mismatches and missing files are
+// fatal; a decodable failure is carried as a corrupt-frame verdict so the
+// recovery stage can decide instead of aborting the whole pass.
+type Verdict struct {
+	Entry Entry
+	Err   *media.MediaError
+}
+
+// CheckFrames verifies hashes and decodes every entry. Fatal input errors
+// (missing file, hash mismatch) are returned immediately. Decode failures
+// and dimension mismatches are reported per entry with KindCorrupt.
+func CheckFrames(root string, entries map[string][]Entry) (map[string]map[int64]*media.MediaError, error) {
+	out := make(map[string]map[int64]*media.MediaError, len(entries))
+	for track, list := range entries {
+		out[track] = make(map[int64]*media.MediaError, len(list))
+		for _, e := range list {
+			if err := VerifyEntry(root, e); err != nil {
+				return nil, err
+			}
+			w, h, err := decodeSize(filepath.Join(root, e.Path))
+			if err != nil {
+				out[track][e.Seq] = media.New(media.KindCorrupt, "ingest.decode", track, e.Seq, err)
+				continue
+			}
+			if w != e.Width || h != e.Height {
+				out[track][e.Seq] = media.Newf(media.KindCorrupt, "ingest.decode", track, e.Seq,
+					"decoded %dx%d, manifest says %dx%d", w, h, e.Width, e.Height)
+			}
+		}
+	}
+	return out, nil
+}
+
+func decodeSize(path string) (int, int, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer f.Close()
+	cfg, _, err := image.DecodeConfig(f)
+	if err != nil {
+		return 0, 0, err
+	}
+	return cfg.Width, cfg.Height, nil
 }
