@@ -73,13 +73,13 @@ func Run(opt Options) (*Report, error) {
 			return nil, err
 		}
 		rep.ReusedNames = append(rep.ReusedNames, StageRepair)
-	} else {
-		if err := c.stageRepair(); err != nil {
-			return nil, err
-		}
-		if opt.InterruptAt == StageRepair {
-			return c.interrupt(StageRepair)
-		}
+	} else if err := c.stageRepair(); err != nil {
+		return nil, err
+	}
+	// An interrupt request always stops at the requested boundary, even
+	// when that stage was restored from a checkpoint.
+	if opt.InterruptAt == StageRepair {
+		return c.interrupt(StageRepair)
 	}
 
 	if reuse[StageIndex] && c.indexOnDiskValid() {
@@ -87,13 +87,11 @@ func Run(opt Options) (*Report, error) {
 			return nil, err
 		}
 		rep.ReusedNames = append(rep.ReusedNames, StageIndex)
-	} else {
-		if err := c.stageIndex(); err != nil {
-			return nil, err
-		}
-		if opt.InterruptAt == StageIndex {
-			return c.interrupt(StageIndex)
-		}
+	} else if err := c.stageIndex(); err != nil {
+		return nil, err
+	}
+	if opt.InterruptAt == StageIndex {
+		return c.interrupt(StageIndex)
 	}
 
 	if err := c.stageFinalize(); err != nil {
