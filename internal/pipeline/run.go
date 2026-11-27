@@ -80,7 +80,7 @@ func Run(p Params) (*Result, error) {
 	res := &Result{Events: src.Events, Duration: src.Duration, Latencies: lat}
 
 	srcDigest := sourceDigest(src)
-	paramDigest := cache.DigestOf([]byte(fmt.Sprintf("v1|%d|%g|%g", p.Seed, p.Loss, p.JitterMs)))
+	paramDigest := cache.DigestOf([]byte(fmt.Sprintf("v3|%d|%g|%g", p.Seed, p.Loss, p.JitterMs)))
 
 	// Stage 1: recover.
 	man, hit, err := recoverStage(chain, src, nets, srcDigest, paramDigest)
@@ -154,16 +154,20 @@ func recoverStage(chain *cache.Chain, src *fixture.Source, nets []*fixture.Trans
 	man := &recoverManifest{}
 	for i, tr := range src.Tracks {
 		last := uint64(len(tr.Blocks) - 1)
+		audioBlocks := uint64(len(tr.Blocks) - fixture.FlushBlocks)
 		items, st := nettrace.Recover(nets[i].Arrived, 0, last)
 		man.Stats.Received += st.Received
 		man.Stats.Duplicates += st.Duplicates
 		man.Stats.Lost += st.Lost
 		man.Stats.Recovered += st.Recovered
-		man.Stats.Gaps += st.Gaps
 		ch := tr.Layout.Channels()
 		var samples []int16
 		for _, it := range items {
 			if it.Gap {
+				if it.Seq >= audioBlocks {
+					continue // lost flush block: no audio impact
+				}
+				man.Stats.Gaps++
 				n := tr.Rate * fixture.BlockMS / 1000 * ch
 				samples = append(samples, make([]int16, n)...)
 				man.Gaps = append(man.Gaps, GapMark{Track: tr.Name, Seq: it.Seq,
