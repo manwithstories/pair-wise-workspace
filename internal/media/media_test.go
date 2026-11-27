@@ -2,6 +2,7 @@ package media
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -109,5 +110,33 @@ func TestTimelineAndFileLimits(t *testing.T) {
 	}
 	if _, err := ReadSegment(path, 8, 5); !errors.Is(err, ErrInvalidRange) {
 		t.Fatalf("out-of-range accepted: %v", err)
+	}
+}
+
+func TestFileSizeLimitsEnforced(t *testing.T) {
+	dir := t.TempDir()
+	big := filepath.Join(dir, "big.bin")
+	f, err := os.Create(big)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(MaxSegmentBytes + 1); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	if _, err := ReadSegment(big, 0, 0); !errors.Is(err, ErrLimitExceeded) {
+		t.Fatalf("oversized segment accepted: %v", err)
+	}
+	man := filepath.Join(dir, "big.m3u8")
+	g, err := os.Create(man)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Truncate(MaxManifestBytes + 1); err != nil {
+		t.Fatal(err)
+	}
+	g.Close()
+	if _, err := ReadManifest(man); !errors.Is(err, ErrLimitExceeded) {
+		t.Fatalf("oversized manifest accepted: %v", err)
 	}
 }
