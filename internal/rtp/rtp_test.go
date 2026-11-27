@@ -88,8 +88,8 @@ func TestReaderTruncationAndBadLength(t *testing.T) {
 		stream []byte
 		kind   media.FaultKind
 	}{
-		"illegal small len":    {[]byte{0, 0, 0, 0}, media.FaultTruncated}, // 声明长度 0 < 12
-		"body truncated":       {frame(rtpPkt(1, 0, nil))[:10], media.FaultTruncated},
+		"illegal small len":    {[]byte{0, 0, 0, 0}, media.FaultFraming},   // 声明长度 0 < 12
+		"body truncated":       {frame(rtpPkt(1, 0, nil))[:10], media.FaultFraming},
 		"bad version":          {frame(badVersion), media.FaultBadPayload},
 		"csrc overflow":        {frame(csrcOverflow), media.FaultTruncated},
 		"rtcp length mismatch": {frame(rtcpBadLen), media.FaultTruncated},

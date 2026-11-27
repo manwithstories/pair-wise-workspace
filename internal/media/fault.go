@@ -20,6 +20,8 @@ const (
 	FaultNone FaultKind = iota
 	// FaultTruncated 数据报长度前缀与实际字节不符或头部被截断。
 	FaultTruncated
+	// FaultFraming 长度前缀本身非法，无法定位下一条数据报边界（致命）。
+	FaultFraming
 	// FaultBadPayload 头部合法但负载无法解析（如非 L16 采样）。
 	FaultBadPayload
 	// FaultMissing 重排窗口滑过仍未到达的丢包。
@@ -39,6 +41,8 @@ func (k FaultKind) String() string {
 	switch k {
 	case FaultTruncated:
 		return "truncated"
+	case FaultFraming:
+		return "framing"
 	case FaultBadPayload:
 		return "bad_payload"
 	case FaultMissing:

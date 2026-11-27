@@ -110,6 +110,7 @@ func TestFaultPropagation(t *testing.T) {
 func TestFaultKindStableNames(t *testing.T) {
 	want := map[FaultKind]string{
 		FaultTruncated:  "truncated",
+		FaultFraming:    "framing",
 		FaultBadPayload: "bad_payload",
 		FaultMissing:    "missing",
 		FaultReordered:  "reordered",

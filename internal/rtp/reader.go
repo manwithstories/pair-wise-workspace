@@ -54,7 +54,7 @@ func (r *Reader) Read() (*Datagram, error) {
 	r.offset += 4
 	length := int(binary.BigEndian.Uint32(r.hdr[:]))
 	if length < rtpHeaderMin || length > MaxDatagram {
-		return nil, media.NewFault(media.FaultTruncated, media.SeqUnknown,
+		return nil, media.NewFault(media.FaultFraming, media.SeqUnknown,
 			start, r.count, fmt.Sprintf("illegal datagram length %d", length))
 	}
 	r.count++
@@ -63,7 +63,7 @@ func (r *Reader) Read() (*Datagram, error) {
 	}
 	r.buf = r.buf[:length]
 	if _, err := io.ReadFull(r.r, r.buf); err != nil {
-		return nil, media.NewFault(media.FaultTruncated, media.SeqUnknown,
+		return nil, media.NewFault(media.FaultFraming, media.SeqUnknown,
 			start, r.count-1, "declared length exceeds remaining bytes")
 	}
 	r.offset += int64(length)
