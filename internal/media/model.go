@@ -90,6 +90,9 @@ type Segment struct {
 	Samples         []Sample  `json:"samples,omitempty"`
 	RawStart        int64     `json:"raw_start,omitempty"`
 	RawEnd          int64     `json:"raw_end,omitempty"`
+	Format          string    `json:"format,omitempty"`
+	SourceSHA       string    `json:"source_sha256,omitempty"`
+	StateFile       string    `json:"state_file,omitempty"`
 	Quarantine      string    `json:"quarantine,omitempty"`
 	QuarantineCause string    `json:"quarantine_cause,omitempty"`
 	MissingPackets  int       `json:"missing_packets,omitempty"`
@@ -97,6 +100,7 @@ type Segment struct {
 	UnrecoverGroups int       `json:"unrecovered_groups,omitempty"`
 	Reconstructed   bool      `json:"reconstructed,omitempty"`
 	Output          string    `json:"output,omitempty"`
+	OutputSHA       string    `json:"output_sha256,omitempty"`
 }
 
 // Valid reports whether the segment may be referenced by the seek index.

@@ -189,10 +189,14 @@ func parseTrun(body []byte, defDur, defSize, defFlags uint32) ([]SampleDesc, err
 	if count < 0 || (perSample > 0 && count > (len(body)-off)/perSample) {
 		return nil, fmt.Errorf("%w: trun sample count %d", ErrTruncated, count)
 	}
-	if perSample == 0 {
-		return make([]SampleDesc, 0), nil
-	}
 	out := make([]SampleDesc, count)
+	if perSample == 0 {
+		// Every sample carries the tfhd defaults.
+		for i := range out {
+			out[i] = SampleDesc{Duration: defDur, Size: defSize, Flags: defFlags}
+		}
+		return out, nil
+	}
 	cur := off
 	for i := 0; i < count; i++ {
 		sd := SampleDesc{Duration: defDur, Size: defSize, Flags: defFlags}
