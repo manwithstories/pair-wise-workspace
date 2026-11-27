@@ -165,6 +165,7 @@ func (r Rational) String() string {
 
 const (
 	MaxTracks  = 3
+	MaxCaches  = 2
 	MaxWidth   = 4096
 	MaxHeight  = 2160
 	FrameRate  = 25
@@ -175,8 +176,8 @@ const (
 var (
 	// TimeBase is the shared rational output time base: 1/25 s.
 	TimeBase = Rational{Num: 1, Den: FrameRate}
-	// TickBase is the nominal device tick: 1 µs.
-	TickBase = Rational{Num: 1, Den: 1000}
+	// TickBase is the nominal device tick: 1 µs, i.e. 1000 ns.
+	TickBase = Rational{Num: 1000, Den: 1}
 )
 
 // FrameTime returns the left edge of output frame index i.
