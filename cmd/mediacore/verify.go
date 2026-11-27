@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"mediacore/internal/audio"
+	"mediacore/internal/clock"
 	"mediacore/internal/decode"
 	"mediacore/internal/fixture"
 	"mediacore/internal/hash"
@@ -243,12 +244,11 @@ func execute(f verifyFlags, limit int64, stderr io.Writer) (*report, error) {
 
 	// Keyframe hit rate: each second boundary must resolve to a keyframe at or
 	// before it on the video track.
-	rep.KeyframeHits, rep.KeyframeTotal = keyframeHits(ix, sc, f.segments)
-
 	jobs, err := stream.SegmentBounds(sc.DurationUS, segmentSizeUS)
 	if err != nil {
 		return rep, err
 	}
+	rep.KeyframeHits, rep.KeyframeTotal = keyframeHits(ix, sc, jobs)
 	if rep.Segments = len(jobs); rep.Segments == 0 {
 		return rep, errors.New("no segments to process")
 	}
@@ -493,8 +493,11 @@ func roundTripCheck(sc *scan.Scan) (ok, total int) {
 	return ok, total
 }
 
-// keyframeHits counts how many second boundaries resolve to a keyframe.
-func keyframeHits(ix *index.Index, sc *scan.Scan, segments int) (hits, total int) {
+// keyframeHits counts how many segment start positions resolve to a keyframe
+// at or before them. Segment starts come from the actual job geometry, so a
+// stream whose first timestamp is offset still reports every segment it can
+// seek to instead of failing an idealised second boundary.
+func keyframeHits(ix *index.Index, sc *scan.Scan, jobs []stream.Job) (hits, total int) {
 	video := -1
 	for _, t := range sc.Tracks {
 		if t.Kind == scan.TrackVideo {
@@ -505,13 +508,33 @@ func keyframeHits(ix *index.Index, sc *scan.Scan, segments int) (hits, total int
 	if video < 0 {
 		return 0, 0
 	}
-	for sec := 0; sec < segments; sec++ {
-		at := int64(sec) * 1_000_000
-		if at >= sc.DurationUS {
-			break
+	// Only segments that begin inside the video track's own span can resolve
+	// to a keyframe; later "audio tail" segments are not a keyframe miss.
+	var videoStart, videoEnd int64 = -1, -1
+	for _, t := range sc.Tracks {
+		if t.Index != video {
+			continue
+		}
+		if sc.Timeline != nil {
+			if v, err := sc.Timeline.ToUnified(t.Index, t.Start); err == nil {
+				videoStart = v
+			}
+			if d, err := sc.Timeline.Duration(t.Index); err == nil && d != clock.NoTimestamp {
+				if videoStart >= 0 {
+					videoEnd = videoStart + d
+				}
+			}
+		}
+	}
+	for _, job := range jobs {
+		if videoStart >= 0 && job.StartUS < videoStart {
+			continue
+		}
+		if videoEnd > 0 && job.StartUS >= videoEnd {
+			continue
 		}
 		total++
-		if _, ok := ix.KeyframeBefore(video, at); ok {
+		if _, ok := ix.KeyframeBefore(video, job.StartUS); ok {
 			hits++
 		}
 	}

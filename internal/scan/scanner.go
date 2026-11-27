@@ -165,6 +165,12 @@ func Run(path string, opt Options) (result *Scan, err error) {
 	if err := scanPackets(fc, s, opt); err != nil {
 		return nil, err
 	}
+	// Streamable containers such as MPEG-TS often report no container
+	// duration. Derive it from packet positions and track durations so the
+	// segment planner always has a real span to work with.
+	if s.DurationUS <= 0 {
+		s.DurationUS = deriveDuration(s)
+	}
 	return s, nil
 }
 
@@ -270,6 +276,32 @@ func scanChapters(fc *astiav.FormatContext) []meta.Chapter {
 		out = append(out, chs)
 	}
 	return out
+}
+
+// deriveDuration estimates the program length when the container omits it.
+// It uses the longest track duration in unified ticks, extended by the last
+// indexed position, but never invents a value when nothing timed was seen.
+func deriveDuration(s *Scan) int64 {
+	var max int64
+	if s.Timeline != nil {
+		if d, err := s.Timeline.TotalDuration(); err == nil && d > max {
+			max = d
+		}
+	}
+	for _, k := range s.Keyframes {
+		if k.TimeUS+1 > max {
+			max = k.TimeUS + 1
+		}
+	}
+	for _, m := range s.Meta {
+		if m.TimeUS+1 > max {
+			max = m.TimeUS + 1
+		}
+	}
+	if max <= 0 {
+		return 0
+	}
+	return max
 }
 
 // isEOF reports normal end of stream.

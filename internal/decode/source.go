@@ -53,7 +53,21 @@ func Open(path string, tl *clock.Timeline) (*Source, error) {
 	if fc == nil {
 		return nil, errors.New("decode: alloc format context")
 	}
-	if err := fc.OpenInput(path, nil, nil); err != nil {
+	// Streamable containers (MPEG-TS) often need a larger probe before an
+	// audio stream's rate and channel count are known. The options must be in
+	// place before OpenInput; find_stream_info is called exactly once because
+	// a second call on the same context is not safe.
+	opts := astiav.NewDictionary()
+	defer opts.Free()
+	if err := opts.Set("probesize", "16777216", 0); err != nil {
+		fc.Free()
+		return nil, err
+	}
+	if err := opts.Set("analyzeduration", "10000000", 0); err != nil {
+		fc.Free()
+		return nil, err
+	}
+	if err := fc.OpenInput(path, nil, opts); err != nil {
 		fc.Free()
 		return nil, fmt.Errorf("decode: open input: %w", err)
 	}

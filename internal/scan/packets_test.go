@@ -120,3 +120,24 @@ func be32(n int) []byte {
 	binary.BigEndian.PutUint32(b[:], uint32(n))
 	return b[:]
 }
+
+func TestDeriveDurationFallback(t *testing.T) {
+	// A container with no duration but indexed positions must still yield a
+	// usable span rather than zero.
+	tl, err := clock.NewTimeline([]clock.TrackSpec{{Track: 0, TimeBase: clock.Microsecond, Start: 0}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Scan{
+		Timeline:  tl,
+		Keyframes: []Keyframe{{Track: 0, TimeUS: 4_000_000}},
+		Meta:      []MetaRecord{{Kind: meta.KindID3, TimeUS: 2_500_000}},
+	}
+	if got := deriveDuration(s); got != 4_000_001 {
+		t.Fatalf("derived duration %d", got)
+	}
+	empty := &Scan{}
+	if got := deriveDuration(empty); got != 0 {
+		t.Fatalf("empty scan derived %d", got)
+	}
+}
