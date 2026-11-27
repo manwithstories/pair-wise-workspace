@@ -2,6 +2,7 @@ package jitter
 
 import (
 	"context"
+	"sync"
 
 	"bcastqc/internal/media"
 	rtpx "bcastqc/internal/rtp"
@@ -9,7 +10,9 @@ import (
 
 // RetransmitCache 缓存近期已发送报文，按字节上限淘汰最旧条目。
 // 重传请求命中即返回原始报文副本；未命中表示已超出缓存窗口。
+// Store 由生产者调用、Lookup 由消费者并发调用，故全程加锁。
 type RetransmitCache struct {
+	mu       sync.RWMutex
 	maxBytes int64
 	bytes    int64
 	order    []int64
@@ -23,6 +26,8 @@ func NewRetransmitCache(maxBytes int64) *RetransmitCache {
 
 // Store 写入报文并按字节上限淘汰最旧条目。
 func (c *RetransmitCache) Store(p rtpx.Packet) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	size := int64(len(p.Raw))
 	for c.bytes+size > c.maxBytes && len(c.order) > 0 {
 		oldest := c.order[0]
@@ -40,12 +45,18 @@ func (c *RetransmitCache) Store(p rtpx.Packet) {
 
 // Lookup 命中返回报文与 true。
 func (c *RetransmitCache) Lookup(seq int64) (rtpx.Packet, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	p, ok := c.store[seq]
 	return p, ok
 }
 
 // Bytes 返回当前缓存字节占用。
-func (c *RetransmitCache) Bytes() int64 { return c.bytes }
+func (c *RetransmitCache) Bytes() int64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.bytes
+}
 
 // Receiver 驱动单条轨道的接收、去重、重传恢复与缺口放弃。
 type Receiver struct {
@@ -54,6 +65,10 @@ type Receiver struct {
 	track   uint32
 	seen    map[int64]bool
 	lost    map[int64]bool
+	sealed  bool // 流结束后置位，此后缺口按窗口判定为永久
+	mu      sync.Mutex
+	output  []rtpx.Packet // pump 持续累积的已恢复有序报文
+	gaps    []Gap
 	m       Metrics
 	latency []int64
 }
@@ -91,28 +106,56 @@ func (r *Receiver) Handle(ctx context.Context, p rtpx.Packet, arriveNS int64) er
 	return nil
 }
 
+// Pump 执行一轮恢复并把可交付报文存入线程安全的产出队列，
+// 返回本轮是否取到报文。供与 Handle 并发的排空协程使用。
+func (r *Receiver) Pump(ctx context.Context) (bool, error) {
+	ready, unrecovered, err := r.Resolve(ctx)
+	if err != nil {
+		return false, err
+	}
+	if len(ready) > 0 || len(unrecovered) > 0 {
+		r.mu.Lock()
+		r.output = append(r.output, ready...)
+		r.gaps = append(r.gaps, unrecovered...)
+		r.mu.Unlock()
+	}
+	return len(ready) > 0, nil
+}
+
+// Output 返回 pump 累积的全部已恢复有序报文与永久缺口。
+func (r *Receiver) Output() ([]rtpx.Packet, []Gap) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	pkts := append([]rtpx.Packet(nil), r.output...)
+	gaps := append([]Gap(nil), r.gaps...)
+	return pkts, gaps
+}
+
+// Seal 标记发送流结束。此后 Resolve 才会把超窗口缺口判为永久，
+// 运行期间则只要重传缓存命中就持续补齐，避免突发中途误判。
+func (r *Receiver) Seal() { r.sealed = true }
+
 // Resolve 处理当前缺口：窗口内尝试重传，超窗口记为未恢复。
-// 视频轨道在出现未恢复缺口且缺失关键帧时，由调用方依据返回的
+// 视频轨道在出现未恢复缺口时，由调用方依据返回的
 // Unrecovered 缺口跳至下一关键帧；音频缺口绝不伪造数据。
 func (r *Receiver) Resolve(ctx context.Context) (ready []rtpx.Packet, unrecovered []Gap, err error) {
 	ready, gaps := r.buf.PopAll()
-	window := r.buf.Window()
 	for _, g := range gaps {
-		if g.Age <= window {
-			if p, ok := r.cache.Lookup(g.Seq); ok && !r.seen[g.Seq] {
-				r.seen[g.Seq] = true
-				if e := r.buf.Push(ctx, p, false); e != nil {
-					return nil, nil, e
-				}
-				r.m.Recovered++
-				continue
+		// 重传缓存命中：无论缺口年龄都立即补齐（缓存本身已按字节上限
+		// 淘汰最旧条目，能查到即说明仍在可恢复范围内）。
+		if p, ok := r.cache.Lookup(g.Seq); ok && !r.seen[g.Seq] {
+			r.seen[g.Seq] = true
+			if e := r.buf.Push(ctx, p, false); e != nil {
+				return nil, nil, e
 			}
-			// 缓存尚未淘汰但暂时缺包：留待下一轮，不计永久缺口。
-			if _, ok := r.cache.Lookup(g.Seq); ok {
-				continue
-			}
+			r.m.Recovered++
+			continue
 		}
-		// 超出重传窗口或缓存已淘汰：永久缺口。
+		// 未封口：流仍在传输，缺失包可能随后续到达，永不误判。
+		if !r.sealed {
+			continue
+		}
+		// 封口后缓存未命中：超出重传窗口/已淘汰，判为永久缺口。
 		if !r.lost[g.Seq] {
 			r.lost[g.Seq] = true
 			r.m.Unrecovered++
@@ -134,8 +177,15 @@ func (r *Receiver) Resolve(ctx context.Context) (ready []rtpx.Packet, unrecovere
 func (r *Receiver) drainAfterRecovery(ctx context.Context) ([]rtpx.Packet, []Gap, error) {
 	ready, gaps := r.buf.PopAll()
 	var unrecovered []Gap
+	if !r.sealed {
+		return ready, nil, nil
+	}
 	for _, g := range gaps {
-		if g.Age > r.buf.Window() && !r.lost[g.Seq] {
+		// 缓存仍可命中：交给下一轮 Resolve 重传，不判永久。
+		if _, ok := r.cache.Lookup(g.Seq); ok {
+			continue
+		}
+		if !r.lost[g.Seq] {
 			r.lost[g.Seq] = true
 			r.m.Unrecovered++
 			unrecovered = append(unrecovered, g)

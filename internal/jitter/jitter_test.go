@@ -86,6 +86,7 @@ func TestGapExpiresOutsideWindow(t *testing.T) {
 			t.Fatalf("handle: %v", err)
 		}
 	}
+	rcv.Seal()
 	_, unrecovered, err := rcv.Resolve(ctx)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)

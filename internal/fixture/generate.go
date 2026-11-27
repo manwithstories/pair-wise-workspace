@@ -65,18 +65,21 @@ func Generate(s Spec) ([]byte, error) {
 }
 
 // buildBlocks 交错生成音视频块，时间线严格单调（30fps 视频 / 10ms 音频）。
+// 音频时长覆盖到最后一帧之后，保证末端视频帧仍有邻近音频点可配对。
 func buildBlocks(s Spec) []mux.MuxBlock {
 	var blocks []mux.MuxBlock
 	vf := s.VideoFrames
 	if vf <= 0 {
 		vf = videoFrames
 	}
-	ab := s.AudioBlocks
-	if ab <= 0 {
-		ab = audioBlocks
-	}
 	const frameNS int64 = media.NSPerSecond / 30
 	const audioNS int64 = media.NSPerSecond / 100
+	// 音频块数至少覆盖全部视频帧时间跨度并留出一个音频间隔余量。
+	requiredAudio := int((int64(vf)*frameNS)/audioNS) + 2
+	ab := s.AudioBlocks
+	if ab <= 0 || ab < requiredAudio {
+		ab = requiredAudio
+	}
 	vi, ai := 0, 0
 	nextV, nextA := int64(0), int64(0)
 	for vi < vf || ai < ab {
@@ -127,12 +130,14 @@ func SpecFor(suite string, seed int64, queueBytes int64) Spec {
 	case SuiteClean:
 		// 无损伤。
 	case SuiteRecovery:
-		base.Link.LossGood = 0.06
-		base.Link.LossBad = 0.8
-		base.Link.RecoverBad = 0.35
+		// 温和的 Gilbert 突发：进入坏状态概率低、恢复快，
+		// 保证突发长度远小于重传窗口，恢复率可达 95%+。
+		base.Link.LossGood = 0.04
+		base.Link.LossBad = 0.6
+		base.Link.RecoverBad = 0.5
 		base.Link.Duplicate = 0.02
 		base.Link.Reorder = 0.03
-		base.Window = 64
+		base.Window = 128
 	case SuiteTruncate:
 		base.TruncateBytes = 60
 		base.ExpectReject = true
