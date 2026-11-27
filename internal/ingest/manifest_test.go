@@ -12,8 +12,9 @@ import (
 
 func sample() *Manifest {
 	return &Manifest{
-		Version: 1, OutputFPS: 25, WrapAt: 4294967296, Chunk: 32,
-		Tracks: []Track{{Name: "A", Frames: 4}},
+		Version: 1, OutputFPS: 25, Frames: 4, Width: 64, Height: 36,
+		WrapAt: 4294967296, Chunk: 32,
+		Tracks: []Track{{Name: "A", Frames: 4, RateNum: 1, RateDen: 1}},
 		Entries: []Entry{
 			{Track: "A", Seq: 1, Tick: 100, Nanos: 1, Width: 64, Height: 36, Path: "frames/a1.png", SHA256: repeat("a", 64)},
 			{Track: "A", Seq: 0, Tick: 0, Nanos: 0, Width: 64, Height: 36, Path: "frames/a0.png", SHA256: repeat("b", 64)},
@@ -106,7 +107,6 @@ func TestSafePath(t *testing.T) {
 func TestRoundTripAndHashMismatch(t *testing.T) {
 	dir := t.TempDir()
 	m := sample()
-	m.Tracks[0].Frames = 0
 	data, err := json.Marshal(m)
 	if err != nil {
 		t.Fatal(err)

@@ -33,17 +33,33 @@ type Entry struct {
 	SHA256 string `json:"sha256"`
 }
 
-// Track describes a track and its declared bounds.
+// Mask is a rectangular visible region in canvas pixels.
+type Mask struct {
+	X int `json:"x"`
+	Y int `json:"y"`
+	W int `json:"w"`
+	H int `json:"h"`
+}
+
+// Track describes a track, its declared bounds and compositing role.
 type Track struct {
-	Name   string `json:"name"`
-	Offset int64  `json:"offset_tick"`
-	Frames int    `json:"frames"`
+	Name       string   `json:"name"`
+	OffsetTick int64    `json:"offset_tick"`
+	Frames     int      `json:"frames"`
+	Priority   int      `json:"priority"`
+	Mask       Mask     `json:"mask"`
+	Deps       []string `json:"deps"`
+	RateNum    int      `json:"rate_num"`
+	RateDen    int      `json:"rate_den"`
 }
 
 // Manifest is the chunked frame inventory.
 type Manifest struct {
 	Version   int     `json:"version"`
 	OutputFPS int     `json:"output_fps"`
+	Frames    int     `json:"frames"`
+	Width     int     `json:"width"`
+	Height    int     `json:"height"`
 	WrapAt    int64   `json:"wrap_at"`
 	Tracks    []Track `json:"tracks"`
 	Entries   []Entry `json:"entries"`
@@ -80,6 +96,14 @@ func Validate(m *Manifest) (map[string][]Entry, error) {
 		return nil, media.Newf(media.KindInput, "manifest.validate", "", -1,
 			"output_fps=%d, want %d", m.OutputFPS, media.FrameRate)
 	}
+	if m.Frames <= 0 || m.Frames > media.MaxOutputFrames {
+		return nil, media.Newf(media.KindLimit, "manifest.frames", "", -1,
+			"output frames %d outside [1,%d]", m.Frames, media.MaxOutputFrames)
+	}
+	if m.Width <= 0 || m.Height <= 0 || m.Width > media.MaxWidth || m.Height > media.MaxHeight {
+		return nil, media.Newf(media.KindInput, "manifest.canvas", "", -1,
+			"canvas %dx%d outside [1,%d]x[1,%d]", m.Width, m.Height, media.MaxWidth, media.MaxHeight)
+	}
 	if len(m.Tracks) == 0 || len(m.Tracks) > media.MaxTracks {
 		return nil, media.Newf(media.KindLimit, "manifest.tracks", "", -1,
 			"track count %d outside [1,%d]", len(m.Tracks), media.MaxTracks)
@@ -93,6 +117,20 @@ func Validate(m *Manifest) (map[string][]Entry, error) {
 			return nil, media.Newf(media.KindInput, "manifest.tracks", t.Name, -1, "empty or duplicate track name")
 		}
 		known[t.Name] = true
+		if t.Frames <= 0 || t.Frames > media.MaxOutputFrames {
+			return nil, media.Newf(media.KindInput, "manifest.tracks", t.Name, -1, "declared frames %d", t.Frames)
+		}
+		if t.RateNum <= 0 || t.RateDen <= 0 {
+			return nil, media.Newf(media.KindInput, "manifest.tracks", t.Name, -1, "bad rate %d/%d", t.RateNum, t.RateDen)
+		}
+		if t.Priority < 0 || t.Priority > 100 {
+			return nil, media.Newf(media.KindInput, "manifest.tracks", t.Name, -1, "priority %d outside [0,100]", t.Priority)
+		}
+		if msk := t.Mask; msk.W > 0 && msk.H > 0 {
+			if msk.X < 0 || msk.Y < 0 || msk.X+msk.W > m.Width || msk.Y+msk.H > m.Height {
+				return nil, media.Newf(media.KindInput, "manifest.tracks", t.Name, -1, "mask outside canvas")
+			}
+		}
 	}
 	if len(m.Entries) == 0 {
 		return nil, media.New(media.KindInput, "manifest.entries", "", -1, errors.New("no entries"))

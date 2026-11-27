@@ -18,6 +18,7 @@ const (
 	KindCorrupt
 	KindConflict
 	KindLimit
+	KindMetric
 )
 
 func (k Kind) String() string {
@@ -34,6 +35,8 @@ func (k Kind) String() string {
 		return "conflict"
 	case KindLimit:
 		return "limit"
+	case KindMetric:
+		return "metric"
 	}
 	return "invalid"
 }
@@ -51,6 +54,8 @@ var (
 	ErrConflict = errors.New("conflict")
 	// ErrLimit marks a bounded-resource violation.
 	ErrLimit = errors.New("resource limit")
+	// ErrMetric marks delivery metrics outside their accepted bounds.
+	ErrMetric = errors.New("metrics out of bounds")
 )
 
 // MediaError carries one error model for every pipeline stage together with
@@ -93,6 +98,8 @@ func (e *MediaError) Is(target error) bool {
 		return e.Kind == KindConflict
 	case ErrLimit:
 		return e.Kind == KindLimit
+	case ErrMetric:
+		return e.Kind == KindMetric
 	}
 	return errors.Is(e.Err, target)
 }
@@ -189,6 +196,8 @@ const (
 	FrameRate  = 25
 	AudioRate  = 48000
 	AudioProbe = 1 << 12
+	// MaxOutputFrames bounds a single export run.
+	MaxOutputFrames = 10000
 )
 
 var (
