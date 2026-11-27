@@ -74,14 +74,14 @@ func FromSeconds(sec float64) int64 {
 func Millis(ms int64) int64 { return ms * TicksPerSecond / 1000 }
 
 // ParseRate accepts the exact spellings used by the CSV time code feed:
-// "24", "25", "30" and "30000/1001".
+// "24", "25", "30", their rational forms "24/1" etc. and "30000/1001".
 func ParseRate(s string) (Rate, error) {
 	switch s {
-	case "24":
+	case "24", "24/1":
 		return Rate24, nil
-	case "25":
+	case "25", "25/1":
 		return Rate25, nil
-	case "30":
+	case "30", "30/1":
 		return Rate30, nil
 	case "30000/1001":
 		return Rate2997, nil
