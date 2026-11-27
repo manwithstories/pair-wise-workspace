@@ -122,6 +122,11 @@ func TestRunFullPipelineAndReRunSHA(t *testing.T) {
 	if rep1.ResumeMs >= 1000 {
 		t.Fatalf("恢复耗时应低于 1000ms，实际 %dms", rep1.ResumeMs)
 	}
+	// 默认夹具每 4 包一个锚点，应有可计算的间隔且毫秒数为正。
+	if rep1.AnchorNA || rep1.AnchorIntervals == 0 || rep1.AnchorMaxMs <= 0 {
+		t.Fatalf("锚点间隔应可计算，实际 NA=%v count=%d maxMs=%f",
+			rep1.AnchorNA, rep1.AnchorIntervals, rep1.AnchorMaxMs)
+	}
 
 	// 重复运行：样本数不变、SHA 完全一致。
 	rep2, err := NewRunner(cfg).Run()

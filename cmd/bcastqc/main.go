@@ -216,7 +216,12 @@ func printReport(r *pipeline.Report) {
 	fmt.Printf("recovered_samples:    %d\n", r.RecoveredSamples)
 	fmt.Printf("rerun_sha_match:      %t\n", r.RerunSHAMatch)
 	fmt.Printf("sha256:               %s\n", r.SHA256)
-	fmt.Printf("anchor_intervals:     %s\n", anchorLabel(r))
+	if r.AnchorNA {
+		fmt.Printf("anchor_intervals:     N/A\n")
+	} else {
+		fmt.Printf("anchor_intervals:     %d (min=%.3fms max=%.3fms)\n",
+			r.AnchorIntervals, r.AnchorMinMs, r.AnchorMaxMs)
+	}
 	if r.Manifest != nil {
 		fmt.Printf("manifest_entries:     %d\n", len(r.Manifest.Entries))
 	}
@@ -225,11 +230,4 @@ func printReport(r *pipeline.Report) {
 		fmt.Println("--- json ---")
 		fmt.Println(string(raw))
 	}
-}
-
-func anchorLabel(r *pipeline.Report) string {
-	if r.AnchorNA {
-		return "N/A"
-	}
-	return "present"
 }

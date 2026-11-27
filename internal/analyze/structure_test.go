@@ -113,8 +113,27 @@ func TestLocateDamageTruncation(t *testing.T) {
 	if last.Kind != model.GapKindTruncation || last.Start != 999 || last.End != 1000 {
 		t.Fatalf("尾截断定位错误: %+v", last)
 	}
-	if last.LocError > 1 {
-		t.Fatalf("截断定位误差应 ≤1，实际 %d", last.LocError)
+	if last.LocError != 1 {
+		t.Fatalf("单帧截断定位误差应为 1，实际 %d", last.LocError)
+	}
+	if rep.MaxLocError > 1 {
+		t.Fatalf("截断定位误差应 ≤1，实际 %d", rep.MaxLocError)
+	}
+}
+
+func TestLocateDamageNoGapWhenFullyCovered(t *testing.T) {
+	clock, _ := model.NewClock(48000)
+	tl, _ := model.NewTrackTimeline(0, clock, 200)
+	recs := []ingest.PacketRecord{
+		mkRec(0, 0, 100, 0, true, make([]byte, 200)),
+		mkRec(1, 100, 100, 0, false, make([]byte, 200)),
+	}
+	rep, err := LocateDamage(0, recs, tl, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Segments) != 0 || rep.DamagedSamples != 0 {
+		t.Fatalf("完整覆盖不应有损坏区段，实际 %+v", rep.Segments)
 	}
 }
 

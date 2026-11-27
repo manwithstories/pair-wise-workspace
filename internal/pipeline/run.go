@@ -70,6 +70,11 @@ type Report struct {
 	RerunSHAMatch      bool         `json:"rerun_sha_match"`
 	SHA256             string       `json:"sha256"`
 	AnchorNA           bool         `json:"anchor_na"`
+	// AnchorMinMs / AnchorMaxMs 为全部轨道同步锚点间隔的最小/最大毫秒数；
+	// 锚点不足（N/A）时两者均为 0。
+	AnchorMinMs        float64      `json:"anchor_min_ms"`
+	AnchorMaxMs        float64      `json:"anchor_max_ms"`
+	AnchorIntervals    int          `json:"anchor_interval_count"`
 	StructureReports   []analyze.StructureReport `json:"-"`
 	DamageReports      []*analyze.DamageReport   `json:"-"`
 	Manifest           *repack.Manifest          `json:"-"`
@@ -175,6 +180,8 @@ func (r *Runner) Run() (*Report, error) {
 	damageCount := 0
 	var maxLocErr int64
 	anchorNA := true
+	var anchorMinMs, anchorMaxMs float64
+	anchorIntervalCount := 0
 	for _, dr := range damageReps {
 		damageCount += len(dr.Segments)
 		if dr.MaxLocError > maxLocErr {
@@ -182,8 +189,17 @@ func (r *Runner) Run() (*Report, error) {
 		}
 	}
 	for _, tl := range timelines {
-		if len(tl.Anchors) >= 2 {
-			anchorNA = false
+		ar := analyze.AnalyzeAnchors(tl)
+		if !ar.Available {
+			continue
+		}
+		anchorNA = false
+		anchorIntervalCount += len(ar.Intervals)
+		if anchorMinMs == 0 || ar.MinMs < anchorMinMs {
+			anchorMinMs = ar.MinMs
+		}
+		if ar.MaxMs > anchorMaxMs {
+			anchorMaxMs = ar.MaxMs
 		}
 	}
 
@@ -197,6 +213,9 @@ func (r *Runner) Run() (*Report, error) {
 		RerunSHAMatch:    rerunMatch,
 		SHA256:           manifest.SHA256,
 		AnchorNA:         anchorNA,
+		AnchorMinMs:      anchorMinMs,
+		AnchorMaxMs:      anchorMaxMs,
+		AnchorIntervals:  anchorIntervalCount,
 		StructureReports: structReps,
 		DamageReports:    damageReps,
 		Manifest:         manifest,
