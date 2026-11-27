@@ -26,6 +26,19 @@ func ParseHLS(path string, data []byte) (*Manifest, error) {
 		}
 		track := trackIDFromName(name, "hls")
 		kind := inferKind(name)
+		if kind == media.TrackOther {
+			// A media playlist named "index.m3u8" says nothing about the
+			// track; its first segment URI usually does.
+			for _, seg := range p.Media.Segments {
+				if seg == nil || seg.URI == "" {
+					continue
+				}
+				kind = inferKind(seg.URI)
+				if kind != media.TrackOther {
+					break
+				}
+			}
+		}
 		entries, warnings, err := hlsEntries(p.Media, track, kind, p.Dir, filepath.Base(name))
 		if err != nil {
 			return nil, err
