@@ -47,6 +47,10 @@ type Config struct {
 	Tracks []TrackSpec
 	// Metadata is copied onto the output container.
 	Metadata map[string]string
+	// MuxerOptions are passed to the muxer when the header is written. They
+	// are how the caller pins container-level choices such as the video
+	// timescale so a re-demux yields exactly the source timestamps.
+	MuxerOptions map[string]string
 }
 
 // Writer is an open output container.
@@ -147,7 +151,26 @@ func (w *Writer) Start(ctx context.Context) error {
 				"remux.Start", "track %q has no codec parameters", id)
 		}
 	}
-	if err := w.fc.WriteHeader(nil); err != nil {
+	// Muxer options are how the caller pins container-level choices.
+	dict := astiav.NewDictionary()
+	defer dict.Free()
+	// Defaults applied to every output: keep every timestamp the audit
+	// recorded rather than letting the muxer shift a negative pre-roll to
+	// zero. This is set here, not at the call site, so a caller cannot
+	// accidentally change the audited timeline. Caller-supplied options are
+	// merged on top.
+	opts := map[string]string{"avoid_negative_ts": "disabled"}
+	for k, v := range w.cfg.MuxerOptions {
+		opts[k] = v
+	}
+	for k, v := range opts {
+		if err := dict.Set(k, v, 0); err != nil {
+			w.abort()
+			return media.New(media.KindUsage, media.Origin{File: w.cfg.Path}, "remux.Start",
+				"invalid muxer option "+k+"="+v, err)
+		}
+	}
+	if err := w.fc.WriteHeader(dict); err != nil {
 		w.abort()
 		return media.New(media.KindCorrupt, media.Origin{File: w.cfg.Path}, "remux.Start",
 			"writing container header failed (target cannot accept the copied streams)", err)
@@ -192,6 +215,14 @@ func (w *Writer) addStreams(ctx context.Context) error {
 			base = spec.TimeBaseOverride
 		}
 		os.SetTimeBase(rationalTo(base))
+		// MXF requires a video frame rate on the stream before the header is
+		// written; without it the muxer rejects the stream even when the
+		// codec parameters are otherwise complete. For an integer time base
+		// the rate is its reciprocal (1/30 -> 30/1).
+		if t.Kind == media.TrackVideo && t.TimeBase.Num == 1 && t.TimeBase.Den > 0 {
+			os.SetAvgFrameRate(astiav.NewRational(int(t.TimeBase.Den), int(t.TimeBase.Num)))
+			os.SetRFrameRate(astiav.NewRational(int(t.TimeBase.Den), int(t.TimeBase.Num)))
+		}
 		os.SetID(len(w.order) + 1)
 		w.streams[t.ID] = &outStream{in: t, out: os, base: base}
 		w.order = append(w.order, t.ID)

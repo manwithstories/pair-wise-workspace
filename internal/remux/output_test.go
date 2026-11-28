@@ -241,3 +241,53 @@ func itoa(v int64) string {
 	}
 	return string(buf[i:])
 }
+
+// TestRemuxMXFToMXFLossless verifies an MXF can be copied to MXF, which
+// requires the writer to declare the video frame rate the muxer demands, and
+// that the encoded payloads survive.
+func TestRemuxMXFToMXFLossless(t *testing.T) {
+	src := generateFixture(t, "good.mxf")
+	out := filepath.Join(t.TempDir(), "copy.mxf")
+	in, err := demux.Open(src, demux.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer in.Close()
+	ctx := context.Background()
+	cfg := Config{Format: "mxf", Path: out}
+	for _, tr := range in.Tracks {
+		cfg.Tracks = append(cfg.Tracks, TrackSpec{Track: tr})
+	}
+	w, err := Open(ctx, cfg)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer w.Abort()
+	for _, tr := range in.Tracks {
+		cp, _ := in.CodecParameters(tr.ID)
+		if err := w.AcceptParameters(tr.ID, cp); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := w.Start(ctx); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	for {
+		p, err := in.Packet()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := w.WritePacket(p); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+	if err := w.Commit(ctx); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if !sameMultiset(readAll(t, src), readAll(t, out)) {
+		t.Fatal("MXF copy payload multiset differs from source")
+	}
+}
