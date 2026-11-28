@@ -523,7 +523,10 @@ func mappingErr(err error, path string) error {
 	if origin.TrackID == "" {
 		origin.TrackID = me.TrackID
 	}
-	return media.New(me.MediaKind(), origin, "demux.Mapping", me.Error(), err)
+	// The MappingError's own message is complete, so it is used as the unified
+	// error's message rather than as a cause; attaching it again as the cause
+	// would duplicate the text in the rendered error.
+	return media.New(me.MediaKind(), origin, "demux.Mapping", me.Message, nil)
 }
 
 // countVFR counts video packets whose inter-frame spacing differs from the
