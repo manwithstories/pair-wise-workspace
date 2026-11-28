@@ -65,7 +65,7 @@ func TestFitRejectsExcessiveDrift(t *testing.T) {
 }
 
 func TestFitNeedsTwoAnchors(t *testing.T) {
-	if _, err := Fit([]media.Anchor{{0, 0}}); err == nil {
+	if _, err := Fit([]media.Anchor{{Local: 0, Ref: 0}}); err == nil {
 		t.Fatal("expected error for single anchor")
 	}
 }
