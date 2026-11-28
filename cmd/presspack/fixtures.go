@@ -77,8 +77,8 @@ func truncateTS(path string, frac float64) error {
 func writeSubtitleFixture(dir, cam string, seconds int) error {
 	cue := func(i int) (string, string) {
 		start := srtTime(i * 2)
-		end := srtTime(i*2 + 1)
-		if i*2+1 > seconds {
+		end := srtTime(i*2 + 2)
+		if i*2+2 > seconds {
 			end = srtTime(seconds)
 		}
 		return start, end
@@ -101,7 +101,11 @@ func writeSubtitleFixture(dir, cam string, seconds int) error {
 			fmt.Fprintf(&b, "%d\n%s --> %s\nstage cam3 cue %d\n\n", i+1, s, e, i)
 		}
 		doc := b.String()
-		doc = doc[:len(doc)-7] // tail cue cut mid-write
+		// Cut the final cue right after its timing line: the payload never
+		// arrived, which the parser must flag as a truncated tail.
+		if i := strings.LastIndex(doc, "\nstage"); i > 0 {
+			doc = doc[:i+1]
+		}
 		return os.WriteFile(filepath.Join(dir, "subs.srt"), []byte(doc), 0o644)
 	default: // cam1
 		for i := 0; i < n; i++ {
@@ -136,7 +140,7 @@ func writeTimecodeFixture(dir, cam string, seconds int) error {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "fps=%s\n", fps)
-	for i := 0; i <= seconds; i++ {
+	for i := 0; i < seconds; i++ {
 		sep := ":"
 		if drop {
 			sep = ";"

@@ -104,10 +104,12 @@ func expectedDuration(path string) (core.Time, core.Faults, error) {
 	if len(times) == 0 {
 		return core.Time{}, faults, fmt.Errorf("timecode file %s: no labels", path)
 	}
-	last := times[len(times)-1]
+	// Labels are absolute clock times; the deliverable timeline is relative
+	// to the first label.
+	last := times[len(times)-1].Sub(times[0])
 	step := fps.FrameDuration()
 	if len(times) > 1 {
-		step = last.Sub(times[len(times)-2])
+		step = times[len(times)-1].Sub(times[len(times)-2])
 	}
 	return last.Add(step), faults, nil
 }
