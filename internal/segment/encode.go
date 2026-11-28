@@ -45,12 +45,12 @@ type EncodeResult struct {
 // metaFile records the encode parameters so reruns can prove a variant is
 // already done and skip re-segmenting.
 type metaFile struct {
-	BitRate   int   `json:"bit_rate"`
-	Duration  int64 `json:"duration_ticks"`
-	SegLen    int64 `json:"seg_len_ticks"`
-	FPSNum    int64 `json:"fps_num"`
-	FPSDen    int64 `json:"fps_den"`
-	Segments  int   `json:"segments"`
+	BitRate   int    `json:"bit_rate"`
+	Duration  int64  `json:"duration_ticks"`
+	SegLen    int64  `json:"seg_len_ticks"`
+	FPSNum    int64  `json:"fps_num"`
+	FPSDen    int64  `json:"fps_den"`
+	Segments  int    `json:"segments"`
 	SourceSHA string `json:"source_sha"`
 }
 

@@ -49,12 +49,12 @@ func WriteMaster(path string, variants []VariantInfo, subs *SubtitleInfo) error 
 		if subs != nil {
 			params.Subtitles = subs.GroupID
 			params.Alternatives = []*m3u8.Alternative{{
-				Type:      "SUBTITLES",
-				GroupId:   subs.GroupID,
-				Name:      subs.Name,
-				Language:  subs.Language,
-				URI:       subs.URI,
-				Default:   true,
+				Type:       "SUBTITLES",
+				GroupId:    subs.GroupID,
+				Name:       subs.Name,
+				Language:   subs.Language,
+				URI:        subs.URI,
+				Default:    true,
 				Autoselect: true,
 			}}
 		}

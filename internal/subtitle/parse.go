@@ -109,7 +109,7 @@ func ParseTimestamp(s string) (core.Time, error) {
 
 type tsError string
 
-func (e tsError) Error() string { return "invalid timestamp: " + string(e) }
+func (e tsError) Error() string          { return "invalid timestamp: " + string(e) }
 func errInvalidTimestamp(s string) error { return tsError(s) }
 
 // parseTimeline extracts "start --> end" from a cue timing line. VTT

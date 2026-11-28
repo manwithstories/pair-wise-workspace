@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
-
 )
 
 // makeFixture renders a small deterministic MP4 with ffmpeg. Fixtures are
