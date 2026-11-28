@@ -325,3 +325,57 @@ func TestVFRPacketSpacingIsVariable(t *testing.T) {
 		t.Fatalf("expected variable spacing, got %d distinct gaps: %v", len(distinct), distinct)
 	}
 }
+
+// TestTrackStateExpandsPTSAcrossWrap verifies presentation timestamps follow
+// the decode timestamp's wrap epoch rather than being confused by a raw
+// backwards jump at the 33-bit boundary.
+func TestTrackStateExpandsPTSAcrossWrap(t *testing.T) {
+	span := int64(1) << 33
+	st := &trackState{
+		track: media.Track{ID: "v0", TimestampBits: 33, TimeBase: media.MustRat(1, 90000)},
+		span:  span,
+	}
+	st.unwrapper, _ = NewUnwrapper(33, media.Origin{TrackID: "v0"})
+	// Walk to just below the boundary, then cross it. DTS and PTS advance
+	// together, so the expanded PTS must continue past 2^33.
+	raws := []int64{span - 200, span - 100, 0, 100}
+	want := []int64{span - 200, span - 100, span, span + 100}
+	for i, raw := range raws {
+		dts, err := st.expandDTS(raw)
+		if err != nil {
+			t.Fatalf("dts %d: %v", raw, err)
+		}
+		pts, err := st.expandPTS(raw)
+		if err != nil {
+			t.Fatalf("pts %d: %v", raw, err)
+		}
+		if dts != want[i] || pts != want[i] {
+			t.Fatalf("raw %d: dts %d pts %d want %d", raw, dts, pts, want[i])
+		}
+	}
+	if st.wraps != 1 {
+		t.Fatalf("wraps = %d", st.wraps)
+	}
+}
+
+// TestTrackStateKeepsNegativePreroll verifies a negative timestamp before the
+// timeline starts is preserved as encoder pre-roll, while one after it is a
+// regression.
+func TestTrackStateKeepsNegativePreroll(t *testing.T) {
+	st := &trackState{
+		track: media.Track{ID: "a1", TimestampBits: 33},
+		span:  int64(1) << 33,
+	}
+	st.unwrapper, _ = NewUnwrapper(33, media.Origin{TrackID: "a1"})
+	// Pre-roll before any non-negative sample passes through.
+	if v, err := st.expandDTS(-1024); err != nil || v != -1024 {
+		t.Fatalf("pre-roll dts = %d, %v", v, err)
+	}
+	if _, err := st.expandDTS(0); err != nil {
+		t.Fatal(err)
+	}
+	// A later negative value is a regression.
+	if _, err := st.expandDTS(-1); err == nil {
+		t.Fatal("post-start negative timestamp accepted")
+	}
+}

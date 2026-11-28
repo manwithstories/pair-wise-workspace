@@ -32,6 +32,16 @@ type MappingError struct {
 
 func (e *MappingError) Error() string { return "mapping " + string(e.Kind) + ": " + e.Message }
 
+// MediaKind classifies a mapping failure for the terminal exit code. A
+// mapping rule may be malformed (policy) or it may name a track the demuxer
+// disabled because its display metadata was illegal (corrupt input).
+func (e *MappingError) MediaKind() media.ErrorKind {
+	if e.Kind == ErrInvalid {
+		return media.KindCorrupt
+	}
+	return media.KindPolicy
+}
+
 // MapSpec is one operator-supplied mapping rule: the stable output track ID
 // and the source stream index it comes from.
 type MapSpec struct {
@@ -89,6 +99,18 @@ func (in *Input) Mapping(specs []MapSpec, allowUnmatched bool) (*Mapping, error)
 		}
 	}
 	if len(rules) == 0 {
+		// If every candidate was disabled by illegal display metadata, the
+		// input itself is corrupt: report the reason, not a generic "nothing
+		// to map" that hides it.
+		if len(m.Disabled) > 0 {
+			for _, t := range in.Tracks {
+				if t.Display.Invalid {
+					return nil, &MappingError{Kind: ErrInvalid, TrackID: t.ID, Source: t.Source,
+						Message: fmt.Sprintf("track %s disabled: %s", t.ID, t.Display.InvalidReason),
+						Origin:  media.Origin{File: in.Path, TrackID: t.ID, Stage: "demux"}}
+				}
+			}
+		}
 		return nil, &MappingError{Kind: ErrMissing, Message: "no mapping rules and no usable tracks",
 			Origin: media.Origin{File: in.Path, Stage: "demux"}}
 	}

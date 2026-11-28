@@ -90,9 +90,19 @@ type Input struct {
 // trackState accumulates per-stream unwrapping and ordering state.
 type trackState struct {
 	track     media.Track
+	origin    media.Origin
 	seq       int64
 	arrival   int64
 	unwrapper UnwrapperState
+	// wraps counts how many genuine modular wraps were expanded on this
+	// track, so the manifest can report clock recovery.
+	wraps int
+	// span is 2^bits for the timestamp field, 0 when unwrapping is disabled.
+	span int64
+	// lastExpanded is the last expanded decode timestamp; a presentation
+	// timestamp is aligned to the same wrap epoch as it.
+	lastExpanded int64
+	hasExpanded  bool
 }
 
 // UnwrapperState is an interface so tests can inject a deterministic clock.
@@ -263,7 +273,7 @@ func (in *Input) buildTracks(opts Options) error {
 					t.Display = di
 					t.Display.Invalid = true
 					t.Display.InvalidReason = me.Msg
-					in.scratch[s.Index()] = &trackState{track: t}
+					in.scratch[s.Index()] = &trackState{track: t, origin: media.Origin{File: in.Path, TrackID: t.ID}}
 					in.Tracks = append(in.Tracks, t)
 					continue
 				}
@@ -271,13 +281,14 @@ func (in *Input) buildTracks(opts Options) error {
 			}
 			t.Display = di
 		}
-		state := &trackState{track: t}
+		state := &trackState{track: t, origin: media.Origin{File: in.Path, TrackID: t.ID}}
 		if opts.WrapBits > 0 {
 			us, err := NewUnwrapper(opts.WrapBits, media.Origin{File: in.Path, TrackID: t.ID})
 			if err != nil {
 				return err
 			}
 			state.unwrapper = us
+			state.span = int64(1) << uint(opts.WrapBits)
 		}
 		in.scratch[s.Index()] = state
 		in.Tracks = append(in.Tracks, t)
@@ -406,20 +417,91 @@ func (in *Input) Packet() (media.Packet, error) {
 	p.PTS = tsOrMissing(in.packet.Pts())
 	p.DTS = tsOrMissing(in.packet.Dts())
 
-	// Unwrap the decode timestamp race when configured.
+	// Unwrap both timestamps when configured. Decode timestamps drive wrap
+	// detection; presentation timestamps are placed in the same wrap epoch so
+	// a B-frame reorder delay can never look like a wrap.
 	if state.unwrapper != nil {
 		if p.HasDTS() {
-			v, err := state.unwrapper.Value(p.RawDTS)
+			v, err := state.expandDTS(p.RawDTS)
 			if err != nil {
 				return media.Packet{}, wrapUnwrapErr(err, p.Origin)
 			}
 			p.DTS = v
+		}
+		if p.HasPTS() {
+			v, err := state.expandPTS(p.RawPTS)
+			if err != nil {
+				return media.Packet{}, wrapUnwrapErr(err, p.Origin)
+			}
+			p.PTS = v
 		}
 	}
 	state.seq++
 	state.arrival = in.read
 	in.read++
 	return p, nil
+}
+
+// expandDTS resolves a raw decode timestamp. Small negative values before the
+// first non-negative sample are encoder pre-roll (AAC priming, MPEG-2 B-frame
+// offset), which containers legitimately carry; they pass through unchanged
+// and never participate in wrap accounting. Any later negative value is a
+// regression the clock layer must judge.
+func (st *trackState) expandDTS(raw int64) (int64, error) {
+	if raw < 0 {
+		if st.hasExpanded || raw < -st.span/2 {
+			return 0, &ValidationError{
+				Raw: raw, Prev: st.lastExpanded, Delta: raw,
+				Origin:  st.origin,
+				Message: fmt.Sprintf("clock: negative decode timestamp %d after the timeline started", raw),
+			}
+		}
+		return raw, nil
+	}
+	v, err := st.unwrapper.Value(raw)
+	if err != nil {
+		return 0, err
+	}
+	if v > st.lastExpanded || !st.hasExpanded {
+		st.lastExpanded = v
+		st.hasExpanded = true
+	}
+	st.wraps = st.unwrapper.Wraps()
+	return v, nil
+}
+
+// expandPTS places a raw presentation timestamp in the same wrap epoch as the
+// most recent decode timestamp. PTS and DTS always lie within one reorder
+// window of each other, so choosing the nearest epoch is exact even across a
+// wrap boundary.
+func (st *trackState) expandPTS(raw int64) (int64, error) {
+	if raw < 0 {
+		if st.hasExpanded || raw < -st.span/2 {
+			return 0, &ValidationError{
+				Raw: raw, Prev: st.lastExpanded, Delta: raw,
+				Origin:  st.origin,
+				Message: fmt.Sprintf("clock: negative presentation timestamp %d after the timeline started", raw),
+			}
+		}
+		return raw, nil
+	}
+	if raw >= st.span {
+		return 0, media.Errorf(media.KindCorrupt, st.origin, "clock.Value",
+			"raw timestamp %d outside %d-bit range [0,%d]", raw, st.track.TimestampBits, st.span-1)
+	}
+	if !st.hasExpanded {
+		// No decode timestamp has been seen yet: this is the track anchor.
+		return raw, nil
+	}
+	v := raw + int64(st.wraps)*st.span
+	half := st.span / 2
+	for v-st.lastExpanded > half {
+		v -= st.span
+	}
+	for st.lastExpanded-v > half {
+		v += st.span
+	}
+	return v, nil
 }
 
 func tsOrMissing(v int64) int64 {
@@ -439,6 +521,17 @@ func wrapUnwrapErr(err error, origin media.Origin) error {
 		return me.WithOrigin(origin)
 	}
 	return media.New(media.KindInternal, origin, "demux.Packet", "unwrapping timestamp failed", err)
+}
+
+// Wraps reports how many genuine modular timestamp wraps the demuxer expanded
+// across every track of this input. It is what the manifest records so an
+// operator can see clock recovery actually happened.
+func (in *Input) Wraps() int {
+	total := 0
+	for _, st := range in.scratch {
+		total += st.wraps
+	}
+	return total
 }
 
 // Close releases all native resources. It is safe to call twice.
