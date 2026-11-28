@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"avpipe/internal/audit"
 	"avpipe/internal/media"
 )
 
@@ -207,3 +210,51 @@ func printSelfcheck(r *selfcheckReport) {
 	}
 }
 
+// cmdSelfcheck parses flags and executes the selfcheck.
+func cmdSelfcheck(ctx context.Context, args []string) error {
+	fs := newSelfcheckFlagSet()
+	if err := fs.Parse(args); err != nil {
+		return media.New(media.KindUsage, media.Origin{}, "selfcheck", err.Error(), err)
+	}
+	dir := fs.Lookup("dir").Value.String()
+	if dir == "" {
+		return media.Errorf(media.KindUsage, media.Origin{}, "selfcheck", "--dir is required")
+	}
+	seg, err := media.ParseDuration(fs.Lookup("segment").Value.String())
+	if err != nil {
+		return media.New(media.KindUsage, media.Origin{}, "selfcheck", "invalid --segment", err)
+	}
+	queue := flagInt(fs, "queue")
+	cache := flagInt(fs, "cache")
+	if cache <= 0 {
+		cache = queue
+	}
+	cfg := selfcheckConfig{
+		Dir: dir, Seed: flagInt64(fs, "seed"), Workers: flagInt(fs, "workers"),
+		Queue: queue, Segment: seg, Cache: cache, WrapBits: flagInt(fs, "wrap-bits"),
+	}
+	jsonOut := fs.Lookup("json").Value.String() == "true"
+	report, err := runSelfcheck(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	if jsonOut {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(report); err != nil {
+			return err
+		}
+	} else {
+		printSelfcheck(report)
+	}
+	if !report.Pass {
+		return media.Errorf(media.KindCorrupt, media.Origin{}, "selfcheck",
+			"selfcheck failed: %s", strings.Join(report.Problems, "; "))
+	}
+	return nil
+}
+
+// verifyManifest is the terminal-facing wrapper around audit.Verify.
+func verifyManifest(manifest, output string) (*audit.Verification, error) {
+	return audit.Verify(manifest, output)
+}
