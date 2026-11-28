@@ -71,3 +71,10 @@ AGENTS.md.local
 *copilot*/
 .agent*/
 .ai*/
+
+# ---- 构建产物与运行工作目录 ----
+# avpipe 二进制在仓库根目录生成；.work 存放 selfcheck/verify 运行时
+# 生成的夹具与输出，两者都不属于交付内容。
+/avpipe
+.work/
+
