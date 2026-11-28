@@ -112,14 +112,14 @@ func ParseMP4(path string, track int) (*MP4Result, error) {
 				})
 			}
 		case "apkt":
-			if len(body) < 12 {
+			if len(body) < 16 {
 				return nil, media.Faultf(media.StageParse, track, int64(off), "apkt too short")
 			}
 			res.Packets = append(res.Packets, &media.Packet{
-				Track: track, Seq: int64(len(res.Packets)), Kind: media.KindAudio,
+				Track: track, Seq: int64(binary.BigEndian.Uint32(body[8:12])), Kind: media.KindAudio,
 				PTS:      int64(binary.BigEndian.Uint64(body[0:8])),
-				Duration: media.TicksToNS(int64(binary.BigEndian.Uint32(body[8:12])), media.AudioRate),
-				Offset:   int64(off), Source: src, Data: bytes.Clone(body[12:]),
+				Duration: media.TicksToNS(int64(binary.BigEndian.Uint32(body[12:16])), media.AudioRate),
+				Offset:   int64(off), Source: src, Data: bytes.Clone(body[16:]),
 			})
 			if len(res.Packets) > media.MaxPackets {
 				return nil, media.Faultf(media.StageParse, track, int64(off), "packet count exceeds limit")

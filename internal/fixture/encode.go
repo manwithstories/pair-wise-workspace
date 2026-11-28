@@ -71,10 +71,11 @@ func clapValue(x, y, w, h int) []byte {
 	return v
 }
 
-func apktValue(localPTS int64, samples uint32, pcm []byte) []byte {
-	v := make([]byte, 12)
+func apktValue(seq int64, localPTS int64, samples uint32, pcm []byte) []byte {
+	v := make([]byte, 16)
 	binary.BigEndian.PutUint64(v[0:8], uint64(localPTS))
-	binary.BigEndian.PutUint32(v[8:12], samples)
+	binary.BigEndian.PutUint32(v[8:12], uint32(seq))
+	binary.BigEndian.PutUint32(v[12:16], samples)
 	return append(v, pcm...)
 }
 

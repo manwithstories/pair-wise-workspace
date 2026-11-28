@@ -126,9 +126,10 @@ func TestParseMP4RoundTrip(t *testing.T) {
 	binary.BigEndian.PutUint32(cl[12:16], 40)
 	buf = append(buf, box("clap", cl)...)
 	buf = append(buf, box("colr", []byte{1, 1, 1})...)
-	ap := make([]byte, 12)
+	ap := make([]byte, 16)
 	binary.BigEndian.PutUint64(ap[0:8], 12345)
-	binary.BigEndian.PutUint32(ap[8:12], 1024)
+	binary.BigEndian.PutUint32(ap[8:12], 7)
+	binary.BigEndian.PutUint32(ap[12:16], 1024)
 	buf = append(buf, box("apkt", append(ap, 0x01, 0x02))...)
 	p := writeTemp(t, "a.mp4", buf)
 
@@ -145,7 +146,7 @@ func TestParseMP4RoundTrip(t *testing.T) {
 	if res.Color == nil || res.Color.Primaries != 1 {
 		t.Fatalf("color = %+v", res.Color)
 	}
-	if len(res.Packets) != 1 || res.Packets[0].PTS != 12345 {
+	if len(res.Packets) != 1 || res.Packets[0].PTS != 12345 || res.Packets[0].Seq != 7 {
 		t.Fatalf("packets = %+v", res.Packets)
 	}
 }

@@ -206,7 +206,7 @@ func buildMP4(opts Options) ([]byte, []int64) {
 		}
 		for i := g; i < end; i++ {
 			if !isLost(int64(i)) {
-				out = boxAppend(out, "apkt", apktValue(pts[i], SamplesPer, pcm[i]))
+				out = boxAppend(out, "apkt", apktValue(int64(i), pts[i], SamplesPer, pcm[i]))
 			}
 		}
 		out = boxAppend(out, "par1", par1Value(int64(g), gpts, samples, lengths,
