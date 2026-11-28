@@ -73,6 +73,22 @@ func BuildPlan(ctx context.Context, ad adapter.Adapter, camera, srcPath string, 
 	plan.Faults = append(plan.Faults, res.Faults...)
 	plan.Duration = samplesDuration(plan.Samples)
 
+	if missing := plan.Faults.OfKind(core.FaultMissingIndex); len(missing) > 0 {
+		// Index absent: the container scan itself is the recovery act.
+		hash, herr := hashPrefix(srcPath, -1)
+		if herr != nil {
+			hash = "unavailable: " + herr.Error()
+		}
+		plan.Records = append(plan.Records, RecoveryRecord{
+			Camera:         camera,
+			OriginalOffset: firstByteOffset(res.Samples),
+			Reason:         string(core.FaultMissingIndex),
+			Hash:           hash,
+			Start:          core.Time{},
+			End:            plan.Duration,
+		})
+	}
+
 	frame := plan.FPS.FrameDuration()
 	if expect.Ticks > 0 && expect.Sub(plan.Duration).Ticks > frame.Ticks {
 		// Decodable prefix ends before the expected timeline: tail loss.
@@ -136,6 +152,16 @@ func lastByteOffset(samples []adapter.MediaSample) int64 {
 		}
 	}
 	return max
+}
+
+func firstByteOffset(samples []adapter.MediaSample) int64 {
+	min := int64(-1)
+	for _, s := range samples {
+		if s.Offset >= 0 && (min < 0 || s.Offset < min) {
+			min = s.Offset
+		}
+	}
+	return min
 }
 
 // hashPrefix streams the first n bytes of path through sha256 (n<0 hashes

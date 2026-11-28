@@ -17,7 +17,7 @@ func TestWriteAndReadMaster(t *testing.T) {
 		{Name: "v800", PlaylistFile: "index.m3u8", Bandwidth: 800000, Width: 640, Height: 360, Codecs: "avc1.4d401f", FrameRate: 25},
 	}
 	subs := &SubtitleInfo{GroupID: "subs", Name: "English", Language: "en", URI: "subs/index.m3u8"}
-	if err := WriteMaster(path, variants, subs); err != nil {
+	if err := WriteMaster(path, variants, subs, []string{"cam3 truncated_tail @128"}); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(path)
@@ -62,7 +62,7 @@ func TestSubtitlePlaylistRoundTrip(t *testing.T) {
 func TestReadSegmentDurationsRejectsMaster(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "master.m3u8")
-	if err := WriteMaster(path, []VariantInfo{{Name: "v", PlaylistFile: "i.m3u8", Bandwidth: 1}}, nil); err != nil {
+	if err := WriteMaster(path, []VariantInfo{{Name: "v", PlaylistFile: "i.m3u8", Bandwidth: 1}}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ReadSegmentDurations(path); err == nil {

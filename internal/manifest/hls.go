@@ -36,7 +36,9 @@ type SubtitleInfo struct {
 }
 
 // WriteMaster renders the master playlist and atomically replaces path.
-func WriteMaster(path string, variants []VariantInfo, subs *SubtitleInfo) error {
+// notices are propagated faults, emitted as comment lines right after the
+// #EXTM3U header so downstream tooling can see delivery defects.
+func WriteMaster(path string, variants []VariantInfo, subs *SubtitleInfo, notices []string) error {
 	master := m3u8.NewMasterPlaylist()
 	for _, v := range variants {
 		params := m3u8.VariantParams{
@@ -61,7 +63,16 @@ func WriteMaster(path string, variants []VariantInfo, subs *SubtitleInfo) error 
 		uri := v.Name + "/" + v.PlaylistFile
 		master.Append(uri, nil, params)
 	}
-	return atomicWrite(path, master.Encode().Bytes())
+	out := master.Encode().Bytes()
+	if len(notices) > 0 {
+		var b bytes.Buffer
+		b.WriteString("#EXTM3U\n")
+		for _, n := range notices {
+			b.WriteString("#PRESSPACK-FAULT: " + n + "\n")
+		}
+		out = append(b.Bytes(), bytes.TrimPrefix(out, []byte("#EXTM3U\n"))...)
+	}
+	return atomicWrite(path, out)
 }
 
 // WriteSubtitlePlaylist builds a VOD media playlist for sliced VTT files.

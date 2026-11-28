@@ -74,6 +74,12 @@ func TestBuildPlanMissingIndexRecovers(t *testing.T) {
 	if len(plan.Samples) == 0 {
 		t.Error("scan must still recover samples")
 	}
+	if len(plan.Records) != 1 || plan.Records[0].Reason != string(core.FaultMissingIndex) {
+		t.Errorf("missing-index scan must be recorded: %+v", plan.Records)
+	}
+	if len(plan.Records) > 0 && len(plan.Records[0].Hash) != 64 {
+		t.Errorf("record hash = %q", plan.Records[0].Hash)
+	}
 }
 
 func TestBuildPlanTruncatedMarksGap(t *testing.T) {
