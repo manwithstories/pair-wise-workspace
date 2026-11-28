@@ -45,6 +45,8 @@ type Spec struct {
 	Height   int
 	FPS      int
 	Seconds  float64
+	// GOP is the keyframe interval in frames. Zero uses one second (FPS).
+	GOP      int
 	Video    bool
 	Audio    bool
 	Rational []string // free-form extra ffmpeg options for the generator
@@ -170,11 +172,16 @@ func (g *Generator) buildArgs(s Spec, out string) ([]string, error) {
 
 	switch s.Kind {
 	case KindWrap:
-		// A 33-bit modular counter near the top of its range on the video
-		// track. timescale 90kHz and a large positive offset force the PTS
-		// field close to 2^33 before the first sample.
-		args = append(args, "-video_track_timescale", "90000",
-			"-output_ts_offset", "95443.4")
+		// A modular counter near the top of its range is produced by
+		// fragmenting the MP4 and rewriting each track's tfdt bases so the
+		// fragments straddle 2^33. A plain -output_ts_offset is not enough:
+		// mp4 stores no absolute origin and the muxer normalises it away.
+		// empty_moov forces every sample into a moof carrying a tfdt; without
+		// it the first fragment stays in moov and its timestamps cannot be
+		// rewritten. Half-second fragments keep each tfdt base strictly below
+		// 2^33 while still crossing it exactly once.
+		args = append(args, "-frag_duration", "500000",
+			"-movflags", "+frag_keyframe+empty_moov+default_base_moof")
 	}
 
 	switch s.Format {
@@ -189,13 +196,23 @@ func (g *Generator) buildArgs(s Spec, out string) ([]string, error) {
 		args = append(args, "-f", "mxf")
 	case "mp4":
 		if s.Video {
+			gop := s.GOP
+			if gop <= 0 {
+				gop = s.FPS
+			}
 			args = append(args, "-c:v", "libx264", "-preset", "ultrafast", "-bf", "0",
-				"-g", fmt.Sprintf("%d", s.FPS), "-pix_fmt", "yuv420p")
+				"-g", fmt.Sprintf("%d", gop), "-pix_fmt", "yuv420p",
+				// A fixed 90 kHz video time base makes PTS arithmetic exact so
+				// VFR spacing and segment boundaries are reproducible.
+				"-video_track_timescale", "90000")
 		}
 		if s.Audio {
 			args = append(args, "-c:a", "aac", "-b:a", "96000")
 		}
-		args = append(args, "-movflags", "+faststart", "-f", "mp4")
+		if s.Kind != KindWrap {
+			args = append(args, "-movflags", "+faststart")
+		}
+		args = append(args, "-f", "mp4")
 	default:
 		return nil, media.Errorf(media.KindUsage, media.Origin{File: out},
 			"fixture.buildArgs", "unsupported format %q", s.Format)
@@ -229,6 +246,123 @@ func HashFile(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// tfdtSpan is 2^33, the width of an MPEG transport style timestamp field. The
+// wrap fixture rewrites sample timestamps so one track rolls over this value.
+const tfdtSpan = int64(1) << 33
+
+// RewriteTFDTWrap shifts every tfdt base in a fragmented MP4 so that the
+// first fragment ends exactly at 2^33 and the second begins at 0, producing
+// one genuine modular wrap per track.
+//
+// This is the only reliable way to build a wrap fixture: plain muxing offsets
+// are normalised away by the MP4 muxer because the container stores no
+// absolute origin. The rewrite is exact and touches only the 8-byte version-1
+// base fields, so the rest of the file, including the encoded samples, is
+// left byte-for-byte intact.
+//
+// The shift is derived from the source itself: the duration of the first
+// fragment is the difference between the first two tfdt bases of a track.
+// Placing the first fragment at [2^33 - thatDuration, 2^33) makes the second
+// fragment's base land on exactly 0, so no sample ever leaves the 33-bit
+// range while the counter still visibly rolls over.
+func (g *Generator) RewriteTFDTWrap(src, dst string) (File, error) {
+	in, err := g.EnsureSafePath(src)
+	if err != nil {
+		return File{}, err
+	}
+	out, err := g.EnsureSafePath(dst)
+	if err != nil {
+		return File{}, err
+	}
+	data, err := os.ReadFile(in)
+	if err != nil {
+		return File{}, media.New(media.KindInternal, media.Origin{File: in}, "fixture.RewriteTFDTWrap", "read failed", err)
+	}
+	// First pass: find every tfdt body and the track it belongs to.
+	type tfdtRef struct {
+		pos  int // offset of the version-1 8-byte base field
+		base int64
+		tid  uint32
+	}
+	var refs []tfdtRef
+	first := map[uint32]int64{}
+	second := map[uint32]int64{}
+	off := 0
+	for {
+		rel := bytesIndexOf(data[off:], []byte("tfdt"))
+		if rel < 0 {
+			break
+		}
+		typ := off + rel
+		// A box is "size(4) type(4)"; the payload starts after the two.
+		body := typ + 4
+		if body+4 > len(data) {
+			break
+		}
+		ver := data[body]
+		if ver != 1 {
+			return File{}, media.Errorf(media.KindCorrupt, media.Origin{File: in, Offset: int64(typ)},
+				"fixture.RewriteTFDTWrap", "tfdt version %d is not supported; use 64-bit base", ver)
+		}
+		base := int64(binary.BigEndian.Uint64(data[body+4:]))
+		// The enclosing traf carries a tfhd whose payload is
+		// version+flags(4) track_ID(4).
+		h := bytesLastIndexOf(data[:typ], []byte("tfhd"))
+		if h < 0 {
+			return File{}, media.Errorf(media.KindCorrupt, media.Origin{File: in, Offset: int64(typ)},
+				"fixture.RewriteTFDTWrap", "tfdt without a preceding tfhd")
+		}
+		tid := binary.BigEndian.Uint32(data[h+4+4:])
+		if _, ok := first[tid]; !ok {
+			first[tid] = base
+		} else if _, ok := second[tid]; !ok {
+			second[tid] = base
+		}
+		refs = append(refs, tfdtRef{pos: body + 4, base: base, tid: tid})
+		off = typ + 4
+	}
+	if len(refs) == 0 {
+		return File{}, media.Errorf(media.KindCorrupt, media.Origin{File: in},
+			"fixture.RewriteTFDTWrap", "no tfdt boxes found; the fixture must be fragmented")
+	}
+	outData := make([]byte, len(data))
+	copy(outData, data)
+	for tid := range first {
+		if _, ok := second[tid]; !ok {
+			return File{}, media.Errorf(media.KindUsage, media.Origin{File: in},
+				"fixture.RewriteTFDTWrap", "track %d has only one fragment; a wrap needs at least two", tid)
+		}
+		if second[tid]-first[tid] <= 0 {
+			return File{}, media.Errorf(media.KindCorrupt, media.Origin{File: in},
+				"fixture.RewriteTFDTWrap", "track %d fragment bases do not advance", tid)
+		}
+	}
+	for _, r := range refs {
+		// Place the first fragment so it ends exactly at 2^33; every later
+		// base then continues from 0 and never leaves the 33-bit range.
+		firstDur := second[r.tid] - first[r.tid]
+		shift := tfdtSpan - firstDur - first[r.tid]
+		newBase := (r.base + shift) % tfdtSpan
+		if newBase < 0 {
+			newBase += tfdtSpan
+		}
+		binary.BigEndian.PutUint64(outData[r.pos:], uint64(newBase))
+	}
+	if err := os.WriteFile(out, outData, 0o644); err != nil {
+		return File{}, media.New(media.KindInternal, media.Origin{File: out}, "fixture.RewriteTFDTWrap", "write failed", err)
+	}
+	return fileDescriptor(out, KindWrap), nil
+}
+
+func bytesLastIndexOf(haystack, needle []byte) int {
+	for i := len(haystack) - len(needle); i >= 0; i-- {
+		if string(haystack[i:i+len(needle)]) == string(needle) {
+			return i
+		}
+	}
+	return -1
+}
+
 // Truncate rewrites a file to keep only the first keep bytes, simulating a
 // transport that lost the tail of a fragment.
 func (g *Generator) Truncate(src, dst string, keep int64) (File, error) {
@@ -258,8 +392,12 @@ func (g *Generator) Truncate(src, dst string, keep int64) (File, error) {
 	return fileDescriptor(out, KindTruncated), nil
 }
 
-// CorruptKLV flips a byte inside an MXF KLV payload, or zeroes an MP4 box
-// header field, so the demuxer detects damage at a known offset.
+// CorruptKLV damages a container at a structural point so the demuxer must
+// notice. For MXF it flips bytes inside a KLV payload; for MP4 it finds a
+// top-level box and rewrites its size field to a value that escapes the file,
+// which the box walker rejects with the byte offset of the damage. Corrupting
+// bytes inside mdat would be undetectable by design, since the encoded sample
+// bytes are opaque to the container.
 func (g *Generator) CorruptKLV(src, dst string, offset int64) (File, error) {
 	in, err := g.EnsureSafePath(src)
 	if err != nil {
@@ -277,11 +415,41 @@ func (g *Generator) CorruptKLV(src, dst string, offset int64) (File, error) {
 		return File{}, media.Errorf(media.KindUsage, media.Origin{File: in, Offset: offset},
 			"fixture.CorruptKLV", "offset %d outside file size %d", offset, len(data))
 	}
-	// Write a byte sequence that is invalid in both KLV and MP4: an all-ones
-	// box/UL type followed by a zero length.
-	binary.LittleEndian.PutUint32(data[offset:], 0xFFFFFFFF)
+	// A UL/box whose declared size runs past the end of the file is the one
+	// corruption a streaming demuxer is guaranteed to detect.
+	binary.BigEndian.PutUint32(data[offset:], uint32(len(data))+0x1000)
 	if err := os.WriteFile(out, data, 0o644); err != nil {
 		return File{}, media.New(media.KindInternal, media.Origin{File: out}, "fixture.CorruptKLV", "write failed", err)
+	}
+	return fileDescriptor(out, KindTruncated), nil
+}
+
+// CorruptMP4Box rewrites a top-level box size so it escapes the file. It is
+// the MP4 counterpart of CorruptKLV and is used for the corrupt.mp4 fixture,
+// which must fail inside the same box walker that validates tkhd.
+func (g *Generator) CorruptMP4Box(src, dst string) (File, error) {
+	in, err := g.EnsureSafePath(src)
+	if err != nil {
+		return File{}, err
+	}
+	out, err := g.EnsureSafePath(dst)
+	if err != nil {
+		return File{}, err
+	}
+	data, err := os.ReadFile(in)
+	if err != nil {
+		return File{}, media.New(media.KindInternal, media.Origin{File: in}, "fixture.CorruptMP4Box", "read failed", err)
+	}
+	// Find the top-level mdat box and claim it extends far past the file.
+	idx := bytesIndexOf(data, []byte("mdat"))
+	if idx < 8 {
+		return File{}, media.Errorf(media.KindInternal, media.Origin{File: in},
+			"fixture.CorruptMP4Box", "mdat box not found")
+	}
+	sizeOff := idx - 4
+	binary.BigEndian.PutUint32(data[sizeOff:], uint32(len(data))+0x1000)
+	if err := os.WriteFile(out, data, 0o644); err != nil {
+		return File{}, media.New(media.KindInternal, media.Origin{File: out}, "fixture.CorruptMP4Box", "write failed", err)
 	}
 	return fileDescriptor(out, KindTruncated), nil
 }
@@ -502,12 +670,18 @@ func GenerateAll(dir string, seed int64) (Set, error) {
 	}
 	rng := newLCG(seed)
 	_ = rng
+	// The acceptance run expects six 2-second segments, so the good fixture is
+	// twelve seconds long with a keyframe exactly every two seconds. The MXF
+	// mirror uses the same cadence.
 	specs := []Spec{
-		{Kind: KindGood, Name: "good.mxf", Format: "mxf", Seed: seed, Video: true, Audio: true, Seconds: 2},
-		{Kind: KindGood, Name: "good.mp4", Format: "mp4", Seed: seed, Video: true, Audio: true, Seconds: 2},
+		{Kind: KindGood, Name: "good.mxf", Format: "mxf", Seed: seed, Video: true, Audio: true,
+			Seconds: 12, GOP: 60},
+		{Kind: KindGood, Name: "good.mp4", Format: "mp4", Seed: seed, Video: true, Audio: true,
+			Seconds: 12, GOP: 60},
 		{Kind: KindGood, Name: "cropbase.mp4", Format: "mp4", Seed: seed, Video: true, Seconds: 1,
 			Rational: []string{"-vf", "crop=140:80:10:5"}},
-		{Kind: KindWrap, Name: "wrap.mp4", Format: "mp4", Seed: seed, Video: true, Seconds: 2},
+		{Kind: KindWrap, Name: "wrap_frag.mp4", Format: "mp4", Seed: seed, Video: true, Audio: true,
+			Seconds: 2, GOP: 30},
 	}
 	set := Set{Dir: g.Root(), Seed: seed}
 	for _, s := range specs {
@@ -515,16 +689,48 @@ func GenerateAll(dir string, seed int64) (Set, error) {
 		if err != nil {
 			return Set{}, err
 		}
+		// The fragmented wrap source is an intermediate: it is rewritten into
+		// wrap.mp4 below and must not appear in the catalog twice.
+		if s.Name == "wrap_frag.mp4" {
+			continue
+		}
 		set.Files = append(set.Files, f)
 	}
-	// VFR is produced by concatenating one second at 30fps and one at 24fps,
-	// yielding genuine variable inter-frame spacing rather than a constant
-	// average rate.
+	// Rewrite the fragmented source into a genuinely wrapping stream. Each
+	// track starts one second (in its own time base) *above* 2^33, so the
+	// first fragment already lies beyond the boundary and the stream carries a
+	// wrap only if the timeline is expanded. The intermediate fragmented file
+	// is removed so only the wrapping product remains in the catalog.
+	wrap, err := g.RewriteTFDTWrap("wrap_frag.mp4", "wrap.mp4")
+	if err != nil {
+		return Set{}, err
+	}
+	if err := os.Remove(filepath.Join(g.Root(), "wrap_frag.mp4")); err != nil {
+		return Set{}, media.New(media.KindInternal, media.Origin{File: "wrap_frag.mp4"},
+			"fixture.GenerateAll", "removing intermediate file failed", err)
+	}
+	set.Files = append(set.Files, wrap)
+	// VFR is produced by concatenating 122 frames at 30fps and 120 at 60fps,
+	// yielding genuine variable inter-frame spacing (exactly 120 irregular
+	// gaps at a 90 kHz base) rather than a constant average rate.
 	vfr, err := g.generateVFR("vfr.mp4", seed)
 	if err != nil {
 		return Set{}, err
 	}
 	set.Files = append(set.Files, vfr)
+	// A drift fixture shifts the audio clock 120 ms from video.
+	drift, err := g.generateDrift("good.mp4", "drift.mp4", 0.120)
+	if err != nil {
+		return Set{}, err
+	}
+	set.Files = append(set.Files, drift)
+	// A long clip for cancellation: enough packets that a mid-stream cancel
+	// lands before the end.
+	cancel, err := g.generateCancel("cancel.mp4", 8)
+	if err != nil {
+		return Set{}, err
+	}
+	set.Files = append(set.Files, cancel)
 	// The invalid-crop fixture starts from a real cropped MP4 and declares a
 	// 170-wide display area, wider than the 160 coded frame.
 	badCrop, err := g.OverrideTrackHeaderSize("cropbase.mp4", "badcrop.mp4", 170, 90)
@@ -552,11 +758,19 @@ func GenerateAll(dir string, seed int64) (Set, error) {
 		return Set{}, err
 	}
 	set.Files = append(set.Files, trunc)
-	cinfo, err := os.Stat(goodMP4)
+	// A truncated MP4 loses both its tail and the box sizes that describe it,
+	// so the box walker rejects it. It is a separate damage class from
+	// corrupt.mp4 (one wrong size field inside an otherwise intact box tree).
+	ginfo, err := os.Stat(goodMP4)
 	if err != nil {
 		return Set{}, media.New(media.KindInternal, media.Origin{File: goodMP4}, "fixture.GenerateAll", "stat failed", err)
 	}
-	corrupt, err := g.CorruptKLV("good.mp4", "corrupt.mp4", cinfo.Size()-64)
+	truncMP4, err := g.Truncate("good.mp4", "trunc.mp4", ginfo.Size()*3/5)
+	if err != nil {
+		return Set{}, err
+	}
+	set.Files = append(set.Files, truncMP4)
+	corrupt, err := g.CorruptMP4Box("good.mp4", "corrupt.mp4")
 	if err != nil {
 		return Set{}, err
 	}
