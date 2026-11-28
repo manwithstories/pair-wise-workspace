@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"sort"
 )
 
 // TrackKind is the coarse media kind carried by a track.
@@ -199,13 +200,27 @@ type Segment struct {
 	Reasons    []string `json:"reasons,omitempty"`
 }
 
-// ComputeSegmentHash digests the ordered packet hashes of a segment.
+// ComputeSegmentHash digests the ordered packet content of a segment.
+//
+// The digest covers the segment index and, for every packet in emission
+// order, the stable track ID and the SHA-256 of the encoded bytes. It
+// deliberately excludes container-level representation (time base, raw tick
+// values, muxer chunking): those legitimately change when the same packets
+// are written to a different container, while the encoded payload and its
+// track association must not. This is what lets audit verification recompute
+// a segment from a produced container and compare it to the manifest, and it
+// is what proves a re-run reproduced the full run exactly.
+//
+// Timestamps are audited separately by the merge ordering guarantees and the
+// segment's Start/End records; they are not part of the content digest.
 func ComputeSegmentHash(index int, pkts []Packet) string {
 	h := sha256.New()
 	_, _ = h.Write([]byte(itoa(int64(index))))
 	h.Write([]byte{0})
 	for _, p := range pkts {
-		_, _ = h.Write([]byte(p.Hash()))
+		_, _ = h.Write([]byte(p.TrackID))
+		h.Write([]byte{0})
+		_, _ = h.Write([]byte(p.PayloadHash()))
 		h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil))
@@ -217,4 +232,45 @@ func u32(v uint32) []byte {
 	var b [4]byte
 	binary.BigEndian.PutUint32(b[:], v)
 	return b[:]
+}
+
+// ComparePresentation orders two packets by exact presentation time, then by
+// stable track ID, then by per-track source sequence. It is the single
+// canonical output order used by the merge stage and by audit verification,
+// so re-demuxing a produced container yields the same order it was written in
+// regardless of how the muxer interleaved chunks on disk.
+func ComparePresentation(a, b Packet) int {
+	sa, errA := a.PTSSeconds()
+	sb, errB := b.PTSSeconds()
+	if errA == nil && errB == nil {
+		if c := sa.Cmp(sb); c != 0 {
+			return c
+		}
+	} else {
+		// Fall back to raw PTS, which is only comparable within one base.
+		switch {
+		case a.PTS < b.PTS:
+			return -1
+		case a.PTS > b.PTS:
+			return 1
+		}
+	}
+	if a.TrackID != b.TrackID {
+		if a.TrackID < b.TrackID {
+			return -1
+		}
+		return 1
+	}
+	switch {
+	case a.Seq < b.Seq:
+		return -1
+	case a.Seq > b.Seq:
+		return 1
+	}
+	return 0
+}
+
+// SortPresentation sorts packets into the canonical output order in place.
+func SortPresentation(pkts []Packet) {
+	sort.SliceStable(pkts, func(i, j int) bool { return ComparePresentation(pkts[i], pkts[j]) < 0 })
 }
