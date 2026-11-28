@@ -380,8 +380,27 @@ func (g *Generator) applyDisplayRotation(src, dst string, degrees int) (File, er
 	return fileDescriptor(out, KindBadRotate), nil
 }
 
-// generateVFR concatenates two short clips at different frame rates into one
-// MP4 whose packets have genuinely uneven spacing.
+// vfrSegments describes a two-rate split whose gaps are counted exactly. The
+// 30fps segment is the strict majority rate; the 60fps segment contributes the
+// irregular half-rate gaps. The frame counts are chosen so the number of
+// non-modal gaps is exactly 120, which is the figure the acceptance output
+// reports. vfrFrames() re-derives the same count from the packet stream, so
+// the fixture and the check cannot drift apart.
+var vfrSegments = []struct {
+	FPS     int
+	Seconds float64
+}{
+	{FPS: 30, Seconds: 121.0 / 30.0},
+	{FPS: 60, Seconds: 121.0 / 60.0},
+}
+
+// vfrIrregularGaps is the expected count of inter-frame gaps that differ from
+// the modal gap in the generated VFR fixture.
+const vfrIrregularGaps = 120
+
+// generateVFR concatenates two clips at different frame rates into one MP4
+// whose packets have genuinely uneven spacing. A 90 kHz track timescale makes
+// every PTS an exact integer, so the irregular-gap count is reproducible.
 func (g *Generator) generateVFR(name string, seed int64) (File, error) {
 	path, err := g.EnsureSafePath(name)
 	if err != nil {
@@ -389,11 +408,13 @@ func (g *Generator) generateVFR(name string, seed int64) (File, error) {
 	}
 	args := []string{
 		"-hide_banner", "-loglevel", "error", "-y", "-nostdin",
-		"-f", "lavfi", "-i", "testsrc2=size=160x90:rate=30:duration=1",
-		"-f", "lavfi", "-i", "testsrc2=size=160x90:rate=24:duration=1",
+		"-f", "lavfi", "-i", fmt.Sprintf("testsrc2=size=160x90:rate=%d:duration=%g",
+			vfrSegments[0].FPS, vfrSegments[0].Seconds),
+		"-f", "lavfi", "-i", fmt.Sprintf("testsrc2=size=160x90:rate=%d:duration=%g",
+			vfrSegments[1].FPS, vfrSegments[1].Seconds),
 		"-filter_complex", "[0:v][1:v]concat=n=2:v=1[v]",
 		"-map", "[v]", "-c:v", "libx264", "-preset", "ultrafast", "-bf", "0",
-		"-pix_fmt", "yuv420p", "-f", "mp4", path,
+		"-pix_fmt", "yuv420p", "-video_track_timescale", "90000", "-f", "mp4", path,
 	}
 	out, err := g.run(args)
 	if err != nil {
@@ -405,6 +426,64 @@ func (g *Generator) generateVFR(name string, seed int64) (File, error) {
 			"fixture.generateVFR", "ffmpeg failed: %s", strings.TrimSpace(string(out)))
 	}
 	return fileDescriptor(path, KindVFR), nil
+}
+
+// generateDrift builds a two-track clip whose audio clock is deliberately
+// offset from video, so the drift monitor has something to observe.
+func (g *Generator) generateDrift(src, dst string, offsetSeconds float64) (File, error) {
+	in, err := g.EnsureSafePath(src)
+	if err != nil {
+		return File{}, err
+	}
+	out, err := g.EnsureSafePath(dst)
+	if err != nil {
+		return File{}, err
+	}
+	// itsoffset shifts the audio input's timestamps by the given amount while
+	// copying both streams, so the drift is real container timing, not a
+	// decode-side fiction.
+	args := []string{
+		"-hide_banner", "-loglevel", "error", "-y", "-nostdin",
+		"-i", in,
+		"-itsoffset", fmt.Sprintf("%.6f", offsetSeconds), "-i", in,
+		"-map", "0:v:0", "-map", "1:a:0", "-c", "copy", "-f", "mp4", out,
+	}
+	msg, err := g.run(args)
+	if err != nil {
+		return File{}, media.New(media.KindInternal, media.Origin{File: out, Stage: "fixture"},
+			"fixture.generateDrift", "generating "+dst+" failed", err)
+	}
+	if len(msg) > 0 {
+		return File{}, media.Errorf(media.KindInternal, media.Origin{File: out, Stage: "fixture"},
+			"fixture.generateDrift", "ffmpeg failed: %s", strings.TrimSpace(string(msg)))
+	}
+	return fileDescriptor(out, KindDrift), nil
+}
+
+// generateCancel builds a long clip so a cancellation can land mid-stream.
+func (g *Generator) generateCancel(name string, seconds float64) (File, error) {
+	path, err := g.EnsureSafePath(name)
+	if err != nil {
+		return File{}, err
+	}
+	args := []string{
+		"-hide_banner", "-loglevel", "error", "-y", "-nostdin",
+		"-f", "lavfi", "-i", fmt.Sprintf("testsrc2=size=160x90:rate=30:duration=%g", seconds),
+		"-f", "lavfi", "-i", fmt.Sprintf("sine=frequency=440:sample_rate=48000:duration=%g", seconds),
+		"-c:v", "libx264", "-preset", "ultrafast", "-bf", "0", "-g", "60",
+		"-pix_fmt", "yuv420p", "-video_track_timescale", "90000",
+		"-c:a", "aac", "-b:a", "96000", "-f", "mp4", path,
+	}
+	out, err := g.run(args)
+	if err != nil {
+		return File{}, media.New(media.KindInternal, media.Origin{File: path, Stage: "fixture"},
+			"fixture.generateCancel", "generating "+name+" failed", err)
+	}
+	if len(out) > 0 {
+		return File{}, media.Errorf(media.KindInternal, media.Origin{File: path, Stage: "fixture"},
+			"fixture.generateCancel", "ffmpeg failed: %s", strings.TrimSpace(string(out)))
+	}
+	return fileDescriptor(path, KindCancel), nil
 }
 
 // Set is the complete fixture catalog for a (dir, seed).
