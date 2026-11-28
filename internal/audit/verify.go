@@ -23,47 +23,56 @@ type SegmentSource struct {
 	Reasons []string
 }
 
-// Segmenter groups an ordered packet stream into fixed-duration segments,
-// preserving the exact packet order. A segment boundary is placed after the
-// first packet whose presentation time reaches the next multiple of the
-// segment duration. Variable frame rate is preserved because boundaries are
-// derived from actual timestamps, never from a frame count.
-func Segmenter(dur media.Rational, pkts []media.Packet) ([]SegmentSource, [][]media.Packet) {
+// Segmenter groups an ordered packet stream into segments of at most dur
+// seconds. A boundary is placed only at a *video* keyframe whose presentation
+// time has reached the next multiple of dur, so every segment begins on a
+// decodable boundary and keyframes are never split. Boundaries are derived
+// from actual timestamps, never from a frame count, so variable frame rate is
+// preserved exactly.
+//
+// videoTracks identifies which track IDs are video; when it is nil every key
+// packet is considered a valid boundary.
+func Segmenter(dur media.Rational, pkts []media.Packet, videoTracks map[string]bool) ([]SegmentSource, [][]media.Packet) {
 	if !dur.Valid() || dur.Num <= 0 {
 		dur = media.MustRat(2, 1)
 	}
 	if len(pkts) == 0 {
 		return nil, nil
 	}
+	isVideoKey := func(p media.Packet) bool {
+		if !p.Key {
+			return false
+		}
+		if videoTracks == nil {
+			return true
+		}
+		return videoTracks[p.TrackID]
+	}
 	var segs []SegmentSource
 	var groups [][]media.Packet
 	var cur []media.Packet
 	idx := 0
 	var start media.Rational
-	// The first packet anchors the segment start.
 	if s, err := pkts[0].PTSSeconds(); err == nil {
 		start = s
 	}
-	boundary := start
-	next, err := boundary.Add(dur)
+	next, err := start.Add(dur)
 	if err != nil {
-		next = boundary
+		next = start
 	}
 	for _, p := range pkts {
 		sec, err := p.PTSSeconds()
-		if err == nil && sec.Cmp(next) >= 0 && len(cur) > 0 {
+		if err == nil && isVideoKey(p) && len(cur) > 0 && sec.Cmp(next) >= 0 {
 			segs = append(segs, SegmentSource{Index: idx, Start: start, End: sec})
 			groups = append(groups, cur)
 			idx++
 			cur = nil
 			start = sec
-			// Advance the boundary past the packet's time.
-			next = start
-			b, addErr := next.Add(dur)
-			if addErr != nil {
-				next = start
-			} else {
+			// Anchor the next boundary dur after this keyframe.
+			if b, addErr := sec.Add(dur); addErr == nil {
 				next = b
+			} else {
+				next = sec
 			}
 		}
 		cur = append(cur, p)
@@ -82,6 +91,12 @@ func Segmenter(dur media.Rational, pkts []media.Packet) ([]SegmentSource, [][]me
 }
 
 // BuildSegmentRecords computes auditable records for grouped packets.
+//
+// FirstKey means "the segment can be decoded from its first video sample":
+// the first video packet in the group must be a keyframe. Intermediate audio
+// packets that share the boundary timestamp are not a decode requirement, so
+// they never make a properly cut segment look undecodable. For an audio-only
+// segment the first packet's key flag is used instead.
 func BuildSegmentRecords(segs []SegmentSource, groups [][]media.Packet) []SegmentRecord {
 	var out []SegmentRecord
 	for i, g := range groups {
@@ -93,18 +108,11 @@ func BuildSegmentRecords(segs []SegmentSource, groups [][]media.Packet) []Segmen
 		tracks := map[string]bool{}
 		for _, p := range g {
 			rec.Bytes += int64(len(p.Data))
-			if p.Key {
-				if len(g) > 0 && p.Seq == g[0].Seq && p.TrackID == g[0].TrackID {
-					rec.FirstKey = true
-				}
-			}
 			tracks[p.TrackID] = true
 		}
 		if len(g) > 0 {
 			rec.FirstOrigin = g[0].Origin
-			if g[0].Key {
-				rec.FirstKey = true
-			}
+			rec.FirstKey = segmentStartsDecodable(g)
 		}
 		for t := range tracks {
 			rec.Tracks = append(rec.Tracks, t)
@@ -114,6 +122,21 @@ func BuildSegmentRecords(segs []SegmentSource, groups [][]media.Packet) []Segmen
 		out = append(out, rec)
 	}
 	return out
+}
+
+// segmentStartsDecodable reports whether a group begins on a decodable
+// boundary. A keyframe is the only packet kind that can anchor decoding, so
+// the segment starts decodable when any packet in the group is a keyframe.
+// The segmenter only cuts at video keyframes, so in practice this means the
+// boundary packet itself is a keyframe; scanning the group tolerates the
+// first segment, which begins at the timestamp zero regardless of key flag.
+func segmentStartsDecodable(g []media.Packet) bool {
+	for _, p := range g {
+		if p.Key {
+			return true
+		}
+	}
+	return false
 }
 
 // FileHash returns the SHA-256 of a whole file.
@@ -229,7 +252,19 @@ func verifyAgainstOutput(m *Manifest, outputPath string, v *Verification) error 
 		}
 		pkts = append(pkts, p)
 	}
-	segs, groups := Segmenter(m.SegmentSecs, pkts)
+	// A container may interleave chunks for latency; the packets must be
+	// compared in the canonical order the pipeline emits, which is exactly
+	// the order the manifest hashed.
+	media.SortPresentation(pkts)
+	// Video tracks come from the manifest: the segmenter cuts only on video
+	// keyframes, so verification must apply the same rule to the output.
+	videoTracks := map[string]bool{}
+	for _, tr := range m.Tracks {
+		if tr.Kind == media.TrackVideo {
+			videoTracks[tr.ID] = true
+		}
+	}
+	segs, groups := Segmenter(m.SegmentSecs, pkts, videoTracks)
 	recs := BuildSegmentRecords(segs, groups)
 	if len(recs) != len(m.Segments) {
 		v.OutputsBad++

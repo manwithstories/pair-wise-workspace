@@ -18,12 +18,15 @@ func pkt(track string, seq, pts int64, data string) media.Packet {
 }
 
 func TestSegmenterFixedDuration(t *testing.T) {
-	// 30fps for 6 seconds = 180 frames; segment every 2s should give 3 groups.
+	// 30fps for 6 seconds = 180 frames, a keyframe every second. Segmenting
+	// every 2s must cut only on keyframes and yield 3 groups.
 	var pkts []media.Packet
 	for i := int64(0); i < 180; i++ {
-		pkts = append(pkts, pkt("v0", i, i, "x"))
+		p := pkt("v0", i, i, "x")
+		p.Key = i%30 == 0
+		pkts = append(pkts, p)
 	}
-	segs, groups := Segmenter(media.MustRat(2, 1), pkts)
+	segs, groups := Segmenter(media.MustRat(2, 1), pkts, map[string]bool{"v0": true})
 	if len(segs) != 3 {
 		t.Fatalf("segments = %d", len(segs))
 	}
@@ -31,8 +34,38 @@ func TestSegmenterFixedDuration(t *testing.T) {
 	for _, g := range groups {
 		total += len(g)
 	}
+	// Every group after the first must begin on a keyframe.
+	for i, g := range groups {
+		if i == 0 {
+			continue
+		}
+		if !g[0].Key {
+			t.Fatalf("segment %d starts on a non-keyframe", i)
+		}
+	}
 	if total != 180 {
 		t.Fatalf("packets lost: %d", total)
+	}
+}
+
+func TestSegmenterNeverSplitsGOP(t *testing.T) {
+	// One keyframe every 30 frames; a 2s target at 30fps lands exactly on a
+	// keyframe. Boundaries must still be keyframes even when a segment would
+	// otherwise be longer than the target.
+	var pkts []media.Packet
+	for i := int64(0); i < 100; i++ {
+		p := pkt("v0", i, i, "x")
+		p.Key = i%30 == 0
+		pkts = append(pkts, p)
+	}
+	_, groups := Segmenter(media.MustRat(1, 1), pkts, map[string]bool{"v0": true})
+	for i, g := range groups {
+		if i == 0 {
+			continue
+		}
+		if !g[0].Key {
+			t.Fatalf("segment %d splits a GOP at frame %d", i, g[0].Seq)
+		}
 	}
 }
 
@@ -45,13 +78,12 @@ func TestSegmenterPreservesVFR(t *testing.T) {
 			TrackID: "v0", Seq: int64(i), PTS: p, DTS: p, TimeBase: base, Data: []byte{byte(i)},
 		})
 	}
-	segs, groups := Segmenter(media.MustRat(2, 1), pkts)
+	segs, groups := Segmenter(media.MustRat(2, 1), pkts, nil)
 	total := 0
 	for _, g := range groups {
 		total += len(g)
 	}
-	if total != len(pkts) {
-		t.Fatalf("VFR packets lost: %d/%d", total, len(pkts))
+	if total != len(pkts) {		t.Fatalf("VFR packets lost: %d/%d", total, len(pkts))
 	}
 	if len(segs) < 1 {
 		t.Fatal("no segments")
@@ -63,7 +95,7 @@ func TestBuildSegmentRecordsHashStable(t *testing.T) {
 	for i := int64(0); i < 60; i++ {
 		pkts = append(pkts, pkt("v0", i, i, "a"))
 	}
-	segs, groups := Segmenter(media.MustRat(2, 1), pkts)
+	segs, groups := Segmenter(media.MustRat(2, 1), pkts, nil)
 	recs1 := BuildSegmentRecords(segs, groups)
 	recs2 := BuildSegmentRecords(segs, groups)
 	if len(recs1) != len(recs2) {
